@@ -7,15 +7,15 @@ use super::super::super::record;
 use crate::pacing::placement;
 use std::path::Path;
 
-/// `north fleet dispatch verdict --session NAME --category C --sha SHA [--effort medium|high] clean | defect CLASS`: a reviewer's verdict on a
-/// DeepSeek commit.
+/// `north fleet dispatch verdict --session NAME --category C --sha SHA --lane LANE [--effort medium|high] clean | defect CLASS`: a reviewer's
+/// verdict on a DeepSeek commit, run from the main checkout the reviewer launched in.
 pub fn verdict(arguments: &[String]) -> u8 {
     let usage = || {
-        eprintln!("usage: north fleet dispatch verdict --session NAME --category C --sha SHA [--effort medium|high] clean | defect CLASS ({})", CLASSES.map(|(class, _)| class).join(", "));
+        eprintln!("usage: north fleet dispatch verdict --session NAME --category C --sha SHA --lane LANE [--effort medium|high] clean | defect CLASS ({})", CLASSES.map(|(class, _)| class).join(", "));
         2
     };
-    let [session_flag, session, category_flag, category, sha_flag, sha, rest @ ..] = arguments else { return usage() };
-    if (session_flag.as_str(), category_flag.as_str(), sha_flag.as_str()) != ("--session", "--category", "--sha") {
+    let [session_flag, session, category_flag, category, sha_flag, sha, lane_flag, lane, rest @ ..] = arguments else { return usage() };
+    if (session_flag.as_str(), category_flag.as_str(), sha_flag.as_str(), lane_flag.as_str()) != ("--session", "--category", "--sha", "--lane") {
         return usage();
     }
     let (effort, rest) = match rest {
@@ -31,7 +31,7 @@ pub fn verdict(arguments: &[String]) -> u8 {
     match sampling::append(&record::directory(), &Verdict { at: placement::now(), session: session.clone(), category: category.clone(), sha: sha.clone(), kind, class, effort }) {
         Ok(()) => {
             if let Some(class) = rejected {
-                reject_lane(session, sha, &class);
+                reject_lane(session, sha, &class, Path::new(lane));
             }
             0
         }
@@ -42,11 +42,14 @@ pub fn verdict(arguments: &[String]) -> u8 {
     }
 }
 
-fn reject_lane(session: &str, sha: &str, class: &str) {
-    let Ok(top) = std::env::current_dir().map_err(|error| error.to_string()).and_then(|cwd| git(&Worktree::here(cwd), &["rev-parse", "--show-toplevel"])) else { return };
-    if !Path::new(&top).parent().is_some_and(|parent| parent.ends_with("worktrees")) {
-        return;
-    }
+/// The top of the worktree `lane` names, when it is a lane under a `worktrees` directory, else nothing.
+pub(super) fn rejected_lane(lane: &Path) -> Option<String> {
+    let top = git(&Worktree::here(lane.to_owned()), &["rev-parse", "--show-toplevel"]).ok()?;
+    Path::new(&top).parent().is_some_and(|parent| parent.ends_with("worktrees")).then_some(top)
+}
+
+fn reject_lane(session: &str, sha: &str, class: &str, lane: &Path) {
+    let Some(top) = rejected_lane(lane) else { return };
     match north(&["lane", "remove", "--rejected", &format!("{class} (review of {session} at {sha})"), &top]) {
         Ok(line) => println!("{line}"),
         Err(why) => eprintln!("north fleet dispatch verdict: the rejected lane {top} stays: {why}"),

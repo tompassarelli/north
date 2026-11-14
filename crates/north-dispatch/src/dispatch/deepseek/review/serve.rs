@@ -128,7 +128,7 @@ fn launch_reviewer(job: &Job, lane: &Worktree, sha: &str) -> Result<String, Stri
     let reviewer = format!("{}-rv", job.name);
     let effort = sampling::reviewer_effort(&job.name);
     let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane.path, sha, effort);
-    let cwd = lane.launch_cwd();
+    let cwd = lane.checkout_cwd();
     let mut words = vec!["fleet", "launch", "--provider", "claude", "--model", "sonnet", "--effort", effort, "--role", "worker", "--name", &reviewer, "--task", &job.item, "--cwd", &cwd];
     words.extend(job.box_text.as_deref().map(|text| ["--box", text]).into_iter().flatten());
     words.extend(["--tier-reason", "north#1020: Sonnet reviews DeepSeek commits by sampling"]);

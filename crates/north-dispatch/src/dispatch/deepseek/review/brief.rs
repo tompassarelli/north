@@ -54,7 +54,7 @@ pub fn worker_order() -> String {
 /// The brief of the Sonnet reviewer of `job`'s commit `sha` in `lane`.
 pub fn brief(job_name: &str, item: &str, category: &str, box_text: Option<&str>, lane: &Path, sha: &str, effort: &str) -> String {
     let classes: String = CLASSES.iter().map(|(class, what)| format!("- `{class}`: {what}\n")).collect();
-    let verdict = format!("north fleet dispatch verdict --session {job_name} --category {category} --sha {sha} --effort {effort}");
+    let verdict = format!("north fleet dispatch verdict --session {job_name} --category {category} --sha {sha} --lane {} --effort {effort}", lane.display());
     format!(
         "Category: review\nItem: {item}\n{}Review and land the DeepSeek worker {job_name}'s commits in {} (head {sha}) against the box above.\n\n\
          Read `git -C {} log -p origin/main..HEAD` and the box's Done when, and run that check in the lane. Reject the commit for any of these classes:\n{classes}\n\

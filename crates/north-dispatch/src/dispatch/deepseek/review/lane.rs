@@ -11,14 +11,16 @@ use std::time::Duration;
 const GIT_WAIT: Duration = Duration::from_secs(60);
 
 /// A lane and the machine it lives on: this host, or the build host a session placed there ran on, reached over ssh.
+/// `checkout` is the `main` checkout the lane was made beside, where a reviewer launches.
 pub(super) struct Worktree {
     pub(super) path: PathBuf,
+    pub(super) checkout: PathBuf,
     pub(super) machine: Option<(String, String)>,
 }
 
 impl Worktree {
     pub(super) fn here(path: PathBuf) -> Self {
-        Self { path, machine: None }
+        Self { checkout: path.clone(), path, machine: None }
     }
 
     /// The command that runs `words` in this lane's directory where it lives.
@@ -43,11 +45,11 @@ impl Worktree {
         }
     }
 
-    /// The `--cwd` a session launched from this host takes to work in this lane.
-    pub(super) fn launch_cwd(&self) -> String {
+    /// The `--cwd` a reviewer launched from this host takes: the `main` checkout, which reads the lane by its path.
+    pub(super) fn checkout_cwd(&self) -> String {
         match &self.machine {
-            Some((name, _)) => format!("{name}:{}", self.path.display()),
-            None => self.path.to_string_lossy().into_owned(),
+            Some((name, _)) => format!("{name}:{}", self.checkout.display()),
+            None => self.checkout.to_string_lossy().into_owned(),
         }
     }
 }
@@ -74,9 +76,9 @@ pub(super) fn lane(session: &Value, name: &str) -> Worktree {
     match session["machine"].as_str() {
         Some(machine) => {
             let ssh = placement::config().map_or_else(|_| machine.to_owned(), |cfg| fleets::destination(&cfg, machine));
-            Worktree { path: made.unwrap_or_else(|| cwd.to_owned()), machine: Some((machine.to_owned(), ssh)) }
+            Worktree { path: made.unwrap_or_else(|| cwd.to_owned()), checkout: cwd.to_owned(), machine: Some((machine.to_owned(), ssh)) }
         }
-        None => Worktree::here(made.filter(|lane| lane.is_dir()).unwrap_or_else(|| cwd.to_owned())),
+        None => Worktree { path: made.filter(|lane| lane.is_dir()).unwrap_or_else(|| cwd.to_owned()), checkout: cwd.to_owned(), machine: None },
     }
 }
 

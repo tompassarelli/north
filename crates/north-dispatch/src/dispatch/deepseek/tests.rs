@@ -214,7 +214,7 @@ fn the_sonnet_reviewer_draws_medium_or_high_by_seed_and_records_it() {
     let session = "north-1020-d0001";
     let effort = sampling::reviewer_effort(session);
     let text = review::brief(session, "north#1020", "feature", None, std::path::Path::new("/lane"), "abc", effort);
-    assert!(text.contains(&format!("--sha abc --effort {effort} clean")), "the brief tells the reviewer to record its drawn effort");
+    assert!(text.contains(&format!("--sha abc --lane /lane --effort {effort} clean")), "the brief tells the reviewer to record its drawn effort and name its lane");
     let directory = std::env::temp_dir().join(format!("deepseek-effort-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
     let row = Verdict { effort: Some(effort.into()), ..verdict("feature", Kind::Clean, "abc") };

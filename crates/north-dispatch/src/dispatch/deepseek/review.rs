@@ -14,6 +14,8 @@ mod lane;
 mod queue;
 mod serve;
 mod verdict;
+#[cfg(test)]
+mod lane_tests;
 
 pub use brief::{brief, worker_order, Lander, CLASSES};
 pub use done::{done, has_waiting, queued, Done, Found, Marked};
