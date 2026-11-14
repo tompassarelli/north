@@ -99,8 +99,12 @@ impl Fleet {
         record.reserve_caller = caller;
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         let unrecorded = record.clone();
+        let reads = remote::ProfileReads::shared();
         std::thread::scope(|scope| {
-            let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
+            let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| {
+                let _reads = reads.map(remote::LaunchReads::enter);
+                self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())
+            }));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             let registered = self.register_beside(scope, &row, claim)?;
             let launched = self.succeed(&request.name, claim, |seat| {

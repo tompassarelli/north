@@ -24,7 +24,11 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
         return Ok(args);
     }
     let (settings, policy) = std::thread::scope(|scope| {
-        let policy = scope.spawn(|| where_it_runs(request, &account.home.join(POLICY_FILE)));
+        let reads = crate::fleet::remote::ProfileReads::shared();
+        let policy = scope.spawn(|| {
+            let _reads = reads.map(crate::fleet::remote::LaunchReads::enter);
+            where_it_runs(request, &account.home.join(POLICY_FILE))
+        });
         (worker_settings(account, request, prefix), policy.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
     });
     let (settings, policy) = (settings?, policy?.unwrap_or_default());

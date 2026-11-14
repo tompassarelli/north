@@ -305,6 +305,12 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
     let before = logged();
     Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
     assert_eq!(logged() - before, 0, "a launch's second host spec asked the build host again for its profile files or its runtime link, an ssh round trip each, which the session host's start waits on");
+    let before = logged();
+    std::thread::scope(|scope| scope.spawn(|| {
+        let _other = crate::fleet::remote::ProfileReads::hold();
+        Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
+    }).join().unwrap());
+    assert!(logged() - before > 1, "a launch overlapping another took that launch's profile reads instead of reading the build host itself");
     drop(launch);
     let refusal = || Claude.host(&account, &worker, Opening::Fresh(None), "orders").err().map(|error| error.to_string()).unwrap_or_default();
     let hooks = || crate::fleet::remote::HooksCheck::start(std::sync::Arc::new(Claude), &account, worker.machine.as_ref()).verdict().unwrap();
@@ -323,7 +329,7 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
 }
 
 #[test]
-fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login() {
+fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login_and_a_second_launch_rereads_its_profile_reads() {
     if let Some(there) = std::env::var_os(THERE_ENV) {
         return placed_worker_reads_its_profile_there(std::path::Path::new(&there));
     }
@@ -341,7 +347,7 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
     std::fs::write(there.join(agent_runtime::NAMING_FILE.trim_start_matches('/')), "/var/lib/agent-runtime/current\n").unwrap();
 
     let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login", "--nocapture", "--test-threads=1"])
+        .args(["a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login_and_a_second_launch_rereads_its_profile_reads", "--nocapture", "--test-threads=1"])
         .env(THERE_ENV, &there)
         .env("PATH", stand_in_ssh(scratch.path()))
         .env("NORTH_BIN", &north)

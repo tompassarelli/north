@@ -14,7 +14,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -34,8 +36,6 @@ use super::ssh::SSH_WAIT;
 const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 const ABSENT: i32 = 3;
 
-static PROFILE_READS: Mutex<SharedReads> = Mutex::new(SharedReads { holders: 0, seen: BTreeMap::new() });
-
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
 pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResult<HostSpec> {
     match &record.machine {
@@ -51,7 +51,11 @@ pub struct HooksCheck(JoinHandle<Option<String>>);
 impl HooksCheck {
     pub fn start(runtime: Arc<dyn Runtime>, account: &Account, machine: Option<&Machine>) -> Self {
         let (account, machine) = (account.clone(), machine.cloned());
-        Self(std::thread::spawn(move || unguarded_where_it_runs(runtime.as_ref(), &account, machine.as_ref())))
+        let reads = ProfileReads::shared();
+        Self(std::thread::spawn(move || {
+            let _reads = reads.map(LaunchReads::enter);
+            unguarded_where_it_runs(runtime.as_ref(), &account, machine.as_ref())
+        }))
     }
 
     /// Why the session would run without hooks, or `None` when its profile registers them or its machine did not answer, which the launch itself then reports.
@@ -71,46 +75,78 @@ pub fn read_on(machine: &Machine, path: &Path) -> Seen {
     answer_on(machine, &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}"))
 }
 
-/// Held for one launch, so each answer it asks a build host for is asked there once: a launch reads its profile and its agent runtime link for the spare it may take, again for the host it starts and its profile once more for its hooks verdict, and each ask is an ssh round trip of about half a second.
-pub struct ProfileReads(());
+/// Held by a launch, so each answer it asks a build host for is asked there once: a launch reads its profile and its agent runtime link for the spare it may take, again for the host it starts and its profile once more for its hooks verdict, and each ask is an ssh round trip of about half a second. The answers belong to that launch alone, on the thread that holds it and on the threads it hands [`ProfileReads::shared`] to; another launch asks afresh.
+pub struct ProfileReads {
+    _launch: LaunchReads,
+    before: Option<LaunchReads>,
+}
 
 impl ProfileReads {
     pub fn hold() -> Self {
-        profile_reads().holders += 1;
-        Self(())
+        LaunchReads(Arc::new(Launch(LAUNCHES.fetch_add(1, Ordering::Relaxed)))).enter()
+    }
+
+    /// The reads this thread's launch holds, for a thread it starts to enter.
+    pub fn shared() -> Option<LaunchReads> {
+        let held = LAUNCH_READS.take();
+        LAUNCH_READS.set(held.clone());
+        held
     }
 }
 
 impl Drop for ProfileReads {
     fn drop(&mut self) {
-        let mut reads = profile_reads();
-        reads.holders -= 1;
-        if reads.holders == 0 {
-            reads.seen.clear();
-        }
+        LAUNCH_READS.set(self.before.take());
     }
 }
 
-struct SharedReads {
-    holders: usize,
-    seen: BTreeMap<(String, String), Seen>,
+/// One launch's answers, shared by the threads that launch starts; they are forgotten when its last handle drops.
+#[derive(Clone)]
+pub struct LaunchReads(Arc<Launch>);
+
+impl LaunchReads {
+    /// Makes this thread read through these answers until the returned guard drops.
+    pub fn enter(self) -> ProfileReads {
+        ProfileReads { before: LAUNCH_READS.replace(Some(self.clone())), _launch: self }
+    }
+
+    fn seen<T>(&self, answer: impl FnOnce(&mut Answers) -> T) -> T {
+        answer(profile_reads().entry(self.0.0).or_default())
+    }
 }
 
-fn profile_reads() -> MutexGuard<'static, SharedReads> {
+struct Launch(u64);
+
+impl Drop for Launch {
+    fn drop(&mut self) {
+        profile_reads().remove(&self.0);
+    }
+}
+
+type Answers = BTreeMap<(String, String), Seen>;
+
+static PROFILE_READS: Mutex<BTreeMap<u64, Answers>> = Mutex::new(BTreeMap::new());
+static LAUNCHES: AtomicU64 = AtomicU64::new(0);
+
+fn profile_reads() -> MutexGuard<'static, BTreeMap<u64, Answers>> {
     PROFILE_READS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// What `script` prints on `machine` as its session login, sent as a channel of the standing link master to that login, which the session's own link rides next: each launch read of a build host before its session host starts was a fresh handshake. While a [`ProfileReads`] is held, an answer read there is reused.
+thread_local! {
+    static LAUNCH_READS: Cell<Option<LaunchReads>> = const { Cell::new(None) };
+}
+
+/// What `script` prints on `machine` as its session login, sent as a channel of the standing link master to that login, which the session's own link rides next: each launch read of a build host before its session host starts was a fresh handshake. On a thread that holds a launch's [`ProfileReads`], an answer that launch already read there is reused.
 pub fn answer_on(machine: &Machine, script: &str) -> Seen {
     let key = (machine.session_login().to_owned(), script.to_owned());
-    if let Some(seen) = profile_reads().seen.get(&key).cloned() {
+    let launch = ProfileReads::shared();
+    if let Some(seen) = launch.as_ref().and_then(|reads| reads.seen(|seen| seen.get(&key).cloned())) {
         return seen;
     }
     let ssh = binary("ssh");
     let seen = answer_through(&ssh, standing_master(&ssh, machine.session_login()).as_deref(), machine, script);
-    let mut reads = profile_reads();
-    if reads.holders > 0 && !matches!(seen, Seen::Unreachable) {
-        reads.seen.insert(key, seen.clone());
+    if let Some(reads) = launch.filter(|_| !matches!(seen, Seen::Unreachable)) {
+        reads.seen(|answers| answers.insert(key, seen.clone()));
     }
     seen
 }
