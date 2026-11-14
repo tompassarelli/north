@@ -296,11 +296,6 @@ impl Screen {
         }
     }
 
-    /// Whether a trip on `tripped` holds `head`: it is `head`'s own, or `head` descends from it without having `passed` its own run.
-    fn binds(&self, tripped: &str, head: &str, passed: bool) -> Result<bool, String> {
-        Ok(tripped == head || (!passed && (self.contains)(tripped, head)?))
-    }
-
     /// The newest completed run of main whose head is on `head`'s ancestry and that gives a verdict, the one that decides whether `head` is tripped; runs are read page by page until one is found or the list ends.
     fn newest_run(&self, head: &str) -> Result<Option<MainRun>, String> {
         let mut number = 1;
@@ -329,25 +324,52 @@ impl Screen {
         Ok(true)
     }
 
-    /// Refuses `head` when the newest completed Buck2 run on its ancestry that gives a verdict is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on it or an ancestor (trip.rs), and asks the sheriff to revert the commit a trip names once it has held REVERT_AFTER_SECONDS; a trip binds only its own commit once `head` `passed` its own after-landing run; a run list or git that cannot say refuses the head.
+    /// Refuses `head` when the newest completed Buck2 run on its ancestry that gives a verdict is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on it or an ancestor (trip.rs); every such trip is recorded, paged and asks the sheriff to revert its commit once it has held REVERT_AFTER_SECONDS, but refuses a descendant only while `head` has not `passed` its own after-landing run; a run list or git that cannot say refuses the head.
     fn tripped(&self, head: &str, passed: bool, now: u64) -> Result<(), String> {
         let unread = |why: String| unscreened(head, why);
-        let newest = self.newest_run(head).map_err(unread)?.ok_or_else(|| unread("no completed run of main is on its ancestry".to_owned()))?;
-        if newest.red && self.binds(&newest.head, head, passed).map_err(unread)? && !self.trips.cleared(&newest.head).map_err(unread)? {
-            let trip = match self.trips.read(&newest.head).map_err(unread)? {
-                Some(trip) => trip,
-                None => self.record(&newest).map_err(unread)?,
-            };
-            self.trips.revert_when_due(&trip, now, &self.revert).map_err(unread)?;
-            return Err(format!("{} contains {}", layout::short(head), trip.refusal()));
+        self.hosted_trip(head, passed, now).map_err(unread)??;
+        self.lander_trip(head, passed, now).map_err(unread)?
+    }
+
+    /// The refusal, if any, of the newest red hosted run on `head`'s ancestry, recording and paging its trip the first time it is seen.
+    fn hosted_trip(&self, head: &str, passed: bool, now: u64) -> Result<Result<(), String>, String> {
+        let newest = self.newest_run(head)?.ok_or_else(|| "no completed run of main is on its ancestry".to_owned())?;
+        if !newest.red || self.trips.cleared(&newest.head)? {
+            return Ok(Ok(()));
         }
-        for trip in self.trips.open().map_err(unread)? {
-            if trip.run.is_none() && self.binds(&trip.head, head, passed).map_err(unread)? {
-                self.trips.revert_when_due(&trip, now, &self.revert).map_err(unread)?;
-                return Err(format!("{} contains {}", layout::short(head), trip.refusal()));
+        let trip = match self.trips.read(&newest.head)? {
+            Some(trip) => trip,
+            None => self.record(&newest)?,
+        };
+        self.stands(&trip, head, passed, now)
+    }
+
+    /// The refusal, if any, of the first lander's trip record (one no run names) on `head` or its ancestry.
+    fn lander_trip(&self, head: &str, passed: bool, now: u64) -> Result<Result<(), String>, String> {
+        for trip in self.trips.open()? {
+            if trip.run.is_none() && (trip.head == head || (self.contains)(&trip.head, head)?) {
+                let stood = self.stands(&trip, head, passed, now)?;
+                if stood.is_err() {
+                    return Ok(stood);
+                }
             }
         }
-        Ok(())
+        Ok(Ok(()))
+    }
+
+    /// Asks for the revert of a trip on `head` or its ancestry once due, then refuses `head` when the trip is its own or `head` has not `passed` its own run; a failed ask under a head the trip does not refuse is paged and holds nothing.
+    fn stands(&self, trip: &Trip, head: &str, passed: bool, now: u64) -> Result<Result<(), String>, String> {
+        let refused = trip.head == head || !passed;
+        match self.trips.revert_when_due(trip, now, &self.revert) {
+            Err(why) if !refused => (self.runs.alert)(&format!("north runtime: the revert of tripped {} could not be asked: {why}", trip.head)),
+            asked => {
+                asked?;
+            }
+        }
+        Ok(match refused {
+            true => Err(format!("{} contains {}", layout::short(head), trip.refusal())),
+            false => Ok(()),
+        })
     }
 
     /// Writes the trip of a red run of main, with its failed cases read from the run's log, and tells the proxy of it.

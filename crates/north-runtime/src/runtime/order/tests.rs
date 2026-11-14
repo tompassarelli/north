@@ -602,3 +602,21 @@ fn a_hold_naming_the_lane_whose_landing_lifts_it_lifts_on_its_placers_accepted_l
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.display().to_string())];
     assert!(review_hold::standing(&environment, &state).unwrap().is_empty(), "the landed lane leaves no hold standing");
 }
+
+#[test]
+fn a_red_ancestor_run_is_recorded_paged_and_reverted_while_a_descendant_that_passed_its_own_run_promotes() {
+    let state = tempfile::tempdir().unwrap();
+    let trips = state.path().join("hosted-trips");
+    let paged = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let (pages, asks) = (paged.clone(), asked.clone());
+    let runs = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), kept: Box::new(|_| Ok(Kept::Log(HOSTED_LOG.to_owned()))), alert: Box::new(move |text| pages.borrow_mut().push(text.to_owned())) };
+    let screen = Screen { runs, trips: Trips(trips.clone()), revert: Box::new(move |trip| {
+        asks.borrow_mut().push(trip.head.clone());
+        Ok(())
+    }), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    assert!(screen.order(NEW, &["whiterabbit"], now()).is_ok(), "a descendant whose own after-landing run passed promotes past a red ancestor");
+    assert!(Trips(trips).read(SQUASHED).unwrap().is_some() && paged.borrow().len() == 1, "8e6ec0eaed stopped recording and paging a red hosted run on an ancestor of a passing head");
+    assert!(screen.order(NEW, &["whiterabbit"], now() + crate::runtime::trip::REVERT_AFTER_SECONDS + 1).is_ok());
+    assert_eq!(asked.borrow().as_slice(), [SQUASHED.to_owned()], "8e6ec0eaed stopped the sheriff revert of a red hosted run on an ancestor of a passing head");
+}
