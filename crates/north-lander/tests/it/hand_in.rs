@@ -28,7 +28,7 @@ esac
 exit 1
 "#;
 const JUDGE_FINDS_AN_ADDRESS: &str = "#!/bin/sh\ntext=$(cat)\ncase \"$text\" in\n  *'lives at'*) printf 'address\\tthe owner lives at 1 Example Road\\n'; exit 1 ;;\nesac\nexit 0\n";
-const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\ntext=$(cat)\nkey=$(printf %s \"$text\" | sha256sum | cut -c1-64)\nif [ ! -e \"$0.verdicts/$key\" ]; then\n  sleep 1\n  mkdir -p \"$0.verdicts\" && touch \"$0.verdicts/$key\"\nfi\nprintf '%s\\n' \"$text\" | tr '\\n' ' ' >> \"$HOME/judge-answered\"\necho >> \"$HOME/judge-answered\"\nexit 0\n";
+const JUDGE_ASKS_A_MODEL_ONCE_A_TEXT: &str = "#!/bin/sh\ntext=$(cat)\nkey=$(printf %s \"$text\" | sha256sum | cut -c1-64)\nif [ ! -e \"$0.verdicts/$key\" ]; then\n  mkdir -p \"$0.verdicts\" && touch \"$0.verdicts/$key\"\nfi\nprintf '%s\\n' \"$text\" | tr '\\n' ' ' >> \"$HOME/judge-answered\"\necho >> \"$HOME/judge-answered\"\nexit 0\n";
 
 fn hold_script(world: &World) -> String {
     let root = world.path().display();

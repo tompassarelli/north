@@ -13,8 +13,10 @@ fn a_queued_ticket_lands_on_the_backstop_tick_when_the_wake_event_is_dropped_and
     let _watcher = super::watch(queue_directory.path(), &wake);
     queue::write(&queue_directory.path().join("1-lane.json"), &Ticket::default()).unwrap();
     assert!(wake.wait(LIMIT), "the lander slept through a ticket written to its queue");
-    let mut check = std::process::Command::new("sleep").arg("0.2").spawn().unwrap();
+    let mut check = std::process::Command::new("sh").args(["-c", "read _"]).stdin(std::process::Stdio::piped()).spawn().unwrap();
     wake.ring_on_exit(check.id());
+    assert!(check.try_wait().unwrap().is_none(), "the check exited before the lander was told to watch it");
+    drop(check.stdin.take());
     assert!(wake.wait(LIMIT), "the lander slept through a check process exiting");
     assert!(check.try_wait().unwrap().is_some(), "the lander woke before the check exited");
     let answer = Task::spawn(&wake, || 7);
