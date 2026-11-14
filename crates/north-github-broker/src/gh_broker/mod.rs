@@ -10,6 +10,7 @@ mod quota;
 mod server;
 mod upstream;
 
+use std::os::fd::AsFd;
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -39,6 +40,9 @@ ${XDG_RUNTIME_DIR}/north-gh-broker/broker.sock. It exits after 30 idle minutes.
 --resident    run as the host's user service: never exit idle, and once listening set
               http_unix_socket in the user's own gh config, so every gh on the host (timers,
               services, scripts, interactive shells) goes through the broker; tells systemd READY=1
+              once the live runtime moves it takes no new call, finishes the open ones, then re-execs
+              the new runtime with `--adopt`, which serves the listening socket it is handed on standard
+              input, so calls queued meanwhile are answered rather than reset
 release       remove that http_unix_socket line again (the service's ExecStopPost), so gh
               calls GitHub directly while the broker is down
 quota         print the user's own login's core and graphql rate limit left (GET /rate_limit costs none),
@@ -54,8 +58,9 @@ const DRAIN_LIMIT: Duration = Duration::from_secs(60);
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["serve"] => serve(false),
-        ["serve", "--resident"] => serve(true),
+        ["serve"] => serve(false, false),
+        ["serve", "--resident"] => serve(true, false),
+        ["serve", "--resident", "--adopt"] => serve(true, true),
         ["release"] => release(),
         ["quota"] => quota::print(),
         ["-h" | "--help"] => {
@@ -69,19 +74,14 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-fn serve(resident: bool) -> u8 {
+fn serve(resident: bool, adopt: bool) -> u8 {
     let place = Place::from_env();
     let lock = if resident { take_over(&place) } else { place.exclusive() };
     if !resident && (lock.is_none() || UnixStream::connect(place.socket()).is_ok()) {
         return 0;
     }
-    let _ = std::fs::remove_file(place.socket());
-    let listener = match UnixListener::bind(place.socket()) {
-        Ok(listener) => listener,
-        Err(error) => {
-            eprintln!("north gh-broker: cannot listen on {}: {error}", place.socket().display());
-            return 1;
-        }
+    let Some(listener) = adopt.then(adopted).flatten().or_else(|| bound(&place)) else {
+        return 1;
     };
     let broker = Arc::new(Broker::new(Upstream::new(upstream::GITHUB_API), Settings::default()));
     let activity = Arc::new(server::Activity::default());
@@ -94,11 +94,46 @@ fn serve(resident: bool) -> u8 {
     }
     lifetime::watch(&place, Arc::clone(&activity), resident);
     drain_on_sigterm(place.socket(), Arc::clone(&activity));
-    if !server::serve(&listener, DRAIN_LIMIT, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls(), place.quota())), &Arc::new(app_reads::AppReads::from_host())) {
-        eprintln!("north gh-broker: {} s passed with calls still open; exiting anyway", DRAIN_LIMIT.as_secs());
-    }
+    let ended = server::serve(&listener, DRAIN_LIMIT, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls(), place.quota())), &Arc::new(app_reads::AppReads::from_host()));
     drop(lock);
+    end(&ended, &listener);
     0
+}
+
+fn end(ended: &server::Ended, listener: &UnixListener) {
+    if !ended.finished() {
+        eprintln!("north gh-broker: {} s passed with calls still open; leaving them", DRAIN_LIMIT.as_secs());
+    }
+    if let server::Ended::HandingOver { .. } = ended {
+        eprintln!("north gh-broker: cannot hand the socket to the new runtime: {}; exiting so the service restarts", hand_over(listener));
+    }
+}
+
+fn bound(place: &Place) -> Option<UnixListener> {
+    let _ = std::fs::remove_file(place.socket());
+    UnixListener::bind(place.socket()).inspect_err(|error| eprintln!("north gh-broker: cannot listen on {}: {error}", place.socket().display())).ok()
+}
+
+fn hand_over(listener: &UnixListener) -> std::io::Error {
+    if let Err(error) = rustix::stdio::dup2_stdin(listener) {
+        return error.into();
+    }
+    let mut arguments: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if !arguments.iter().any(|argument| argument == "--adopt") {
+        arguments.push("--adopt".into());
+    }
+    north_runtime_follow::Follow::current().reexec_with(arguments)
+}
+
+fn adopted() -> Option<UnixListener> {
+    let held = std::io::stdin().as_fd().try_clone_to_owned().ok()?;
+    let null = std::fs::File::open("/dev/null").ok()?;
+    rustix::stdio::dup2_stdin(&null).ok()?;
+    let listens = rustix::net::sockopt::get_socket_acceptconn(&held).unwrap_or(false);
+    if !listens {
+        eprintln!("north gh-broker: standard input holds no listening socket to adopt; binding the socket afresh");
+    }
+    listens.then(|| UnixListener::from(held))
 }
 
 fn drain_on_sigterm(socket: std::path::PathBuf, activity: Arc<server::Activity>) {
@@ -156,11 +191,11 @@ fn release() -> u8 {
 }
 
 #[cfg(test)]
-fn spawn_server(listener: UnixListener, broker: Broker) -> (Arc<server::Activity>, std::thread::JoinHandle<()>) {
+fn spawn_server(listener: UnixListener, broker: Broker) -> (Arc<server::Activity>, std::thread::JoinHandle<server::Ended>) {
     let (broker, activity) = (Arc::new(broker), Arc::new(server::Activity::default()));
     let served = Arc::clone(&activity);
     (activity, std::thread::spawn(move || {
-        server::serve(&listener, DRAIN_LIMIT, &broker, &served, &Arc::new(calls::CallLog::off()), &Arc::new(app_reads::AppReads::with(Box::new(|| None))));
+        server::serve(&listener, DRAIN_LIMIT, &broker, &served, &Arc::new(calls::CallLog::off()), &Arc::new(app_reads::AppReads::with(Box::new(|| None))))
     }))
 }
 

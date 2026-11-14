@@ -76,7 +76,9 @@ struct Harness {
     socket: PathBuf,
     github: Arc<Ledger>,
     activity: Arc<super::server::Activity>,
-    served: Option<std::thread::JoinHandle<()>>,
+    served: Option<std::thread::JoinHandle<super::server::Ended>>,
+    listener: UnixListener,
+    api: String,
     _root: tempfile::TempDir,
 }
 
@@ -88,8 +90,9 @@ impl Harness {
         let listener = UnixListener::bind(&socket).unwrap();
         let frozen = (Settings::default().clock)();
         let settings = Settings { fresh, write_gap: Duration::from_millis(10), clock: Arc::new(move || frozen), ..Settings::default() };
+        let kept = listener.try_clone().unwrap();
         let (activity, served) = super::spawn_server(listener, Broker::new(Upstream::new(&api), settings));
-        Self { socket, github, activity, served: Some(served), _root: root }
+        Self { socket, github, activity, served: Some(served), listener: kept, api, _root: root }
     }
 
     fn send(&self, method: &str, target: &str, body: &str) -> Response {
@@ -260,7 +263,7 @@ fn the_brokers_gh_config_edits_keep_the_login_and_release_only_its_own_line_whil
 }
 
 #[test]
-fn a_resident_broker_finishes_its_request_then_follows_a_promotion() {
+fn a_resident_broker_finishes_its_open_calls_then_hands_queued_ones_to_the_next_runtime_when_the_runtime_moves() {
     let mut broker = Harness::start(Duration::from_secs(20));
     broker.github.held.store(true, Ordering::SeqCst);
     let state = tempfile::tempdir().unwrap();
@@ -286,14 +289,19 @@ fn a_resident_broker_finishes_its_request_then_follows_a_promotion() {
     super::lifetime::watch_runtime(&place, Arc::clone(&broker.activity), true, north_runtime_follow::Follow::of(link.clone(), Some(executable.clone())));
     std::fs::remove_file(&link).unwrap();
     std::os::unix::fs::symlink(format!("runtimes/{new}"), &link).unwrap();
-    north_base::platform::wait::until(Duration::from_secs(60), || broker.activity.is_draining());
-    assert_eq!(broker.get("/whoami").status, 200, "a call that connects while the drain waits on an open call is answered, not reset");
+    north_base::platform::wait::until(Duration::from_secs(60), || broker.activity.is_handing());
+    let stream = UnixStream::connect(&socket).unwrap();
+    let headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), "token session".to_owned())];
+    write_request(&stream, &Request { method: "GET".to_owned(), target: "/whoami".to_owned(), headers, body: Vec::new() }).unwrap();
+    let queued = std::thread::spawn(move || read_response(&stream).unwrap());
     let served = broker.served.take().unwrap();
     assert!(!served.is_finished(), "the broker keeps serving the request it holds after the link moved");
     broker.github.held.store(false, Ordering::SeqCst);
-    served.join().unwrap();
-    assert!(broker.activity.finish_open_calls(Duration::from_secs(600)));
+    assert!(matches!(served.join().unwrap(), super::server::Ended::HandingOver { finished: true }), "the broker hands its socket over once the call open at the move is answered");
     assert_eq!(held.join().unwrap().status, 200, "the request open at the promotion is answered, not cut");
+    assert!(!queued.is_finished(), "the old runtime takes no call after the move, so its drain does not wait on calls that keep arriving");
+    let _adopted = super::spawn_server(broker.listener.try_clone().unwrap(), Broker::new(Upstream::new(&broker.api), Settings::default()));
+    assert_eq!(queued.join().unwrap().status, 200, "a call that connected during the hand-over is answered by the next runtime, not reset");
     let next = north_runtime_follow::Follow::of(link, Some(executable)).next().unwrap();
     assert_eq!(next, state.path().canonicalize().unwrap().join("runtimes").join(&new).join("bin/north"), "the restarted broker runs the promoted runtime");
 }

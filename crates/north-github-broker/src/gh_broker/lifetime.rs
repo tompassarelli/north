@@ -1,4 +1,4 @@
-//! When a broker stops serving: a resident one once its socket is taken or the live runtime moves, an on-demand one
+//! When a broker stops serving: a resident one once its socket is taken, or hands its socket to the new runtime once the live runtime moves, an on-demand one
 //! once idle, wanted gone, superseded or replaced and no call is open.
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -29,8 +29,8 @@ pub(super) fn watch_runtime(place: &Place, watched: Arc<server::Activity>, resid
                     std::process::exit(1);
                 }
                 if let Some(next) = moved {
-                    eprintln!("north gh-broker: the live runtime changed to {next}; finishing open calls so the service restarts on it");
-                    watched.drain(&socket);
+                    eprintln!("north gh-broker: the live runtime changed to {next}; finishing open calls, then handing the socket to it");
+                    watched.hand_over(&socket);
                     return;
                 }
                 continue;

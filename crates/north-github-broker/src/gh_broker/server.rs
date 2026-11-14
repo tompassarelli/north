@@ -14,6 +14,20 @@ pub struct Activity {
     open: AtomicUsize,
     last: AtomicU64,
     draining: AtomicBool,
+    handing: AtomicBool,
+}
+
+pub enum Ended {
+    Drained { finished: bool },
+    HandingOver { finished: bool },
+}
+
+impl Ended {
+    pub fn finished(&self) -> bool {
+        match self {
+            Self::Drained { finished } | Self::HandingOver { finished } => *finished,
+        }
+    }
 }
 
 impl Activity {
@@ -23,6 +37,11 @@ impl Activity {
 
     pub fn drain(&self, socket: &Path) {
         self.draining.store(true, Ordering::SeqCst);
+        let _ = UnixStream::connect(socket);
+    }
+
+    pub fn hand_over(&self, socket: &Path) {
+        self.handing.store(true, Ordering::SeqCst);
         let _ = UnixStream::connect(socket);
     }
 
@@ -43,8 +62,8 @@ impl Activity {
     }
 
     #[cfg(test)]
-    pub fn is_draining(&self) -> bool {
-        self.draining.load(Ordering::SeqCst)
+    pub fn is_handing(&self) -> bool {
+        self.handing.load(Ordering::SeqCst)
     }
 
     pub fn idle_for(&self) -> Option<Duration> {
@@ -56,12 +75,12 @@ fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
-pub fn serve(listener: &UnixListener, drain_limit: Duration, broker: &Arc<Broker>, activity: &Arc<Activity>, log: &Arc<CallLog>, app: &Arc<AppReads>) -> bool {
+pub fn serve(listener: &UnixListener, drain_limit: Duration, broker: &Arc<Broker>, activity: &Arc<Activity>, log: &Arc<CallLog>, app: &Arc<AppReads>) -> Ended {
     activity.touch();
     let mut drain_began: Option<Instant> = None;
     loop {
         if drain_began.is_some_and(|began| began.elapsed() >= drain_limit) {
-            return activity.open.load(Ordering::SeqCst) == 0;
+            return Ended::Drained { finished: activity.open.load(Ordering::SeqCst) == 0 };
         }
         match listener.accept() {
             Ok((stream, _)) => {
@@ -76,16 +95,19 @@ pub fn serve(listener: &UnixListener, drain_limit: Duration, broker: &Arc<Broker
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 if activity.open.load(Ordering::SeqCst) == 0 {
-                    return true;
+                    return Ended::Drained { finished: true };
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(_) => {}
         }
+        if activity.handing.load(Ordering::SeqCst) {
+            return Ended::HandingOver { finished: activity.finish_open_calls(drain_limit) };
+        }
         if drain_began.is_none() && activity.draining.load(Ordering::SeqCst) {
             drain_began = Some(Instant::now());
             if listener.set_nonblocking(true).is_err() {
-                return activity.finish_open_calls(drain_limit);
+                return Ended::Drained { finished: activity.finish_open_calls(drain_limit) };
             }
         }
     }
