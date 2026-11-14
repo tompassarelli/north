@@ -285,14 +285,13 @@ fn survey_via(memo: &'static Memo, records: &Path, machines: &[Machine], cwd: Op
 /// directory questions run side by side instead of one per turn (five launches on 2026-11-12 waited up to 2.2 s before registering).
 fn answered(records: &Path, machine: &Machine, cwd: Option<&str>, ask: &Ask) -> Facts {
     let directory = || match cwd {
-        Some(dir) if seen_there(records, &machine.name, dir, storage::now()) => Some(true),
-        Some(dir) => {
+        Some(dir) => seen_there(records, &machine.name, dir, storage::now()).or_else(|| {
             let found = ask(&machine.name, machine.login(), cwd, Asked::Directory).has_cwd;
-            if found == Some(true) {
-                mark_there(records, &machine.name, dir, true);
+            if let Some(present) = found {
+                mark_there(records, &machine.name, dir, present);
             }
             found
-        }
+        }),
         None => None,
     };
     let reused = |facts: Facts, has_cwd: Option<bool>| if cwd.is_some() { Facts { has_cwd, ..facts } } else { facts };
@@ -358,8 +357,14 @@ fn refresh(machine: &Machine) {
     }
 }
 
-fn seen_there(records: &Path, name: &str, directory: &str, now: f64) -> bool {
-    load(&records.join(format!("{name}.dirs.json")))[directory].as_f64().is_some_and(|at| (0.0..DIRECTORY_SECONDS).contains(&(now - at)))
+/// Whether `directory` was on the host when last asked, under `DIRECTORY_SECONDS` ago; an absent answer is kept too, since a host without the directory was asked again by every launch (north#1531).
+fn seen_there(records: &Path, name: &str, directory: &str, now: f64) -> Option<bool> {
+    marked(&load(&records.join(format!("{name}.dirs.json")))[directory], now)
+}
+
+fn marked(mark: &Value, now: f64) -> Option<bool> {
+    mark["at"].as_f64().filter(|at| (0.0..DIRECTORY_SECONDS).contains(&(now - at)))?;
+    mark["present"].as_bool()
 }
 
 /// Records whether `directory` is on the host, under the record's own lock so two launches noting at once lose neither entry.
@@ -374,12 +379,8 @@ fn mark_there(records: &Path, name: &str, directory: &str, present: bool) {
         _ => serde_json::Map::new(),
     };
     let now = storage::now();
-    entries.retain(|_, at| at.as_f64().is_some_and(|at| (0.0..DIRECTORY_SECONDS).contains(&(now - at))));
-    if present {
-        entries.insert(directory.to_owned(), json!(now));
-    } else {
-        entries.remove(directory);
-    }
+    entries.retain(|_, mark| marked(mark, now).is_some());
+    entries.insert(directory.to_owned(), json!({"at": now, "present": present}));
     let _ = std::fs::write(&path, Value::Object(entries).to_string());
 }
 
