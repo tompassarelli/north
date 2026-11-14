@@ -6,7 +6,7 @@ use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Role, Session
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid};
 use crate::fleet::spares::{self, Place, Taken};
 
-use super::{Fleet, efforts, reserve};
+use super::{Fleet, reserve};
 
 impl Fleet {
     /// A spare on the request's build host whose spec is the one this launch would start, taken and bound to the launch's name; None for any launch a spare cannot serve, and when none fits.
@@ -25,23 +25,12 @@ impl Fleet {
         spares::release(&Place { ssh: &ssh, machine, home: &home }, taken);
     }
 
-    /// `north spare-fill NAME`: keeps spares for launches like the worker `name` on its build host.
+    /// `north spare-fill NAME`: keeps spares for launches like the worker `name` on its build host, retiring those whose policy text, settings or runtime are no longer current.
     pub fn fill_spares(&self, name: &str) -> NorthResult<String> {
         let record = self.record(name)?;
-        self.fill_for(&LaunchRequest::relaunching(&record), record.effort)
-    }
-
-    /// `north spare-fill --host HOST -- LAUNCH-WORDS`: keeps spares for the launch `request` before the first launch like it, at the effort that launch would take.
-    pub fn fill_spares_ahead(&self, request: &LaunchRequest) -> NorthResult<String> {
-        let runtime = self.runtimes.get(&request.provider)?;
-        self.fill_for(request, efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort, &request.name)?)
-    }
-
-    /// Keeps spares for launches like the worker `request` at `effort` on its build host, retiring those whose policy text, settings or runtime are no longer current.
-    fn fill_for(&self, request: &LaunchRequest, effort: Option<Effort>) -> NorthResult<String> {
-        let machine = request.machine.clone().filter(|_| request.role() == Role::Worker).ok_or_else(|| NorthError::Usage(format!("{} is not a worker on a build host, so no spare serves launches like it", request.name)))?;
-        let runtime = self.runtimes.get(&request.provider)?;
-        let template = spares::template(request.clone(), spares::spare_name()?);
+        let machine = record.machine.clone().filter(|_| record.role() == Role::Worker).ok_or_else(|| NorthError::Usage(format!("{name} is not a worker on a build host, so no spare serves launches like it")))?;
+        let runtime = self.runtime(&record)?;
+        let template = spares::template(LaunchRequest::relaunching(&record), spares::spare_name()?);
         let account = self.account(&template)?;
         if let Some(line) = reserve::refusal(&reserve::declared(&self.policy), &account, Role::Worker, template.parent.as_deref(), None) {
             return Err(NorthError::Refused(line));
@@ -53,8 +42,8 @@ impl Fleet {
             return Ok(format!("a fill for {} is already running", machine.name));
         }
         let pool = spares::survey(&place).ok_or_else(|| NorthError::State(format!("{} did not answer the spare survey", machine.name)))?;
-        let kind = spares::kind(&account.recorded_label(), template.model.as_deref(), effort.map(Effort::label), template.window(), &template.cwd);
-        let fingerprint = spares::fingerprint(&self.worker_spec(&template, &account, runtime.as_ref(), effort, &new_uuid()?)?, spares::current_runtime().as_deref());
+        let kind = spares::kind(&account.recorded_label(), template.model.as_deref(), record.effort.map(Effort::label), template.window(), &template.cwd);
+        let fingerprint = spares::fingerprint(&self.worker_spec(&template, &account, runtime.as_ref(), record.effort, &new_uuid()?)?, spares::current_runtime().as_deref());
         let (stale, start) = spares::wanted(&pool, &kind, &fingerprint);
         spares::retire(&place, &stale);
         for retired in &stale {
@@ -64,7 +53,7 @@ impl Fleet {
         for _ in 0..start {
             let (spare, conversation) = (spares::spare_name()?, new_uuid()?);
             let request = LaunchRequest { name: spare.clone(), ..template.clone() };
-            let spec = spares::spare_spec(self.worker_spec(&request, &account, runtime.as_ref(), effort, &conversation)?, &place, &spare);
+            let spec = spares::spare_spec(self.worker_spec(&request, &account, runtime.as_ref(), record.effort, &conversation)?, &place, &spare);
             spares::start(&place, &spec, &kind, &fingerprint, &spare, &conversation)?;
         }
         std::fs::write(self.spares_hint(&machine, &fingerprint), (held + start).to_string())?;

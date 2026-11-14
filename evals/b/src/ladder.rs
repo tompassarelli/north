@@ -50,7 +50,7 @@ pub struct Run {
 }
 
 fn header(host: &str, model: &str, effort: &str) -> String {
-    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: {host}\nModel: {model} at {effort} effort, pinned so Eval B holds the model fixed as Eval A does.\nArm: context-500k\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
+    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: {host}\nModel: {model} at {effort} effort, pinned so Eval B holds the model fixed as Eval A does.\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
 }
 
 pub fn prompt(task: &Value) -> String {
@@ -68,36 +68,15 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
     marked
 }
 
-fn launch_words(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str) -> Vec<String> {
+fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str, (launch_start, queued_at_launch, room_wait_s): (f64, Option<u32>, f64)) -> Run {
+    let cwd = scratch::worktree(branch);
     let text = header(&plan.hosts[0], &plan.model, &plan.effort) + &prompt(task);
     let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
     let pin = format!("Eval B runs every arm on {}", plan.hosts[0]);
-    [
-        "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
-        "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &scratch::worktree(branch), "--gates-aside", "--no-wait", &text,
-    ]
-    .map(str::to_owned)
-    .to_vec()
-}
-
-/// Fills spares on the ladder's host for its first launch before the first wave, so that launch takes a warm one.
-pub fn fill(plan: &Plan, stamp: &str) {
-    let Some(task) = plan.tasks.first() else { return };
-    let (branch, name) = names(plan, task, stamp);
-    let words = launch_words(plan, task, &plan.accounts[0], &branch, &name);
-    let args: Vec<&str> = ["spare-fill", "--host", &plan.hosts[0], "--"].into_iter().chain(words.iter().map(String::as_str)).collect();
-    let ran = run("north", &args, None);
-    eprintln!("eval-b: spare fill on {} (exit {}): {}{}", plan.hosts[0], ran.code, ran.out.trim(), ran.err.trim());
-}
-
-fn names(plan: &Plan, task: &Value, stamp: &str) -> (String, String) {
-    let id = task["id"].as_str().unwrap_or_default();
-    (format!("{id}-l{}", plan.level), format!("evalb-l{}-{id}-{stamp}", plan.level))
-}
-
-fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str, (launch_start, queued_at_launch, room_wait_s): (f64, Option<u32>, f64)) -> Run {
-    let words = launch_words(plan, task, account, branch, name);
-    let args: Vec<&str> = ["fleet", "launch"].into_iter().chain(words.iter().map(String::as_str)).collect();
+    let args = [
+        "fleet", "launch", "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
+        "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &cwd, "--gates-aside", "--no-wait", &text,
+    ];
     let mut ran = run("north", &args, None);
     while ran.code == SATURATED && now() - launch_start < ROOM_LIMIT_S {
         wait_for_room(&plan.hosts[0]);
@@ -197,7 +176,9 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
             let handles: Vec<_> = batch
                 .iter()
                 .map(|task| {
-                    let (branch, name) = names(plan, task, stamp);
+                    let id = task["id"].as_str().unwrap_or_default();
+                    let branch = format!("{id}-l{}", plan.level);
+                    let name = format!("evalb-l{}-{id}-{stamp}", plan.level);
                     let index = plan.tasks.iter().position(|t| t["id"] == task["id"]).unwrap_or_default();
                     let account = &plan.accounts[index % plan.accounts.len()];
                     scope.spawn(move || launch(plan, task, account, &branch, &name, wave, room))

@@ -90,7 +90,7 @@ pub fn current_runtime() -> Option<PathBuf> {
 
 /// The launch a fill starts spares like `worker` from, under the spare's `name`: `worker` without its task, box, brief, prompt file, parent, placement or capacity need, so a spare holds nothing of the worker it was modelled on and fits a fresh launch of that account, model, effort, compaction window and directory.
 pub fn template(worker: LaunchRequest, name: String) -> LaunchRequest {
-    LaunchRequest { name, compact_window: worker.window(), prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, placement: None, capacity_need: None, role: Some(Role::Worker), resume: None, ..worker }
+    LaunchRequest { name, prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, placement: None, capacity_need: None, role: Some(Role::Worker), resume: None, ..worker }
 }
 
 /// The spare's spec: `spec` staged in the place's login home, with the binding variable naming the file a take seals in its held directory.

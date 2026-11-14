@@ -1,20 +1,13 @@
-//! `north spare-fill NAME`, `north spare-fill --host HOST -- LAUNCH-WORDS` and `north spare-retire HOST DIR`: the fill each launch of a worker on a build host starts apart from itself, keeping spares there for the next launch like it, the same fill ahead of a first launch, and the call that takes down every spare under a directory tree.
+//! `north spare-fill NAME` and `north spare-retire HOST DIR`: the fill each launch of a worker on a build host starts apart from itself, keeping spares there for the next launch like it, and the call that takes down every spare under a directory tree.
 use super::router::open_fleet;
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::registry::Fleet;
-use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::spares;
 
 pub fn fill(arguments: &[String]) -> u8 {
-    let filled = match arguments {
-        [name] => open_fleet().and_then(|fleet| fleet.fill_spares(name)),
-        [flag, host, dashes, words @ ..] if flag == "--host" && dashes == "--" && !words.is_empty() => open_fleet().and_then(|fleet| fill_ahead(&fleet, host, words)),
-        _ => {
-            eprintln!("Usage: north spare-fill NAME | north spare-fill --host HOST -- LAUNCH-WORDS");
-            return 2;
-        }
+    let [name] = arguments else {
+        eprintln!("Usage: north spare-fill NAME");
+        return 2;
     };
-    match filled {
+    match open_fleet().and_then(|fleet| fleet.fill_spares(name)) {
         Ok(said) => {
             println!("{said}");
             0
@@ -24,15 +17,6 @@ pub fn fill(arguments: &[String]) -> u8 {
             1
         }
     }
-}
-
-/// Fills on build host `host` for the launch `north fleet launch WORDS` would make there, read by the launch's own parser.
-fn fill_ahead(fleet: &Fleet, host: &str, words: &[String]) -> NorthResult<String> {
-    let machine = crate::pacing::placement::machine(host).ok_or_else(|| NorthError::Usage(format!("no [hosts.{host}] with an ssh destination")))?;
-    let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    let mut request = super::launch::launch_parts(&fleet.providers(), &words, std::env::var(SESSION_ENV).ok(), false)?.request;
-    request.machine = Some(machine);
-    fleet.fill_spares_ahead(&request)
 }
 
 /// `north spare-retire HOST DIR`: retires every spare on build host HOST whose directory is DIR or under it, printing one line for each.
