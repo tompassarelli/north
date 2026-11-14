@@ -9,8 +9,14 @@ use super::removable::git_dirs;
 
 /// The records under the home directory a land check writes: the lock files depbox keeps of the crates it fetched, which only spare a later fetch.
 const WRITTEN_STATE: [&str; 1] = [".local/state/depbox"];
-/// What a land check reads under the home directory beyond depbox's reads: the north runtimes build-ahead made for a tree, which `bin/head-north` runs.
-const READ_STATE: [&str; 1] = [".local/state/north/runtime-artifacts"];
+/// What a land check reads under the home directory beyond depbox's reads: the north runtimes build-ahead made for a tree, which `bin/head-north` runs, and the review accepts and finish records the review-accept and safe-push-keys scans count, here and as the records mirror carries them from the settling host with the stamp that says it does.
+const READ_STATE: [&str; 5] = [
+    ".local/state/north/runtime-artifacts",
+    ".local/state/north/verdict-cache/accepts",
+    ".local/state/north/verdict-cache/finished",
+    ".local/state/north/records-mirror/north/verdict-cache/accepts",
+    ".local/state/north/records-mirror/north/records-stamp.json",
+];
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
 const LIVE: &str = ".local/state/north/current";
 /// The pinned checkouts of other projects an offloaded check reads beside its own (north-offload ship/beside.rs), which its check lines name instead of `~/code/PROJECT/main`.
