@@ -124,6 +124,7 @@ The crates under [crates/](crates/), by the layer each sits in; a crate depends 
 - **A tuned number:** [harness/defaults.toml](harness/defaults.toml), each with its unit and source.
 - **What a landing checks:** [.safe-push](.safe-push).
 - **What north records and who reads it:** [docs/feedback-loop.md](docs/feedback-loop.md); the fact graph behind `north graph`: [docs/graph.md](docs/graph.md).
+- **The fleet screen against plain Claude Code:** [docs/fleet-screen.md](docs/fleet-screen.md), each reason beside its evidence and what the plain window still does better.
 - **Why it is built this way:** [docs/rationale/](docs/rationale/), dated notes.
 - **The outside sources north draws on:** [docs/references.md](docs/references.md).
 - **Everything else, in reading order:** [docs/README.md](docs/README.md).
