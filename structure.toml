@@ -255,7 +255,7 @@ may_use = ["north-providers"]
 name = "north-guard"
 layer = 3
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-github-mirror", "north-graph-ground", "north-code-health"]
+may_use = ["north-dispatch", "north-github-mirror", "north-graph-ground", "north-code-health", "north-unblocks"]
 
 [[crate_dag.crate]]
 name = "north-check-environment"
@@ -307,6 +307,12 @@ name = "north-github-mirror"
 layer = 2
 paths = ["crates/north-github-mirror/src/**"]
 may_use = ["north-base"]
+
+[[crate_dag.crate]]
+name = "north-unblocks"
+layer = 3
+paths = ["crates/north-unblocks/src/**"]
+may_use = ["north-base", "north-github-mirror", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-concerns"
@@ -402,7 +408,7 @@ may_use = ["north-base", "north-check-environment", "north-graph-loops", "north-
 name = "north-runtime"
 layer = 5
 paths = ["crates/north-runtime/src/**"]
-may_use = ["north-build-system", "north-capacity-host", "north-dispatch", "north-lanes", "north-offload", "north-providers", "north-runtime-follow", "north-trusted-mirror"]
+may_use = ["north-build-system", "north-capacity-host", "north-dispatch", "north-lanes", "north-offload", "north-providers", "north-runtime-follow", "north-trusted-mirror", "north-unblocks"]
 
 [[crate_dag.crate]]
 name = "north-convo"
@@ -521,7 +527,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/bin/push_trace_git.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["agent_starts", "strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "replay", "concerns", "graph_ground", "nix_upkeep", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks", "broker", "machine_model", "verify", "build_system", "monitor", "rust_files", "runtime_follow", "check_offload"]
+may_use = ["agent_starts", "strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "replay", "concerns", "graph_ground", "nix_upkeep", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks", "broker", "machine_model", "verify", "build_system", "monitor", "rust_files", "runtime_follow", "check_offload", "unblocks"]
 
 [[module]]
 name = "git_locks"
@@ -604,6 +610,12 @@ name = "platform.github"
 paths = ["crates/north-base/src/platform/github*.rs", "crates/north-base/src/platform/gh_*.rs", "crates/north-base/src/platform/git_credential*.rs", "crates/north-base/src/platform/rolling_issue.rs"]
 responsibility = "The GitHub adapter: gh sessions, the broker route and pool, the app token, git credentials, quota and the rolling issue."
 may_use = ["strategy_types", "foundation", "platform.process", "platform", "platform.records"]
+
+[[module]]
+name = "unblocks"
+paths = ["crates/north-unblocks/src/**"]
+responsibility = "The coordinator's manual unblocks by class, and the refusal of the second of one class within a day that names no owned class-fix issue."
+may_use = ["platform.github", "platform.process", "platform.harness", "threads", "github_mirror"]
 
 [[module]]
 name = "platform.ssh"
@@ -717,7 +729,7 @@ may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle
 name = "guard"
 paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs", "crates/north-guard/src/hook_input.rs", "crates/north-guard/src/nix_explain.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "threads", "graph_ground", "lifecycle", "platform", "platform.git", "platform.records", "platform.harness", "platform.process"]
+may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "threads", "graph_ground", "lifecycle", "platform", "platform.git", "platform.records", "platform.harness", "platform.process", "unblocks"]
 
 [[module]]
 name = "threads"
@@ -909,7 +921,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 name = "ops"
 paths = ["crates/north-remote-serve/src/lib.rs", "crates/north-credentials/src/lib.rs", "crates/north-claims/src/lib.rs", "crates/north-issue-boxes/src/lib.rs", "crates/north-timers/src/lib.rs", "crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-github-broker/src/lib.rs", "crates/north-github-broker/src/gh_broker/**", "crates/north-ci/src/lib.rs", "crates/north-ci/src/ci_watch/**", "crates/north-ci/src/private_check/**", "crates/north-desktop/src/lib.rs", "crates/north-desktop/src/agent_capture/**", "crates/north-desktop/src/private_desktop/**", "crates/north-desktop/src/warcraft_close/**", "crates/north-desktop/src/wc3_login_field/**", "crates/north-reclaim/src/lib.rs", "crates/north-reclaim/src/reclaim/**", "crates/north-reclaim/src/retention/**", "crates/north-capacity-host/src/run_bounded/**", "crates/north-capacity-host/src/nexus_ram/**", "crates/north-timers/src/job_run/**", "crates/north-expectations/src/**", "crates/north-offload/src/lib.rs", "crates/north-runtime/src/agent_contain/**", "crates/north-offload/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-offload/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-timers/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-runtime/src/vendor_runtime/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-offload/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/incident_mine/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/defaults_measure/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**", "crates/north-issue-boxes/src/issue_convert/**", "crates/north-issue-boxes/src/issue_child.rs", "crates/north-issue-boxes/src/stale_issues.rs", "crates/north-issue-boxes/src/done_when_boxes/**", "crates/north-issue-boxes/src/observation_boxes/**", "crates/north-issue-boxes/src/cargo_boxes/**", "crates/north-claims/src/citation_check/**", "crates/north-claims/src/review_items/**", "crates/north-credentials/src/credentials/**", "crates/north-remote-serve/src/remote_serve/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["check_offload", "strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "registries", "build_system", "platform.store", "platform.git"]
+may_use = ["check_offload", "strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "registries", "build_system", "platform.store", "platform.git", "unblocks"]
 
 [[module.limit]]
 commit = "90042c896d"
@@ -969,7 +981,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle"]
+may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle", "unblocks"]
 
 [[module]]
 name = "verify"

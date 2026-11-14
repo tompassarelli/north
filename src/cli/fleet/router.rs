@@ -218,6 +218,7 @@ fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let mut parts = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
     let second = parts.request.route.as_deref().and_then(Route::parse).is_some_and(|route| matches!(route, Route::Second { .. })).then(|| (parts.request.name.clone(), parts.request.parent.clone()));
     let queued = std::env::var(super::tick::QUEUE_ENTRY).ok().filter(|name| *name == parts.request.name);
+    let relaunch = super::relaunch_unblock::Relaunch::admit(caller.as_deref(), queued.is_some(), &parts.request, parts.issue.as_deref(), now_ms() / 1000)?;
     let cgroup = std::fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
     fleet.admit_gates_aside(parts.request.gates_aside, &parts.request.name, caller.as_deref(), queued.as_deref(), &cgroup)?;
     fleet.admit_container_shell(parts.request.container_shell, &parts.request.name, caller.as_deref(), queued.as_deref(), &cgroup)?;
@@ -226,6 +227,7 @@ fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         (parts.request.urgent, parts.priority) = (false, Priority::Normal);
     }
     let result = launch_prepared(fleet, parts, caller, queued.as_deref(), entered_ms);
+    super::relaunch_unblock::Relaunch::settle(relaunch.as_ref(), &result);
     if let (Err(error), Some((name, parent))) = (&result, second) {
         second_rung_refused(fleet, &name, parent.as_deref(), &error.user_message());
     }
@@ -243,7 +245,7 @@ fn second_rung_refused(fleet: &Fleet, name: &str, parent: Option<&str>, why: &st
 }
 
 fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>, entered_ms: u64) -> NorthResult<()> {
-    let LaunchParts { mut request, mut overrides, wait, take_over, priority, words } = parts;
+    let LaunchParts { mut request, mut overrides, wait, take_over, priority, words, .. } = parts;
     lineage::inherit(fleet, &mut request, caller.as_deref());
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     super::claude_only::admit(&request)?;

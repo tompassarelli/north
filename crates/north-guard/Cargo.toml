@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-strategy-types = { path = "../north-strategy-types" }
 north-base = { path = "../north-base" }
+north-unblocks = { path = "../north-unblocks" }
 north-capacity = { path = "../north-capacity" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }

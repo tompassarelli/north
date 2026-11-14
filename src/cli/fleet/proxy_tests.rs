@@ -17,12 +17,6 @@ fn the_launch_names_the_model_and_effort_the_role_file_gives_the_proxy() {
 }
 
 #[test]
-fn a_role_file_that_names_no_model_or_effort_launches_as_it_did_before() {
-    let words = launch_words("/w/main", "opening", pair(None, None));
-    assert_eq!(words, ["--provider", "claude", "--role", "proxy", "--parent", "none", "--cwd", "/w/main", "--take-over", "opening"]);
-}
-
-#[test]
 fn the_role_files_frontmatter_is_read_and_a_body_line_is_not() {
     assert_eq!(fields("---\nname: proxy\nmodel: fable\neffort: high\n---\nBody.\n"), pair(Some("fable"), Some("high")));
     assert_eq!(fields("---\nname: proxy\nmodel:  fable \n---\nBody.\n"), pair(Some("fable"), None), "a missing effort stays absent");

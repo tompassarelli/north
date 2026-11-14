@@ -1,4 +1,6 @@
 mod admission;
+mod relaunch_unblock;
+mod class_review;
 mod rewrites;
 mod agent_root;
 mod forget_flags;
