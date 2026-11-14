@@ -152,6 +152,15 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     let placed = held_under(spec, &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
     assert_eq!(placed.cwd, root.path());
     assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
+    let first = Link::parse(&placed.argv[2..]).unwrap();
+    let launched = &first.launch[..first.launch.find(" && systemd-run").unwrap()];
+    let prepare = &launched[launched.find("; mkdir -p ").unwrap() + 2..launched.rfind(" && cd ").unwrap()];
+    let bound = Path::new(&first.dir).join(north_base::platform::session_host_files::BOUND_CONVERSATION);
+    fs::create_dir_all(&first.dir).unwrap();
+    fs::write(&bound, "c0ffee-bound").unwrap();
+    let ran = std::process::Command::new("sh").args(["-c", prepare]).output().unwrap();
+    assert!(ran.status.success(), "{prepare}: {}", String::from_utf8_lossy(&ran.stderr));
+    assert_eq!(fs::read_to_string(&bound).unwrap(), "c0ffee-bound", "starting the held unit again removed the conversation its record mirror had just bound it to (gex45, sb-box-trailer, north#1352)");
     let agent = Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: Some("agent@far".into()) };
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["claude".into()], env: Vec::new(), env_remove: Vec::new(), cwd: root.path().to_path_buf() };
     let placed = held_under(spec, &agent, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
