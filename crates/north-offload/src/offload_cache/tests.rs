@@ -239,3 +239,38 @@ fn the_first_pass_under_the_eviction_line_takes_land_slots_back_over_the_stop_li
     assert!(held <= cap, "the budget holds every land slot together, the lander's included, to the cap on a calm pass: {held} > {cap}");
     assert!(land.join("code-north-main-5/target/blob").exists() && evicted.iter().all(|gone| !gone.path.ends_with("code-north-main-5")), "the lander's reserved slot goes last");
 }
+
+#[test]
+fn own_stores_prune_keeps_the_pinned_the_leased_and_the_running_runtime_and_deletes_the_rest() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("north");
+    let runtimes = state.join("runtimes");
+    let sha = |index: usize| format!("{index:040x}");
+    for index in 0..16 {
+        let runtime = runtimes.join(sha(index));
+        fs::create_dir_all(&runtime).unwrap();
+        fs::write(runtime.join("north"), b"").unwrap();
+        fs::write(runtime.join("lease"), b"").unwrap();
+        File::open(&runtime).unwrap().set_modified(now() - Duration::from_secs(3600 * (100 - index as u64))).unwrap();
+    }
+    let leased = File::open(runtimes.join(sha(1)).join("lease")).unwrap();
+    flock(&leased, FlockOperation::NonBlockingLockExclusive).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{}", sha(0)), state.join("current")).unwrap();
+    let processes = home.path().join("proc");
+    fs::create_dir_all(processes.join("7")).unwrap();
+    fs::write(processes.join("7/cmdline"), format!("{}/north\0", runtimes.join(sha(2)).display())).unwrap();
+    let queue = state.join("land-queue/abc/logs");
+    fs::create_dir_all(&queue).unwrap();
+    File::create(queue.join("old.log")).unwrap().set_modified(now() - Duration::from_secs(8 * 86_400)).unwrap();
+    File::create(queue.join("new.log")).unwrap().set_modified(now() - Duration::from_secs(86_400)).unwrap();
+
+    own_stores::prune(home.path(), &processes, now());
+
+    for survivor in [0, 1, 2, 6, 15] {
+        assert!(runtimes.join(sha(survivor)).is_dir(), "runtime {survivor} was deleted");
+    }
+    for gone in [3, 4, 5] {
+        assert!(!runtimes.join(sha(gone)).exists(), "runtime {gone} survived");
+    }
+    assert!(!queue.join("old.log").exists() && queue.join("new.log").exists());
+}

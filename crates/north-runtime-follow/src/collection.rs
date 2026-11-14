@@ -38,18 +38,54 @@ pub fn collect(layout: &Layout, target: &str, previous: Option<&Path>, proc_root
     }
     let current = fs::canonicalize(layout.current()).ok();
     for name in layout::doomed(&names, &keep) {
-        let doomed = layout.runtime(name);
-        if fs::canonicalize(&doomed).ok() == current {
-            continue;
-        }
-        let Some(_unleased) = layout::unleased(&doomed)? else {
-            continue;
-        };
-        let _ = fs::remove_file(layout.state.join(layout::writing_lock(name)));
-        process::run("chmod", None, &[OsStr::new("-R"), "u+w".as_ref(), doomed.as_os_str()])?;
-        fs::remove_dir_all(&doomed)?;
+        remove(layout, name, current.as_deref())?;
     }
     Ok(())
+}
+
+/// The sweep the laptop's disk pass runs between promotions: every runtime past the newest `newest` that no link, live process or lease needs; the names it deleted.
+pub fn prune(layout: &Layout, proc_root: &Path, newest: usize) -> std::io::Result<Vec<String>> {
+    reap_unfinished_copies(&layout.runtimes(), ABANDONED_COPY)?;
+    let mut listed = Vec::new();
+    for entry in fs::read_dir(layout.runtimes())? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.file_type()?.is_dir() && layout::is_sha(&name) {
+            listed.push((entry.metadata()?.modified()?, name));
+        }
+    }
+    listed.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    let mut keep = Vec::new();
+    for link in [fs::read_link(layout.current()).ok(), fs::read_link(layout.lander()).ok()] {
+        keep.extend(link.as_deref().and_then(layout::linked_sha).map(str::to_owned));
+    }
+    let rollback = fs::read_to_string(layout.lander_rollback()).ok();
+    keep.extend(rollback.as_deref().and_then(|target| layout::linked_sha(Path::new(target.trim()))).map(str::to_owned));
+    keep.extend(layout::running(proc_root, &layout.runtimes()));
+    let current = fs::canonicalize(layout.current()).ok();
+    let mut removed = Vec::new();
+    for (_, name) in listed.into_iter().skip(newest) {
+        if !keep.contains(&name) && remove(layout, &name, current.as_deref())? {
+            removed.push(name);
+        }
+    }
+    Ok(removed)
+}
+
+/// Deletes the runtime `name` unless it is the current one, a lease holds it, or it resolves outside the runtimes store; whether it was deleted.
+fn remove(layout: &Layout, name: &str, current: Option<&Path>) -> std::io::Result<bool> {
+    let doomed = layout.runtime(name);
+    let resolved = fs::canonicalize(&doomed)?;
+    if Some(resolved.as_path()) == current || !layout::is_sha(name) || resolved != fs::canonicalize(layout.runtimes())?.join(name) {
+        return Ok(false);
+    }
+    let Some(_unleased) = layout::unleased(&doomed)? else {
+        return Ok(false);
+    };
+    let _ = fs::remove_file(layout.state.join(layout::writing_lock(name)));
+    process::run("chmod", None, &[OsStr::new("-R"), "u+w".as_ref(), doomed.as_os_str()])?;
+    fs::remove_dir_all(&doomed)?;
+    Ok(true)
 }
 
 /// A copy shipped over a slow link stages in `SHA.staging` and moves into place only whole, so one that stopped part-way leaves its staging directory behind; one untouched for `idle` has no copy writing to it.

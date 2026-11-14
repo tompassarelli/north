@@ -26,6 +26,7 @@ pub use page::alarm;
 use page::{largest, page, record};
 
 mod compiler_cache;
+mod own_stores;
 mod page;
 #[cfg(test)]
 mod tests;
@@ -385,6 +386,7 @@ pub fn keep() {
     for target in north_lanes::lanes::release_landed_targets(&home.join("code"), &home.join(".local/state"), Path::new("/proc"), false) {
         eprintln!("north capacity: released the build directory {} of a landed lane ({} MiB)", target.path.display(), target.bytes >> 20);
     }
+    own_stores::prune(&home.join(".local/state"), Path::new("/proc"), SystemTime::now());
     let marker = north_capacity_host::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = marker.exists();
     let Some(before) = disk_of(&home) else { return };
