@@ -1,0 +1,1 @@
+  issue close-stale [--dry-run]                 Close every open north and south issue created over 24 hours ago with a comment naming the 24-hour rule, and message its last owner session once to rewrite it as one-day issues; --dry-run changes nothing (hourly timer)

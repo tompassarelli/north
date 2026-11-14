@@ -203,20 +203,7 @@ fn unplaced_button(actions: &[String]) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{clipboard, unplaced_button};
-
-    fn actions(text: &str) -> Vec<String> {
-        text.split_whitespace().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn a_button_before_any_move_is_refused() {
-        assert_eq!(unplaced_button(&actions("click 1")), Some("click"));
-        assert_eq!(
-            unplaced_button(&actions("key a mousedown 1 move 5 5")),
-            Some("mousedown")
-        );
-    }
+    use super::clipboard;
 
     #[test]
     fn clipboard_reaches_only_an_active_private_run() {

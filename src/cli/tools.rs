@@ -76,6 +76,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("broker", north_broker::run),
     ("issue", |arguments| match arguments {
         [word, rest @ ..] if word == "child" => crate::issue_child::run(rest),
+        [word, rest @ ..] if word == "close-stale" => crate::stale_issues::run(rest),
         _ => crate::issue_convert::run(arguments),
     }),
     ("ci-diagnose", crate::ci_watch::diagnose::run),
