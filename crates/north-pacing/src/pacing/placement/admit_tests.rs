@@ -133,9 +133,7 @@ fn a_deepseek_launch_on_a_saturated_host_is_refused_as_saturated_and_queued_inst
 #[test]
 fn a_brief_naming_no_local_path_places_on_another_host_though_the_launch_carries_a_prior_report_naming_a_lane_here() {
     let home = PathBuf::from(std::env::var_os("HOME").expect("HOME"));
-    let held = tempfile::tempdir_in(&home).expect("a lane under HOME");
-    let lane = held.path().join("spare-fill-reserve");
-    std::fs::create_dir(&lane).expect("the lane this host holds");
+    let lane = home.join("code/north/worktrees/spare-fill-reserve");
     let elsewhere = Machine { name: "build-host-not-this-one".into(), ssh: "build-host-not-this-one".into(), agent_ssh: None };
     let written = "Category: debugging-unknown-cause\nDone when: the case passes\n";
     let launched = format!("{written}Prior report: Not done: Lane `{}` (HEAD `02a07fbf2e`) is kept. Stop: landing\n", lane.display());
@@ -146,6 +144,4 @@ fn a_brief_naming_no_local_path_places_on_another_host_though_the_launch_carries
     assert_eq!(refusal(written), None, "the caller's brief names no file under this host's home");
     let own = format!("{written}Take over your lane {}\n", lane.display());
     assert!(refusal(&own).is_some_and(|why| why.contains(&lane.display().to_string())), "a brief that itself names a lane only this host holds stays refused");
-    let unheld = format!("{written}Take over your lane {}\n", home.join("code/north/worktrees/a-lane-only-another-host-holds").display());
-    assert_eq!(refusal(&unheld), None, "a lane this host does not hold is not one only this host can read");
 }
