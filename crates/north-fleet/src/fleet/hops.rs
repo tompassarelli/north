@@ -1,7 +1,8 @@
 //! A launch's trace: one span per hop from the launch command's start to the model's first answer,
 //! appended to `hops.jsonl` in the session's directory by the process that ends the hop. The launch
 //! command writes its own span to registration and one for each of its steps ([`COMMAND`]); the registry ends the
-//! session-host hop when the host goes live; `north session-link` ends the remote-unit hop when the
+//! host-open hop when the session host it opens has started, and the session-host hop over it when the
+//! host goes live, so the gap between them is the launch waiting on its name's start lock and its record; `north session-link` ends the remote-unit hop when the
 //! other machine answers that the CLI's unit started, and the client hop at the CLI's first output;
 //! the first turn ends the prompt hop at the client's first user line, where it takes the prompt once its
 //! startup and session hooks are done and only then sends its request, and the response hop, that
@@ -30,6 +31,7 @@ pub enum Hop {
     Placement,
     Gating,
     Prelude,
+    HostOpen,
     SessionHost,
     RemoteUnit,
     Client,
@@ -50,6 +52,7 @@ pub struct Span {
 pub struct Launch {
     pub session: String,
     pub registered_ms: u64,
+    pub host_open_ms: Option<u64>,
     pub session_host_ms: u64,
     pub asked_ms: Option<u64>,
     pub command: Vec<(Hop, u64)>,
@@ -96,6 +99,7 @@ pub fn launches(trace: &Path) -> Vec<Launch> {
     let bounds: Vec<u64> = starts.iter().skip(1).map(|launch| launch.registered_ms).chain([u64::MAX]).collect();
     for (launch, next) in starts.iter_mut().zip(bounds) {
         let ended = |hop: Hop| spans.iter().filter(|span| span.hop == hop && span.end_ms >= launch.registered_ms && span.end_ms < next).map(|span| span.end_ms).min();
+        launch.host_open_ms = ended(Hop::HostOpen);
         launch.remote_unit_ms = ended(Hop::RemoteUnit);
         launch.client_ms = ended(Hop::Client);
         launch.prompt_ms = ended(Hop::Prompt);

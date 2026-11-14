@@ -9,7 +9,8 @@ use crate::foundation::clock::Timestamp;
 
 type End = fn(&Launch) -> Option<u64>;
 
-const ENDS: [(&str, End); 5] = [
+const ENDS: [(&str, End); 6] = [
+    ("host open", |launch| launch.host_open_ms),
     ("session host", |launch| Some(launch.session_host_ms)),
     ("remote unit", |launch| launch.remote_unit_ms),
     ("client's first line", |launch| launch.client_ms),
@@ -73,7 +74,7 @@ fn label(hop: Hop) -> &'static str {
         Hop::Placement => "placement",
         Hop::Gating => "gating",
         Hop::Prelude => "prelude",
-        Hop::Launch | Hop::SessionHost | Hop::RemoteUnit | Hop::Client | Hop::Prompt | Hop::Response => "",
+        Hop::Launch | Hop::HostOpen | Hop::SessionHost | Hop::RemoteUnit | Hop::Client | Hop::Prompt | Hop::Response => "",
     }
 }
 

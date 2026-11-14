@@ -64,6 +64,7 @@ impl Fleet {
             host.start(&spec, &record.provider, idle_exit(record), &account.recorded_label())?;
             host.send(&runtime.handshake())?;
         }
+        hops::record(&trace, &hops::Span { session: record.name.clone(), hop: hops::Hop::HostOpen, start_ms: since_ms, end_ms: now_ms() });
         let held_unit = spare.map(|taken| taken.running.unit.clone());
         Ok(OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit })
     }

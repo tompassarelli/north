@@ -304,7 +304,7 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
     Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
     let before = logged();
     Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
-    assert_eq!(logged() - before, 1, "a launch's second host spec read its profile files on the build host again, an ssh round trip each, where only the runtime link is asked once more");
+    assert_eq!(logged() - before, 0, "a launch's second host spec asked the build host again for its profile files or its runtime link, an ssh round trip each, which the session host's start waits on");
     drop(launch);
     let refusal = || Claude.host(&account, &worker, Opening::Fresh(None), "orders").err().map(|error| error.to_string()).unwrap_or_default();
     let hooks = || crate::fleet::remote::HooksCheck::start(std::sync::Arc::new(Claude), &account, worker.machine.as_ref()).verdict().unwrap();

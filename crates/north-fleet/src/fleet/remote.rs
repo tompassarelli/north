@@ -65,22 +65,13 @@ fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Op
     runtime.unguarded(account, &|path| read_on(machine, path)).map(|reason| format!("{reason} on {}", machine.name))
 }
 
-/// What `path` holds on `machine`, read through its session login, the user the session runs as there: absent only when no such path exists there, unreachable when the machine does not answer or the file is there but unreadable. While a [`ProfileReads`] is held, an answer read there is reused.
+/// What `path` holds on `machine`, read through its session login, the user the session runs as there: absent only when no such path exists there, unreachable when the machine does not answer or the file is there but unreadable.
 pub fn read_on(machine: &Machine, path: &Path) -> Seen {
-    let key = (machine.session_login().to_owned(), path.to_path_buf());
-    if let Some(seen) = profile_reads().seen.get(&key).cloned() {
-        return seen;
-    }
     let quoted = quote(&path.to_string_lossy());
-    let seen = answer_on(machine, &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}"));
-    let mut reads = profile_reads();
-    if reads.holders > 0 && !matches!(seen, Seen::Unreachable) {
-        reads.seen.insert(key, seen.clone());
-    }
-    seen
+    answer_on(machine, &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}"))
 }
 
-/// Held for one launch, so each profile file it reads on a build host is read there once: a launch reads its profile for the spare it may take, again for the host it starts and once more for its hooks verdict, and each read is an ssh round trip of about half a second.
+/// Held for one launch, so each answer it asks a build host for is asked there once: a launch reads its profile and its agent runtime link for the spare it may take, again for the host it starts and its profile once more for its hooks verdict, and each ask is an ssh round trip of about half a second.
 pub struct ProfileReads(());
 
 impl ProfileReads {
@@ -102,17 +93,26 @@ impl Drop for ProfileReads {
 
 struct SharedReads {
     holders: usize,
-    seen: BTreeMap<(String, PathBuf), Seen>,
+    seen: BTreeMap<(String, String), Seen>,
 }
 
 fn profile_reads() -> MutexGuard<'static, SharedReads> {
     PROFILE_READS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// What `script` prints on `machine` as its session login, sent as a channel of the standing link master to that login, which the session's own link rides next: each launch read of a build host before its session host starts was a fresh handshake.
+/// What `script` prints on `machine` as its session login, sent as a channel of the standing link master to that login, which the session's own link rides next: each launch read of a build host before its session host starts was a fresh handshake. While a [`ProfileReads`] is held, an answer read there is reused.
 pub fn answer_on(machine: &Machine, script: &str) -> Seen {
+    let key = (machine.session_login().to_owned(), script.to_owned());
+    if let Some(seen) = profile_reads().seen.get(&key).cloned() {
+        return seen;
+    }
     let ssh = binary("ssh");
-    answer_through(&ssh, standing_master(&ssh, machine.session_login()).as_deref(), machine, script)
+    let seen = answer_through(&ssh, standing_master(&ssh, machine.session_login()).as_deref(), machine, script);
+    let mut reads = profile_reads();
+    if reads.holders > 0 && !matches!(seen, Seen::Unreachable) {
+        reads.seen.insert(key, seen.clone());
+    }
+    seen
 }
 
 pub(super) fn answer_through(ssh: &Path, master: Option<&Path>, machine: &Machine, script: &str) -> Seen {
