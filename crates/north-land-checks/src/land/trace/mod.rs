@@ -2,10 +2,11 @@ pub mod category;
 pub mod check_log;
 pub mod landing;
 pub mod profile;
+pub mod verified;
 
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -138,6 +139,20 @@ impl Spans {
     pub fn read(&self) -> Vec<Span> {
         fs::read_to_string(&self.path).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
     }
+
+    pub fn read_tail(&self, from: Option<&Position>) -> Tail {
+        let Ok(mut file) = fs::File::open(&self.path) else { return Tail { spans: Vec::new(), position: None, restarted: from.is_some() } };
+        let length = file.metadata().map_or(0, |meta| meta.len());
+        let resumes = from.filter(|position| position.offset <= length && Position::of(&mut file, position.offset).as_ref() == Some(position));
+        let start = resumes.map_or(0, |position| position.offset);
+        let mut bytes = Vec::new();
+        if file.seek(SeekFrom::Start(start)).and_then(|_| file.read_to_end(&mut bytes)).is_err() {
+            return Tail { spans: Vec::new(), position: None, restarted: true };
+        }
+        let complete = bytes.iter().rposition(|byte| *byte == b'\n').map_or(0, |last| last + 1);
+        let spans = String::from_utf8_lossy(&bytes[..complete]).lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+        Tail { spans, position: Position::of(&mut file, start + complete as u64), restarted: resumes.is_none() }
+    }
 }
 
 pub fn record(spans: &[Span]) {
@@ -146,4 +161,35 @@ pub fn record(spans: &[Span]) {
     {
         eprintln!("north land: could not record spans in {}: {error}", sink.path().display());
     }
+}
+
+const FINGERPRINT_BYTES: u64 = 4096;
+
+/// Where a read of a span file stopped, with the content at its start and just before its stop, which tells an appended file from a replaced or truncated one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Position {
+    offset: u64,
+    head: u64,
+    tail: u64,
+}
+
+impl Position {
+    fn of(file: &mut fs::File, offset: u64) -> Option<Self> {
+        let edge = offset.min(FINGERPRINT_BYTES);
+        Some(Self { offset, head: hash_at(file, 0, edge)?, tail: hash_at(file, offset - edge, edge)? })
+    }
+}
+
+fn hash_at(file: &mut fs::File, from: u64, length: u64) -> Option<u64> {
+    let mut bytes = vec![0; usize::try_from(length).ok()?];
+    file.seek(SeekFrom::Start(from)).ok()?;
+    file.read_exact(&mut bytes).ok()?;
+    Some(bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)))
+}
+
+/// The spans a file gained since a `Position`, whole lines only; `restarted` when the file does not continue the one the position names, so the spans are all of it.
+pub struct Tail {
+    pub spans: Vec<Span>,
+    pub position: Option<Position>,
+    pub restarted: bool,
 }

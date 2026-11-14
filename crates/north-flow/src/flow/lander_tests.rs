@@ -34,7 +34,7 @@ fn a_log_without_a_verdict_is_never_a_running_candidate_check() {
     let began = format!("{}", ((now - 540.0) * 1e6) as u64);
     std::fs::write(logs.join(format!("{began}-sheriff-nix-shell.lane-gates.log")), "crate-lines: no crate over its cap grew\n").unwrap();
     std::fs::write(logs.join(format!("{began}-lane-check.log")), "cargo nextest run\n").unwrap();
-    let facts = read(queue.path(), now);
+    let facts = read(queue.path(), now, &queue.path().join("state"));
     assert_eq!(facts.check_started_at, None, "{:?}", facts.check_started_at);
     assert!(judge(&facts).reasons.is_empty());
 }
@@ -49,6 +49,6 @@ fn a_ticket_in_phase_checking_is_the_running_check_from_its_transition_time() {
     land_ticket::queued(&ticket, "the test queued it").unwrap();
     let mut store = land_ticket::open(queue.path()).unwrap();
     store.transition::<LandTicket>(&land_ticket::instance(queue.path(), ticket.file_name().unwrap()), Phase::Checking, "a land check took it", Timestamp::from_unix_seconds_f64(began)).unwrap().unwrap();
-    let facts = read(queue.path(), now);
+    let facts = read(queue.path(), now, &queue.path().join("state"));
     assert_eq!(facts.check_started_at, Some(began), "{:?}", facts.check_started_at);
 }

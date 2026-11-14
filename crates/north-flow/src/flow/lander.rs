@@ -1,8 +1,10 @@
 //! The lander's own queue: tickets waiting in `land-queue/<origin key>/`, the newest landing it
 //! recorded and the candidate check it is running, read per repository so a stalled lander shows
 //! even when GitHub has nothing pending; a queue holding lanes while origin/main stays unmoved past its limit is stalled.
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
@@ -12,6 +14,8 @@ use north_base::lifecycle::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toml_edit::DocumentMut;
+
+use super::write_atomic;
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
@@ -64,8 +68,32 @@ fn started_at(path: &Path) -> Option<f64> {
     Some(micros / 1e6)
 }
 
-fn finished(path: &Path) -> bool {
-    fs::read_to_string(path).is_ok_and(|text| text.lines().any(|line| line.starts_with(VERDICT_LINE)))
+/// How far a check log was read and whether a verdict line was in it; a log that holds one always will, so only the bytes a log gained since are read.
+#[derive(Default, Deserialize, Serialize)]
+struct Scanned {
+    offset: u64,
+    found: bool,
+}
+
+type Verdicts = BTreeMap<String, Scanned>;
+
+fn finished(path: &Path, seen: &mut Verdicts) -> bool {
+    let Some(name) = path.file_name().and_then(OsStr::to_str) else { return false };
+    let entry = seen.entry(name.to_owned()).or_default();
+    if entry.found {
+        return true;
+    }
+    let Ok(mut file) = fs::File::open(path) else { return false };
+    if file.metadata().is_ok_and(|meta| meta.len() < entry.offset) {
+        entry.offset = 0;
+    }
+    let mut bytes = Vec::new();
+    if file.seek(SeekFrom::Start(entry.offset)).and_then(|_| file.read_to_end(&mut bytes)).is_err() {
+        return false;
+    }
+    entry.found = String::from_utf8_lossy(&bytes).lines().any(|line| line.starts_with(VERDICT_LINE));
+    entry.offset += bytes.iter().rposition(|byte| *byte == b'\n').map_or(0, |last| last + 1) as u64;
+    entry.found
 }
 
 fn checking_started_at(store: &Store, queue: &Path) -> Option<f64> {
@@ -82,26 +110,47 @@ fn percentile_90(samples: &mut [f64]) -> Option<f64> {
 }
 
 fn last_line(path: &Path) -> Option<String> {
-    let text = fs::read_to_string(path).ok()?;
-    let line = text.lines().rev().find(|line| !line.trim().is_empty())?;
-    Some(line.chars().filter(|c| !c.is_control()).take(300).collect())
+    let mut file = fs::File::open(path).ok()?;
+    let length = file.metadata().ok()?.len();
+    let mut chunk = 64 * 1024;
+    loop {
+        let start = length.saturating_sub(chunk);
+        let mut bytes = Vec::new();
+        file.seek(SeekFrom::Start(start)).and_then(|_| file.read_to_end(&mut bytes)).ok()?;
+        let text = String::from_utf8_lossy(&bytes);
+        let mut lines = text.lines().rev().filter(|line| !line.trim().is_empty());
+        let line = lines.next();
+        if start > 0 && line.is_none_or(|line| text.starts_with(line)) {
+            chunk *= 4;
+            continue;
+        }
+        return Some(line?.chars().filter(|c| !c.is_control()).take(300).collect());
+    }
 }
 
-pub fn read(directory: &Path, now: f64) -> Facts {
+pub fn read(directory: &Path, now: f64, state: &Path) -> Facts {
     let tickets: Vec<PathBuf> = listed(directory, "json").into_iter().chain(listed(&directory.join(OUTBOX), "json")).collect();
     let oldest_queued_at = tickets.iter().filter_map(|path| started_at(path)).reduce(f64::min);
     let records = land_ticket::recorded(directory);
-    let last_landed_at = listed(&directory.join("done"), "json")
-        .into_iter()
-        .filter(|path| {
-            let ticket = fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
-            land_ticket::read(records.as_ref(), directory, path, ticket.as_ref().and_then(|ticket| ticket["verdict"].as_str())) == Phase::Landed
-        })
-        .filter_map(|path| modified(&path))
-        .reduce(f64::max);
+    let mut done: Vec<(f64, PathBuf)> = listed(&directory.join("done"), "json").into_iter().filter_map(|path| Some((modified(&path)?, path))).collect();
+    done.sort_by(|left, right| right.0.total_cmp(&left.0));
+    let last_landed_at = done.into_iter().find_map(|(at, path)| {
+        let ticket = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
+        (land_ticket::read(records.as_ref(), directory, &path, ticket.as_ref().and_then(|ticket| ticket["verdict"].as_str())) == Phase::Landed).then_some(at)
+    });
     let check_started_at = records.as_ref().and_then(|store| checking_started_at(store, directory));
     let logs: Vec<(f64, PathBuf)> = listed(&directory.join("logs"), "log").into_iter().filter_map(|path| Some((started_at(&path)?, path))).collect();
-    let mut durations: Vec<f64> = logs.iter().filter(|(started, path)| now - started <= HISTORY_S && finished(path)).filter_map(|(started, path)| Some(modified(path)? - started)).collect();
+    let verdicts = state.join(format!("lander-verdicts-{}.json", directory.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned())));
+    let mut seen: Verdicts = fs::read(&verdicts).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+    let before = serde_json::to_vec(&seen).unwrap_or_default();
+    let mut durations: Vec<f64> = logs.iter().filter(|(started, path)| now - started <= HISTORY_S && finished(path, &mut seen)).filter_map(|(started, path)| Some(modified(path)? - started)).collect();
+    let present: HashSet<&str> = logs.iter().filter_map(|(_, path)| path.file_name()?.to_str()).collect();
+    seen.retain(|name, _| present.contains(name.as_str()));
+    let after = serde_json::to_vec(&seen).unwrap_or_default();
+    if before != after {
+        let _ = fs::create_dir_all(state);
+        let _ = write_atomic(&verdicts, &String::from_utf8_lossy(&after));
+    }
     let newest = logs.iter().filter_map(|(_, path)| Some((modified(path)?, path))).max_by(|a, b| a.0.total_cmp(&b.0));
     Facts {
         now,

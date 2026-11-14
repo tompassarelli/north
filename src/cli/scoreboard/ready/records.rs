@@ -14,7 +14,8 @@ use crate::flow::priority_log::{self, Noted};
 use crate::flow::usage_yield::{self, Facts};
 use crate::foundation::clock::Timestamp;
 use crate::land::trace::Spans;
-use crate::land::trace::profile::{Trace, percentile};
+use crate::land::trace::profile::percentile;
+use crate::land::trace::verified::after_walls;
 use crate::land::trace::report::{every_queue, queue_repo};
 use crate::threads::attribution::Cause;
 use crate::threads::calibration::rework::Sources as ReworkSources;
@@ -84,14 +85,12 @@ fn landed(db: &Connection, since: i64) -> Result<HashMap<String, Vec<(i64, f64)>
     Ok(found)
 }
 
-fn verified(records: &Path, since: i64) -> HashMap<String, Vec<(i64, f64)>> {
+fn verified(records: &Path, now: i64, since: i64) -> HashMap<String, Vec<(i64, f64)>> {
     let mut found: HashMap<String, Vec<(i64, f64)>> = HashMap::new();
     for file in every_queue(records) {
         let Some(repo) = queue_repo(&file).and_then(|name| REPOS.iter().find(|repo| **repo == name)) else { continue };
-        let spans = Spans::at(&file).read();
-        let trace = Trace::of(&spans);
-        let walls = trace.landings(since as f64).into_iter().map(|landing| (landing.end as i64, trace.profile(landing).after_wall)).filter(|(_, wall)| *wall > 0.0);
-        found.entry((*repo).into()).or_default().extend(walls);
+        let cache = state_root().join("north/ready-verification").join(file.to_string_lossy().replace('/', "%"));
+        found.entry((*repo).into()).or_default().extend(after_walls(&Spans::at(&file), &cache, since as f64, now as f64));
     }
     found
 }
@@ -118,7 +117,7 @@ impl Records {
         let rework: &ReworkSources = &sources.places.rework;
         Ok(Self {
             landings: landed(&threads, since)?,
-            verification: verified(&sources.records, since),
+            verification: verified(&sources.records, now, since),
             reworked: landing::judged_landings(&threads, rework)?,
             attempts: workers::attempts(&threads, since, &workers::missed_checks(&north_github_mirror::store::Mirror::local()), &workers::Pending::read(&threads, now)).map_err(failed)?,
             firsts: landing::first_landings(&threads).map_err(failed)?,
