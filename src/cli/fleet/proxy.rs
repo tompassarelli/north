@@ -2,6 +2,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::model::Surface;
 use crate::fleet::registry::{Fleet, backlog_line};
 use crate::fleet::runtime::{PROXY, now_ms};
 use crate::fleet::store::{Addressee, Store};
@@ -42,10 +43,11 @@ fn attach(fleet: Fleet) -> NorthResult<()> {
     match fleet.fleet_proxy()? {
         Some(record) if fleet.running(&record) => println!("north proxy: {PROXY} is live on account {}", record.account),
         Some(_) => {
+            fleet.hold_proxy_on(PROXY, surface(&fleet))?;
             revive::revive(&fleet, PROXY, None, None, Overrides::default())?;
             println!("north proxy: revived {PROXY}");
         }
-        None => launch(&fleet)?,
+        None => launch(&fleet, surface(&fleet))?,
     }
     if !std::io::stdout().is_terminal() {
         return Ok(());
@@ -53,7 +55,17 @@ fn attach(fleet: Fleet) -> NorthResult<()> {
     tui::fleet::run_on(fleet, PROXY, crate::cli::dash::for_fleet, super::rooms::of)
 }
 
-fn launch(fleet: &Fleet) -> NorthResult<()> {
+fn surface(fleet: &Fleet) -> Surface {
+    match fleet.proxy_window_closed() {
+        Some(why) => {
+            eprintln!("north proxy: no window opened for {PROXY}, so the fleet screen holds it: {why}");
+            Surface::Screen
+        }
+        None => Surface::Window,
+    }
+}
+
+fn launch(fleet: &Fleet, surface: Surface) -> NorthResult<()> {
     if crate::pacing::placement::gate::live_gate()["claude"]["windows"].as_object().map_or(0, serde_json::Map::len) == 0 {
         crate::cli::agents::with_usage_host(crate::usage::refresh).map_err(|error| NorthError::State(format!("the usage reading failed: {error}")))?;
     }
@@ -72,7 +84,10 @@ fn launch(fleet: &Fleet) -> NorthResult<()> {
         backlog_line(&names, &rows, now_ms())
     };
     let main = home()?.join("code/north/main");
-    let words = launch_words(&main.to_string_lossy(), &opening, definition());
+    let mut words = launch_words(&main.to_string_lossy(), &opening, definition());
+    if surface == Surface::Screen {
+        words.insert(0, "--screen".to_owned());
+    }
     router::launch(fleet, &words.iter().map(String::as_str).collect::<Vec<_>>())
 }
 

@@ -175,6 +175,10 @@ impl Fleet {
         self
     }
 
+    pub fn proxy_window_closed(&self) -> Option<String> {
+        self.desk.closed()
+    }
+
     pub(crate) fn account(&self, request: &LaunchRequest) -> NorthResult<Account> {
         self.runtimes.account(&state_dir(&self.home), &self.home, &self.policy, request)
     }

@@ -369,6 +369,48 @@ fn a_revived_proxy_opens_in_a_window_on_the_desktop_and_starts_no_host_where_the
 }
 
 #[test]
+fn north_proxy_starts_a_screen_held_coordinator_where_no_window_can_open() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    let main = root.join("code/north/main");
+    fs::create_dir_all(&main).unwrap();
+    let profile = root.join(".local/state/north/profiles/claude-a");
+    fs::write(profile.join("settings.json"), r#"{"hooks": {"PreToolUse": []}, "skipDangerousModePermissionPrompt": true}"#).unwrap();
+    fs::write(profile.join(".claude.json"), serde_json::json!({"projects": {main.display().to_string(): {"hasTrustDialogAccepted": true}}}).to_string()).unwrap();
+    let spawned = root.join("niri-spawned");
+    executable(&root.join("bin/niri"), &format!(r#"case "$*" in
+  *'action spawn'*) printf '%s\n' "$*" >> {0}; exit 0;;
+  *'-j windows'*) n=$(cat {0} 2>/dev/null | wc -l); if [ "$n" -gt 0 ]; then echo "[{{\"id\":$n,\"pid\":1,\"app_id\":\"com.mitchellh.ghostty\",\"workspace_id\":1,\"layout\":{{\"pos_in_scrolling_layout\":[1,1]}}}}]"; else echo '[]'; fi;;
+esac
+"#, spawned.display()));
+    let proxy = || environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here").arg("proxy").stdin(std::process::Stdio::null()).output().unwrap();
+    let record = || serde_json::from_str::<serde_json::Value>(&fs::read_to_string(root.join(".local/state/north/fleet/proxy/session.json")).unwrap_or_default()).unwrap_or_default();
+
+    let screened = proxy();
+    let held = record();
+    north(root, &["fleet", "stop", "proxy"]);
+    fs::create_dir_all(root.join("run")).unwrap();
+    fs::write(root.join("run/niri.wayland-1.1.sock"), "").unwrap();
+    let revived = proxy();
+    let windowed = record();
+    let reopened = fs::read_to_string(&spawned).unwrap_or_default();
+    north(root, &["fleet", "forget", "proxy"]);
+    let launched = proxy();
+    let fresh = record();
+    let opened = fs::read_to_string(&spawned).unwrap_or_default();
+    north(root, &["fleet", "forget", "proxy"]);
+
+    assert!(screened.status.success(), "{}", text(&screened.stderr));
+    assert!(text(&screened.stderr).contains("no window opened for proxy, so the fleet screen holds it: no graphical session is live on this host"), "{}", text(&screened.stderr));
+    assert!(!held["host_pid"].is_null() && held["surface"] == "screen", "{held}");
+    assert!(revived.status.success(), "{}", text(&revived.stderr));
+    assert!(windowed["surface"].is_null() && reopened.ends_with("fleet interactive proxy --after-turn\n"), "{windowed}\n{reopened}");
+    assert!(launched.status.success(), "{}", text(&launched.stderr));
+    assert!(!fresh["host_pid"].is_null() && fresh["surface"].is_null() && opened.lines().count() == 2, "{fresh}\n{opened}");
+}
+
+#[test]
 fn a_screen_flag_is_refused_for_any_role_but_the_proxy() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();

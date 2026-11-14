@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
 use crate::fleet::model::{Account, LaunchRequest, Role, SessionRecord, Surface};
+use crate::fleet::records::write_record;
 use crate::fleet::runtime::Runtime;
 
 use super::Fleet;
@@ -55,6 +56,16 @@ impl ProxyDesk for OpenedWindows {
 }
 
 impl Fleet {
+    pub fn hold_proxy_on(&self, name: &str, surface: Surface) -> NorthResult<()> {
+        let _start = self.start_lock(name)?;
+        let mut record = self.record(name)?;
+        if record.surface != surface {
+            record.surface = surface;
+            write_record(&self.session_dir(name)?, &record)?;
+        }
+        Ok(())
+    }
+
     /// Refuses to start a proxy host that no window on Tom's desktop could take over: one whose conversation lives on another machine, and for a
     /// proxy held in a window also one whose interactive client would stop at a first-run prompt, or on a host with no desktop.
     pub(super) fn refuse_headless_proxy(&self, record: &SessionRecord, runtime: &dyn Runtime, account: &Account) -> NorthResult<()> {
