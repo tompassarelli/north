@@ -1720,6 +1720,7 @@ dependencies = [
  "north-land-scans",
  "north-landing",
  "north-machine-model",
+ "north-offload",
  "north-runtime-follow",
  "north-strategy-types",
  "rustix 0.38.44",

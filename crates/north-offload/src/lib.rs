@@ -3,5 +3,6 @@
 #![forbid(unsafe_code)]
 
 pub mod build_offload;
+pub mod check_offload;
 pub mod land_offload;
 pub mod offload_cache;

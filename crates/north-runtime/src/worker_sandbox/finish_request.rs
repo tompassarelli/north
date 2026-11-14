@@ -9,6 +9,7 @@ use north_base::platform::finish_record::{FinishRecords, Finished};
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
 use super::offload_request;
+use north_offload::check_offload;
 use super::request_checkout::{self, Checkout};
 use super::{CHECKED, FLAG, check_request};
 
@@ -114,12 +115,22 @@ impl Granted {
         }
         let Some(base) = self.base() else { return self };
         let north_says = |arguments: &[&str]| Command::new(north).args(arguments).current_dir(&self.directory).env_clear().envs(self.environment.iter().cloned()).stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
-        if north_says(&["land", "checks", "--accept", &self.command, "--joins", "--base", &base, "--head", &self.head]).is_none() {
+        let joins = north_says(&["land", "checks", "--accept", &self.command, "--joins", "--base", &base, "--head", &self.head]).is_some();
+        if !joins && !check_offload::compiles(&self.command) {
             return self;
         }
         let here = crate::platform::host::name();
-        let Some(host) = north_says(&["capacity", "offload", "choose"]).filter(|host| !host.is_empty() && *host != here && !host.contains(char::is_whitespace)) else { return self };
-        self.arguments = ["land", "checks", "--accept", &self.command, "--base", &base, "--head", &self.head, "--runner-host", &host].map(str::to_owned).to_vec();
+        let chosen = north_says(&["capacity", "offload", "choose"]).filter(|host| !host.is_empty() && !host.contains(char::is_whitespace));
+        if let Some(host) = chosen.as_ref().filter(|host| joins && **host != here) {
+            self.arguments = ["land", "checks", "--accept", &self.command, "--base", &base, "--head", &self.head, "--runner-host", host].map(str::to_owned).to_vec();
+            return self;
+        }
+        let north = north.display().to_string();
+        self.arguments = match check_offload::offloaded(&north, &self.command, (&base, &self.head), check_offload::this_host_builds(), || chosen.filter(|host| *host != here)) {
+            Ok(Some(words)) => [FLAG, CHECKED, "--"].map(str::to_owned).into_iter().chain(words).collect(),
+            Ok(None) => return self,
+            Err(why) => [FLAG, CHECKED, "--", "sh", "-c", &format!("echo '{why}' >&2; exit {}", check_offload::NO_HOST_EXIT)].map(str::to_owned).to_vec(),
+        };
         self
     }
 

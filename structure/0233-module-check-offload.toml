@@ -1,0 +1,6 @@
+[[module]]
+name = "check_offload"
+paths = ["crates/north-offload/src/check_offload.rs"]
+responsibility = "Where a check command that compiles runs: on a build host through the offload when this host is not one."
+may_use = ["foundation", "platform", "platform.host", "platform.harness"]
+

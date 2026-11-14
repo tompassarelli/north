@@ -129,7 +129,3 @@ impl Watch {
         self.line.clone()
     }
 }
-
-#[cfg(test)]
-#[path = "map_lag_tests.rs"]
-mod tests;

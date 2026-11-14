@@ -8,6 +8,7 @@ use super::super::enqueue::{Facts, fetch_base, git, judge_static_first};
 use super::{Lane, Road};
 use crate::land::slots::runner::{self, Accepted, QueueRefusal};
 use north_base::platform::north_binary::land_north;
+use north_offload::check_offload::{self, NO_HOST_EXIT};
 
 /// The verdict of the finish call's `check` of the would-be head in `checked` (none for a hand-in) on `lane`, and whether the road ran it and wrote its finish record itself.
 pub(super) fn verdict(road: &impl Road, lane: &Lane, checked: Option<(&str, &str)>, check: Option<&str>, facts: Option<&Facts>) -> (Result<(), (String, String)>, bool) {
@@ -28,7 +29,7 @@ pub(super) fn verdict(road: &impl Road, lane: &Lane, checked: Option<(&str, &str
     }
     match road.check(&lane.root, check, head) {
         Some(verdict) => (verdict, true),
-        None => (passes(&lane.root, check), false),
+        None => (passes(&lane.root, check, head.zip(base.as_deref()), &road.north()), false),
     }
 }
 
@@ -63,14 +64,21 @@ fn in_queue_run(root: &Path, check: &str, head: &str, base: &str) -> Result<(), 
     Err((failure.to_owned(), output))
 }
 
-fn passes(root: &Path, check: &str) -> Result<(), (String, String)> {
+fn passes(root: &Path, check: &str, at: Option<(&str, &str)>, north: &str) -> Result<(), (String, String)> {
     if check.trim().is_empty() {
         return Err(("is empty".to_owned(), String::new()));
     }
+    let placed = at.map(|range| check_offload::offloaded(north, check, range, check_offload::this_host_builds(), || check_offload::chosen_host(north)));
+    passes_placed(root, check, placed.unwrap_or(Ok(None)))
+}
+
+fn passes_placed(root: &Path, check: &str, placed: Result<Option<Vec<String>>, String>) -> Result<(), (String, String)> {
+    let command = placed.map_err(|why| (format!("exited {NO_HOST_EXIT}"), why))?;
     let unstarted = |error: io::Error| (format!("did not start: {error}"), String::new());
     let mut log = tempfile::tempfile().map_err(unstarted)?;
     let (out, err) = (log.try_clone().map_err(unstarted)?, log.try_clone().map_err(unstarted)?);
-    let status = Command::new("sh").arg("-c").arg(check).current_dir(root).stdin(Stdio::null()).stdout(out).stderr(err).status().map_err(unstarted)?;
+    let words = command.unwrap_or_else(|| ["sh", "-c", check].map(str::to_owned).to_vec());
+    let status = Command::new(&words[0]).args(&words[1..]).current_dir(root).stdin(Stdio::null()).stdout(out).stderr(err).status().map_err(unstarted)?;
     let mut output = String::new();
     let _ = io::Seek::rewind(&mut log).and_then(|()| io::Read::read_to_string(&mut log, &mut output));
     match status.code() {
@@ -82,3 +90,7 @@ fn passes(root: &Path, check: &str) -> Result<(), (String, String)> {
         None => Err(("was killed by a signal".to_owned(), output)),
     }
 }
+
+#[cfg(test)]
+#[path = "acceptance_tests.rs"]
+mod tests;

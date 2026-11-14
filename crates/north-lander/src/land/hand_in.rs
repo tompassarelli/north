@@ -54,6 +54,11 @@ pub trait Road {
         true
     }
 
+    /// The north program that names the build host a check that compiles runs on.
+    fn north(&self) -> String {
+        north_base::platform::north_binary::land_north()
+    }
+
     fn take(self, lane: &Lane) -> u8;
 }
 

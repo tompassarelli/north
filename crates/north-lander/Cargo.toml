@@ -18,6 +18,7 @@ north-concerns = { path = "../north-concerns" }
 north-land-scans = { path = "../north-land-scans" }
 north-land-sandbox = { path = "../north-land-sandbox" }
 north-landing = { path = "../north-landing" }
+north-offload = { path = "../north-offload" }
 north-strategy-types = { path = "../north-strategy-types" }
 rustix.workspace = true
 serde.workspace = true
