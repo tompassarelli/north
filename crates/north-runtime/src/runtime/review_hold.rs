@@ -1,4 +1,4 @@
-//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session lifts it, and the record keeps who lifted it and why. A session in the coordinator role (a record naming the role `proxy`) is refused both, since the client window it also runs in runs in no session's scope (north#1281). Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. No hold is placed on a commit the north checkout lacks, by the broker or the direct path. The switch `review_holds` in harness/defaults.toml turns every screen off.
+//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session lifts it by hand, and the record keeps who lifted it and why. A hold placed with `--until LANE` names the lane whose landing lifts it: the first screen of a head containing a landing of that lane lifts it in its record (north#1540). A session in the coordinator role (a record naming the role `proxy`) is refused both, since the client window it also runs in runs in no session's scope (north#1281). Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. No hold is placed on a commit the north checkout lacks, by the broker or the direct path. The switch `review_holds` in harness/defaults.toml turns every screen off.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -24,7 +24,7 @@ const DESTINATION: &str = "main";
 const PUSH_LEDGER: &str = "safe-push/pushes.tsv";
 const WHY_LIMIT: usize = 2048;
 const SHOWN_FOR: u64 = 24 * 60 * 60;
-const USAGE: &str = "usage: north runtime hold COMMIT [--host HOST] --why TEXT | north runtime hold --lift COMMIT --why TEXT  place a reviewer's hold on COMMIT and the lane that holds it, which keeps `north runtime order` and the slot and Live-fix promotions from taking live any head that contains COMMIT or a landing of that lane (with --host, only an order that promotes HOST is refused), or lift it; the hold is the calling fleet session's, and only that session lifts it; the coordinator role holds no hold; run it on the host that settles the fleet";
+const USAGE: &str = "usage: north runtime hold COMMIT [--host HOST] [--until LANE] --why TEXT | north runtime hold --lift COMMIT --why TEXT  place a reviewer's hold on COMMIT and the lane that holds it, which keeps `north runtime order` and the slot and Live-fix promotions from taking live any head that contains COMMIT or a landing of that lane (with --host, only an order that promotes HOST is refused), or lift it; with --until, the hold lifts itself once a head containing a landing of LANE is screened; the hold is the calling fleet session's, and only that session lifts it; the coordinator role holds no hold; run it on the host that settles the fleet";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Lift {
@@ -39,6 +39,8 @@ pub(crate) struct Hold {
     pub lane: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
     pub session: String,
     pub why: String,
     pub at: u64,
@@ -54,10 +56,10 @@ pub(crate) struct Caller {
     pub reviewer: bool,
 }
 
-/// What `north runtime hold` asks, in the words the broker takes: `review-hold place COMMIT LANE HOST WHY` (HOST empty for every host) or `review-hold lift COMMIT WHY`.
+/// What `north runtime hold` asks, in the words the broker takes: `review-hold place COMMIT LANE HOST UNTIL WHY` (HOST empty for every host, UNTIL empty for a hold only its placer lifts) or `review-hold lift COMMIT WHY`.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Ask {
-    Place { commit: String, lane: String, host: Option<String>, why: String },
+    Place { commit: String, lane: String, host: Option<String>, until: Option<String>, why: String },
     Lift { commit: String, why: String },
 }
 
@@ -76,7 +78,7 @@ fn said(why: &str) -> bool {
 impl Ask {
     pub(crate) fn words(&self) -> Vec<String> {
         match self {
-            Ask::Place { commit, lane, host, why } => [VERB, "place", commit, lane, host.as_deref().unwrap_or_default(), why].map(str::to_owned).to_vec(),
+            Ask::Place { commit, lane, host, until, why } => [VERB, "place", commit, lane, host.as_deref().unwrap_or_default(), until.as_deref().unwrap_or_default(), why].map(str::to_owned).to_vec(),
             Ask::Lift { commit, why } => [VERB, "lift", commit, why].map(str::to_owned).to_vec(),
         }
     }
@@ -85,11 +87,11 @@ impl Ask {
     pub(crate) fn asked(arguments: &[String]) -> Option<Result<Self, String>> {
         let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
         let [VERB, rest @ ..] = words.as_slice() else { return None };
-        let host = |host: &str| Some(host.to_owned()).filter(|host| !host.is_empty());
+        let given = |word: &str| Some(word.to_owned()).filter(|word| !word.is_empty());
         Some(match rest {
-            ["place", commit, lane, on, why] if full_sha(commit) && named(lane) && (on.is_empty() || named(on)) && said(why) => Ok(Ask::Place { commit: (*commit).to_owned(), lane: (*lane).to_owned(), host: host(on), why: why.trim().to_owned() }),
+            ["place", commit, lane, on, until, why] if full_sha(commit) && named(lane) && [on, until].iter().all(|word| word.is_empty() || named(word)) && said(why) => Ok(Ask::Place { commit: (*commit).to_owned(), lane: (*lane).to_owned(), host: given(on), until: given(until), why: why.trim().to_owned() }),
             ["lift", commit, why] if full_sha(commit) && said(why) => Ok(Ask::Lift { commit: (*commit).to_owned(), why: why.trim().to_owned() }),
-            _ => Err(format!("a hold request is `{VERB} place COMMIT LANE HOST WHY` or `{VERB} lift COMMIT WHY`, with a full commit id and a reason of at most {WHY_LIMIT} bytes")),
+            _ => Err(format!("a hold request is `{VERB} place COMMIT LANE HOST UNTIL WHY` or `{VERB} lift COMMIT WHY`, with a full commit id and a reason of at most {WHY_LIMIT} bytes")),
         })
     }
 }
@@ -113,6 +115,7 @@ pub struct Standing {
     pub commit: String,
     pub lane: String,
     pub host: Option<String>,
+    pub until: Option<String>,
     pub session: String,
     pub why: String,
     pub at: u64,
@@ -121,7 +124,7 @@ pub struct Standing {
 /// Every hold in the verdict store `environment` and `home` name that is not lifted, oldest first, or why the store cannot be read.
 pub fn standing(environment: &[(String, String)], home: &Path) -> Result<Vec<Standing>, String> {
     let holds = Holds::of(environment, home).all()?;
-    Ok(holds.into_iter().filter(|hold| hold.lifted.is_none()).map(|Hold { commit, lane, host, session, why, at, .. }| Standing { commit, lane, host, session, why, at }).collect())
+    Ok(holds.into_iter().filter(|hold| hold.lifted.is_none()).map(|Hold { commit, lane, host, until, session, why, at, .. }| Standing { commit, lane, host, until, session, why, at }).collect())
 }
 
 pub(crate) struct Holds(pub PathBuf);
@@ -189,10 +192,11 @@ impl Holds {
         let holds = self.all()?;
         self.prune(&holds, now);
         match ask {
-            Ask::Place { commit, lane, host, why } => {
+            Ask::Place { commit, lane, host, until, why } => {
                 let on = host.as_deref().map_or(String::new(), |host| format!(" on {host}"));
-                self.write(&Hold { commit: commit.clone(), lane: lane.clone(), host, session: caller.session.clone(), why, at: now, lifted: None })?;
-                Ok(format!("north runtime hold: {} holds {commit} of the lane {lane}{on}; no head containing it or a landing of {lane} goes live until {} lifts it", caller.session, caller.session))
+                let lifts = until.as_deref().map_or(String::new(), |until| format!(" or a head containing a landing of {until} is screened"));
+                self.write(&Hold { commit: commit.clone(), lane: lane.clone(), host, until, session: caller.session.clone(), why, at: now, lifted: None })?;
+                Ok(format!("north runtime hold: {} holds {commit} of the lane {lane}{on}; no head containing it or a landing of {lane} goes live until {} lifts it{lifts}", caller.session, caller.session))
             }
             Ask::Lift { commit, why } => self.lift(holds, &commit, &why, caller, now),
         }
@@ -266,6 +270,7 @@ impl Screen {
         let unread = |why: String| unscreened(head, why);
         let mut held = Vec::new();
         for hold in self.holds.all().map_err(unread)? {
+            let hold = self.cured(hold, head, now).map_err(unread)?;
             match self.holds_in(&hold, head) {
                 Ok(true) => held.push(hold),
                 Ok(false) => {}
@@ -324,6 +329,19 @@ impl Screen {
         Ok(trip)
     }
 
+    /// `hold`, lifted in its record when it stands, names the lane whose landing lifts it and `head` contains a landing of that lane.
+    fn cured(&self, mut hold: Hold, head: &str, now: u64) -> Result<Hold, String> {
+        let Some(until) = hold.until.clone().filter(|_| hold.lifted.is_none()) else { return Ok(hold) };
+        for landed in (self.landed)(&until)? {
+            if (self.contains)(&landed, head)? {
+                hold.lifted = Some(Lift { by: format!("the landing of {until}"), why: format!("{until} landed as {landed}, which {} contains", layout::short(head)), at: now });
+                self.holds.write(&hold)?;
+                break;
+            }
+        }
+        Ok(hold)
+    }
+
     /// Whether `head` holds `hold`: it contains the held commit, or a commit a landing of the hold's lane made.
     fn holds_in(&self, hold: &Hold, head: &str) -> Result<bool, String> {
         if (self.contains)(&hold.commit, head)? {
@@ -370,7 +388,7 @@ pub(crate) fn landed_in(ledger: PathBuf) -> Landed {
 
 /// The commits on main each landing of `lane` in north made, read from the push ledger's rows (time, repository, branch, lane tip, landed commit, session).
 fn landings(ledger: &str, lane: &str) -> Vec<String> {
-    ledger.lines().map(|row| row.split('\t').collect::<Vec<_>>()).filter(|fields| fields.get(1) == Some(&REPOSITORY) && fields.get(2) == Some(&lane)).filter_map(|fields| fields.get(4).map(|landed| (*landed).to_owned())).collect()
+    ledger.lines().map(|row| row.split('\t').collect::<Vec<_>>()).filter(|fields| fields.get(1) == Some(&REPOSITORY) && fields.get(2) == Some(&lane)).filter_map(|fields| fields.get(4).filter(|landed| !landed.is_empty()).map(|landed| (*landed).to_owned())).collect()
 }
 
 /// The lane that holds `commit`: the branch of the push ledger's row whose lane tip or landed commit it is, else the one branch of `branches` (local branches containing it, the destination aside) that holds it; a commit no lane or more than one holds is refused, since its hold would match no landing.
@@ -419,14 +437,14 @@ fn lane_here(commit: &str) -> Result<String, Failure> {
 
 /// `north runtime hold` on a host that `settles` the fleet: resolves the commit and its lane in the working directory and has `serve` place or lift the hold for the caller's own session (worker_sandbox/hold_client.rs: through the broker inside a worker sandbox and here outside one), printing the line it says.
 fn command(flags: &[String], settles: bool, serve: impl FnOnce(Ask) -> Result<String, String>) -> Result<(), Failure> {
-    let (named, lift, host, why) = parse(flags)?;
+    let Flags { commit: named, lift, host, until, why } = parse(flags)?;
     if !settles {
         return Err(failed(64, format!("the host that settles the fleet reads the holds its order and promotions screen by, and this is not it; place the hold from a session there\n{USAGE}")));
     }
     let commit = git(&["rev-parse", "--verify", &format!("{named}^{{commit}}")]).ok().filter(|commit| full_sha(commit)).ok_or_else(|| failed(1, format!("{named} names no commit here")))?;
     let ask = match lift {
         true => Ask::Lift { commit, why },
-        false => Ask::Place { lane: lane_here(&commit)?, commit, host, why },
+        false => Ask::Place { lane: lane_here(&commit)?, commit, host, until, why },
     };
     let line = serve(ask).map_err(|why| failed(1, why))?;
     if !line.is_empty() {
@@ -435,16 +453,37 @@ fn command(flags: &[String], settles: bool, serve: impl FnOnce(Ask) -> Result<St
     Ok(())
 }
 
-fn parse(flags: &[String]) -> Result<(String, bool, Option<String>, String), Failure> {
-    let words: Vec<&str> = flags.iter().map(String::as_str).collect();
-    let parsed = match words.as_slice() {
-        ["--lift", commit, "--why", why] => Some((*commit, true, None, *why)),
-        [commit, "--why", why] => Some((*commit, false, None, *why)),
-        [commit, "--host", host, "--why", why] | [commit, "--why", why, "--host", host] if named(host) => Some((*commit, false, Some((*host).to_owned()), *why)),
-        _ => None,
+struct Flags {
+    commit: String,
+    lift: bool,
+    host: Option<String>,
+    until: Option<String>,
+    why: String,
+}
+
+fn parse(flags: &[String]) -> Result<Flags, Failure> {
+    let usage = || failed(64, USAGE);
+    let (lift, rest) = match flags.split_first() {
+        Some((first, rest)) if first == "--lift" => (true, rest),
+        _ => (false, flags),
     };
-    match parsed {
-        Some((commit, lift, host, why)) if !commit.starts_with('-') && said(why) => Ok((commit.to_owned(), lift, host, why.trim().to_owned())),
-        _ => Err(failed(64, USAGE)),
+    let Some((commit, rest)) = rest.split_first() else { return Err(usage()) };
+    let [host, until, why] = valued(rest, if lift { &["--why"] } else { &["--host", "--until", "--why"] }).ok_or_else(usage)?;
+    match why {
+        Some(why) if !commit.starts_with('-') && said(&why) && host.iter().chain(&until).all(|word| named(word)) => Ok(Flags { commit: commit.clone(), lift, host, until, why: why.trim().to_owned() }),
+        _ => Err(usage()),
     }
+}
+
+/// The values of `--host`, `--until` and `--why` in `rest`, each given at most once and only when `allowed` names it, or `None` for anything else.
+fn valued(mut rest: &[String], allowed: &[&str]) -> Option<[Option<String>; 3]> {
+    let mut values: [Option<String>; 3] = Default::default();
+    while let [flag, value, more @ ..] = rest {
+        let slot = ["--host", "--until", "--why"].iter().position(|name| name == flag).filter(|_| allowed.contains(&flag.as_str()))?;
+        if values[slot].replace(value.clone()).is_some() {
+            return None;
+        }
+        rest = more;
+    }
+    rest.is_empty().then_some(values)
 }
