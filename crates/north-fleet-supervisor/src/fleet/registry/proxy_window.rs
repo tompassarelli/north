@@ -1,11 +1,13 @@
-//! The proxy runs only in a window Tom types into. Every start of a proxy host (a launch, a take-over, a revive, a wake by a message, an
-//! account move) is refused where no such window can hold it, and once the host is up the desk opens the window that takes its conversation
-//! as soon as the turn it was woken for has ended, so no path leaves the proxy headless.
+//! Where the proxy runs, read from the surface on its record, which only a proxy-role record carries as held by the screen. A proxy held in a
+//! window runs only in a window Tom types into: every start of its host (a launch, a take-over, a revive, a wake by a message, an account move)
+//! is refused where no such window can hold it, and once the host is up the desk opens the window that takes its conversation as soon as the
+//! turn it was woken for has ended, so no path leaves it headless. A proxy held by the screen runs as an ordinary fleet host on this machine,
+//! typed into from the fleet screen, so only a conversation on another machine is refused and no window opens.
 use std::sync::Mutex;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
-use crate::fleet::model::{Account, LaunchRequest, Role, SessionRecord};
+use crate::fleet::model::{Account, LaunchRequest, Role, SessionRecord, Surface};
 use crate::fleet::runtime::Runtime;
 
 use super::Fleet;
@@ -53,14 +55,15 @@ impl ProxyDesk for OpenedWindows {
 }
 
 impl Fleet {
-    /// Refuses to start a proxy host that no window on Tom's desktop could take over: one whose conversation lives on another machine, whose
-    /// interactive client would stop at a first-run prompt, or on a host with no desktop.
+    /// Refuses to start a proxy host that no window on Tom's desktop could take over: one whose conversation lives on another machine, and for a
+    /// proxy held in a window also one whose interactive client would stop at a first-run prompt, or on a host with no desktop.
     pub(super) fn refuse_headless_proxy(&self, record: &SessionRecord, runtime: &dyn Runtime, account: &Account) -> NorthResult<()> {
         if record.role() != Role::Proxy {
             return Ok(());
         }
         let why = match &record.machine {
             Some(machine) => Some(format!("its conversation lives on {}, away from Tom's desktop", machine.name)),
+            None if record.surface == Surface::Screen => None,
             None => {
                 let request = LaunchRequest::relaunching(record);
                 runtime.prepare_interactive(account, &request)?;
@@ -73,9 +76,10 @@ impl Fleet {
         }
     }
 
-    /// Opens the window that takes the proxy's conversation from the host just started for it; a window that cannot open ends that host.
+    /// Opens the window that takes the conversation of a proxy held in a window from the host just started for it; a window that cannot open
+    /// ends that host. A proxy held by the screen opens none.
     pub(super) fn show_proxy(&self, record: &SessionRecord, host: &Host) -> NorthResult<()> {
-        if record.role() != Role::Proxy {
+        if record.role() != Role::Proxy || record.surface == Surface::Screen {
             return Ok(());
         }
         match self.desk.open(&record.name) {

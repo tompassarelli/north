@@ -374,3 +374,77 @@ fn a_fresh_state_takes_one_usage_reading_before_the_coordinator_is_placed() {
     let windows = serde_json::from_str::<serde_json::Value>(&written).map(|gate| gate["claude"]["windows"].clone()).unwrap_or_default();
     assert!(windows.as_object().is_some_and(|windows| !windows.is_empty()), "{written}\n{}", text(&started.stderr));
 }
+
+#[test]
+fn a_screen_held_proxy_revives_as_a_fleet_host_where_no_desktop_is() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    let session = root.join(".local/state/north/fleet/proxy");
+    fs::create_dir_all(&session).unwrap();
+    let record = serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": root, "model": null, "created_ms": 1, "host_pid": null, "conversation": "6d1f6f3c-1048-4c1e-9a52-6a0c8b0e1048", "host_dir": session, "role": "proxy", "surface": "screen"});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let spawned = root.join("niri-spawned");
+    executable(&root.join("bin/niri"), &format!("printf '%s\\n' \"$*\" >> {}\n", spawned.display()));
+    let held = |dir: &Path| serde_json::from_str::<serde_json::Value>(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+
+    let revived = north(root, &["fleet", "revive", "proxy"]);
+    assert!(revived.status.success(), "{}", text(&revived.stderr));
+    let first = held(&session)["host_pid"].clone();
+    let mut shown = String::new();
+    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+        shown = text(&north(root, &["fleet", "show", "proxy"]).stdout);
+        shown.contains("OK")
+    });
+    Command::new("kill").args(["-TERM", &first.to_string()]).status().unwrap();
+    let parked = north_core::platform::wait::until(std::time::Duration::from_secs(20), || Command::new("kill").args(["-0", &first.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| !status.success()));
+    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "proxy", "reply with the single word pong"]);
+    let answered = |shown: &str, asked: &str| shown.split_once(asked).is_some_and(|(_, after)| after.contains("OK"));
+    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+        shown = text(&north(root, &["fleet", "show", "proxy"]).stdout);
+        answered(&shown, "reply with the single word pong")
+    });
+    let woken = held(&session)["host_pid"].clone();
+    let profiles = root.join(".local/state/north/profiles");
+    fs::create_dir_all(profiles.join("claude-b")).unwrap();
+    for file in [".credentials.json", "settings.json"] {
+        fs::copy(profiles.join("claude-a").join(file), profiles.join("claude-b").join(file)).unwrap();
+    }
+    fs::create_dir_all(root.join(".local/state/threads")).unwrap();
+    let ledger = rusqlite::Connection::open(root.join(".local/state/threads/threads.db")).unwrap();
+    ledger.execute("CREATE TABLE IF NOT EXISTS usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT)", []).unwrap();
+    let read_at = north_core::foundation::clock::Timestamp::now().iso();
+    for (account, name, used) in [("a", "session", 99.0), ("a", "weekly_all", 10.0), ("b", "session", 10.0), ("b", "weekly_all", 10.0)] {
+        ledger.execute("INSERT INTO usage(ts, provider, account, kind, name, used_pct, resets_at, source) VALUES (?1, 'claude', ?2, 'window', ?3, ?4, '2099-01-01T00:00:00Z', 'header')", rusqlite::params![read_at, account, name, used]).unwrap();
+    }
+    let desk = root.join(".local/state/north/fleet/.handovers");
+    let mut successor = serde_json::Value::Null;
+    let mut ticks = Vec::new();
+    north_core::platform::wait::until(std::time::Duration::from_secs(60), || {
+        let tick = north(root, &["fleet", "tick"]);
+        ticks.push(format!("{}{}", text(&tick.stdout), text(&tick.stderr)));
+        if desk.join("proxy.asked.json").exists() && !desk.join("proxy.md").exists() {
+            fs::write(desk.join("proxy.md"), "the screen holds the coordinator; carry on\n").unwrap();
+        }
+        successor = held(&session);
+        successor["account"] == "b"
+    });
+    let resent = north(root, &["fleet", "send", "--from", "service:fleet-test", "proxy", "reply with the single word ping"]);
+    let mut reshown = String::new();
+    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+        reshown = text(&north(root, &["fleet", "show", "proxy"]).stdout);
+        answered(&reshown, "reply with the single word ping")
+    });
+    north(root, &["fleet", "forget", "proxy"]);
+
+    assert!(shown.contains("OK") && !first.is_null(), "the revived proxy started no host: {shown}");
+    assert!(parked, "the revived host never parked: {first}");
+    assert!(!spawned.exists(), "a window was asked for: {}", fs::read_to_string(&spawned).unwrap_or_default());
+    assert!(sent.status.success(), "{}", text(&sent.stderr));
+    assert!(answered(&shown, "reply with the single word pong"), "the parked proxy never answered the typed message: {shown}");
+    assert!(woken != first && !woken.is_null(), "the typed message woke no new host: {woken}");
+    assert_eq!(successor["account"], "b", "no successor took the proxy over: {}", ticks.join("\n"));
+    assert_eq!(successor["surface"], "screen", "the successor is no longer held by the screen: {successor}");
+    assert!(resent.status.success(), "{}", text(&resent.stderr));
+    assert!(answered(&reshown, "reply with the single word ping"), "the successor never answered a message: {reshown}");
+}

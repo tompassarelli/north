@@ -1,5 +1,6 @@
-//! The desktop the proxy is shown on: whenever the fleet starts a proxy host, its conversation opens in a terminal window here running the
-//! interactive client, so the proxy always runs where Tom types. The fleet asks through `ProxyDesk`; niri with ghostty is its adapter.
+//! The desktop a proxy held in a window is shown on: whenever the fleet starts its host, its conversation opens in a terminal window here running
+//! the interactive client, so it runs where Tom types. A proxy held by the screen opens nothing here: it runs as a fleet host the fleet screen
+//! types into. The fleet asks through `ProxyDesk`; niri with ghostty is its adapter.
 pub(super) mod niri;
 
 use crate::fleet::registry::ProxyDesk;
