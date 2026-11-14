@@ -7,13 +7,6 @@ fn reading(backlog: &str) -> String {
 }
 
 #[test]
-fn a_host_loaded_by_capped_leases_takes_a_session_while_its_unleased_agent_work_barely_stalls() {
-    assert_eq!(parse(&reading("0 56.19 20 35")).unwrap().refusal("gex45"), None);
-    assert_eq!(parse(&reading("0 56.19 20 1500")).unwrap().refusal("gex45").as_deref(), Some("gex45 skipped: load 56 on 20 threads with unleased agent work stalled 15% of the time"));
-    assert_eq!(parse(&reading("0 56.19 20")).unwrap().refusal("gex45").as_deref(), Some("gex45 skipped: load 56 on 20 threads"));
-}
-
-#[test]
 fn per_machine_admission_reads_memory_and_cpu_pressure_not_a_session_count() {
     let roomy = parse(&reading("0 4.0 20 35")).unwrap();
     assert_eq!(roomy.refusal("gex45"), None);
@@ -23,8 +16,9 @@ fn per_machine_admission_reads_memory_and_cpu_pressure_not_a_session_count() {
     assert_eq!(squeezed.session_room(), 0);
     assert!(squeezed.refusal("gex45").is_some_and(|why| why.contains("memory available")));
 
-    let stalled = parse(&reading("0 56.19 20 1500")).unwrap();
-    assert!(stalled.refusal("gex45").is_some_and(|why| why.contains("stalled 15%")));
+    assert_eq!(parse(&reading("0 56.19 20 35")).unwrap().refusal("gex45"), None, "a host loaded by capped leases takes a session while its unleased agent work barely stalls");
+    assert_eq!(parse(&reading("0 56.19 20 1500")).unwrap().refusal("gex45").as_deref(), Some("gex45 skipped: load 56 on 20 threads with unleased agent work stalled 15% of the time"));
+    assert_eq!(parse(&reading("0 56.19 20")).unwrap().refusal("gex45").as_deref(), Some("gex45 skipped: load 56 on 20 threads"));
 }
 
 #[test]

@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 mod act;
 mod detect;
 mod frozen;
+mod grid;
 mod owners;
 mod report;
 mod report_command;
@@ -30,6 +31,7 @@ pub const USAGE: &str = "usage: north capacity watchdog sample [--once] [--inter
        north capacity watchdog replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl
        north capacity watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]
        north capacity watchdog step < SAMPLE.json
+       north capacity watchdog grid
 
 sample      every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clients and the top processes outside
             capacity scopes to samples.jsonl (rotated daily); log an incident for an unleased process tree over 4 cores
@@ -37,6 +39,9 @@ sample      every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clie
             sample also goes through step, which on sustained overload names the top process trees by fleet session,
             caps the offending session scope and sends the owner and coordinators. A north-session-*.scope frozen over
             5 minutes and not listed in the capacity gaming-frozen.json holds is thawed and logged as an incident.
+            On the host that holds the threads ledger, every 60 s it also reads each host's grid line over ssh and pages
+            proxy once per episode when fewer than 16 remote runners are live across the grid, or when more than half the
+            land-check leases on a host have used under 0.1 cores each for 5 minutes (state: runner-alarm.json).
 report      summarize the last N minutes (default 5 and 30) of samples and incidents with flags. A Codex turn in the
             window that failed with \"Selected model is at capacity\" flags provider-capacity codex.
 replay      run recorded overload samples through the overload decision core and print its actions; with --snapshots,
@@ -48,6 +53,7 @@ rest-check  compare running system and user units, active timers and listening s
             checks a saved observation, --save writes the live one. Expected set: --expected, $CAPACITY_WATCHDOG_REST
             or ~/.config/capacity-watchdog/rest.json, declared per host in firn.
 step        decide on one sample read from stdin.
+grid        print this host's live buildbarn-runner units and its land-check leases with their recent cores, as JSON.
 State: $CAPACITY_WATCHDOG_DIR (default ~/.local/state/agents/watchdog).
 Ledger: $THREADS_DB (default ~/.local/state/threads/threads.db), read only.";
 const STATE_FILE: &str = "overload.json";
@@ -60,7 +66,8 @@ pub(super) fn run(arguments: &[String]) -> u8 {
             Ok(0)
         }
         Some("step") if arguments.len() == 1 => step().map(|()| 0),
-        Some("sample") => sampler::run(&arguments[1..]).map(|()| 0),
+        Some("sample") => sample(&arguments[1..]).map(|()| 0),
+        Some("grid") if arguments.len() == 1 => grid::print_reading().map(|()| 0),
         Some("report") => report_command::run(&arguments[1..]).map(|()| 0),
         Some("rest-check") => rest_command::run(&arguments[1..]),
         Some("replay") if arguments.len() >= 2 => replay(&arguments[1..]).map(|()| 0),
@@ -73,6 +80,13 @@ pub(super) fn run(arguments: &[String]) -> u8 {
             2
         }
     }
+}
+
+fn sample(arguments: &[String]) -> Result<(), String> {
+    if !arguments.iter().any(|word| word == "--once") {
+        grid::spawn(&directory(), &north_binary());
+    }
+    sampler::run(arguments)
 }
 
 fn directory() -> PathBuf {
