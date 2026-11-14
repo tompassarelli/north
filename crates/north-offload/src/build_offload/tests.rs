@@ -112,6 +112,17 @@ fn capacity_an_offloaded_lane_with_unpushed_commits_and_uncommitted_changes_runs
     assert_ne!(git(&main, &["rev-parse", "HEAD"]), head);
 }
 
+#[test]
+fn capacity_a_finish_check_the_broker_wraps_in_the_worker_domain_ships_while_a_laptop_path_inside_it_is_still_refused_north_1553() {
+    let hosts = hosts();
+    let lane_dir = hosts.lane("wrapped");
+    let runtime = hosts.laptop.join("code/proj-data/runtimes/abc/north").to_string_lossy().into_owned();
+    let wrapped = |inner: &str| [runtime.as_str(), "--worker-sandbox", "--checked", "--", "sh", "-c", inner].map(str::to_owned);
+    assert!(gather(&lane_dir, &hosts.laptop).unwrap().ship(&wrapped("cargo test -p x")).is_ok(), "the broker's worker-domain wrapper names the laptop runtime, which refused every compiling finish check as an absolute path");
+    let inner = format!("cargo test --manifest-path {}/Cargo.toml", lane_dir.display());
+    assert!(gather(&lane_dir, &hosts.laptop).unwrap().ship(&wrapped(&inner)).is_err());
+}
+
 
 #[test]
 fn capacity_an_offloaded_post_land_worktree_outside_the_project_container_rebuilds_from_the_repositorys_main_checkout() {

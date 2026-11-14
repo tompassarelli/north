@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use north_capacity_host::capacity::build_host_command::unwrapped;
 use north_capacity_host::capacity::build_offload::{Declined, names_a_path_here, ships};
 use crate::land_offload::ship::remote_checkout;
 
@@ -64,7 +65,7 @@ pub(super) struct Gathered {
 impl Gathered {
     pub(super) fn ship(self, command: &[String]) -> Result<Lane, Declined> {
         let paths: Vec<&str> = self.lane.paths.iter().map(String::as_str).collect();
-        names_a_path_here(command, &paths)?;
+        names_a_path_here(unwrapped(command), &paths)?;
         let changed: Vec<&str> = self.changed.iter().map(String::as_str).collect();
         ships(&changed, self.lane.patch.len() + self.lane.bundle.len())?;
         Ok(self.lane)
