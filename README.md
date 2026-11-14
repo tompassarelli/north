@@ -21,6 +21,8 @@ Measured 2026-11-14 against T3 Code v0.1.8 on the load ladder's small tasks t01 
 |---|---|---|---|---|---|---|---|---|---|
 | small one-worker cell | 1 x 5 | 5 of 5 / 5 of 5 / 5 of 5 | 15 s | given the file text, 18 s | 0.79 | 0.79 | 0.29 | 14x fewer | undecided until T3 Code's noise band is measured |
 | small five-at-once cell | 2 x 5 | 10 of 10 / 10 of 10 / 10 of 10 | 13.5 s | given the file text, 21 s | 0.65, 0.61 | 0.64 | 0.28 | 9x fewer | undecided until T3 Code's noise band is measured |
+| small one-worker cell on the later release runtime, cold start (the registered three-run set) | 1 x 5 | 5 of 5 / 5 of 5 / 5 of 5 | 17 s | given the file text, 19 s | 0.95 | 0.95 | 0.44 | 9x fewer | undecided until T3 Code's noise band is measured |
+| small five-at-once cell on the later release runtime, cold start (the registered three-run set) | 1 x 5 | 5 of 5 / 5 of 5 / 5 of 5 | 12 s | given the file text, 25 s | 0.48 | 0.48 | 0.30 | 8x fewer | undecided until T3 Code's noise band is measured |
 
 Time ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. Cost ratio: north's cost per task over the faster arm's, at the list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens.
 
