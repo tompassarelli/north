@@ -61,6 +61,7 @@ impl Fleet {
     }
 
     fn launch_into(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path) -> NorthResult<SessionRecord> {
+        let _reads = remote::ProfileReads::hold();
         let verification = self.admitted(request, claim)?;
         let account = self.account(request)?;
         let caller = north_base::platform::session_scope::reserve_caller();

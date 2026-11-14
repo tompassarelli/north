@@ -14,7 +14,8 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -32,6 +33,8 @@ use super::ssh::SSH_WAIT;
 
 const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 const ABSENT: i32 = 3;
+
+static PROFILE_READS: Mutex<SharedReads> = Mutex::new(SharedReads { holders: 0, seen: BTreeMap::new() });
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
 pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResult<HostSpec> {
@@ -62,10 +65,48 @@ fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Op
     runtime.unguarded(account, &|path| read_on(machine, path)).map(|reason| format!("{reason} on {}", machine.name))
 }
 
-/// What `path` holds on `machine`, read through its session login, the user the session runs as there: absent only when no such path exists there, unreachable when the machine does not answer or the file is there but unreadable.
+/// What `path` holds on `machine`, read through its session login, the user the session runs as there: absent only when no such path exists there, unreachable when the machine does not answer or the file is there but unreadable. While a [`ProfileReads`] is held, an answer read there is reused.
 pub fn read_on(machine: &Machine, path: &Path) -> Seen {
+    let key = (machine.session_login().to_owned(), path.to_path_buf());
+    if let Some(seen) = profile_reads().seen.get(&key).cloned() {
+        return seen;
+    }
     let quoted = quote(&path.to_string_lossy());
-    answer_on(machine, &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}"))
+    let seen = answer_on(machine, &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}"));
+    let mut reads = profile_reads();
+    if reads.holders > 0 && !matches!(seen, Seen::Unreachable) {
+        reads.seen.insert(key, seen.clone());
+    }
+    seen
+}
+
+/// Held for one launch, so each profile file it reads on a build host is read there once: a launch reads its profile for the spare it may take, again for the host it starts and once more for its hooks verdict, and each read is an ssh round trip of about half a second.
+pub struct ProfileReads(());
+
+impl ProfileReads {
+    pub fn hold() -> Self {
+        profile_reads().holders += 1;
+        Self(())
+    }
+}
+
+impl Drop for ProfileReads {
+    fn drop(&mut self) {
+        let mut reads = profile_reads();
+        reads.holders -= 1;
+        if reads.holders == 0 {
+            reads.seen.clear();
+        }
+    }
+}
+
+struct SharedReads {
+    holders: usize,
+    seen: BTreeMap<(String, PathBuf), Seen>,
+}
+
+fn profile_reads() -> MutexGuard<'static, SharedReads> {
+    PROFILE_READS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// What `script` prints on `machine` as its session login, sent as a channel of the standing link master to that login, which the session's own link rides next: each launch read of a build host before its session host starts was a fresh handshake.

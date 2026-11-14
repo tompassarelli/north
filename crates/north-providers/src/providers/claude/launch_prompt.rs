@@ -23,10 +23,13 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
         }
         return Ok(args);
     }
-    let settings = worker_settings(account, request, prefix)?;
+    let (settings, policy) = std::thread::scope(|scope| {
+        let policy = scope.spawn(|| where_it_runs(request, &account.home.join(POLICY_FILE)));
+        (worker_settings(account, request, prefix), policy.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+    });
+    let (settings, policy) = (settings?, policy?.unwrap_or_default());
     let tools = if researches(request) { format!("{WORKER_TOOLS}{RESEARCH_TOOLS}") } else { WORKER_TOOLS.to_owned() };
     let mut args = ["--tools", &tools, "--setting-sources", "project,local", "--settings", &settings].map(str::to_owned).to_vec();
-    let policy = where_it_runs(request, &account.home.join(POLICY_FILE))?.unwrap_or_default();
     let prompt = [instructions, policy.trim_end()].iter().filter(|text| !text.is_empty()).copied().collect::<Vec<_>>().join("\n\n");
     if !prompt.is_empty() {
         args.extend(["--system-prompt".to_owned(), prompt]);

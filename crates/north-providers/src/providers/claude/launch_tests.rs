@@ -299,6 +299,13 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
     assert!(env == ["CLAUDE_CODE_SHELL_PREFIX"] && ["apiKeyHelper", "awsCredentialExport", "forceLoginOrgUUID"].iter().all(|key| settings.get(key).is_none()) && settings["theme"] == "dark", "the agent user's settings file chose the worker's credential, endpoint or login: {settings}");
     let logins = std::fs::read_to_string(format!("{}.logins", there.display())).unwrap();
     assert!(!logins.is_empty() && logins.lines().all(|login| login == "agent@cpx62"), "{logins}");
+    let logged = || std::fs::read_to_string(format!("{}.logins", there.display())).unwrap().lines().count();
+    let launch = crate::fleet::remote::ProfileReads::hold();
+    Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
+    let before = logged();
+    Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
+    assert_eq!(logged() - before, 1, "a launch's second host spec read its profile files on the build host again, an ssh round trip each, where only the runtime link is asked once more");
+    drop(launch);
     let refusal = || Claude.host(&account, &worker, Opening::Fresh(None), "orders").err().map(|error| error.to_string()).unwrap_or_default();
     let hooks = || crate::fleet::remote::HooksCheck::start(std::sync::Arc::new(Claude), &account, worker.machine.as_ref()).verdict().unwrap();
     let named = "/home/agent/.local/state/north/profiles/claude-e/settings.json on cpx62 as agent@cpx62";

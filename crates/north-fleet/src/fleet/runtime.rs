@@ -12,6 +12,7 @@ use super::roster::Roster;
 use super::turns::TurnSignal;
 
 /// What a profile file holds where a session would run, as a launch check sees it: its text, nothing there, or a machine that did not answer, which the launch itself reports.
+#[derive(Clone)]
 pub enum Seen {
     Text(String),
     Absent,
