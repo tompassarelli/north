@@ -62,3 +62,31 @@ mod stray_tests;
 mod unpushed_tests;
 #[cfg(test)]
 mod verdict_tests;
+
+#[cfg(test)]
+const TEST_NOW_SECS: u64 = 4_102_444_800;
+
+#[cfg(test)]
+pub(crate) fn test_now() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(TEST_NOW_SECS)
+}
+
+#[cfg(test)]
+pub(crate) fn test_now_ms() -> i64 {
+    i64::try_from(TEST_NOW_SECS * 1000).unwrap()
+}
+
+#[cfg(test)]
+pub(crate) fn touched_at(tree: &std::path::Path, at: std::time::SystemTime) {
+    let admin = std::path::PathBuf::from(north_base::test_inputs::git::git_in(tree, &["rev-parse", "--path-format=absolute", "--git-dir"]));
+    for touched in [tree.to_path_buf(), admin.join("HEAD"), admin.join("index")] {
+        if touched.exists() {
+            std::fs::File::open(&touched).unwrap().set_modified(at).unwrap();
+        }
+    }
+    for entry in std::fs::read_dir(tree).unwrap().flatten().filter(|entry| entry.file_name() != ".git") {
+        if entry.path().is_file() {
+            std::fs::File::options().write(true).open(entry.path()).unwrap().set_modified(at).unwrap();
+        }
+    }
+}

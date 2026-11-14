@@ -1,6 +1,7 @@
 use std::fs;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
+use super::super::test_now;
 use super::scratch::{drop_scratch_target, scratch_targets};
 use super::targets::BuildTarget;
 
@@ -21,9 +22,13 @@ fn an_idle_unheld_cargo_target_in_scratch_space_is_dropped_and_nothing_else_is()
     assert_eq!(targets, vec![scratch.join("checkout/target"), scratch.join("clippy-target")], "only directories cargo tagged as its target");
 
     let idle = Duration::from_secs(3 * 3600);
-    let later = SystemTime::now() + 2 * idle;
+    let now = test_now();
     let target = &targets[1];
-    assert_eq!(drop_scratch_target(target, &[], SystemTime::now(), idle, false), BuildTarget::InUse, "a target built within the idle window stays");
+    for built in [target.clone(), target.join("debug"), target.join("debug/deps")] {
+        fs::File::open(built).unwrap().set_modified(now - Duration::from_secs(3600)).unwrap();
+    }
+    let later = now + 2 * idle;
+    assert_eq!(drop_scratch_target(target, &[], now, idle, false), BuildTarget::InUse, "a target built within the idle window stays");
     assert_eq!(drop_scratch_target(target, &[target.join("debug/.cargo-lock")], later, idle, false), BuildTarget::InUse, "a target a process holds open stays");
     assert!(matches!(drop_scratch_target(target, &[], later, idle, true), BuildTarget::Dropped(bytes) if bytes >= 64 * 1024));
     assert!(target.exists(), "a dry run removes nothing");

@@ -1,13 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
-use std::time::{Duration, SystemTime};
+use std::process::Command;
+use std::time::Duration;
 
 use north_base::platform::git;
 use super::reap::{Counts, Sweep, disposable};
+use super::test_now;
 use north_base::test_inputs::git::{git_in, init_repo};
 
 const AGED: Duration = Duration::from_secs(3 * 3600);
+const FRESH: Duration = Duration::from_secs(60);
 
 pub(super) struct Container {
     root: tempfile::TempDir,
@@ -18,6 +20,7 @@ impl Container {
         let root = tempfile::tempdir().unwrap();
         let container = Self { root };
         init_repo(&container.main(), None);
+        fs::create_dir_all(container.proc_root()).unwrap();
         fs::write(container.main().join(".gitignore"), "docs/private/\n.direnv/\nresult\nresult-*\n").unwrap();
         git_in(&container.main(), &["add", ".gitignore"]);
         git_in(&container.main(), &["commit", "-qm", "ignores"]);
@@ -32,6 +35,22 @@ impl Container {
         self.root.path().canonicalize().unwrap().join("main")
     }
 
+    pub(super) fn proc_root(&self) -> PathBuf {
+        self.path().join("proc")
+    }
+
+    pub(super) fn running_in(&self, pid: u32, lane: &Path) {
+        let process = self.proc_root().join(pid.to_string());
+        fs::create_dir_all(&process).unwrap();
+        std::os::unix::fs::symlink(lane, process.join("cwd")).unwrap();
+    }
+
+    pub(super) fn exited(&self, pid: u32) {
+        let process = self.proc_root().join(pid.to_string());
+        fs::remove_file(process.join("cwd")).unwrap();
+        fs::remove_dir(process).unwrap();
+    }
+
     pub(super) fn lane(&self, name: &str) -> PathBuf {
         self.path().join("worktrees").join(name)
     }
@@ -39,9 +58,7 @@ impl Container {
     pub(super) fn add(&self, name: &str, aged: bool) -> PathBuf {
         let lane = self.lane(name);
         git_in(&self.main(), &["worktree", "add", "-q", "-b", name, lane.to_str().unwrap(), "main"]);
-        if aged {
-            age(&lane);
-        }
+        created(&lane, if aged { AGED } else { FRESH });
         lane
     }
 
@@ -67,15 +84,19 @@ impl Container {
     }
 
     fn sweep(&self, dry_run: bool) -> (Vec<String>, Counts) {
-        let sweep = Sweep { dry_run, minimum_age: 7200, only: None, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), state: self.path().join("state") };
+        let sweep = Sweep { dry_run, minimum_age: 7200, only: None, now: test_now(), proc_root: self.proc_root(), state: self.path().join("state") };
         let (report, failure) = sweep.reap_containers(&[self.path()]);
         assert_eq!(failure, None);
         (report.lines, report.counts)
     }
 }
 
+fn created(lane: &Path, ago: Duration) {
+    fs::File::options().write(true).open(lane.join(".git")).unwrap().set_modified(test_now() - ago).unwrap();
+}
+
 fn age(lane: &Path) {
-    fs::File::options().write(true).open(lane.join(".git")).unwrap().set_modified(SystemTime::now() - AGED).unwrap();
+    created(lane, AGED);
 }
 
 fn evil_merge_lane(container: &Container) -> PathBuf {
@@ -158,11 +179,9 @@ fn a_landed_lane_leaves_no_cargo_target() {
     fs::create_dir_all(lane.join("target/debug")).unwrap();
     fs::write(lane.join("target/debug/out"), vec![7u8; 64 * 1024]).unwrap();
     fs::write(container.main().join(".git/info/exclude"), "target/\n").unwrap();
-    let mut live: Child = Command::new("sleep").arg("60").current_dir(&lane).spawn().unwrap();
+    container.running_in(4001, &lane);
 
     let (lines, counts) = container.sweep(false);
-    live.kill().unwrap();
-    live.wait().unwrap();
 
     assert!(lane.is_dir() && branch_exists(&container, "landed-live"), "a process inside keeps the lane: {lines:#?}");
     assert!(!lane.join("target").exists(), "a landed lane leaves no cargo target: {lines:#?}");
@@ -179,7 +198,7 @@ fn a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape() {
     container.add("merged-locked", true);
     git_in(&container.main(), &["worktree", "lock", container.lane("merged-locked").to_str().unwrap()]);
     let live_lane = container.add("merged-live", true);
-    let mut live: Child = Command::new("sleep").arg("60").current_dir(&live_lane).spawn().unwrap();
+    container.running_in(4002, &live_lane);
 
     let equiv = container.add("equiv-aged", false);
     container.commit_in(&equiv, "equiv-aged.txt");
@@ -224,8 +243,7 @@ fn a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape() {
     let (dry_lines, _) = container.sweep(true);
     assert!(container.lane("merged-aged").is_dir() && container.lane("equiv-aged").is_dir(), "dry run must change nothing");
     let (lines, counts) = container.sweep(false);
-    live.kill().unwrap();
-    live.wait().unwrap();
+    container.exited(4002);
 
     for kept in ["merged-fresh", "rescue-merged", "merged-locked", "merged-live", "dirty", "untracked", "unmerged", "equiv-ignored", "tag-shadow", "merge-lane"] {
         assert!(container.lane(kept).is_dir() && branch_exists(&container, kept), "{kept} must be kept");

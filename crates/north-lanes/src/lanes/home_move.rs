@@ -45,7 +45,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("home move: HOME is not set");
         return 1;
     };
-    let (done, failed) = apply(&plan, &home, dry_run, &References::load(&home));
+    let (done, failed) = apply(&plan, &home, dry_run, &References::load(&home, &References::system_dirs(), Path::new("/proc")));
     for line in &done {
         println!("{line}");
     }

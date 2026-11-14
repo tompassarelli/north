@@ -1,7 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-
 use super::rescue::{Finished, Rescue, apply_diff};
 use north_base::test_inputs::git::{git_in, init_repo};
 
@@ -29,7 +27,7 @@ impl Project {
     }
 
     fn rescue(&self, dry_run: bool) -> Finished {
-        Rescue { now: SystemTime::now(), apply_diff, archive_root: self.path().join("archive") }.rescue(&self.main(), dry_run)
+        Rescue { now: super::test_now(), apply_diff, archive_root: self.path().join("archive") }.rescue(&self.main(), dry_run)
     }
 
     fn lanes(&self) -> Vec<PathBuf> {
@@ -94,7 +92,7 @@ fn a_verification_mismatch_aborts_with_main_untouched() {
     fs::write(project.main().join("f.txt"), "base\ndirty\n").unwrap();
     let before = git_in(&project.main(), &["status", "--porcelain"]);
     let head = git_in(&project.main(), &["rev-parse", "HEAD"]);
-    let failed = Rescue { now: SystemTime::now(), apply_diff: skip_apply, archive_root: project.path().join("archive") }.rescue(&project.main(), false);
+    let failed = Rescue { now: super::test_now(), apply_diff: skip_apply, archive_root: project.path().join("archive") }.rescue(&project.main(), false);
     let Finished::Failed(lines) = failed else { panic!("a corrupted copy must abort") };
     assert!(lines.iter().any(|line| line.contains("VERIFY MISMATCH: f.txt")), "{lines:?}");
     assert_eq!(git_in(&project.main(), &["status", "--porcelain"]), before);

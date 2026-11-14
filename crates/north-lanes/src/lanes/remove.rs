@@ -92,8 +92,8 @@ fn report(subject: &str, outcome: Result<String, String>, code: &mut u8) {
 
 fn settle(lane: &Path, verdict: Option<&str>, home: &Path, state: &Path) -> Result<String, String> {
     match verdict {
-        Some(verdict) => reject(lane, verdict, &land_queue::queues(state), &home.join("archive/lanes"), Timestamp::now().unix_millis()),
-        None => remove(lane, state),
+        Some(verdict) => reject(lane, verdict, &land_queue::queues(state), &home.join("archive/lanes"), Timestamp::now().unix_millis(), Path::new("/proc")),
+        None => remove(lane, state, Path::new("/proc"), SystemTime::now()),
     }
 }
 
@@ -103,7 +103,7 @@ fn settle_branch(branch: &str, verdict: &str, home: &Path) -> Result<String, Str
     reject_branch(&container, branch, verdict, &home.join("archive/lanes"), Timestamp::now().unix_millis())
 }
 
-pub(super) fn remove(lane: &Path, state: &Path) -> Result<String, String> {
+pub(super) fn remove(lane: &Path, state: &Path, proc_root: &Path, now: SystemTime) -> Result<String, String> {
     if !lane.is_absolute() {
         return Err("name it by its absolute path".to_owned());
     }
@@ -113,7 +113,7 @@ pub(super) fn remove(lane: &Path, state: &Path) -> Result<String, String> {
     }
     let container = lane.parent().filter(|parent| parent.file_name().is_some_and(|name| name == "worktrees")).and_then(Path::parent).ok_or("not a directory directly under a project's worktrees/")?;
     if let Some(nested) = nested_shell::real_main(container) {
-        return nested_shell::remove(nested, lane);
+        return nested_shell::remove(nested, lane, proc_root);
     }
     let main = container.join("main");
     if !main.join(".git").exists() || find_container(lane) != Some(container.to_path_buf()) || is_lander_tree(lane) {
@@ -121,7 +121,7 @@ pub(super) fn remove(lane: &Path, state: &Path) -> Result<String, String> {
     }
     let listing = git_out(&main, &["worktree", "list", "--porcelain"]).unwrap_or_default();
     if listing.lines().filter_map(|line| line.strip_prefix("worktree ")).any(|path| Path::new(path) == lane) {
-        let sweep = Sweep { dry_run: false, minimum_age: 0, only: Some(lane.to_path_buf()), now: SystemTime::now(), proc_root: PathBuf::from("/proc"), state: state.to_path_buf() };
+        let sweep = Sweep { dry_run: false, minimum_age: 0, only: Some(lane.to_path_buf()), now, proc_root: proc_root.to_path_buf(), state: state.to_path_buf() };
         let (report, failure) = sweep.reap_containers(&[container.to_path_buf()]);
         return match failure {
             Some(message) => Err(message),
@@ -129,6 +129,6 @@ pub(super) fn remove(lane: &Path, state: &Path) -> Result<String, String> {
             None => Err(report.lines.join("; ")),
         };
     }
-    orphan::remove(&main, lane, &land_queue::queues(state))
+    orphan::remove(&main, lane, &land_queue::queues(state), proc_root)
 }
 

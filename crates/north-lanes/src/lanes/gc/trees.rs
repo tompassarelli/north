@@ -7,9 +7,9 @@ use north_base::foundation::clock::Timestamp;
 
 const DAY_MS: i64 = 86_400_000;
 
-pub(super) fn scan(root: &Path, now_ms: i64) -> Trees {
+pub(super) fn scan(root: &Path, now_ms: i64, proc_root: &Path) -> Trees {
     let mut trees = Trees { ok: true, branches: Default::default() };
-    if scan_into(root, now_ms, &mut trees).is_err() {
+    if scan_into(root, now_ms, proc_root, &mut trees).is_err() {
         trees.ok = false;
     }
     trees
@@ -29,8 +29,8 @@ fn checked(dir: &Path, args: &[&str]) -> Result<String, ()> {
     if ran.ok { Ok(ran.out) } else { Err(()) }
 }
 
-fn scan_into(root: &Path, now_ms: i64, trees: &mut Trees) -> Result<(), ()> {
-    let live = open_paths(Path::new("/proc"));
+fn scan_into(root: &Path, now_ms: i64, proc_root: &Path, trees: &mut Trees) -> Result<(), ()> {
+    let live = open_paths(proc_root);
     let cutoff = Timestamp::from_unix_millis(now_ms - DAY_MS).iso_millis();
     for container in std::fs::read_dir(root).map_err(|_| ())?.flatten().map(|entry| entry.path()) {
         let (main, lanes) = (container.join("main"), container.join("worktrees"));

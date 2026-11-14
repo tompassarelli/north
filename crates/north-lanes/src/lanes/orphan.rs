@@ -6,7 +6,7 @@ use north_base::platform::land_queue;
 
 use super::live_process;
 
-pub(super) fn remove(main: &Path, lane: &Path, queues: &Path) -> Result<String, String> {
+pub(super) fn remove(main: &Path, lane: &Path, queues: &Path, proc_root: &Path) -> Result<String, String> {
     if std::fs::read_dir(lane).map_err(|error| error.to_string())?.next().is_none() {
         std::fs::remove_dir(lane).map_err(|error| format!("cannot delete it: {error}"))?;
         return Ok(format!("removed: {} (empty)", lane.display()));
@@ -21,7 +21,7 @@ pub(super) fn remove(main: &Path, lane: &Path, queues: &Path) -> Result<String, 
         Err(_) if lane.join(".git").exists() => return Err("its .git is a directory, so it is a clone, not a worktree".to_owned()),
         Err(_) => {}
     }
-    if live_process::has_cwd_inside(Path::new("/proc"), lane) {
+    if live_process::has_cwd_inside(proc_root, lane) {
         return Err("a live process has its cwd inside".to_owned());
     }
     if !land_queue::waiting_on(queues, &land_queue::local_host(), lane).is_empty() {

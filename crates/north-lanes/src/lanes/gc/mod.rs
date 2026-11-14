@@ -137,7 +137,7 @@ fn parse(arguments: &[String], home: &Path) -> Parsed {
             "--scan-trees" => {
                 let root = trees::expand(&value(), home);
                 let at = value().parse().unwrap_or_else(|_| now_ms());
-                println!("{}", serde_json::to_string(&trees::scan(&root, at)).unwrap_or_default());
+                println!("{}", serde_json::to_string(&trees::scan(&root, at, Path::new("/proc"))).unwrap_or_default());
                 return Parsed::Exit(0);
             }
             "-h" | "--help" => {
@@ -222,9 +222,9 @@ pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
     let hosts = if known {
         Hosts { laptop: Default::default(), nexus: Trees { ok: true, ..Trees::default() }, on_nexus: false }
     } else if host::name() == "nexus" {
-        Hosts { laptop: Default::default(), nexus: trees::scan(&options.root, now_ms), on_nexus: true }
+        Hosts { laptop: Default::default(), nexus: trees::scan(&options.root, now_ms, &proc_root), on_nexus: true }
     } else {
-        Hosts { laptop: trees::scan(&options.root, now_ms), nexus: trees::scan_remote(now_ms), on_nexus: false }
+        Hosts { laptop: trees::scan(&options.root, now_ms, &proc_root), nexus: trees::scan_remote(now_ms), on_nexus: false }
     };
     let remote_due = options.remote || remote_swept_at(&options.state).is_none_or(|at| now_ms - at >= REMOTE_EVERY_MS);
     let mut gc = Gc {

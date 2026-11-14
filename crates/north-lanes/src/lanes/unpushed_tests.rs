@@ -1,5 +1,4 @@
 use std::fs;
-use std::time::SystemTime;
 
 use super::rescue::{Finished, Rescue, apply_diff};
 use north_base::test_inputs::git::{git_in, init_repo};
@@ -33,7 +32,7 @@ fn a_clean_main_ahead_of_origin_keeps_its_commits_on_a_keep_branch_and_resets() 
     let local = git_in(&main, &["rev-parse", "HEAD"]);
     let rescue = || {
         Rescue {
-            now: SystemTime::now(),
+            now: super::test_now(),
             apply_diff,
             archive_root: base.join("archive"),
         }

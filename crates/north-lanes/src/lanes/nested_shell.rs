@@ -8,7 +8,7 @@ pub(super) fn real_main(container: &Path) -> Option<&Path> {
     (main.parent()?.file_name() == container.file_name()).then_some(main)
 }
 
-pub(super) fn remove(main: &Path, lane: &Path) -> Result<String, String> {
+pub(super) fn remove(main: &Path, lane: &Path, proc_root: &Path) -> Result<String, String> {
     let listing = git_out(main, &["worktree", "list", "--porcelain"]).unwrap_or_default();
     if !listing.lines().filter_map(|line| line.strip_prefix("worktree ")).any(|path| Path::new(path) == lane) {
         return Err("a nested lane git does not register".to_owned());
@@ -17,7 +17,7 @@ pub(super) fn remove(main: &Path, lane: &Path) -> Result<String, String> {
     if entries.next().is_none_or(|name| name != ".git") || entries.next().is_some() {
         return Err(format!("it sits inside the main checkout and holds files; move it with `git -C {} worktree move {} /home/tom/code/PROJECT/worktrees/NAME`", main.display(), lane.display()));
     }
-    if live_process::has_cwd_inside(Path::new("/proc"), lane) {
+    if live_process::has_cwd_inside(proc_root, lane) {
         return Err("a live process has its cwd inside".to_owned());
     }
     let lane_text = lane.to_string_lossy();

@@ -17,7 +17,7 @@ struct Found {
     tip: String,
 }
 
-pub(super) fn reject(lane: &Path, verdict: &str, queues: &Path, archive_root: &Path, now_ms: i64) -> Result<String, String> {
+pub(super) fn reject(lane: &Path, verdict: &str, queues: &Path, archive_root: &Path, now_ms: i64, proc_root: &Path) -> Result<String, String> {
     let verdict = verdict_text(verdict)?;
     let (container, main) = place(lane)?;
     if !land_queue::waiting_on(queues, &land_queue::local_host(), lane).is_empty() {
@@ -27,14 +27,14 @@ pub(super) fn reject(lane: &Path, verdict: &str, queues: &Path, archive_root: &P
     if let Some(first) = irreplaceable_ignored(lane).first() {
         return Err(format!("it holds ignored files beyond build output ({first})"));
     }
-    if live_process::has_cwd_inside(Path::new("/proc"), lane) {
+    if live_process::has_cwd_inside(proc_root, lane) {
         lane_rejection::record(&main, &found.branch, &verdict)?;
         return Ok(format!("recorded: {} is rejected ({verdict}); a live process works in it, so north lane gc archives it once nothing holds it", lane.display()));
     }
     let worktree = found.registered.then_some(lane);
     let file = bundle(&container, &main, &found, worktree, &verdict, archive_root, now_ms)?;
     if lane.exists() {
-        orphan::remove(&main, lane, queues).map_err(|reason| format!("bundled to {}, but kept the directory: {reason}", file.display()))?;
+        orphan::remove(&main, lane, queues, proc_root).map_err(|reason| format!("bundled to {}, but kept the directory: {reason}", file.display()))?;
     }
     Ok(format!("archived: {} to {} (rejected: {verdict})", lane.display(), file.display()))
 }

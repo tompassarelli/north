@@ -13,21 +13,19 @@ pub(crate) struct References {
 }
 
 impl References {
-    pub(super) fn load(home: &Path) -> Self {
+    pub(super) fn system_dirs() -> Vec<PathBuf> {
+        let uid = rustix::process::getuid().as_raw();
+        ["/etc/systemd/user", "/etc/systemd/system", "/run/systemd/system"].into_iter().map(PathBuf::from).chain([PathBuf::from(format!("/run/user/{uid}/systemd/user"))]).collect()
+    }
+
+    pub(super) fn load(home: &Path, system_dirs: &[PathBuf], proc_root: &Path) -> Self {
         let mut texts = Vec::new();
         read_tree(&home.join(".config"), &mut texts, 0);
-        let uid = rustix::process::getuid().as_raw();
-        let user = format!("/run/user/{uid}/systemd/user");
-        for directory in [
-            "/etc/systemd/user",
-            "/etc/systemd/system",
-            "/run/systemd/system",
-            user.as_str(),
-        ] {
-            read_tree(Path::new(directory), &mut texts, 0);
+        for directory in system_dirs {
+            read_tree(directory, &mut texts, 0);
         }
         let mut live = Vec::new();
-        for process in processes(Path::new("/proc")) {
+        for process in processes(proc_root) {
             if let Ok(bytes) = fs::read(process.join("cmdline")) {
                 texts.push(String::from_utf8_lossy(&bytes).replace('\0', " "));
             }

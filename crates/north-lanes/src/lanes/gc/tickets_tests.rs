@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use north_base::foundation::clock::Timestamp;
 use north_base::platform::land_queue;
 
+use super::super::{test_now, test_now_ms, touched_at};
 use super::{Inputs, run_in};
 use north_base::test_inputs::git::{git_in, init_repo};
 
@@ -48,9 +49,13 @@ fn a_lane_the_lander_squash_landed_from_this_host_is_retired_while_a_moved_or_di
     let (moved, dirty) = (&lanes[1].1.0, &lanes[2].1.0);
     commit(moved, "moved-c.txt", "after the ticket\n", "moved: more work after landing");
     fs::write(dirty.join("notes.txt"), "untracked work\n").unwrap();
+    for (name, (path, _)) in &lanes {
+        let hours_ago = if *name == "landed" { 10 } else { 1 };
+        touched_at(path, test_now() - Duration::from_secs(hours_ago * 3600));
+    }
     fs::create_dir_all(home.join("proc")).unwrap();
 
-    let inputs = Inputs { fleet: Some(Vec::new()), now_ms: Timestamp::now().unix_millis() + 10 * 3_600_000, stale: home.join("stale.json"), proc_root: home.join("proc") };
+    let inputs = Inputs { fleet: Some(Vec::new()), now_ms: test_now_ms(), stale: home.join("stale.json"), proc_root: home.join("proc") };
     let arguments = ["--root", home.join("code").to_str().unwrap(), "--archive", home.join("archive").to_str().unwrap()].map(str::to_owned);
     assert_eq!(run_in(&home, inputs, &arguments), 0);
 

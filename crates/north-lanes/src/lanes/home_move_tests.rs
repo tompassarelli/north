@@ -261,7 +261,7 @@ fn a_config_under_dot_config_is_read_by_the_live_reference_loader_north_992() {
     )
     .unwrap();
 
-    let references = References::load(home);
+    let references = References::load(home, &[], &home.join("proc"));
 
     assert!(references.names(&home.join("books"), home));
     assert!(!references.names(&home.join("notes"), home));
