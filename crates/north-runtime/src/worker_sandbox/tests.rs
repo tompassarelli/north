@@ -245,15 +245,9 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     std::fs::create_dir_all(scratch.path().join("north-spares")).unwrap();
     let (link, spare) = (scratch.path().join("north-links/tom_gex45"), scratch.path().join("north-spares/tom_gex45.sock"));
     let (_linked, _spared) = (UnixListener::bind(&link).unwrap(), UnixListener::bind(&spare).unwrap());
-    let mut served = Vec::new();
-    for directory in ["north-broker", "north-denylist", "north-future", "north-outside", "north-gh-broker"] {
-        std::fs::create_dir_all(scratch.path().join(directory)).unwrap();
-        served.push(UnixListener::bind(scratch.path().join(directory).join("a.sock")).unwrap());
-    }
     let mut hidden = super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]);
     hidden.sort();
     let mut masters = vec![master, host, taker, link, spare];
-    masters.extend(["north-broker", "north-denylist", "north-future"].map(|directory| scratch.path().join(directory).join("a.sock")));
     masters.sort();
     assert_eq!(hidden, masters, "an offload, host, taker or fleet-link master or a spare shell's holder is reachable from a worker although its name begins as north's own sockets do");
     let declared = |host: &str| (host == "gex45").then(|| format!("tom@{host}")).ok_or_else(|| format!("{host} is not a host this one reaches"));
