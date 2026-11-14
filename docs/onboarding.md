@@ -136,7 +136,7 @@ repository nor the machine configuration. Once the check above passes, [briefing
 
 Setup names the step that failed and what to do. A failed clone or build prints the git or cargo
 output that names the cause. A failed `verify-north` prints a `FAIL` line naming its step and cause and
-keeps its evidence under `~/.local/state/north/verify-north/failed/<stamp>/`; when Claude Code has no
-login, the first `step 0` line says to run `claude`, finish its sign-in and quit. Run the same command
+keeps its evidence under `~/.local/state/north/verify-north/failed/<stamp>/`. When Claude Code has no
+login, setup stops after the build with a line that says to run `claude`, finish its sign-in and quit. Run the same command
 again after fixing the cause: it reuses the checkout, the build and the profile, and verify-north
 creates a fresh scratch world each time and never reuses a lane or a ledger.

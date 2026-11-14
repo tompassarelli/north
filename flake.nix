@@ -77,6 +77,10 @@
                       cd "$checkout"
                       say "2/3 build north and verify-north; the first build downloads the toolchain and takes minutes"
                       nix develop -c cargo build --locked --bin north --bin verify-north || fail "the build" "the cargo output above names the cause; run this again after fixing it"
+                      login="$HOME/.claude/.credentials.json"
+                      if [ ! -f "$HOME/.local/state/north/profiles/claude-main/.credentials.json" ] && [ ! -f "$login" ]; then
+                        fail "the Claude sign-in check" "Claude Code is not signed in, so $login is missing; run claude, finish its sign-in and quit, then run this again"
+                      fi
                       say "3/3 make the claude-main account from Claude Code's login and have a worker land one change"
                       target/debug/verify-north --north "$checkout/target/debug/north" --claude-account main --from-claude-login || fail "verify-north" "its FAIL line above names the step and the cause; run this again after fixing it"
                       say "done: a worker's change landed; run $checkout/target/debug/north to open the fleet screen"
