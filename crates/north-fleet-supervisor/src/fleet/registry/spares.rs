@@ -4,6 +4,7 @@ use std::thread::ScopedJoinHandle;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Predicted, Role, SessionRecord};
+use crate::fleet::hops;
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid};
 use crate::fleet::spares::{self, Place, Taken};
 
@@ -13,12 +14,13 @@ impl Fleet {
     /// A spare on the request's build host whose spec is the one this launch would start, taken and bound to the launch's name; None for any launch a spare cannot serve, and when none fits.
     pub(super) fn take_spare(&self, request: &LaunchRequest, account: &Account, runtime: &dyn Runtime, effort: Option<Effort>) -> Option<Taken> {
         let machine = request.machine.as_ref().filter(|_| request.role() == Role::Worker && request.resume.is_none())?;
-        let fingerprint = spares::fingerprint(&self.worker_spec(request, account, runtime, effort, &new_uuid().ok()?).ok()?, spares::current_runtime().as_deref());
+        let spec = hops::timed("spare fingerprint", || self.worker_spec(request, account, runtime, effort, &new_uuid().ok()?).ok())?;
+        let fingerprint = spares::fingerprint(&spec, spares::current_runtime().as_deref());
         if !std::fs::read_to_string(self.spares_hint(machine, &fingerprint)).is_ok_and(|count| count.trim() != "0") {
             return None;
         }
         let (ssh, home) = (binary("ssh"), home()?);
-        spares::take(&Place { ssh: &ssh, machine, home: &home }, &fingerprint, &request.name, &request.cwd, &spares::binding(&request.name, request.capacity_need.as_deref()))
+        hops::timed("spare take ssh", || spares::take(&Place { ssh: &ssh, machine, home: &home }, &fingerprint, &request.name, &request.cwd, &spares::binding(&request.name, request.capacity_need.as_deref())))
     }
 
     pub(super) fn release_spare(&self, machine: &Machine, taken: &Taken) {

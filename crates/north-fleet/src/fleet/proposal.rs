@@ -136,14 +136,14 @@ fn ask(kept: Option<&str>, session: &str, message: &str, cwd: &Path, north: &Pat
             let script = format!("cd {} || exit 1; {keep}{}", quote(&cwd.to_string_lossy()), finish(JUDGE_MESSAGE));
             let piped = format!("printf %s {} | sh -c {}", quote(message), quote(&script));
             if let Some(output) = north_ssh_spare::started(machine.session_login(), &piped) {
-                return said_first(output, || ());
+                return super::hops::timed("verdict over a held channel", || said_first(output, || ()));
             }
             let mut ssh = Command::new(super::runtime::binary("ssh"));
             ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             ssh
         }
     };
-    first_line(command, message)
+    super::hops::timed(if machine.is_some() { "verdict over a fresh ssh" } else { "verdict here" }, || first_line(command, message))
 }
 
 fn first_line(mut command: Command, input: &str) -> Option<String> {

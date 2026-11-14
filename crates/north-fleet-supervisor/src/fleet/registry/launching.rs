@@ -6,6 +6,7 @@ use std::thread::ScopedJoinHandle;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::file_prediction;
 use crate::fleet::{brief_files, brief_grounding, proposal};
+use crate::fleet::hops;
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
@@ -65,29 +66,29 @@ impl Fleet {
         let _reads = remote::ProfileReads::hold();
         let verification = self.admitted(request, claim)?;
         std::thread::scope(|prompting| {
-            let shown = prompting.spawn(|| first_prompt(request, verification));
+            let shown = prompting.spawn(|| hops::timed("first prompt", || first_prompt(request, verification)));
             self.launch_prompted(request, claim, session_dir, verification, shown)
         })
     }
 
     /// Launches `request` while `shown` builds its first prompt from the launch's own directory, which a spare's lane at the same commit reads alike; a lane a spare took over is removed once that prompt is built.
     fn launch_prompted(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path, verification: bool, shown: ScopedJoinHandle<'_, (String, Option<Predicted>)>) -> NorthResult<SessionRecord> {
-        let account = self.account(request)?;
+        let account = hops::timed("account", || self.account(request))?;
         let caller = north_base::platform::session_scope::reserve_caller();
         reserve::refusal(&reserve::declared(&self.policy), &account, request.role(), request.parent.as_deref(), caller.as_deref()).map_or(Ok(()), |line| Err(NorthError::Refused(line)))?;
         let runtime = self.runtimes.get(&request.provider)?;
-        let hooks = HooksCheck::start(runtime.clone(), &account, request.machine.as_ref());
+        let hooks = hops::timed("hooks check start", || HooksCheck::start(runtime.clone(), &account, request.machine.as_ref()));
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
             return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
         }
         let effort = efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort, &request.name)?;
         let conversation = match &request.resume {
             Some(kept) => Some(kept.clone()),
-            None => runtime.assign_conversation()?,
+            None => hops::timed("conversation", || runtime.assign_conversation())?,
         };
-        self.refuse_on_window(conversation.as_deref())?;
+        hops::timed("window check", || self.refuse_on_window(conversation.as_deref()))?;
         let tasks = crate::fleet::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
-        let spare = (claim == Claim::Fresh).then(|| self.take_spare(request, &account, runtime.as_ref(), effort)).flatten();
+        let spare = (claim == Claim::Fresh).then(|| hops::timed("spare take", || self.take_spare(request, &account, runtime.as_ref(), effort))).flatten();
         let conversation = spare.as_ref().map_or(conversation, |taken| Some(taken.conversation.clone()));
         let left = spare.as_ref().filter(|taken| taken.cwd != request.cwd).and(request.machine.clone()).map(|machine| (machine, request.cwd.clone()));
         let built = super::spares::built_then_left(shown, left);
@@ -357,10 +358,10 @@ fn first_prompt(request: &LaunchRequest, verification: bool) -> (String, Option<
         _ => request.prompt.clone(),
     };
     std::thread::scope(|scope| {
-        let verdict = scope.spawn(|| launch_verdict(request, verification));
-        let predicted = scope.spawn(|| if verification { None } else { file_prediction::section(&prompt, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary()) });
-        let grounded = scope.spawn(|| if verification || !grounding::carries_pack(arm) { None } else { brief_grounding::section(&brief, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary()) });
-        let shown = brief_files::shown(&prompt, &request.cwd, request.machine.as_ref());
+        let verdict = scope.spawn(|| hops::timed("verdict", || launch_verdict(request, verification)));
+        let predicted = scope.spawn(|| if verification { None } else { hops::timed("file prediction", || file_prediction::section(&prompt, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary())) });
+        let grounded = scope.spawn(|| if verification || !grounding::carries_pack(arm) { None } else { hops::timed("brief grounding", || brief_grounding::section(&brief, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary())) });
+        let shown = hops::timed("brief files", || brief_files::shown(&prompt, &request.cwd, request.machine.as_ref()));
         let (guess, record) = predicted.join().unwrap_or(None).map_or((None, None), |(section, predicted)| (section, Some(predicted)));
         let shown = guess.map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));
         let shown = grounded.join().unwrap_or(None).map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));

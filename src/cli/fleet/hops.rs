@@ -31,6 +31,9 @@ pub(super) fn run(fleet: &Fleet, names: &[&str]) -> NorthResult<()> {
         for launch in &found {
             let registered = Timestamp::from_unix_millis(i64::try_from(launch.registered_ms).unwrap_or(i64::MAX));
             println!("{} registered {}: {}", launch.session, registered.local_twelve_hour(), line(std::slice::from_ref(launch)));
+            if !launch.steps.is_empty() {
+                println!("  steps: {}", steps(launch));
+            }
         }
         all.extend(found);
     }
@@ -65,6 +68,14 @@ fn line(starts: &[Launch]) -> String {
         after.map_or_else(|| format!("{label} -"), |ms| format!("{label} +{ms} ms"))
     }));
     parts.join(", ")
+}
+
+/// Each timed step inside the launch command, as when it started after the launch call (else registration) and how long it ran.
+fn steps(launch: &Launch) -> String {
+    let from = launch.asked_ms.unwrap_or(launch.registered_ms);
+    let mut steps: Vec<_> = launch.steps.iter().collect();
+    steps.sort_by_key(|step| step.start_ms);
+    steps.iter().map(|step| format!("{} +{} ms for {} ms", step.step, step.start_ms.saturating_sub(from), step.end_ms.saturating_sub(step.start_ms))).collect::<Vec<_>>().join(", ")
 }
 
 fn label(hop: Hop) -> &'static str {

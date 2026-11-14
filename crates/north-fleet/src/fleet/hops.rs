@@ -11,6 +11,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,7 @@ use super::runtime::now_ms;
 const FILE: &str = "hops.jsonl";
 const ASKED_WITHIN_MS: u64 = 10 * 60 * 1000;
 const USER_HZ: f64 = 100.0;
+static STEPS: Mutex<Vec<Step>> = Mutex::new(Vec::new());
 /// The launch command's own hops, in the order they run between its start and registration.
 pub const COMMAND: [Hop; 5] = [Hop::Startup, Hop::Admission, Hop::Placement, Hop::Gating, Hop::Prelude];
 
@@ -60,6 +62,26 @@ pub struct Launch {
     pub client_ms: Option<u64>,
     pub prompt_ms: Option<u64>,
     pub response_ms: Option<u64>,
+    pub steps: Vec<Step>,
+}
+
+/// One timed step inside a launch command, such as its spare take or a part of its first prompt, which [`timed`] keeps and [`record_command`] writes to the trace beside the hops (north#1531).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Step {
+    pub session: String,
+    pub step: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+/// Runs `work` as the launch step `step` of this process, kept until [`record_command`] writes it to the launch's trace.
+pub fn timed<T>(step: &str, work: impl FnOnce() -> T) -> T {
+    let start_ms = now_ms();
+    let done = work();
+    if let Ok(mut steps) = STEPS.lock() {
+        steps.push(Step { session: String::new(), step: step.to_owned(), start_ms, end_ms: now_ms() });
+    }
+    done
 }
 
 pub fn trace_in(session_dir: &Path) -> PathBuf {
@@ -67,10 +89,7 @@ pub fn trace_in(session_dir: &Path) -> PathBuf {
 }
 
 pub fn record(trace: &Path, span: &Span) {
-    let appended = serde_json::to_string(span).map_err(std::io::Error::from).and_then(|line| OpenOptions::new().create(true).append(true).open(trace)?.write_all(format!("{line}\n").as_bytes()));
-    if let Err(error) = appended {
-        eprintln!("north fleet: {}'s launch trace {} took no span: {error}", span.session, trace.display());
-    }
+    append(trace, &span.session, span, "span");
 }
 
 /// Writes a launch command's own hops to `trace`: from its process's start to registration at `registered_ms`, and each step of [`COMMAND`] within that, which `marks` (entering the launch, placing, placed, launching) bound.
@@ -86,10 +105,22 @@ pub fn record_command(trace: &Path, session: &str, registered_ms: u64, marks: [u
             record(trace, &span(hop, start_ms, end_ms));
         }
     }
+    for step in STEPS.lock().map(|mut steps| std::mem::take(&mut *steps)).unwrap_or_default() {
+        append(trace, session, &Step { session: session.to_owned(), ..step }, "step");
+    }
+}
+
+fn append(trace: &Path, session: &str, line: &impl Serialize, kind: &str) {
+    let appended = serde_json::to_string(line).map_err(std::io::Error::from).and_then(|line| OpenOptions::new().create(true).append(true).open(trace)?.write_all(format!("{line}\n").as_bytes()));
+    if let Err(error) = appended {
+        eprintln!("north fleet: {session}'s launch trace {} took no {kind}: {error}", trace.display());
+    }
 }
 
 pub fn launches(trace: &Path) -> Vec<Launch> {
-    let spans: Vec<Span> = fs::read_to_string(trace).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let text = fs::read_to_string(trace).unwrap_or_default();
+    let spans: Vec<Span> = text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let steps: Vec<Step> = text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
     let mut starts: Vec<Launch> = spans
         .iter()
         .filter(|span| span.hop == Hop::SessionHost)
@@ -107,6 +138,8 @@ pub fn launches(trace: &Path) -> Vec<Launch> {
         let before = |hop: Hop| spans.iter().find(|span| span.hop == hop && span.end_ms <= launch.registered_ms && launch.registered_ms - span.end_ms < ASKED_WITHIN_MS);
         launch.asked_ms = before(Hop::Launch).map(|span| span.start_ms);
         launch.command = COMMAND.iter().filter_map(|&hop| before(hop).map(|span| (hop, span.end_ms.saturating_sub(span.start_ms)))).collect();
+        let from = launch.asked_ms.unwrap_or(launch.registered_ms.saturating_sub(ASKED_WITHIN_MS));
+        launch.steps = steps.iter().filter(|step| step.start_ms >= from && step.start_ms < next).cloned().collect();
     }
     starts
 }
