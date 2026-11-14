@@ -17,7 +17,11 @@ impl Fleet {
     }
 
     pub fn spend_of(&self, name: &str) -> NorthResult<Option<SessionSpend>> {
-        Ok(self.ledger.spend()?.into_iter().find(|spend| spend.session == name))
+        Ok(self.spend()?.into_iter().find(|spend| spend.session == name))
+    }
+
+    pub fn spend(&self) -> NorthResult<Vec<SessionSpend>> {
+        self.ledger.spend()
     }
 
     pub fn books_revision(&self) -> NorthResult<Option<Revision>> {

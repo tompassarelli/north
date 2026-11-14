@@ -154,6 +154,10 @@ pub trait Probe {
     fn note(&self, _session: &str, _wait: &Registered) -> Option<String> {
         None
     }
+
+    fn heard(&self, _session: &str, _wait: &Registered) -> bool {
+        true
+    }
 }
 
 const DIR: &str = ".waits";
@@ -223,6 +227,9 @@ impl Waits {
         for wait in waits {
             if wait.is_unregistered_detached() {
                 let _ = self.release(session, &wait.run);
+                continue;
+            }
+            if !probe.heard(session, &wait) {
                 continue;
             }
             if let Some(result) = probe.result(&wait) {

@@ -112,14 +112,19 @@ fn a_session_stopped_on_its_queued_lane_is_woken_once_when_the_lander_decides_it
 }
 
 #[test]
-fn a_session_that_stopped_before_the_lander_decided_is_woken_though_its_stream_index_is_built_after() {
+fn a_session_that_stopped_before_the_lander_decided_is_woken_though_its_stream_index_is_built_after_by_an_unchanged_tick_from_its_own_record() {
     let (home, state) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
     let worker = live(&fleet, "north-790-late");
     let stopped = now_ms() - 10 * MINUTE;
     let stream = fleet.root.join("north-790-late/g1/stream.jsonl");
     let event = serde_json::json!({"type": "assistant", "session_id": "north-790-late", "timestamp": north_base::foundation::clock::Timestamp::from_unix_millis(i64::try_from(stopped).unwrap()).iso(), "message": {"content": [{"type": "text", "text": "Stop: landing"}]}});
-    std::fs::write(&stream, format!("{event}\n{}\n", serde_json::json!({"type": "result", "subtype": "success", "session_id": "north-790-late"}))).unwrap();
+    std::fs::write(&stream, format!("{event}\n{}\n{}\n", serde_json::json!({"type": "result", "subtype": "success", "session_id": "north-790-late"}), serde_json::json!({"type": "result", "subtype": "success", "session_id": "claimant"}))).unwrap();
+    live(&fleet, "claimant");
+    let claimant = fleet.root.join("claimant/session.json");
+    let mut record: serde_json::Value = serde_json::from_slice(&std::fs::read(&claimant).unwrap()).unwrap();
+    record["host_dir"] = fleet.root.join("north-790-late").display().to_string().into();
+    std::fs::write(&claimant, record.to_string()).unwrap();
     let lane = queued(state.path(), "north-790-late", "guards", stopped - MINUTE);
     decided(&lane, "failed: the candidate's tests are red");
     fleet.follow_recent("north-790-late").unwrap();
@@ -129,6 +134,7 @@ fn a_session_that_stopped_before_the_lander_decided_is_woken_though_its_stream_i
 
     assert_eq!(woken, ["resumed north-790-late: the lander decided its lane"]);
     assert_eq!(worker.frames.lock().unwrap().len(), 1);
+    assert!(!fleet.root.join("north-790-late/g1/session-streams/claimant.jsonl").exists(), "indexing a session's own host dir read another session's record");
 }
 
 /// The 2026-11-07 stops that only needed a slot or a time: a worker whose build queued 900 s behind capacity and a worker

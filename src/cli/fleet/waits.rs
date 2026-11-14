@@ -198,7 +198,8 @@ fn settle_waits(fleet: &Fleet) -> Probed {
         fleet.send_signed(&Sender::fleet(), name, text, Delivery::Queued)
     };
     let exists = |name: &str| fleet.session(name).is_ok();
-    let told = fleet.waits().settle(&Runs::default(), &exists, &tell);
+    let unheard = fleet.waits().all().into_keys().filter(|name| fleet.session(name).is_ok_and(|record| record.phase() == Some(Phase::Stopped) || record.ended())).collect();
+    let told = fleet.waits().settle(&Runs { unheard, ..Runs::default() }, &exists, &tell);
     Probed { lines: told.iter().map(Settled::line).collect(), settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
 }
 
@@ -212,6 +213,7 @@ fn tell_tom(line: &str) -> Result<(), String> {
 
 #[derive(Default)]
 struct Runs {
+    unheard: std::collections::BTreeSet<String>,
     job_rows: OnceCell<Option<Value>>,
     observed: OnceCell<Observed>,
     lanes: OnceCell<std::collections::BTreeMap<String, Vec<crate::land_ticket::Lane>>>,
@@ -234,6 +236,10 @@ fn load_job_rows() -> Option<Value> {
 }
 
 impl Probe for Runs {
+    fn heard(&self, session: &str, wait: &Registered) -> bool {
+        matches!(wait.run, Run::Usage { .. }) || !self.unheard.contains(session)
+    }
+
     fn result(&self, wait: &Registered) -> Option<String> {
         match &wait.run {
             Run::Job { name, host } => job(self.job_rows(load_job_rows)?, name, host.as_deref(), wait.since_ms),

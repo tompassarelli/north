@@ -1,7 +1,7 @@
 //! Budget notices in `north fleet tick`: the fleet's workers become `Spending`, `usage::budget::judge` decides, and this
 //! applies it: events to `usage/budget.jsonl`, the next tick's state to `usage/budget.json`, tells to sessions, alerts
 //! to Tom.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -65,11 +65,12 @@ fn spendings(fleet: &Fleet, now_ms: u64) -> Vec<Spending> {
     let earlier = fleet.past_sessions().into_iter().filter(|record| !live_names.contains(&record.name) && box_of(record).is_some_and(|named| boxes.contains(&named)));
     let leads: BTreeSet<String> = live.iter().filter_map(|record| record.parent.clone()).collect();
     let pushes = landings::pushes(&landings::push_log());
-    let seen = |record: &SessionRecord, live: bool| spending(fleet, record, (live, &leads), &pushes, now_ms);
+    let spent: BTreeMap<String, f64> = fleet.spend().unwrap_or_default().into_iter().filter_map(|spend| Some((spend.session, spend.api_usd?))).collect();
+    let seen = |record: &SessionRecord, live: bool| spending(record, (live, &leads), (&pushes, &spent), now_ms);
     live.iter().map(|record| seen(record, true)).chain(earlier.map(|record| seen(&record, false))).flatten().collect()
 }
 
-fn spending(fleet: &Fleet, record: &SessionRecord, (live, leads): (bool, &BTreeSet<String>), pushes: &[Push], now_ms: u64) -> Option<Spending> {
+fn spending(record: &SessionRecord, (live, leads): (bool, &BTreeSet<String>), (pushes, spent): (&[Push], &BTreeMap<String, f64>), now_ms: u64) -> Option<Spending> {
     let role = record.role();
     let workstream = record.task_ref.clone()?;
     Some(Spending {
@@ -80,7 +81,7 @@ fn spending(fleet: &Fleet, record: &SessionRecord, (live, leads): (bool, &BTreeS
         lead: role == Role::Lead || leads.contains(&record.name),
         tom: role == Role::Proxy,
         live,
-        spent: fleet.spend_of(&record.name).ok().flatten().and_then(|spent| spent.api_usd),
+        spent: spent.get(&record.name).copied(),
         minutes: if live { now_ms.saturating_sub(record.created_ms) as f64 / 60_000.0 } else { 0.0 },
         estimate: record.budget.as_ref().map(|stated| Estimate { p50: stated.p50(), p90: stated.p90(), minutes: stated.minutes as f64 }),
         landed: landed_lanes(record, pushes, now_ms),

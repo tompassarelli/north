@@ -31,7 +31,12 @@ impl Fleet {
     }
 
     pub(super) fn stream_index(&self, record: &SessionRecord) -> NorthResult<(PathBuf, u64)> {
-        self.stream_index_among(record, || Ok(self.sessions()?.into_iter().filter(|session| session.host_dir == record.host_dir).collect()))
+        self.stream_index_among(record, || {
+            if record.host_dir == self.root.join(&record.name) {
+                return Ok(vec![record.clone()]);
+            }
+            Ok(self.sessions()?.into_iter().filter(|session| session.host_dir == record.host_dir).collect())
+        })
     }
 
     pub(super) fn stream_index_among(&self, record: &SessionRecord, siblings: impl FnOnce() -> NorthResult<Vec<SessionRecord>>) -> NorthResult<(PathBuf, u64)> {
