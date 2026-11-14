@@ -22,6 +22,7 @@ const VERDICT_NORTH: &str = r#"#!/bin/sh
 cache="$XDG_STATE_HOME/north/verdict-cache"
 case "$1 $2 $3 $4" in
   'capacity deadline '*) shift 5; exec "$@" ;;
+  'depbox check -- '*) shift 3; exec "$@" ;;
   'capacity offload verdict hit') shift 4; for key; do [ -f "$cache/$key" ] && printf '%s local %s\n' "$key" "$(cat "$cache/$key")"; done; exit 0 ;;
   'capacity offload verdict record') shift 4; while [ $# -gt 0 ]; do case "$1" in --key) key=$2; shift ;; --pass) pass=$2; shift ;; esac; shift; done; [ -z "$pass" ] || { mkdir -p "$cache" && echo "$(date +%s) $pass" > "$cache/$key"; }; exit 0 ;;
 esac

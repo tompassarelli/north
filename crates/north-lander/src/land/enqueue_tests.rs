@@ -66,7 +66,7 @@ impl Lane {
         run(&repo, &["switch", "-q", "-c", "lane"]);
         run(&repo, &["commit", "-q", "--allow-empty", "-m", "outgoing"]);
         let north = dir.path().join("north");
-        fs::write(&north, "#!/bin/sh\n[ \"$1\" = capacity ] && [ \"$2\" = deadline ] && [ \"$5\" = -- ] || { echo \"stand-in north refuses: $*\" >&2; exit 64; }\nshift 5\nexec \"$@\"\n").unwrap();
+        fs::write(&north, "#!/bin/sh\n[ \"$1 $2 $3\" = \"depbox check --\" ] && shift 3 && exec \"$@\"\n[ \"$1\" = capacity ] && [ \"$2\" = deadline ] && [ \"$5\" = -- ] || { echo \"stand-in north refuses: $*\" >&2; exit 64; }\nshift 5\nexec \"$@\"\n").unwrap();
         fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let north = north.to_string_lossy().into_owned();
         Self { dir, repo, base, queue_checks: crate::land::slots::runner::judge_queue_checks_until, north }
