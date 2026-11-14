@@ -38,21 +38,10 @@ fn buck2_passes_a_crate_only_on_cases_its_own_targets_record_and_fails_the_check
     let written = infrastructure_record("a52e364", "root//crates/north-lander:north-lander-test-it", remote, "passed", 7);
     assert_eq!(written[..6], ["ledger", "incident", "record", "--key", "remote-execution-infrastructure:a52e364:7", "--class"], "the attempt is written as an incident of its own class under its own key (north#1115)");
     assert!(written.last().is_some_and(|detail| detail.starts_with("head=a52e364 target=root//crates/north-lander:north-lander-test-it error=Remote Execution Error") && detail.ends_with("outcome=passed")), "the head, target, error text and outcome are the detail: {written:?}");
+    let deadline = [remote, "Error: (Error was returned on the stream by RE: Failed to run command: context deadline exceeded)", failed.as_str(), "1 TESTS FAILED", target].map(str::to_owned);
+    assert_eq!(remote_error(&deadline), None, "a deadline at the action's own test timeout is a red, not infrastructure (north#1115)");
+    assert_eq!(verdict(Some(32), Some(&failed), None, &owner, &BTreeSet::new(), remote_error(&deadline).is_some()), Verdict::Failed, "and it fails the check");
     let named = [remote, "FAIL [   0.154s] (3/9) north-lander tests::rejects_a_stale_lease", failed.as_str(), "1 TESTS FAILED", target].map(str::to_owned);
     assert_eq!(remote_error(&named), None, "a case the runner names as failed ran and failed, so it is never infrastructure and never run again (north#1115)");
     assert_eq!(verdict(Some(32), Some(&failed), None, &owner, &BTreeSet::new(), remote_error(&named).is_some()), Verdict::Failed, "a named red beside a remote execution error stays a red of the tree");
-}
-
-#[test]
-fn a_run_out_executor_deadline_on_a_whole_test_binary_with_no_case_named_or_timed_out_is_infrastructure_north_1419() {
-    let owner = |_: &str| None;
-    let summary = "Tests finished: Pass 66. Fail 1.";
-    let remote = "Remote Execution Error on Execute with digest 87983734:147 for ReSession GRPC-SESSION-ID";
-    let output = [remote, "Error: (Error was returned on the stream by RE: Failed to run command: context deadline exceeded)", summary, "1 TESTS FAILED", "  ✗ root//:north-test-it"].map(str::to_owned);
-    assert_eq!(remote_error(&output), Some(remote), "an action whose deadline ran out names no case and counts no timeout, so a slow executor is not a red of the tree (north#1419)");
-    assert_ne!(verdict(Some(32), Some(summary), None, &owner, &BTreeSet::new(), remote_error(&output).is_some()), Verdict::Failed, "and it does not fail the check");
-    let counted = "Tests finished: Pass 66. Fail 1. Timeout 1.";
-    let timed_out = [remote, "Error: (Error was returned on the stream by RE: Failed to run command: context deadline exceeded)", counted, "1 TESTS FAILED", "  ✗ root//:north-test-it"].map(str::to_owned);
-    assert_eq!(remote_error(&timed_out), None, "a case Buck2 counts as timed out stays a red (north#1419)");
-    assert_eq!(verdict(Some(32), Some(counted), None, &owner, &BTreeSet::new(), remote_error(&timed_out).is_some()), Verdict::Failed, "and it fails the check");
 }

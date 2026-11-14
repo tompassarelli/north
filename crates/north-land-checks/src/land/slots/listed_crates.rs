@@ -40,6 +40,8 @@ const NEXTEST_SUMMARY: &str = "Summary [";
 const FAILED: u8 = 1;
 /// The line Buck2 prints when a remote worker lost an action, before any test in it ran (north#1115).
 const REMOTE_EXECUTION_ERROR: &str = "Remote Execution Error";
+/// The end of an action whose deadline ran out, which is the test's own timeout and so a red, not infrastructure (north#1115).
+const DEADLINE_EXCEEDED: &str = "deadline exceeded";
 /// The incident class a remote worker's lost action is recorded under, apart from the lander's own classes (north#1115).
 const INFRASTRUCTURE_CLASS: &str = "remote-execution-infrastructure";
 /// The mark Buck2 puts before each target it counts as failed: `  ✗ root//crates/NAME:TARGET`.
@@ -121,12 +123,12 @@ fn verdict(status: Option<i32>, summary: Option<&str>, runs: Option<&[TestRun]>,
 }
 
 /// The first remote execution error in `output`, when Buck2 counts a failed target, no case of any test is named as
-/// failed and no test timeout is counted: a remote worker cancelled, lost or ran out the deadline of the action before a result, so the
-/// failure is infrastructure (north#1115, north#1419).
+/// failed and no deadline or test timeout ran out: a remote worker cancelled or lost the action before a result, so the
+/// failure is infrastructure (north#1115).
 fn remote_error(output: &[String]) -> Option<&str> {
     let error = output.iter().map(|line| line.trim()).find(|line| line.contains(REMOTE_EXECUTION_ERROR))?;
     let named = failures(&output.join("\n")).iter().any(|failure| matches!(failure, Failure::Cargo(_)));
-    let timed_out = output.iter().any(|line| line.contains(SUMMARY) && counted(line, "Timeout").is_some_and(|timeouts| timeouts > 0));
+    let timed_out = output.iter().any(|line| line.contains(DEADLINE_EXCEEDED) || (line.contains(SUMMARY) && counted(line, "Timeout").is_some_and(|timeouts| timeouts > 0)));
     (!named && !timed_out && !failed_targets(output).is_empty()).then_some(error)
 }
 
