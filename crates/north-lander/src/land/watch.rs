@@ -355,7 +355,7 @@ impl Watch {
             if let Some(host) = host {
                 self.hosts.release(&host);
             }
-            let found = search.join().unwrap_or(Found { culprits: Vec::new(), span: (epoch(), epoch()), superseded: false, cancelled_by: None, unreproduced: None });
+            let found = search.join().unwrap_or(Found { culprits: Vec::new(), span: (epoch(), epoch()), superseded: false, cancelled_by: None, unreproduced: None, walked_back: None });
             conclude(lander, &batch, &outcome, &found);
             settled = true;
         }
@@ -441,17 +441,17 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
     } else if let Some(again) = &found.unreproduced {
         unreproduced(lander, batch, outcome, again);
     } else if let Verdict::RedMain(detail) = &outcome.verdict {
-        blame_once(lander, batch, &found.culprits, detail, outcome);
+        blame_once(lander, batch, &found.culprits, found.walked_back.as_deref(), detail, outcome);
     }
     retire(lander, batch, "its culprit search ended");
 }
 
-fn blame_once(lander: &Lander, batch: &Batch, culprits: &[usize], detail: &str, outcome: &Outcome) {
+fn blame_once(lander: &Lander, batch: &Batch, culprits: &[usize], walked_back: Option<&str>, detail: &str, outcome: &Outcome) {
     let reverted = Reverted::under(&lander.queue);
     if reverted.holds(&batch.head) {
         println!("north land: the after-landing run of {} is red, and the revert queued at Buck2's red already answers it, so no lane is reverted again", batch.head);
     } else {
-        reverted.once(&batch.head, || culprits::blame(lander, batch, culprits, detail, outcome));
+        reverted.once(&batch.head, || culprits::blame(lander, batch, culprits, walked_back, detail, outcome));
     }
 }
 

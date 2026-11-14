@@ -342,8 +342,12 @@ so the new selection is `[gate.test-selection]` with `mode = "shadow"`:
   correct, and an extra p90 that keeps the alone check within the landing p90 target.
 - The guard floor and its rename check run in the same shadow as rule 3. Blame's exact-test probes enforce at once,
   since they only add checks before a revert that already happens. Its walk-back revert of an earlier lane is a new
-  revert, so it starts as `[gate.blame-walk-back]` in shadow, logging the lane it would revert to
-  `$XDG_STATE_HOME/north/gates/blame-walk-back.jsonl`, under the same review rule.
+  revert, so it started as `[gate.blame-walk-back]` in shadow, logging the lane it would revert to
+  `$XDG_STATE_HOME/north/gates/blame-walk-back.jsonl`. The 2026-11-14 review (north#1544) judged its 26 named lanes
+  against the sheriff's own verdicts: 21 right and 5 wrong, all 5 on reds that passed at the tip or that the sheriff
+  traced to another lane. It enforces only where the sheriff finds main broken with no lane since the green parent to
+  blame, and there it confirms the walked-back landing like any suspect (failing twice at the tip, passing twice
+  without it) before it reverts it, which no wrong row would have passed.
 
 ## Fit to the five invariants
 

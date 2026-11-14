@@ -70,6 +70,7 @@ pub struct Found {
     pub superseded: bool,
     pub cancelled_by: Option<String>,
     pub unreproduced: Option<PathBuf>,
+    pub walked_back: Option<String>,
 }
 
 /// An after-landing run's cancel record: set once, by the lander that supersedes the run, naming the landing whose
@@ -301,10 +302,10 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
             println!("north land: {} is a landed lane whose own range is red on a lane-scoped check of {}, which no other lane's tests or mutants enter", landed.lanes[at], landed.head);
         }
         if failing.is_empty() {
-            return Found { culprits: named, span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced: None };
+            return Found { culprits: named, span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced: None, walked_back: None };
         }
         let reproduced = at_the_tip(&landed, &run, &failing);
-        let stopped = |unreproduced| Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced };
+        let stopped = |unreproduced| Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced, walked_back: None };
         if run.superseded() {
             println!("north land: the culprit search of {} stopped because {} changed its check lines", landed.head, cancelled_by(&run));
             return stopped(None);
@@ -313,7 +314,7 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
             Ok(failing) => failing,
             Err(again) => return stopped(Some(again)),
         };
-        let mut culprits = locate(&landed, &run, &failing);
+        let (mut culprits, walked_back) = locate(&landed, &run, &failing);
         culprits.extend(named);
         culprits.sort_unstable();
         culprits.dedup();
@@ -325,7 +326,7 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
             let probed = run.at(&landed.head, &landed.tips[at]).log;
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], if probed.exists() { &probed } else { &run.log });
         }
-        Found { culprits, span: (started, telemetry::epoch()), superseded: false, cancelled_by: None, unreproduced: None }
+        Found { culprits, span: (started, telemetry::epoch()), superseded: false, cancelled_by: None, unreproduced: None, walked_back }
     })
 }
 
@@ -365,7 +366,7 @@ fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
 const WALK_BACK: usize = 16;
 const WALK_BACK_GATE: &str = "blame-walk-back";
 
-fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Vec<usize> {
+fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize>, Option<String>) {
     let lanes = landed.tips.len();
     let room = probe_slots::free_slots(&landed.repo).map_or(1, |(free, _)| free);
     let suspects = blame::ask(&landed.repo, &run.log, &landed.base, &landed.head, &landed.lanes, &landed.tips, room);
@@ -379,18 +380,19 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Vec<usize>
         let base = check(&landed.base);
         if !matches!(&base.verdict, Verdict::Green) {
             println!("north land: post-land checks of {} are red on their base {} on the failed tests, so no landed lane is blamed", landed.head, landed.base);
-            if matches!(&base.verdict, Verdict::RedMain(_)) {
-                walked_back(landed, room, &check, &earlier(), &gates, failing);
-            }
-            return Vec::new();
+            let walked = if matches!(&base.verdict, Verdict::RedMain(_)) { walked_back(landed, room, &check, &earlier(), &gates, failing) } else { None };
+            return (Vec::new(), walked);
         }
         blame::culprits(lanes, &suspects, &signatures, |counts| probed(landed, counts, &check))
     } else {
         None
     };
-    let culprits: Vec<usize> = match found {
-        Some(found) if !found.is_empty() => found,
-        _ => blamed(landed, room, &suspects, &check, earlier, &gates, failing).into_iter().collect(),
+    let (culprits, walked): (Vec<usize>, Option<String>) = match found {
+        Some(found) if !found.is_empty() => (found, None),
+        _ => {
+            let (lane, walked) = blamed(landed, room, &suspects, &check, earlier, &gates, failing);
+            (lane.into_iter().collect(), walked)
+        }
     };
     for &at in &culprits {
         println!("north land: {} is a landed lane whose prefix of {} is red", landed.lanes.get(at).map_or("?", String::as_str), landed.head);
@@ -398,34 +400,31 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Vec<usize>
     if culprits.is_empty() {
         println!("north land: post-land checks of {} are red, but the prefix search names no lane: main was already red at {} or a prefix reached no verdict", landed.head, landed.base);
     }
-    culprits
+    (culprits, walked)
 }
 
 /// Blames the first lane of `landed` red on the failed checks where its parent passes; a base red on them walks back
-/// over the landings before it, in shadow: the earlier lane it would revert goes to the `blame-walk-back` gate log.
-pub(super) fn blamed(landed: &Landed, room: usize, suspects: &blame::Suspects, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: impl Fn() -> Vec<String>, gates: &Path, failing: &BTreeSet<Failure>) -> Option<usize> {
+/// over the landings before it to the earlier landing red where its parent passes, which the sheriff confirms before it reverts it.
+pub(super) fn blamed(landed: &Landed, room: usize, suspects: &blame::Suspects, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: impl Fn() -> Vec<String>, gates: &Path, failing: &BTreeSet<Failure>) -> (Option<usize>, Option<String>) {
     let blame = blame::culprit(landed.tips.len(), room, suspects, |counts| probed(landed, counts, check).into_iter().map(|probe| probe.verdict).collect());
     match blame {
         blame::Blame::Lane(at) => {
             println!("north land: {} is the first landed lane of {} red on the failed checks where its parent passes them", landed.lanes.get(at).map_or("?", String::as_str), landed.head);
-            Some(at)
+            (Some(at), None)
         }
-        blame::Blame::BaseRed => {
-            walked_back(landed, room, check, &earlier(), gates, failing);
-            None
-        }
+        blame::Blame::BaseRed => (None, walked_back(landed, room, check, &earlier(), gates, failing)),
         blame::Blame::Unknown => {
             println!("north land: post-land checks of {} are red, but the prefix search reached no verdict", landed.head);
-            None
+            (None, None)
         }
     }
 }
 
-fn walked_back(landed: &Landed, room: usize, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: &[String], gates: &Path, failing: &BTreeSet<Failure>) {
+fn walked_back(landed: &Landed, room: usize, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: &[String], gates: &Path, failing: &BTreeSet<Failure>) -> Option<String> {
     let tree = |at: usize| if at == 0 { landed.base.as_str() } else { earlier[at - 1].as_str() };
-    let found = blame::walk_back(earlier.len(), room, |ats| checked(&ats.iter().map(|&at| tree(at)).collect::<Vec<_>>(), check).into_iter().map(|probe| probe.verdict).collect()).map(tree);
-    match found {
-        Some(commit) => println!("north land: main was already red at {} on the failed checks; walking back, {commit} is the first landing red where its parent passes, and in shadow it is logged, not reverted", landed.base),
+    let found = blame::walk_back(earlier.len(), room, |ats| checked(&ats.iter().map(|&at| tree(at)).collect::<Vec<_>>(), check).into_iter().map(|probe| probe.verdict).collect()).map(tree).map(str::to_owned);
+    match &found {
+        Some(commit) => println!("north land: main was already red at {} on the failed checks; walking back, {commit} is the first landing red where its parent passes, and the sheriff confirms it before it reverts it", landed.base),
         None => println!("north land: main was already red at {} on the failed checks, and walking back over {} earlier landings found none red where its parent passes", landed.base, earlier.len()),
     }
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
@@ -434,6 +433,7 @@ fn walked_back(landed: &Landed, room: usize, check: &(dyn Fn(&str) -> blame::Pro
     if let Err(error) = fs::OpenOptions::new().create(true).append(true).open(gates.join(format!("{WALK_BACK_GATE}.jsonl"))).and_then(|mut file| std::io::Write::write_all(&mut file, format!("{line}\n").as_bytes())) {
         eprintln!("north land: could not log the blame walk-back of {}: {error}", landed.head);
     }
+    found
 }
 
 fn probed(landed: &Landed, counts: &[usize], check: &(dyn Fn(&str) -> blame::Probe + Sync)) -> Vec<blame::Probe> {

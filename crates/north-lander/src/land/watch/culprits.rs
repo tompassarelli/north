@@ -13,9 +13,9 @@ use super::{Batch, LandedLane, short};
 const WORKTREE: &str = "lander-revert";
 const BUCK2_RED: &str = "Buck2 red";
 
-pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], detail: &str, outcome: &Outcome) -> bool {
+pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], walked_back: Option<&str>, detail: &str, outcome: &Outcome) -> bool {
     if culprits.is_empty() {
-        inherited(lander, &batch.head, detail, outcome);
+        inherited(lander, &batch.head, walked_back, detail, outcome);
         return false;
     }
     let (base, lanes) = (&batch.base, &batch.lanes);
@@ -72,8 +72,8 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
     }
 }
 
-fn inherited(lander: &Lander, head: &str, detail: &str, outcome: &Outcome) {
-    match sheriff::chase(lander, head, &outcome.failing, &outcome.log) {
+fn inherited(lander: &Lander, head: &str, walked_back: Option<&str>, detail: &str, outcome: &Outcome) {
+    match sheriff::chase(lander, head, walked_back, &outcome.failing, &outcome.log) {
         Ok(line) => println!("north land: sheriff: {line}"),
         Err(error) => {
             let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, and the sheriff could not be asked for the earlier one: {error}");
