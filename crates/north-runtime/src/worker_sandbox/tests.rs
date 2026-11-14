@@ -775,3 +775,13 @@ fn a_broker_on_a_socket_of_its_own_follows_the_runtime_its_canary_judges_and_the
     assert!(child.status.success(), "a broker whose socket cannot be listened on must not exit as if it served: {seen}");
     assert!(seen.contains("cannot listen"), "{seen}");
 }
+
+#[test]
+fn a_lead_with_no_task_is_confined_like_a_tasked_one() {
+    use north_base::platform::session_scope::{PROXY_ROLE, confined_role};
+    assert!(confined_role(Some("lead")), "a lead is confined whether or not it holds a task");
+    assert!(confined_role(Some("worker")), "a worker is confined whether or not it holds a task");
+    assert!(confined_role(Some("reviewer")), "a reviewer is confined whether or not it holds a task");
+    assert!(!confined_role(Some(PROXY_ROLE)), "the proxy seat drives windows and units");
+    assert!(!confined_role(None), "an adopted human window carries no launcher role");
+}

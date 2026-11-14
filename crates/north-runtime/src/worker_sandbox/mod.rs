@@ -169,7 +169,7 @@ fn hand_off(program: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
-/// A fleet worker, and a lead that holds a task (session_scope::confined_role, north#1137), is confined beyond the logins and build output once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706): its removal is confined and the sockets that start processes outside the domain are hidden (south#86). The proxy, a lead with no task and sessions started by hand keep both open, since they drive windows and units.
+/// Every launched fleet session but the proxy seat (session_scope::confined_role, north#1485) is confined beyond the logins and build output once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706): its removal is confined and the sockets that start processes outside the domain are hidden (south#86). The proxy seat and adopted human windows keep both open, since they drive windows and units.
 fn confines_worker() -> bool {
     let worker = north_base::platform::session_scope::confined_session();
     let applies = north_base::platform::harness::document("harness/gates.toml")["gate"]["worker-sandbox"]["mode"].as_str() == Some("enforce") || std::env::var_os("NORTH_WORKER_SANDBOX").is_some_and(|canary| canary == "1");

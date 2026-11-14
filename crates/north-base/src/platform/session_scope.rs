@@ -22,11 +22,11 @@ pub const LANE_ONLY: &str = "NORTH_WORKER_LANE_ONLY";
 /// Where under the state directory each fleet session has its own spool location, named after it: the one spool path the worker sandbox lets a worker write, and the one a worker's fleet commands write to.
 pub const SESSION_SPOOLS: &str = "north/fleet/spool/sessions";
 
-/// The role a fleet launcher gives a session's processes: `proxy`, `lead` or `worker`.
+/// The role a fleet launcher gives a session's processes: `proxy`, `lead`, `worker` or `reviewer`.
 pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 
-/// Set to `1` by the fleet launcher on a session that holds a task, so a lead launched for an issue is confined as a worker is (north#1137).
-pub const TASKED: &str = "NORTH_FLEET_TASKED";
+/// The one launcher role whose session keeps the domain open: the coordinator's seat, which drives windows and units.
+pub const PROXY_ROLE: &str = "proxy";
 
 /// The fleet session a request runs as, which the outside broker sets beside `PROVED` from the caller's own scope; a name without the proof is the client's word.
 pub const SESSION: &str = "NORTH_FLEET_SESSION";
@@ -44,14 +44,14 @@ pub fn proved_session_here() -> Option<String> {
     proved_session(std::env::var(SESSION).ok(), std::env::var(PROVED).ok().as_deref())
 }
 
-/// Whether a fleet session whose launcher gave it `role` and, when `tasked`, a task runs in the worker domain: every worker, and a lead that holds a task, whose launches, revives, holds and forgets go through its spool to the host's fleet tick (fleet/registry/lead_grant.rs). The coordinator and a lead with no task keep the domain open.
-pub fn confined_role(role: Option<&str>, tasked: bool) -> bool {
-    role == Some("worker") || (role == Some("lead") && tasked)
+/// Whether a session whose launcher gave it `role` runs in the worker domain: every launched role, worker, lead and reviewer, with a task or without one, whose launches, revives, holds and forgets go through its spool to the host's fleet tick (fleet/registry/lead_grant.rs). The exemptions are the proxy seat and an adopted human window, which no launcher gave a role (north#1485).
+pub fn confined_role(role: Option<&str>) -> bool {
+    role.is_some_and(|role| role != PROXY_ROLE)
 }
 
 /// Whether this process belongs to a fleet session its launcher confined ([`confined_role`]).
 pub fn confined_session() -> bool {
-    confined_role(std::env::var(ROLE_ENV).ok().as_deref(), std::env::var_os(TASKED).is_some_and(|tasked| tasked == "1"))
+    confined_role(std::env::var(ROLE_ENV).ok().as_deref())
 }
 
 /// The confined session this process runs for, named by its launch's environment, whose own spool location its fleet rows go to.
