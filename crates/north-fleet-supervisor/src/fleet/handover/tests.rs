@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use rustix::process::{Pid, Signal, kill_process};
 use serde_json::Value;
 
-use super::proxy::{DEADLINE_MS, Desk};
+use super::proxy::{DEADLINE_MS, Desk, advance};
 use super::{AccountReadings, HandOver, Observed, hand_over};
 use crate::error::NorthResult;
 use crate::fleet::fakes::{Paper, Stream};
@@ -151,6 +151,14 @@ impl Adopted {
         hand_over(&self.fleet, &Table, &Default::default(), &|_| true, &take_over, &|_| Ok(()), now_ms)
     }
 
+    fn advance(&self, now_ms: u64) -> HandOver {
+        let take_over = |request: &LaunchRequest| {
+            self.launches.borrow_mut().push(request.clone());
+            Ok(self.record.clone())
+        };
+        HandOver { lines: advance(&self.fleet, &self.fleet.session(PROXY).unwrap(), "b", None, &take_over, now_ms).into_iter().collect(), alert: None }
+    }
+
     fn desk(&self) -> Desk {
         Desk::of(&self.fleet.root, PROXY)
     }
@@ -165,11 +173,18 @@ impl Drop for Adopted {
 }
 
 #[test]
-fn an_adopted_proxy_window_on_an_account_at_99_percent_of_its_week_moves_to_the_7_percent_account_with_the_hand_over_it_writes_else_resumes_there_after_the_deadline() {
+/// On 2026-11-14 the tick took the coordinator's window-held proxy over from account a to c on its own, and the failed launch held its messages for 45 minutes (north#1427).
+fn an_adopted_proxy_window_on_an_account_at_99_percent_of_its_week_is_left_alone_by_the_tick_and_its_move_to_the_7_percent_account_takes_the_hand_over_it_writes_else_resumes_there_after_the_deadline() {
     let proxy = Adopted::on_account_c();
     let asked_ms = now_ms();
 
-    let asked = proxy.tick(asked_ms);
+    std::fs::create_dir_all(proxy.desk().file().parent().unwrap()).unwrap();
+    std::fs::write(proxy.desk().file(), "In flight: north#826 lands through safe-push.").unwrap();
+    let ticked = proxy.tick(asked_ms + DEADLINE_MS);
+    assert!(proxy.window.told.lock().unwrap().is_empty() && proxy.launches.borrow().is_empty() && alive(proxy.window.pid), "the tick moved a proxy held in a window: {:?}", ticked.lines);
+    assert!(proxy.desk().file().exists(), "the tick touched the hand-over desk of a proxy held in a window");
+
+    let asked = proxy.advance(asked_ms);
 
     let told = proxy.window.told.lock().unwrap().clone();
     assert_eq!(told.len(), 1, "{:?}", asked.lines);
@@ -179,11 +194,11 @@ fn an_adopted_proxy_window_on_an_account_at_99_percent_of_its_week_moves_to_the_
 
     proxy.window.busy.store(true, Ordering::SeqCst);
     std::fs::write(proxy.desk().file(), "In flight: north#826 lands through safe-push.").unwrap();
-    let mid_turn = proxy.tick(asked_ms + 60_000);
+    let mid_turn = proxy.advance(asked_ms + 60_000);
     assert!(proxy.launches.borrow().is_empty() && alive(proxy.window.pid), "a turn in progress is never cut short: {:?}", mid_turn.lines);
 
     proxy.window.busy.store(false, Ordering::SeqCst);
-    let moved = proxy.tick(asked_ms + 2 * 60_000);
+    let moved = proxy.advance(asked_ms + 2 * 60_000);
 
     let launches = proxy.launches.borrow();
     assert_eq!(launches.len(), 1, "{:?}", moved.lines);
@@ -196,12 +211,12 @@ fn an_adopted_proxy_window_on_an_account_at_99_percent_of_its_week_moves_to_the_
 
     let silent = Adopted::on_account_c();
     let asked_ms = now_ms();
-    silent.tick(asked_ms);
+    silent.advance(asked_ms);
 
-    let early = silent.tick(asked_ms + DEADLINE_MS - 1);
+    let early = silent.advance(asked_ms + DEADLINE_MS - 1);
     assert!(silent.launches.borrow().is_empty(), "{:?}", early.lines);
 
-    let resumed = silent.tick(asked_ms + DEADLINE_MS);
+    let resumed = silent.advance(asked_ms + DEADLINE_MS);
 
     let launches = silent.launches.borrow();
     assert_eq!(launches.len(), 1, "{:?}", resumed.lines);

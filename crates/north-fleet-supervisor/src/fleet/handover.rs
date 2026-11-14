@@ -2,6 +2,7 @@
 //! unlanded work once its source is out or paused, a proxy or lead before its source runs out. A worker
 //! resumes its own conversation there; one that never started a conversation gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
 //! A session on an API organization moves only to another API organization, never to a subscription account; with none open it stays, and `api_pool::move_spent` acts on the provider's own refusal.
+//! A proxy held in an interactive window is never moved: that window is Tom's, not the fleet's.
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod proxy;
@@ -202,6 +203,7 @@ fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {
         .unwrap_or_default()
         .into_iter()
         .filter(|record| record.provider.label() == "claude" && !record.verification)
+        .filter(|record| !(record.role() == Role::Proxy && record.adopted()))
         .filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::IdleExited)))
         .filter(|record| if record.adopted() { fleet.running(record) } else { recent(record) && (fleet.running(record) || parked(&record.name)) })
         .collect()
