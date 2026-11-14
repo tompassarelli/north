@@ -15,6 +15,7 @@ struct GitHub {
     comments: RefCell<Vec<String>>,
     closed: std::cell::Cell<bool>,
     reopens: RefCell<Vec<String>>,
+    created: RefCell<Vec<String>>,
 }
 
 impl Host for GitHub {
@@ -32,6 +33,17 @@ impl Host for GitHub {
                 self.reopens.borrow_mut().push(argv.last().copied().unwrap_or_default().to_owned());
                 self.closed.set(false);
                 answer(String::new())
+            }
+            ["gh", "issue", "list", ..] => {
+                let created = self.created.borrow();
+                let open: Vec<serde_json::Value> = created.last().filter(|_| !self.closed.get()).map(|title| serde_json::json!({ "number": 1499 + created.len(), "title": title })).into_iter().collect();
+                answer(serde_json::Value::from(open).to_string())
+            }
+            ["gh", "issue", "create", .., "--title", title, "--body-file", "-"] => {
+                self.created.borrow_mut().push((*title).to_owned());
+                *self.body.borrow_mut() = input.unwrap_or_default().to_owned();
+                self.closed.set(false);
+                answer(format!("https://github.com/tompassarelli/north/issues/{}\n", 1499 + self.created.borrow().len()))
             }
             ["gh", "issue", "comment", ..] => {
                 self.comments.borrow_mut().push(input.unwrap_or_default().to_owned());
@@ -94,7 +106,6 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
 
     let turns = GitHub::default();
     let turn_facts = |today: &str, turned: &[&str]| mechanism_discovery::Facts {
-        owner: Some("north#1279".to_owned()),
         today: today.to_owned(),
         losses: Some(vec![("first-try-lost:capacity".to_owned(), 9), ("first-try-lost:landing refusal".to_owned(), 14), ("first-try-lost:waits".to_owned(), 5), ("first-try-lost:halted".to_owned(), 2)]),
         held: Vec::new(),
@@ -106,15 +117,22 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
     assert!(day_one[0].detail.contains("harness/mechanism-discovery/turn-brief.md"), "{}", day_one[0].detail);
     assert!(day_one[0].detail.contains("first-try-lost:waits") && !day_one[0].detail.contains("first-try-lost:halted"), "the three largest classes are named: {}", day_one[0].detail);
     let turned = Filer::new(&places, &turns).file(&day_one, 4.0 * WEEK).unwrap();
-    assert!(turned[0].filed, "{}", turned[0].note);
+    assert!(turned[0].filed && turned[0].note.contains("filed its own issue north#1500"), "{}", turned[0].note);
+    assert_eq!(*turns.created.borrow(), ["Run the mechanism-discovery turn"]);
     assert!(turns.body.borrow().contains("(detector mechanism-discovery:2026-11-13:first-try-lost:landing refusal)"));
     assert!(mechanism_discovery::due(&turn_facts("2026-11-13", &["2026-11-13"])).is_empty(), "a day whose turn landed files no second box that day");
     assert!(mechanism_discovery::due(&mechanism_discovery::Facts { losses: None, ..turn_facts("2026-11-14", &[]) }).is_empty(), "a tick whose loss sources did not both read ranks nothing");
     let day_two = mechanism_discovery::due(&turn_facts("2026-11-14", &["2026-11-13"]));
     let repeated = Filer::new(&places, &turns).file(&day_two, 4.0 * WEEK + 1.0).unwrap();
     assert!(!repeated[0].filed && repeated[0].note.contains("commented"), "a day's turn while the last one is open files no box: {}", repeated[0].note);
-    assert_eq!(turns.edits.borrow().len(), 1, "the open turn box is not filed twice");
+    assert_eq!(turns.created.borrow().len(), 1, "the open turn issue is not filed twice");
+    assert!(turns.edits.borrow().is_empty(), "a turn edits no standing issue");
     assert_eq!(turns.comments.borrow().len(), 1);
+    turns.closed.set(true);
+    let day_three = mechanism_discovery::due(&turn_facts("2026-11-15", &["2026-11-13"]));
+    let next = Filer::new(&places, &turns).file(&day_three, 4.0 * WEEK + 2.0).unwrap();
+    assert!(next[0].filed && next[0].note.contains("filed its own issue north#1501"), "a day after the last turn's issue closed files a new issue: {}", next[0].note);
+    assert!(turns.reopens.borrow().is_empty(), "a closed turn issue is never reopened");
 
     let directions: std::collections::BTreeMap<String, bool> = [
         ("worker first-try success, all categories", true),
@@ -135,7 +153,7 @@ fn mechanism_discovery_and_machine_fix_comment_on_the_open_box_instead_of_a_seco
         [("scoreboard:worker first-try success, all categories".to_owned(), 200), ("scoreboard:rework within 48 h per landing".to_owned(), 30)],
         "a k/n row is worth this week's n times its move for the worse; an improved row and a row without both weeks' k/n are left out"
     );
-    let scored = mechanism_discovery::due(&mechanism_discovery::Facts { owner: Some("north#1279".to_owned()), today: "2026-11-13".to_owned(), losses: Some(ranked), held: Vec::new(), turned: Vec::new() });
+    let scored = mechanism_discovery::due(&mechanism_discovery::Facts { today: "2026-11-13".to_owned(), losses: Some(ranked), held: Vec::new(), turned: Vec::new() });
     assert_eq!(scored[0].key, "mechanism-discovery:2026-11-13:scoreboard:worker first-try success, all categories");
     assert!(scored[0].detail.contains("(200 runs lost)"), "{}", scored[0].detail);
 

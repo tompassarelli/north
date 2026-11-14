@@ -1,5 +1,6 @@
 # One `[[turn]]` per mechanism-discovery turn, appended by the turn that ran it and never edited afterwards.
 # The brief is harness/mechanism-discovery/turn-brief.md; the scan that refuses any other change is `turn-scope`.
+keep_or_delete_review = 2026-12-17
 
 [[turn]]
 date = 2026-11-12

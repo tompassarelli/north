@@ -87,7 +87,7 @@ decision = "the auto-compact window a dispatched Claude box with no tier or effo
 sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-fleet/src/fleet/compaction.rs", "crates/north-providers/src/providers/claude/session_env.rs"]
 updated_by = "north fleet dispatch draws the arms in equal seeded shares, and its dry run prints each arm's boxes, kept boxes and cost per kept box from the ledger"
 cadence_hours = 24
-owner = "north#1279 North improves itself from its own records"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 
 [[loop]]
 name = "grounding-arm"
@@ -652,4 +652,3 @@ cadence_hours = 24
 record = "north/mechanism-discovery/turns"
 score = "north/mechanism-discovery/score.txt"
 host = "lander"
-defaults = ["detector_mechanism_discovery_owner"]

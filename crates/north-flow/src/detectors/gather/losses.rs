@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use toml_edit::{DocumentMut, Item};
 
-use super::{Gatherer, default_text};
+use super::Gatherer;
 use crate::detectors::mechanism_discovery::{self, Evidence, Facts, Mechanism, Turn};
 use crate::foundation::clock::Timestamp;
 
@@ -49,14 +49,13 @@ fn held(turn_log: &str, since: &str) -> Vec<String> {
 
 impl Gatherer<'_> {
     pub fn mechanism_discovery(&self, now: f64) -> Facts {
-        let owner = Some(default_text("detector_mechanism_discovery_owner"));
         let today = Timestamp::from_unix_seconds_f64(now).iso_date();
         let losses = self.first_try_losses().zip(self.scoreboard_losses()).map(|(mut first_tries, scoreboard)| {
             first_tries.extend(scoreboard);
             first_tries
         });
         let (held, turned) = self.held_turns(now);
-        Facts { owner, today, losses, held, turned }
+        Facts { today, losses, held, turned }
     }
 
     fn first_try_losses(&self) -> Option<Vec<(String, usize)>> {

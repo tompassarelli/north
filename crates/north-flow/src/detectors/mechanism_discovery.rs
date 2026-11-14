@@ -1,6 +1,6 @@
-//! The mechanism-discovery turn: one box a UTC day on the largest loss in runs, from the first tries lost to the
-//! harness and the weekly scoreboard's rows, that no turn of the last 28 days holds, naming the brief that runs the
-//! turn (north#1279, rung three of docs/rationale/self-improvement-loop.md).
+//! The mechanism-discovery turn: one issue of its own a UTC day, holding one box on the largest loss in runs, from the
+//! first tries lost to the harness and the weekly scoreboard's rows, that no turn of the last 28 days holds, naming the
+//! brief that runs the turn (rung three of docs/rationale/self-improvement-loop.md).
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{ErrorKind, Write};
@@ -15,7 +15,6 @@ const RECORD: &str = "north/mechanism-discovery/turns";
 const SCORE: &str = "north/mechanism-discovery/score.txt";
 
 pub struct Facts {
-    pub owner: Option<String>,
     pub today: String,
     pub losses: Option<Vec<(String, usize)>>,
     pub held: Vec<String>,
@@ -35,7 +34,7 @@ pub fn due(facts: &Facts) -> Vec<Finding> {
     vec![Finding {
         detector: Detector::MechanismDiscovery,
         key: format!("mechanism-discovery:{}:{top}", facts.today),
-        owner: facts.owner.clone(),
+        owner: None,
         title: "Run the mechanism-discovery turn".to_owned(),
         detail: format!(
             "Follow {BRIEF} for {today}: take the first key below that no open issue owns, separate its two explanations on the recorded cases, and append the turn to {TURN_LOG}. The largest unheld losses over the last 7 days: {classes}.",
