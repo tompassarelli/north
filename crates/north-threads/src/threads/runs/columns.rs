@@ -27,5 +27,6 @@ pub fn ensure(db: &Connection) -> Result<(), Failure> {
     db.execute_batch("CREATE INDEX IF NOT EXISTS runs_fleet_name ON runs(fleet_name, started)")?;
     db.execute_batch("CREATE INDEX IF NOT EXISTS runs_lane ON runs(lane, started)")?;
     db.execute_batch("CREATE INDEX IF NOT EXISTS runs_category ON runs(category, started)")?;
+    db.execute_batch("CREATE INDEX IF NOT EXISTS runs_budget_median ON runs(category, role, started, budget_usd, agent) WHERE brief_text LIKE '%Budget:%'")?;
     Ok(())
 }
