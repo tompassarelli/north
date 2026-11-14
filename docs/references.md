@@ -211,6 +211,11 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Reaches at run time: Docker Hub for the task images, whose digests the run records at first pull because a tag can move; from inside each container the distribution's package mirrors, astral.sh and PyPI, which the graders install from; every task allows internet.
   Outcome: adopted as an outside measure of north against plain T3 Code.
 
+- <a id="terminal-bench-2-1"></a>**Terminal-Bench 2.1 harness-leaderboard comparison** (2026-11-13), the same 89-task benchmark as [Terminal-Bench 2.0](#terminal-bench-2) at its 2.1 revision, compared across agent harnesses by effort; origin link not recorded.
+  Informed: [crates/north-providers/src/providers/opencode/harness.rs](../crates/north-providers/src/providers/opencode/harness.rs) (north#1495): DeepSeek-V4.1-Flash is dispatched at low effort, because high effort cost about 28% more for 0.1 points; the owner asked on 2026-11-14 for it as a per-model fact.
+  Reused scope: one figure, the cost and score difference between high and low effort; nothing copied.
+  Outcome: adopted.
+
 - <a id="harbor"></a>**Harbor** (harbor-framework/harbor), the harness Terminal-Bench 2.0 runs on,
   https://github.com/harbor-framework/harbor at release `v0.25.0`, commit `fdba28fc411e47e8765420a1a063b4918fce3def` (2026-10-25), accessed 2026-11-12.
   Licence: Apache-2.0 (LICENSE at that commit). Maintained: the repository was pushed on the day of review.

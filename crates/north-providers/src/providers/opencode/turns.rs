@@ -248,7 +248,7 @@ fn command_shell(host: &Host) -> PathBuf {
 }
 
 fn usage(harness: &dyn Harness) -> String {
-    format!("usage: north {} --route go|free --session ID --scratch DIR --program PROGRAM [--key-file FILE] [--instructions FILE] [--effort high|max]", harness.host_verb())
+    format!("usage: north {} --route go|free --session ID --scratch DIR --program PROGRAM [--key-file FILE] [--instructions FILE] [--effort low]", harness.host_verb())
 }
 
 /// The event line with the host's session id added when the agent names none, so every frame of a harness that keeps its session id to itself still reaches the fleet under the conversation.

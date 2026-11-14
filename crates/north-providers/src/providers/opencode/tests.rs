@@ -115,12 +115,12 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("go"));
     assert!(spec.argv.iter().all(|word| !word.contains("key-material")), "{:?}", spec.argv);
     let drawn = crate::fleet::registry::efforts::taken(&runtime, None, None, "worker").unwrap().unwrap();
-    assert!(matches!(drawn, Effort::High | Effort::Max), "{drawn:?}");
+    assert_eq!(drawn, Effort::Low);
     let armed = runtime.host(&account(home.path()), &LaunchRequest { effort: Some(drawn), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "").unwrap();
     assert_eq!(argument(&armed.argv, "--effort").as_deref(), Some(drawn.label()));
-    let refused = runtime.host(&account(home.path()), &LaunchRequest { effort: Some(Effort::Medium), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "");
+    let refused = runtime.host(&account(home.path()), &LaunchRequest { effort: Some(Effort::High), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "");
     let why = refused.err().map(|error| error.user_message()).unwrap_or_default();
-    assert!(why.contains("runs only at high or max effort"), "{why}");
+    assert!(why.contains("runs only at low effort"), "{why}");
 
     let (transcript, signals, _) = run_briefs(&runtime, Route::Go, None, home.path(), &["Item: north#1\nBox: add a.txt"]);
 
@@ -337,12 +337,6 @@ fn a_deepseek_brief_carries_the_overlay_on_its_arm_and_not_on_the_control() {
         }
     }
     assert_eq!(seen, [true, true], "one arm drew every session");
-    let drawing = Deepseek::reading(&OPENCODE, Arc::new(|_| Visibility::Private), Arc::new(|| day("2026-11-10")));
-    let crossed: std::collections::BTreeSet<(bool, &str)> = (0..16)
-        .map(|index| format!("worker-{index}"))
-        .map(|name| (Arm::of(&name) == Arm::Overlay, crate::fleet::registry::efforts::taken(&drawing, None, None, &name).unwrap().unwrap().label()))
-        .collect();
-    assert_eq!(crossed.len(), 4, "the effort a name draws follows its overlay arm, so the two arms cannot be told apart: {crossed:?}");
 
     let queue = home.path().join("land-queue/north");
     std::fs::create_dir_all(queue.join("done")).unwrap();
@@ -410,4 +404,13 @@ fn a_session_placed_on_a_build_host_runs_on_the_go_key_that_host_holds() {
 
     assert_eq!(account.token_file, Some(home.join(".local/state/north/accounts/opencode/go.key")));
     assert!(seeing(Visibility::Private, day("2026-11-10")).account_on(home, Path::new("/none"), "b", &gex45()).is_err());
+}
+
+#[test]
+fn deepseek_v4_1_flash_is_dispatched_at_low_effort() {
+    let drawing = Deepseek::reading(&OPENCODE, Arc::new(|_| Visibility::Private), Arc::new(|| day("2026-11-10")));
+    for index in 0..16 {
+        let drawn = crate::fleet::registry::efforts::taken(&drawing, None, None, &format!("worker-{index}")).unwrap().unwrap();
+        assert_eq!(drawn, Effort::Low, "worker-{index}");
+    }
 }

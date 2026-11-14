@@ -118,7 +118,7 @@ impl Harness for OpenCode {
     }
 
     fn effort_arms(&self) -> &'static [Effort] {
-        &[Effort::High, Effort::Max]
+        &[Effort::Low]
     }
 
     fn compactions(&self, host: &Host, since_ms: u64, _tally: &Tally) -> Option<u64> {

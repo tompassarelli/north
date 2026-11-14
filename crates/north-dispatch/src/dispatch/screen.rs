@@ -39,15 +39,10 @@ pub(super) fn arm(survey: &Survey, launch: &mut Launch) {
     if launch.route.stamp().is_some() {
         return;
     }
-    let evidence = survey.ledger.get(&launch.route.category).cloned().unwrap_or_default();
     if super::deepseek::is(launch) {
-        if let Some((effort, stamp, drawn)) = super::deepseek::effort_arm(&launch.item.to_string(), &launch.route.category, &survey.history, &evidence) {
-            launch.brief = brief::armed(&launch.brief, stamp);
-            launch.route.effort = Some(effort);
-            launch.route.why = format!("{}, DeepSeek effort arm {stamp} {drawn}", launch.route.why);
-        }
         return;
     }
+    let evidence = survey.ledger.get(&launch.route.category).cloned().unwrap_or_default();
     let (arm, drawn) = tier::context_arm(&launch.item.to_string(), &launch.route.category, &survey.history, &evidence);
     let item = launch.item.to_string();
     let (armed, why) = pack::armed(&launch.brief, (&arm, &drawn), &item, &launch.route.category, &survey.history, &evidence);

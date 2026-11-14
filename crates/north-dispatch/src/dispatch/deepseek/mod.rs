@@ -6,9 +6,7 @@ use super::issues::{Issue, IssueRef};
 use super::plan::{Candidate, Launch, Ready};
 use super::record::Record;
 use super::fleets::{self, PROBE};
-use super::shares::DEEPSEEK_ARMS;
 use super::slots::Pools;
-use super::tier::{Effort, Evidence, History};
 use crate::fleet::claude_only::{ClaudeOnly, SETTINGS};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -23,8 +21,6 @@ pub mod sampling;
 mod tests;
 #[cfg(test)]
 mod mechanical_tests;
-#[cfg(test)]
-mod effort_tests;
 
 pub const ACCOUNT: &str = "opencode:go";
 pub const PROVIDER: &str = "opencode";
@@ -140,14 +136,6 @@ pub fn rung(launch: &Launch) -> &'static str {
 /// The words `north fleet launch` takes for `launch`: for DeepSeek, whose launcher fixes the model, only the effort its arm drew.
 pub fn invocation(launch: &Launch, cfg: &DocumentMut) -> Result<Vec<String>, String> {
     if is(launch) { Ok(launch.route.effort.map(|effort| vec!["--effort".to_owned(), effort.name().to_owned()]).unwrap_or_default()) } else { launch.route.invocation(cfg) }
-}
-
-/// The reasoning effort this launch draws from its category's DeepSeek shares, the `Arm:` stamp that records it and the words naming the share it drew from.
-pub fn effort_arm(item: &str, category: &str, history: &History, evidence: &Evidence) -> Option<(Effort, &'static str, String)> {
-    let shares = evidence.shares(category, "deepseek");
-    let (arm, drawn) = shares.draw(&history.seed("deepseek", item));
-    let stamp = DEEPSEEK_ARMS.into_iter().find(|stamp| *stamp == arm)?;
-    Some((Effort::parse(stamp.strip_prefix("deepseek-")?)?, stamp, drawn))
 }
 
 /// The Claude tier a launch record keeps, read as a rung tried; a DeepSeek launch tried none.
