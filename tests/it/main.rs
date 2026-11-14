@@ -8,6 +8,7 @@ mod capacity_host;
 mod fleet_launch;
 mod golden_path;
 mod fleet_spool;
+mod fleet_state_root;
 mod follows_release;
 mod land_checks;
 mod land_enqueue;

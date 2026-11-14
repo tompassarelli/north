@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use north_base::lifecycle::Store;
+
 use super::CheckRun;
 
 /// Queues a Done-when verdict for the ledger host's threads database, where its graph reads it, when `ledger` is this host's own; a scratch ledger carries nothing.
@@ -23,5 +25,5 @@ pub(super) fn carry(ledger: &Path, check: &CheckRun) {
 }
 
 pub(super) fn default_ledger() -> Option<PathBuf> {
-    std::env::var_os("HOME").filter(|value| !value.is_empty()).map(|home| PathBuf::from(home).join(".local/state/north/ledger.db"))
+    Store::host_path().ok()
 }

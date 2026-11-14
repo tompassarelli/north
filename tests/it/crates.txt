@@ -34,6 +34,7 @@ session_start_measurement north-guard north-core north-fleet
 cargo_config north
 fleet_launch north-core north-fleet north-dispatch
 fleet_spool north-core north-fleet
+fleet_state_root north-providers north-fleet-supervisor
 follows_release north-landing-gates north-threads
 policy_replay_case north-convo
 policy_replay_login north-convo
