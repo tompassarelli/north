@@ -1,5 +1,5 @@
 //! Spare ssh channels to a build host, opened before they are needed: `north ssh-spare hold DESTINATION` keeps a few
-//! shells there waiting for a command and hands one's pipes to the next caller through a Unix socket, so a remote
+//! shells there waiting for a command and hands one's pipes (stderr first, then input and output) to the next caller, such as a session link's first connection, through a Unix socket, so a remote
 //! command costs the one round trip of sending it instead of a channel open, an exec and its answer (0.23 s against
 //! 0.55 to 0.9 s from the control host to a build host on 2026-11-12). A spare is an idle shell and holds no credential.
 //! The holder exits once no spare is taken for `IDLE` or the runtime it started from is no longer the current one, and
