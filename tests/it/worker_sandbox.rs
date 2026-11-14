@@ -42,6 +42,7 @@ impl Home {
         git(&main, &["commit", "-q", "-m", "one"]);
         git(&main, &["worktree", "add", "-q", "../worktrees/lane", "-b", "lane"]);
         file(&home.join("code/p/worktrees/lane/scratch/out.log"));
+        std::fs::write(main.join(".git/info/exclude"), "scratch/\n").unwrap();
         Self { root }
     }
 
@@ -139,6 +140,7 @@ fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_h
     let worker = Worker::new();
     let root = worker.root();
     file(&root.join(".bashrc"));
+    file(&root.join("code/p/main/.claude/hooks/keep"));
     file(&root.join("code/north-data/profiles/claude-a/settings.json"));
     for store in ["code/north-data/fleet/spool", "code/north-data/fleet/spool/sessions/other", ".local/state/threads/spool", ".local/state/agents", ".cache", ".cargo/registry", ".bun/install/cache", ".npm/_cacache", "code/p/worktrees/lane/target/debug", "code/p/worktrees/lane/node_modules/.cache"] {
         std::fs::create_dir_all(root.join(store)).unwrap();
@@ -146,7 +148,7 @@ fn a_worker_command_cannot_append_to_or_create_a_file_outside_its_lane_and_the_h
     let lock = root.join("code/p/main/.git/index.lock");
     file(&lock);
     assert!(Command::new("touch").args(["-d", "2 minutes ago"]).arg(&lock).status().unwrap().success());
-    let refused = [".bashrc", "new-file", ".local/state/north/fleet/spool/m.json", ".local/state/north/fleet/spool/sessions/other/m.json", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs"];
+    let refused = [".bashrc", "new-file", ".local/state/north/fleet/spool/m.json", ".local/state/north/fleet/spool/sessions/other/m.json", ".local/state/north/profiles/claude-a/settings.json", "code/p/main/new.rs", "code/p/main/.claude/settings.json", "code/p/main/.claude/settings.local.json", "code/p/main/.claude/hooks/h.sh"];
     let written = [
         "code/p/worktrees/lane/scratch/out.log",
         "code/p/worktrees/lane/new.txt",
@@ -506,7 +508,7 @@ impl Worker {
 
     fn run(&self, command: &str) -> (String, String) {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
-        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "w-sender").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
+        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("CLAUDECODE", "1").env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "w-sender").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
         (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
     }
 

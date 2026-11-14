@@ -6,5 +6,6 @@
   "crates/north-core/src/catalog/retired_hooks.rs": "production: writes real retired-hook stubs",
   "crates/north-threads/src/threads/client.rs": "production: spool directory mode",
   "crates/north-ops/src/ops/private_desktop/start.rs": "production: private desktop startup script",
-  "crates/north-runtime/src/runtime/layout.rs": "production: stages the runtime binary"
+  "crates/north-runtime/src/runtime/layout.rs": "production: stages the runtime binary",
+  "crates/north-guard/src/guard/activation_tests.rs": "test restores a read-only directory chain to its owner mode"
 }
