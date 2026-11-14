@@ -9,7 +9,7 @@ guard_kind = "concern"
 guard = "stable-pin"
 state = "missing"
 incidents = ""
-accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+accepted_risk = "2026-11-14: decided by the coordinator: sequenced, no risk accepted; the guard is written from north runtime lag --json once the propagation-number box of north#1115 lands"
 
 [[hold]]
 id = "H2"
@@ -27,7 +27,7 @@ what = "A deliberate stop of sessions never rolls a runtime back"
 metric = "rollbacks caused by ordered stops"
 budget = "0"
 guard_kind = "test"
-guard = "a_session_stopped_by_order_or_refused_by_its_account_limit_is_not_a_runtime_exit"
+guard = "asked_for_exits_do_not_roll_a_runtime_back"
 state = "live"
 incidents = ""
 
@@ -65,7 +65,7 @@ guard_kind = "concern"
 guard = "lander-serving"
 state = "missing"
 incidents = ""
-accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+accepted_risk = "2026-11-14: decided by the coordinator: sequenced, not accepted, not staffed today; the guard waits until the lander's per-minute record is readable off the laptop through the records mirror"
 
 [[hold]]
 id = "H7"
@@ -76,7 +76,7 @@ guard_kind = "eval"
 guard = "load-ladder"
 state = "missing"
 incidents = ""
-accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+accepted_risk = "2026-11-14: decided by the coordinator: the native run over 5 minutes is held by the owner's standing order until 0.1.0, with north ledger tempo's hand-in-to-main p50 and p90 as the reading meanwhile"
 
 [[hold]]
 id = "H8"
@@ -92,7 +92,7 @@ incidents = ""
 guard_kind = "eval"
 guard = "sheriff-blame"
 state = "missing"
-accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+accepted_risk = "2026-11-14: decided by the coordinator: sequenced on lane n1039-blame-split; the lead staffs the eval when it lands"
 
 [[hold]]
 id = "H9"
@@ -138,13 +138,13 @@ guard_kind = "test"
 guard = "capacity admission for every provider"
 state = "missing"
 incidents = ""
-accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+accepted_risk = "2026-11-14: decided by the coordinator: the guard kind changes from test to a land scan that refuses a provider launch path which does not call admission; it is a gate, so it lands in shadow and goes to both reviewers, as the next lane after this one"
 
 [[hold.also]]
 guard_kind = "concern"
 guard = "desktop-pressure"
 state = "missing"
-accepted_risk = "2026-11-11: guard not yet written; tracked in the second box of this issue"
+accepted_risk = "2026-11-14: decided by the coordinator: sequenced like the lander-serving guard: the guard waits until the laptop's pressure is readable from a record a build host can read through the records mirror"
 
 [[hold]]
 id = "H12"
