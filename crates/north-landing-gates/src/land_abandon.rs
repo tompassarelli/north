@@ -162,6 +162,12 @@ fn verdict(rule: Rule, branch: &str, tip: &str, destination: &str, witness: &dyn
             .map_err(|refusal| format!(": {refusal}"));
     }
     if let Rule::SupersededBy(commit) = &rule {
+        if commit.starts_with("refs/archive/") {
+            return fetched
+                .and_then(|_| git_output(&["merge-base", "--is-ancestor", tip, commit]))
+                .map(|_| format!("archived locally as {commit}"))
+                .ok_or_else(|| format!(": its tip is not contained in {commit}"));
+        }
         let subject = fetched
             .and_then(|_| git_output(&["merge-base", "--is-ancestor", commit, &tracking]))
             .and_then(|_| git_output(&["log", "-1", "--format=%h %s", commit]));

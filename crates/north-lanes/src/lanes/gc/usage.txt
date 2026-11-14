@@ -35,13 +35,15 @@ when it is finished, and pushes no tag:
     author date and every line the branch adds is in that file on origin/main, and the
     deletion goes through safe-push abandon --superseded BRANCH --by COMMIT naming the first
     of those commits.
+  - archived origin branch: an origin branch whose tip is contained in a local refs/archive/ ref of the main checkout; the
+    deletion goes through safe-push abandon --superseded BRANCH --by REF naming that ref.
 A worktree under worktrees/ must also have no uncommitted or untracked files, no process with
 its cwd or an open file inside, no live Fleet session, no lock, no undecided land ticket in a
 queue or outbox on this host naming it, and no touch within
 --idle-hours (default 3); it is removed with git worktree remove, then its branch. A local
 branch with no worktree passes the same idle check and, when superseded, the local liveness checks
 (live claim, live session, a peer host's hold). Origin branches are
-deleted when landed or superseded, whatever their age, and not protected by an open PR, active
+deleted when landed, superseded or archived, whatever their age, and not protected by an open PR, active
 Actions, Autoland or a land ticket; an origin branch whose changes are not on main is left alone
 while a claim, a live worktree or a live source author holds it (and for 4h if it is a
 claude/land-* ref); --remote sweeps only origin branches. An unlanded origin branch no one holds,

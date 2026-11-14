@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::Gc;
 use super::evidence::{landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
 use super::exec::{api, git, git_slow, in_dir, verified};
-use super::remote_boxes::{append_box, box_line, cited_open, named_in_open_box, open_issue, superseding};
+use super::remote_boxes::{append_box, archived_as, box_line, cited_open, named_in_open_box, open_issue, superseding};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::RemoteStale;
 use north_base::foundation::clock::Timestamp;
@@ -30,6 +30,7 @@ struct Evidence {
 enum Changes {
     OnMain,
     Superseded(Vec<String>),
+    Archived(String),
     Unlanded,
 }
 
@@ -186,7 +187,7 @@ impl Gc {
         if let Some(hold) = github_hold(evidence, branch) {
             return hold.to_string();
         }
-        if !matches!(changes, Changes::Unlanded) {
+        if matches!(changes, Changes::OnMain | Changes::Superseded(_)) {
             return String::new();
         }
         if branch.landing && branch.age_h < 4.0 {
@@ -220,7 +221,13 @@ impl Gc {
 
     fn remote_branch(&mut self, name: &str, main: &Path, evidence: &Evidence, node: &Value, split: &mut Split) -> Result<(), String> {
         let branch = self.branch_facts(name, main, evidence, node)?;
-        let changes = if branch.on_main { Changes::OnMain } else { superseding(main, BASE, branch.tip)?.map_or(Changes::Unlanded, Changes::Superseded) };
+        let changes = if branch.on_main {
+            Changes::OnMain
+        } else if let Some(commits) = superseding(main, BASE, branch.tip)? {
+            Changes::Superseded(commits)
+        } else {
+            archived_as(main, branch.tip).map_or(Changes::Unlanded, Changes::Archived)
+        };
         let reason = self.live_reason(name, main, evidence, &branch, &changes);
         if !reason.is_empty() {
             split.skipped += 1;
@@ -235,6 +242,7 @@ impl Gc {
                 self.delete_remote(name, main, &branch, "landed", &by, split)
             }
             Changes::Superseded(commits) => self.delete_remote(name, main, &branch, &format!("superseded by {}", commits.join(" ")), &commits[0], split),
+            Changes::Archived(archive) => self.delete_remote(name, main, &branch, &format!("archived locally as {archive}"), &archive, split),
             Changes::Unlanded => self.route_unlanded(name, main, evidence, &branch, age, split),
         }
     }

@@ -45,6 +45,14 @@ pub(super) fn superseding(main: &Path, base: &str, tip: &str) -> Result<Option<V
     Ok(Some(named))
 }
 
+pub(super) fn archived_as(main: &Path, tip: &str) -> Option<String> {
+    let archives = git(main, &["for-each-ref", "--format=%(refname)", "refs/archive/"]);
+    if !archives.ok {
+        return None;
+    }
+    archives.out.lines().find(|archive| git(main, &["merge-base", "--is-ancestor", tip, archive]).ok).map(str::to_owned)
+}
+
 fn added_lines_on(main: &Path, base: &str, fork: &str, tip: &str) -> Result<bool, String> {
     let diff = git(main, &["diff", "--no-renames", "--no-ext-diff", "--no-color", "--unified=0", &format!("{fork}..{tip}")]);
     if !diff.ok {

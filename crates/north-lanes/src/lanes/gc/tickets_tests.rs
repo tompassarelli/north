@@ -24,7 +24,7 @@ fn lane(main: &Path, name: &str) -> (PathBuf, String) {
 }
 
 #[test]
-fn a_lane_the_lander_squash_landed_from_this_host_is_retired_while_a_moved_or_dirty_one_stays() {
+fn a_lane_the_lander_squash_landed_from_this_host_is_retired_while_a_moved_or_dirty_one_stays_and_an_archived_tip_is_named_by_its_archive_ref() {
     let home = tempfile::tempdir().unwrap();
     let home = home.path().canonicalize().unwrap();
     let seed = home.join("seed");
@@ -63,4 +63,8 @@ fn a_lane_the_lander_squash_landed_from_this_host_is_retired_while_a_moved_or_di
     assert!(git_in(&main, &["branch", "--list", "landed"]).is_empty());
     assert!(moved.exists(), "a lane whose head moved after its ticket stays");
     assert!(dirty.join("notes.txt").exists(), "a lane with untracked work stays");
+
+    git_in(&main, &["update-ref", "refs/archive/landed-2026-11-14", &lanes[0].1.1]);
+    assert_eq!(super::remote_boxes::archived_as(&main, &lanes[0].1.1).as_deref(), Some("refs/archive/landed-2026-11-14"));
+    assert_eq!(super::remote_boxes::archived_as(&main, &git_in(moved, &["rev-parse", "HEAD"])), None, "work past every archive ref is not archived");
 }
