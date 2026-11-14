@@ -47,3 +47,7 @@ fn prune_logs(state_home: &Path, now: SystemTime) -> usize {
     }
     removed
 }
+
+pub fn runtime_source(cfg: &toml_edit::DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("runtime_source")?.as_bool()).unwrap_or(true)
+}

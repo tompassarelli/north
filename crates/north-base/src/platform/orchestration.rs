@@ -117,11 +117,6 @@ pub fn keeps_disk(cfg: &DocumentMut, host: &str) -> bool {
     switch(cfg, host, "disk_keep")
 }
 
-/// Whether `HOST` is where runtimes are built and shipped from, so its runtimes are the only copy; `[hosts.HOST] runtime_source = false` marks a host that holds copies shipped to it.
-pub fn runtime_source(cfg: &DocumentMut, host: &str) -> bool {
-    switch(cfg, host, "runtime_source")
-}
-
 /// Whether the lander on `HOST` asks for release norths ahead of promotion; `[hosts.HOST] build_ahead = false` stops it there.
 pub fn builds_ahead(cfg: &DocumentMut, host: &str) -> bool {
     switch(cfg, host, "build_ahead")
