@@ -161,6 +161,12 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     let ran = std::process::Command::new("sh").args(["-c", prepare]).output().unwrap();
     assert!(ran.status.success(), "{prepare}: {}", String::from_utf8_lossy(&ran.stderr));
     assert_eq!(fs::read_to_string(&bound).unwrap(), "c0ffee-bound", "starting the held unit again removed the conversation its record mirror had just bound it to (gex45, sb-box-trailer, north#1352)");
+    let fresh = HostSpec { key: "box two".into(), shared: false, argv: ["claude", "--session-id", "c0ffee-fresh"].map(String::from).to_vec(), env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
+    let started = Link::parse(&held_under(fresh, &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path(), "box two", &root.path().join("hops.jsonl")).unwrap().argv[2..]).unwrap();
+    let launched = &started.launch[..started.launch.find(" && systemd-run").unwrap()];
+    let ran = std::process::Command::new("sh").args(["-c", &launched[launched.find("; mkdir -p ").unwrap() + 2..launched.rfind(" && cd ").unwrap()]]).output().unwrap();
+    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    assert_eq!(fs::read_to_string(Path::new(&started.dir).join(north_base::platform::session_host_files::BOUND_CONVERSATION)).unwrap(), "c0ffee-fresh", "the script that starts a held unit left it unbound until its record is mirrored, which can come first and find no directory (evalb sessions on cpx62b, north#1352)");
     let agent = Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: Some("agent@far".into()) };
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["claude".into()], env: Vec::new(), env_remove: Vec::new(), cwd: root.path().to_path_buf() };
     let placed = held_under(spec, &agent, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();

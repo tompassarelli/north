@@ -135,8 +135,9 @@ fn linked(spec: HostSpec, machine: &Machine, home: &Path, held: Held, session: &
 /// The script that starts `spec`'s CLI as the held unit `unit` in `dir`, stopped once no link has been attached for `detached`, with `properties` added to the unit.
 pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str, nonce: &str, detached: Duration, properties: &[String]) -> String {
     let (q_unit, q_dir) = (quote(unit), quote(dir));
+    let binding = conversation_in(&spec.argv).map_or_else(String::new, |conversation| format!(" && printf %s {} > {BOUND_CONVERSATION}.tmp && mv {BOUND_CONVERSATION}.tmp {BOUND_CONVERSATION}", quote(conversation)));
     let mut launch = format!(
-        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group --property=IOAccounting=yes \"--setenv=PATH=$PATH\"",
+        "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit && : > in && : > out && : > err && printf %s {} > nonce{binding} && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group --property=IOAccounting=yes \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
         quote(&held.to_string_lossy()),
         quote(nonce),
@@ -156,6 +157,11 @@ pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str,
         launch.push_str(&quote(arg));
     }
     launch
+}
+
+/// The conversation `argv` starts or resumes the CLI on, when it names one.
+fn conversation_in(argv: &[String]) -> Option<&str> {
+    argv.windows(2).find(|pair| matches!(pair[0].as_str(), "--session-id" | "--resume" | "--session")).map(|pair| pair[1].as_str())
 }
 
 pub fn leave_record(record: &SessionRecord, placed: &Path) {
