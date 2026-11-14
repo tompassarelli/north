@@ -230,7 +230,7 @@ impl<'a> Gatherer<'a> {
     fn read_at(&self, declared: &Declared) -> Option<f64> {
         let mirrored = self.places.ledger.file_name().is_some_and(|name| name == "snapshot.db");
         match &declared.origin {
-            Origin::Query { database, .. } if database == "ledger" && mirrored => modified(&self.places.ledger),
+            Origin::Query { database, .. } if database == "ledger" && mirrored => modified(&self.places.ledger).map(|pulled| pulled - crate::threads::snapshot::SNAPSHOT_SECONDS as f64),
             _ => None,
         }
     }
