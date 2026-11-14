@@ -45,16 +45,16 @@ pub(super) fn output(host: &str, step: &str, command: &mut Command, default: Dur
 }
 
 pub(super) fn run_reporting(host: &str, step: &str, command: &mut Command, default: Duration) -> Result<(), Failure> {
-    reported(host, step, command, limit(default)).value
+    reported(host, step, command, limit(default), &|| false).value
 }
 
-pub(super) fn run_reporting_again(destination: &str, host: &str, step: &str, rerun: Rerun, mut command: impl FnMut(Link) -> Command, default: Duration) -> Result<(), Failure> {
+pub(super) fn run_reporting_again(destination: &str, host: &str, step: &str, rerun: Rerun, mut command: impl FnMut(Link) -> Command, default: Duration, stop: &dyn Fn() -> bool) -> Result<(), Failure> {
     let limit = limit(default);
-    retried(destination, rerun, |link| reported(host, step, &mut command(link), limit))
+    retried(destination, rerun, |link| reported(host, step, &mut command(link), limit, stop))
 }
 
-fn reported(host: &str, step: &str, command: &mut Command, limit: Duration) -> Reply<Result<(), Failure>> {
-    match bounded::status_keeping_stderr(command, limit, REPORTED_LINES) {
+fn reported(host: &str, step: &str, command: &mut Command, limit: Duration, stop: &dyn Fn() -> bool) -> Reply<Result<(), Failure>> {
+    match bounded::status_keeping_stderr_until(command, limit, REPORTED_LINES, stop) {
         Err(error) => Reply { value: Err(stopped(host, step, limit, error)), exit: None, said: String::new() },
         Ok((status, said)) => {
             let value = match (status.success(), said.is_empty()) {
@@ -70,6 +70,7 @@ fn reported(host: &str, step: &str, command: &mut Command, limit: Duration) -> R
 fn stopped(host: &str, step: &str, limit: Duration, error: std::io::Error) -> Failure {
     match error.kind() {
         ErrorKind::TimedOut => failed(1, format!("{step} on {host} did not finish within {}s and was stopped", limit.as_secs())),
+        ErrorKind::Interrupted => failed(1, format!("{step} on {host} was stopped: nothing waits for it any more")),
         _ => Failure::from(error),
     }
 }

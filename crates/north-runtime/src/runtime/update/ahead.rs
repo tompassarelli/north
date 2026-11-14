@@ -26,6 +26,10 @@ use std::time::Duration;
 
 const BUILT_AT: &str = "built-at";
 const BUILDING: &str = "building.lock";
+const KIND: &str = "kind";
+const SUPERSEDED: &str = "superseded";
+const PART: &str = ".part";
+type Stop<'a> = &'a dyn Fn() -> bool;
 const REQUESTS: &str = "requests";
 const STALE_REQUEST: Duration = Duration::from_secs(24 * 60 * 60);
 const SLOT_POLL: Duration = Duration::from_secs(2);
@@ -123,7 +127,7 @@ fn building(layout: &Layout, tree: &str) -> bool {
 }
 
 fn staging(artifacts: &Path, tree: &str) -> PathBuf {
-    artifacts.join(format!("{tree}.part"))
+    artifacts.join(format!("{tree}{PART}"))
 }
 
 /// Installs the artifact for `tree` as `runtime`, named for the landed commit `target`, when it is ready and the commit it was built from carries `tree`: `fetch` copies the programs and their stamp from the build host the artifact names into `runtime`, the one copy of the release north this host takes; whether it did.
@@ -217,9 +221,9 @@ pub(in crate::runtime) fn run(layout: &Layout, flags: &[String]) -> Result<(), F
 /// Has a build host build the release north `ask` names, with every request waiting before it, and keeps each as the
 /// promotion's artifact; a tree another request already fills, or one ready already, costs nothing.
 pub(super) fn build(layout: &Layout, checkout: &Path, ask: &Ask) -> Result<(), Failure> {
-    request(layout, ask, land_offload::build_host_rooms, |host, commit, into| {
+    request(layout, ask, land_offload::build_host_rooms, |host, commit, into, stop| {
         send(checkout, host, commit)?;
-        build_host::build_held(host, commit, into)
+        build_host::build_held(host, commit, into, stop)
     })
 }
 
@@ -228,7 +232,7 @@ pub(super) fn build(layout: &Layout, checkout: &Path, ask: &Ask) -> Result<(), F
 /// and each still waiting has a process waiting for a slot. This host settles the fleet while people work on it, so it
 /// never builds the release itself: with no build host answering, or every one failing, nothing is kept and the
 /// promotion of the landing has a build host build it.
-fn request(layout: &Layout, ask: &Ask, hosts: impl Fn() -> Vec<BuildHost>, mut build_on: impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
+fn request(layout: &Layout, ask: &Ask, hosts: impl Fn() -> Vec<BuildHost>, mut build_on: impl FnMut(&BuildHost, &str, &Path, Stop) -> Result<(), Failure>) -> Result<(), Failure> {
     if !layout::is_sha(&ask.tree) || !layout::is_sha(&ask.commit) {
         return Err(failed(64, "build-ahead needs a tree hash and a commit hash"));
     }
@@ -285,11 +289,25 @@ fn file(artifacts: &Path, ask: &Ask) -> Result<(), Failure> {
             let _ = fs::remove_file(requests.join(tree));
         }
     }
+    supersede_running(artifacts, ask);
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
     let staged = requests.join(format!(".{}.new", ask.tree));
     fs::write(&staged, format!("{}\n{}\n{at}\n{}\n", ask.kind.word(), ask.commit, ask.lane))?;
     fs::rename(&staged, requests.join(&ask.tree))?;
     Ok(())
+}
+
+/// Marks every build running for another tree as superseded, by the rule that withdraws a waiting request: its build
+/// host build ends at once, since the landing it was for never comes.
+fn supersede_running(artifacts: &Path, ask: &Ask) {
+    for entry in fs::read_dir(artifacts).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(tree) = name.strip_suffix(PART).filter(|tree| *tree != ask.tree) else { continue };
+        let running = fs::read_to_string(entry.path().join(KIND)).ok().and_then(|word| Kind::parse(word.trim()));
+        if layout::is_sha(tree) && running.is_some_and(|kind| !(ask.kind == Kind::HandIn && kind == Kind::Candidate)) {
+            let _ = fs::write(entry.path().join(SUPERSEDED), "");
+        }
+    }
 }
 
 /// Every request filed, with its tree, its ask and when it was filed; a file that is no request or is a day old is dropped.
@@ -342,7 +360,7 @@ fn claim(artifacts: &Path) -> Option<Ask> {
     }
 }
 
-fn built_ahead(layout: &Layout, artifacts: &Path, ask: &Ask, held: &BuildHost, answered: &[BuildHost], build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<(), Failure> {
+fn built_ahead(layout: &Layout, artifacts: &Path, ask: &Ask, held: &BuildHost, answered: &[BuildHost], build_on: &mut impl FnMut(&BuildHost, &str, &Path, Stop) -> Result<(), Failure>) -> Result<(), Failure> {
     let (tree, commit) = (ask.tree.as_str(), ask.commit.as_str());
     if ready(layout, tree).is_some() {
         println!("north runtime build-ahead: tree {} is ready already", layout::short(tree));
@@ -353,10 +371,14 @@ fn built_ahead(layout: &Layout, artifacts: &Path, ask: &Ask, held: &BuildHost, a
     fs::create_dir_all(&staging)?;
     let building = File::create(staging.join(BUILDING))?;
     flock(&building, FlockOperation::NonBlockingLockExclusive).map_err(std::io::Error::from)?;
+    fs::write(staging.join(KIND), ask.kind.word())?;
     let taken = staging.join(commit);
-    let kept = built_on_a_slot(artifacts, commit, &taken, held, answered, build_on).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
+    let stop = || staging.join(SUPERSEDED).is_file();
+    let kept = built_on_a_slot(artifacts, commit, &taken, held, answered, build_on, &stop).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
+    let superseded = stop();
     let _ = fs::remove_dir_all(&staging);
     match kept {
+        Err(_) if superseded => println!("north runtime build-ahead: the build of tree {} ended at once: a newer request superseded it", layout::short(tree)),
         Ok(built) => {
             prune(artifacts);
             println!("north runtime build-ahead: tree {} built on {} in {}s, ready for the promotion of {} ({})", layout::short(tree), built.host, built.seconds, layout::short(commit), ask.kind.word());
@@ -411,20 +433,24 @@ fn prune(artifacts: &Path) {
     }
 }
 
+fn slot_beside(artifacts: &Path, host: &BuildHost, held: &BuildHost) -> Option<Option<File>> {
+    match host.name == held.name {
+        true => Some(None),
+        false => slot(artifacts, host).map(Some),
+    }
+}
+
 /// Builds `commit` on the build host whose slot is held, then, while one fails, on each other build host that answered
 /// and whose slot is free, so one build host's failure leaves the tree to another, never two builds on one host.
-fn built_on_a_slot(artifacts: &Path, commit: &str, taken: &Path, held: &BuildHost, answered: &[BuildHost], build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<build_host::Built, String> {
+fn built_on_a_slot(artifacts: &Path, commit: &str, taken: &Path, held: &BuildHost, answered: &[BuildHost], build_on: &mut impl FnMut(&BuildHost, &str, &Path, Stop) -> Result<(), Failure>, stop: Stop) -> Result<build_host::Built, String> {
     let mut refused = Vec::new();
     for host in std::iter::once(held).chain(answered.iter().filter(|host| host.name != held.name)) {
-        let _slot = match host.name == held.name {
-            true => None,
-            false => match slot(artifacts, host) {
-                Some(slot) => Some(slot),
-                None => continue,
-            },
-        };
+        if stop() {
+            break;
+        }
+        let Some(_slot) = slot_beside(artifacts, host, held) else { continue };
         println!("north runtime: building {} on {}, a build host with no build ahead running ({:.0} free cores)", layout::short(commit), host.name, host.free_cpus.unwrap_or_default());
-        match held_on_host(host, commit, taken, build_on) {
+        match held_on_host(host, commit, taken, build_on, stop) {
             Ok(built) => return Ok(built),
             Err(why) => refused.push(why),
         }
@@ -433,10 +459,10 @@ fn built_on_a_slot(artifacts: &Path, commit: &str, taken: &Path, held: &BuildHos
 }
 
 /// Has `host` build `commit` and records in `taken` which host holds the build and the stamp it read there, with no program copied here.
-fn held_on_host(host: &BuildHost, commit: &str, taken: &Path, build_on: &mut impl FnMut(&BuildHost, &str, &Path) -> Result<(), Failure>) -> Result<build_host::Built, String> {
+fn held_on_host(host: &BuildHost, commit: &str, taken: &Path, build_on: &mut impl FnMut(&BuildHost, &str, &Path, Stop) -> Result<(), Failure>, stop: Stop) -> Result<build_host::Built, String> {
     let started = std::time::Instant::now();
     let refused = |why: String| format!("{} did not build {}: {why}", host.name, layout::short(commit));
-    build_on(host, commit, taken).map_err(|failure| refused(failure.message))?;
+    build_on(host, commit, taken, stop).map_err(|failure| refused(failure.message))?;
     let stamp = fs::read_to_string(taken.join(BUILT_FROM)).map_err(|error| refused(format!("{BUILT_FROM}: {error}")))?;
     let binary = match stamp.split_whitespace().collect::<Vec<_>>()[..] {
         [built, binary] if built == commit => binary.to_owned(),
@@ -450,7 +476,7 @@ fn held_on_host(host: &BuildHost, commit: &str, taken: &Path, build_on: &mut imp
 mod tests {
     use super::*;
 
-    fn build_there(hosts: &Path, host: &BuildHost, commit: &str, into: &Path) -> Result<(), Failure> {
+    fn build_there(hosts: &Path, host: &BuildHost, commit: &str, into: &Path, _: Stop) -> Result<(), Failure> {
         let kept = hosts.join(&host.ssh).join(commit);
         fs::create_dir_all(&kept)?;
         for program in PROGRAMS {
@@ -474,7 +500,7 @@ mod tests {
 
     fn artifact(layout: &Layout, hosts: &Path, tree: &str, commit: &str) -> PathBuf {
         let artifact = layout.artifacts().join(tree);
-        held_on_host(&host("cpx62", None), commit, &artifact, &mut |host, commit, into| build_there(hosts, host, commit, into)).unwrap();
+        held_on_host(&host("cpx62", None), commit, &artifact, &mut |host, commit, into, stop| build_there(hosts, host, commit, into, stop), &|| false).unwrap();
         artifact
     }
 
@@ -511,12 +537,31 @@ mod tests {
         BuildHost { name: name.to_owned(), ssh: format!("tom@{name}"), free_cpus }
     }
 
+    fn superseded_build_ends_at_once(layout: &Layout, hosts: &Path) {
+        let artifacts = layout.artifacts();
+        let ask = |tree: &str, commit: &str, kind, lane: &str| Ask { tree: tree.to_owned(), commit: commit.to_owned(), kind, lane: lane.to_owned() };
+        let (running, running_commit, replacing) = ("7".repeat(40), "8".repeat(40), "9".repeat(40));
+        let mut tried = Vec::new();
+        let superseded_build = |host: &BuildHost, commit: &str, into: &Path, stop: Stop| -> Result<(), Failure> {
+            tried.push(commit.to_owned());
+            if commit != running_commit {
+                return build_there(hosts, host, commit, into, stop);
+            }
+            file(&artifacts, &ask(&replacing, &replacing, Kind::HandIn, "i-lane")).unwrap();
+            assert!(stop(), "a build asked for a lane's hand-in is told to stop once a newer request is filed");
+            Err(failed(1, "stopped"))
+        };
+        request(layout, &ask(&running, &running_commit, Kind::HandIn, "h-lane"), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], superseded_build).unwrap();
+        assert_eq!(tried, [running_commit.clone(), replacing.clone()], "a superseded head's build ends at once and is not tried on the next build host, and the newer request builds after it");
+        assert!(ready(layout, &running).is_none() && !staging(&artifacts, &running).exists() && ready(layout, &replacing).is_some(), "the ended build keeps nothing and the request that superseded it is kept");
+    }
+
     #[test]
     fn build_ahead_never_runs_cargo_on_the_settling_host_and_copies_no_release_before_the_promotion() {
         let state = tempfile::tempdir().unwrap();
         let layout = Layout { state: state.path().to_path_buf() };
         let (tree, commit) = ("c".repeat(40), "d".repeat(40));
-        let unbuilt = |_: &BuildHost, _: &str, _: &Path| -> Result<(), Failure> { panic!("no build host answered") };
+        let unbuilt = |_: &BuildHost, _: &str, _: &Path, _: Stop| -> Result<(), Failure> { panic!("no build host answered") };
         let ask = |tree: &str, commit: &str, kind, lane: &str| Ask { tree: tree.to_owned(), commit: commit.to_owned(), kind, lane: lane.to_owned() };
         assert!(request(&layout, &ask(&tree, &commit, Kind::Candidate, ""), || vec![host("cpx62", None), host("gex45", None)], unbuilt).is_ok(), "with no build host answering the request ends clean");
         let left: Vec<_> = fs::read_dir(layout.artifacts()).unwrap().flatten().map(|entry| entry.file_name()).collect();
@@ -528,9 +573,9 @@ mod tests {
 
         let mut asked = Vec::new();
         let hosts = tempfile::tempdir().unwrap();
-        let built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {
+        let built = |host: &BuildHost, commit: &str, into: &Path, stop: Stop| -> Result<(), Failure> {
             asked.push(format!("{} {commit}", host.name));
-            build_there(hosts.path(), host, commit, into)
+            build_there(hosts.path(), host, commit, into, stop)
         };
         let artifacts = layout.artifacts();
         let (older, lane_old, lane_new, newer) = ("1".repeat(40), "2".repeat(40), "3".repeat(40), "4".repeat(40));
@@ -557,12 +602,14 @@ mod tests {
         let busy = busy.unwrap();
         let (beside, beside_commit) = ("5".repeat(40), "6".repeat(40));
         let mut beside_on = Vec::new();
-        let beside_built = |host: &BuildHost, commit: &str, into: &Path| -> Result<(), Failure> {
+        let beside_built = |host: &BuildHost, commit: &str, into: &Path, stop: Stop| -> Result<(), Failure> {
             beside_on.push(host.name.clone());
-            build_there(hosts.path(), host, commit, into)
+            build_there(hosts.path(), host, commit, into, stop)
         };
         request(&layout, &ask(&beside, &beside_commit, Kind::HandIn, "h-lane"), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], beside_built).unwrap();
         drop(busy);
         assert_eq!(beside_on, ["gex45"], "a request filed while a build ahead holds one build host's slot builds beside it on another build host, never queued behind it");
+
+        superseded_build_ends_at_once(&layout, hosts.path());
     }
 }
