@@ -3,7 +3,7 @@
 //! lane, which scans the message against the fresh deny-list and, only when that scan passes on a public destination,
 //! keeps it as the lane's proposal and asks the private-kind judge, so the finish call that leaves out its message
 //! finds that verdict cached under the same text (north#1239).
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -134,6 +134,10 @@ fn ask(kept: Option<&str>, session: &str, message: &str, cwd: &Path, north: &Pat
             let finish = |flag: &str| format!("{} finish {flag} {}", quote(&north.to_string_lossy()), quote(session));
             let keep = kept.map_or_else(String::new, |kept| format!("printf %s {} | {} >/dev/null; ", quote(kept), finish(BRIEF_TRAILERS)));
             let script = format!("cd {} || exit 1; {keep}{}", quote(&cwd.to_string_lossy()), finish(JUDGE_MESSAGE));
+            let piped = format!("printf %s {} | sh -c {}", quote(message), quote(&script));
+            if let Some(output) = north_ssh_spare::started(machine.session_login(), &piped) {
+                return said_first(output, || ());
+            }
             let mut ssh = Command::new(super::runtime::binary("ssh"));
             ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             ssh
@@ -146,12 +150,19 @@ fn first_line(mut command: Command, input: &str) -> Option<String> {
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     let written = child.stdin.take().is_some_and(|mut stdin| stdin.write_all(input.as_bytes()).is_ok());
     let output = child.stdout.take().filter(|_| written)?;
+    said_first(output, move || {
+        let _ = child.wait();
+    })
+}
+
+fn said_first(output: impl Read + Send + 'static, then: impl FnOnce() + Send + 'static) -> Option<String> {
     let (said, heard) = mpsc::channel();
     std::thread::spawn(move || {
-        let mut line = String::new();
-        let _ = BufReader::new(output).read_line(&mut line);
+        let (mut output, mut line) = (BufReader::new(output), String::new());
+        let _ = output.read_line(&mut line);
         let _ = said.send(line);
-        let _ = child.wait();
+        let _ = std::io::copy(&mut output, &mut std::io::sink());
+        then();
     });
     heard.recv_timeout(SCAN_WAIT).ok().map(|line| line.trim().to_owned())
 }

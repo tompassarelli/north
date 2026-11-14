@@ -46,8 +46,21 @@ struct Spare {
 /// Runs `script` on `destination` through a spare and returns its exit status and standard output, or None when no spare
 /// was ready, the shell ended before it said its status, or `within` passed; the caller then runs it the usual way.
 pub fn run(destination: &str, script: &str, within: Duration) -> Option<(i32, String)> {
+    run_bytes(destination, script, within).map(|(code, out)| (code, String::from_utf8_lossy(&out).into_owned()))
+}
+
+/// Runs `script` as [`run`] does and returns its standard output byte for byte, for output that need not be text.
+pub fn run_bytes(destination: &str, script: &str, within: Duration) -> Option<(i32, Vec<u8>)> {
     let taken = take(destination)?;
     finished(taken, script, within)
+}
+
+/// Starts `script` on `destination` through a spare and returns its standard output to read as it comes, or None when
+/// no spare was ready; the remote shell runs the script to its end whether or not the caller reads it all.
+pub fn started(destination: &str, script: &str) -> Option<File> {
+    let Taken { mut input, output } = take(destination)?;
+    input.write_all(framed(script).as_bytes()).ok()?;
+    Some(output)
 }
 
 /// A ready spare to `destination` from its holder, or None when none is ready; with no holder running, starts one for the next caller.
@@ -219,7 +232,7 @@ fn received(stream: &UnixStream) -> Option<Taken> {
     Some(Taken { input: File::from(input), output: File::from(output) })
 }
 
-fn finished(taken: Taken, script: &str, within: Duration) -> Option<(i32, String)> {
+fn finished(taken: Taken, script: &str, within: Duration) -> Option<(i32, Vec<u8>)> {
     let Taken { mut input, mut output } = taken;
     let body = format!("{script}\nprintf '\\n{EXIT_MARK} %s\\n' \"$?\"\n");
     input.write_all(framed(&body).as_bytes()).ok()?;
@@ -230,10 +243,13 @@ fn finished(taken: Taken, script: &str, within: Duration) -> Option<(i32, String
         let _ = output.read_to_end(&mut read);
         let _ = send.send(read);
     });
-    let read = receive.recv_timeout(within).ok()?;
-    let text = String::from_utf8_lossy(&read);
-    let (out, code) = text.trim_end_matches('\n').rsplit_once(&format!("\n{EXIT_MARK} "))?;
-    Some((code.trim().parse().ok()?, out.to_owned()))
+    let mut read = receive.recv_timeout(within).ok()?;
+    let end = read.iter().rposition(|byte| *byte != b'\n').map_or(0, |last| last + 1);
+    let mark = format!("\n{EXIT_MARK} ");
+    let at = read[..end].windows(mark.len()).rposition(|window| window == mark.as_bytes())?;
+    let code = std::str::from_utf8(&read[at + mark.len()..end]).ok()?.trim().parse().ok()?;
+    read.truncate(at);
+    Some((code, read))
 }
 
 fn spawn(words: &[OsString]) -> io::Result<Child> {

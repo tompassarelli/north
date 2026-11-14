@@ -14,7 +14,7 @@ fn a_command_through_a_spare_answers_with_its_output_and_exit_status_as_ssh_woul
         taken.is_some()
     });
     assert!(handed, "no spare was handed out within 10 s");
-    assert_eq!(finished(taken.expect("handed"), "printf 'one\\ntwo'; false", Duration::from_secs(5)), Some((1, "one\ntwo".to_owned())));
+    assert_eq!(finished(taken.expect("handed"), "printf 'one\\ntwo'; false", Duration::from_secs(5)), Some((1, b"one\ntwo".to_vec())));
 
     let mode = |path: &Path| fs::metadata(path).expect("mode").permissions().mode() & 0o777;
     assert_eq!((mode(&held), mode(&socket(&held, "build-host"))), (0o700, 0o600), "the socket that hands out a shell on the build host is its owner's alone");

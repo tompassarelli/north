@@ -142,6 +142,9 @@ pub(super) fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option
             sh
         }
         Some(machine) => {
+            if let Some((code, out)) = north_ssh_spare::run_bytes(machine.session_login(), &format!("sh -c {}", quote(&script)), SSH_WAIT) {
+                return (code == 0).then_some(out);
+            }
             let mut ssh = Command::new(super::runtime::binary("ssh"));
             ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             ssh
