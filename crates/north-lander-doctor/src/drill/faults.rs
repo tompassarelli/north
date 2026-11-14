@@ -106,7 +106,7 @@ fn held_link(lander: &mut Lander) -> Result<String, String> {
         std::os::unix::fs::symlink(format!("runtimes/{build}"), home.join(link)).map_err(|error| format!("{link}: {error}"))?;
     }
     link_hold::unreached(&home, &candidate, "round lane-a: transient mkdir -p on tom@gex45 did not finish within 20s");
-    heal(lander, Bound::NoVerdict, &|now| Facts { link: facts::link_facts(&home, None, Vec::new(), now), ..Facts::default() })
+    heal(lander, Bound::NoVerdict, &|now| Facts { link: facts::link_facts(&home, None, Vec::new(), now, &[]), ..Facts::default() })
 }
 
 fn full_disk(lander: &mut Lander) -> Result<String, String> {

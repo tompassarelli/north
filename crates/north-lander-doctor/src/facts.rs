@@ -15,8 +15,10 @@ use north_lander::land::candidate::git;
 use north_lander::land::{link_hold, pause, post_land, queue, watchdog};
 
 mod probe;
+mod review_hold;
 
 pub use probe::{Probe, REMOVE_QUEUE, orphan_scan, parse_probe, probe};
+pub use review_hold::ReviewHold;
 
 pub const INFRASTRUCTURE_WINDOW_SECS: u64 = 2 * 3600;
 pub const DECIDED_WINDOW_SECS: u64 = 24 * 3600;
@@ -100,6 +102,7 @@ pub struct LinkFacts {
     pub builds: BTreeSet<String>,
     pub units: Vec<String>,
     pub unreached: Option<link_hold::Unreached>,
+    pub review_hold: Option<ReviewHold>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -279,11 +282,12 @@ fn target(link: &Path) -> Option<String> {
     fs::read_link(link).ok().map(|target| target.to_string_lossy().into_owned())
 }
 
-pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u64) -> Option<LinkFacts> {
+pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u64, review_holds: &[ReviewHold]) -> Option<LinkFacts> {
     let lander = target(&home.join("lander"))?;
     let current = target(&home.join("current")).unwrap_or_default();
     let behind = (lander != current).then(|| behind(home, north, &lander, &current, now));
     let lag = north.and_then(|checkout| lag(checkout, &lander));
+    let review_hold = north.and_then(|checkout| review_hold::standing_over(checkout, &lander, review_holds));
     let link_set = link_age(&home.join("lander"), now).unwrap_or(0);
     let builds = fs::read_dir(home.join("runtimes"))
         .into_iter()
@@ -293,7 +297,7 @@ pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u6
         .map(|entry| format!("runtimes/{}", entry.file_name().to_string_lossy()))
         .collect();
     let refused = fs::read_to_string(home.join(crate::REFUSED)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
-    Some(LinkFacts { home: home.to_owned(), green_since_link: green_since(&post_land::ledger_path(), now.saturating_sub(link_set)), lander, current, behind, lag, refused, builds, units, unreached: link_hold::unreached_of(home) })
+    Some(LinkFacts { home: home.to_owned(), green_since_link: green_since(&post_land::ledger_path(), now.saturating_sub(link_set)), lander, current, behind, lag, refused, builds, units, unreached: link_hold::unreached_of(home), review_hold })
 }
 
 fn behind(home: &Path, north: Option<&Path>, lander: &str, current: &str, now: u64) -> Behind {

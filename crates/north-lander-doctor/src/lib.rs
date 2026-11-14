@@ -130,7 +130,7 @@ pub fn render(treated: &[Treated]) -> String {
 }
 
 /// Reads every bound on this lander host and its offload hosts.
-pub fn examine(now: u64) -> Facts {
+pub fn examine(now: u64, review_holds: &[facts::ReviewHold]) -> Facts {
     let state = state_home();
     let host = repositories::local_host();
     let mut queues = Vec::new();
@@ -145,7 +145,7 @@ pub fn examine(now: u64) -> Facts {
         queues.push(facts::queue_facts(&name, &queue::directory(&state, &origin), &checkout, now));
     }
     let units = queues.iter().map(|queue| queue.unit.clone()).collect();
-    let link = facts::link_facts(&state.join("north"), north.as_deref(), units, now);
+    let link = facts::link_facts(&state.join("north"), north.as_deref(), units, now, review_holds);
     let places: Vec<facts::PlaceFacts> = std::iter::once(Place { name: host, reach: Reach::Here }).chain(facts::offload_places()).map(facts::place_facts).collect();
     let orphaned_remote = facts::remote_orphans(&places);
     let reach_deferred = north_base::platform::harness::defers_to_lander();
@@ -186,7 +186,8 @@ impl Hands for DryRun {
     }
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+/// Runs `north land doctor`; `review_holds` reads the standing review holds, whose store this crate may not reach.
+pub fn run(arguments: &[String], review_holds: &dyn Fn() -> Vec<facts::ReviewHold>) -> u8 {
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
@@ -208,7 +209,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 1;
         }
     };
-    let facts = examine(now);
+    let facts = examine(now, &review_holds());
     if !dry_run {
         let units: BTreeSet<String> = facts.queues.iter().map(|queue| queue.unit.clone()).collect();
         north_lander::land::unit_start::page(&state_home().join("north"), &units.into_iter().collect::<Vec<_>>());

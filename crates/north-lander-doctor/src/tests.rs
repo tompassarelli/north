@@ -11,7 +11,7 @@ use north_lander::land::queue::{self, Ticket};
 use super::*;
 use crate::bounds::{BASE_BROKEN_SECS, Bound, OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
 use north_check_environment::Environment;
-use crate::facts::{Behind, LinkFacts, PlaceFacts, Probe, QueueFacts, Reach, SlotHold};
+use crate::facts::{Behind, LinkFacts, ReviewHold, PlaceFacts, Probe, QueueFacts, Reach, SlotHold};
 
 const NOW: u64 = 1_800_000_000;
 
@@ -547,4 +547,17 @@ fn a_lander_link_four_landings_behind_current_pages_the_proxy_with_the_hold_reas
     cure(&Facts { link: Some(link(7, Some("runtimes/b"))), ..Facts::default() }, &mut Book::default(), &hands, NOW);
     assert_eq!(hands.pages.borrow().len(), 2, "a rolled-back link pages no one");
     assert_eq!(facts::landings(&[100, 101, 102, 400, 900, 901]), 3, "a batch's commits land seconds apart and count as one landing");
+}
+
+#[test]
+fn a_runtime_pinned_behind_a_review_hold_names_the_hold_once_and_pages_no_one() {
+    let hold = ReviewHold { commit: "02bb1eeff35d93c6d4602c2dac8d8ade3f556589".to_owned(), session: "commit-reviewer".to_owned(), why: "the eval start reads defaults it never wrote".to_owned() };
+    let link = LinkFacts { lander: "runtimes/3c75dbf3e2".to_owned(), current: "runtimes/3c75dbf3e2".to_owned(), lag: Some(3 * 60 * 60), review_hold: Some(hold), ..LinkFacts::default() };
+    let hands = Fake::default();
+    let mut book = Book::default();
+    let shown = render(&cure(&Facts { link: Some(link.clone()), ..Facts::default() }, &mut book, &hands, NOW));
+    cure(&Facts { link: Some(link), ..Facts::default() }, &mut book, &hands, NOW + REPAGE_SECS);
+    assert_eq!(shown.lines().filter(|line| line.contains("02bb1eeff3") && line.contains("commit-reviewer")).count(), 1, "{shown}");
+    assert!(!shown.contains("does not follow main"), "{shown}");
+    assert!(hands.pages.borrow().is_empty(), "a runtime pinned on purpose pages no one: {:?}", hands.pages.borrow());
 }
