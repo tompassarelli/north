@@ -3,7 +3,10 @@ use rustix::fs::{Access, access};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+#[cfg(not(test))]
 const OPERATOR_FILE: &str = "/etc/north/operator";
+#[cfg(test)]
+const OPERATOR_FILE: &str = "/nonexistent/north/operator";
 const USERS_FILE: &str = "/etc/passwd";
 const RELOCATING: [&str; 3] = ["NORTH_AGENT_STATE_ROOT", "NORTH_AGENT_ACTIVATION", "NORTH_AGENT_ACTIVE"];
 
