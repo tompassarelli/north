@@ -134,10 +134,10 @@ impl Granted {
         self
     }
 
-    /// The same grant with a command that compiles Rust run as the session's own fleet compile (fleet_compile.rs, north#1553). A grant that left its domain to join the run before queueing, or whose command compiles nothing, is kept.
+    /// The same grant with a command that compiles Rust run as the session's own fleet compile (fleet_compile.rs, north#1553). A grant that left its domain to join the run before queueing, one already sent to a build host through `capacity offload run`, whose first word is this host's runtime path a build host cannot run, or whose command compiles nothing, is kept.
     pub(super) fn compiling(mut self, north: &Path) -> Self {
         let words = ["sh", "-c", &self.command].map(str::to_owned);
-        let in_domain = self.arguments.first().is_some_and(|word| word == FLAG);
+        let in_domain = self.arguments.iter().map(String::as_str).eq([FLAG, CHECKED, "--"].into_iter().chain(words.iter().map(String::as_str)));
         let Some(gate) = fleet_compile::gate(&self.session, &words).filter(|_| in_domain) else { return self };
         self.arguments = gate.into_iter().chain([north.to_string_lossy().into_owned()]).chain(self.arguments).collect();
         self

@@ -81,4 +81,7 @@ fn a_finish_check_that_compiles_runs_as_the_sessions_fleet_compile_north_1553() 
 
     let joined = Granted { arguments: ["land", "checks", "--accept", "cargo nextest run --workspace"].map(str::to_owned).to_vec(), command: "cargo nextest run --workspace".to_owned(), ..granted(scratch.path(), "", &scratch.path().join("turn")) };
     assert_eq!(joined.compiling(north).arguments[..2], ["land", "checks"], "a finish check that joined the run before queueing was wrapped again");
+    let sent = [FLAG, CHECKED, "--", "/var/lib/agent-runtime/current/north", "capacity", "offload", "run", "--host", "gex45", "--base", "aaa", "--head", "bbb", "--timeout", "3600", "--", "cargo nextest run --workspace"].map(str::to_owned).to_vec();
+    let offloaded = Granted { arguments: sent.clone(), command: "cargo nextest run --workspace".to_owned(), ..granted(scratch.path(), "", &scratch.path().join("turn")) };
+    assert_eq!(offloaded.compiling(north).arguments, sent, "a finish check already sent to a build host was gated again, and the gate refused its runtime path as an absolute path (north#1553, 2026-11-15)");
 }
