@@ -3,9 +3,10 @@
 //! good. An arm wins only when a seeded bootstrap over both arms' boxes puts it ahead on cost per kept
 //! box in `AHEAD` of `RESAMPLES` resamples and its kept share is no lower; until then the arms keep
 //! sampling, and each arm's share of the next boxes follows Thompson sampling on cost per kept box
-//! (`shares`), and dispatch draws each launch's arm from those shares (`pick`). The policy climber may not
-//! change this file (docs/rationale/policy-climber.md).
-use crate::router::policy::ARM_RUNS;
+//! (`shares`) among the arms holding `ARM_EVIDENCE` closed boxes, a thinner arm holding `FLOOR`, and dispatch
+//! draws each launch's arm from those shares (`pick`). The policy climber may not change this file
+//! (docs/rationale/policy-climber.md); `ARM_EVIDENCE` came in by a ruled change on north#35 (2026-11-14).
+use crate::router::policy::{ARM_EVIDENCE, ARM_RUNS};
 
 pub const RESAMPLES: usize = 100;
 pub const AHEAD: usize = 90;
@@ -116,7 +117,9 @@ pub fn family(arm: &str) -> &'static str {
 
 /// Each arm's share of the category's next boxes and whether the category is settled: all to the
 /// winner once two arms settle, else the share of `DRAWS` seeded posterior draws in which the arm is
-/// cheapest per kept box, lifted to at least `FLOOR`. A posterior draw resamples the arm's boxes with
+/// cheapest per kept box, lifted to at least `FLOOR`. An arm with fewer than `ARM_EVIDENCE` closed boxes
+/// sits out the draws and holds `FLOOR`, since a resample of one box is always that box; with no arm
+/// that holds them, every arm takes an equal share. A posterior draw resamples the arm's boxes with
 /// replacement; an arm with no kept box in a draw costs infinity, and arms tied cheapest split it.
 pub fn shares(arms: &[&[Outcome]], category: &str) -> (Vec<f64>, bool) {
     if let [first, second] = arms {
@@ -125,13 +128,17 @@ pub fn shares(arms: &[&[Outcome]], category: &str) -> (Vec<f64>, bool) {
             return (if side == Side::First { vec![1.0, 0.0] } else { vec![0.0, 1.0] }, true);
         }
     }
+    let drawing: Vec<bool> = arms.iter().map(|boxes| closed(boxes) >= ARM_EVIDENCE).collect();
+    if !drawing.contains(&true) {
+        return (vec![1.0 / arms.len() as f64; arms.len()], false);
+    }
     let seed = category.bytes().fold(SHARE_SEED, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
     let mut random = SplitMix(seed);
     let mut wins = vec![0.0; arms.len()];
     for _ in 0..DRAWS {
-        let costs: Vec<f64> = arms.iter().map(|boxes| drawn(boxes, &mut random)).collect();
+        let costs: Vec<f64> = arms.iter().zip(&drawing).map(|(boxes, draws)| if *draws { drawn(boxes, &mut random) } else { f64::INFINITY }).collect();
         let lowest = costs.iter().copied().fold(f64::INFINITY, f64::min);
-        let tied: Vec<usize> = (0..costs.len()).filter(|index| costs[*index] == lowest).collect();
+        let tied: Vec<usize> = (0..costs.len()).filter(|index| drawing[*index] && costs[*index] == lowest).collect();
         tied.iter().for_each(|index| wins[*index] += 1.0 / tied.len() as f64);
     }
     let lift = 1.0 - FLOOR * arms.len() as f64;

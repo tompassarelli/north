@@ -68,6 +68,11 @@ fn every_category_routes_to_a_cell_the_arm_table_keeps() {
     let live = cells::live("feature", seed_cell("feature"), &settled);
     assert_eq!(live.len(), LIVE, "{live:?}");
     assert!(live.iter().all(|live| live.cell.name() != "haiku-high"), "a challenger settled behind the leader leaves and the next untried cell comes in: {live:?}");
+
+    let haiku_led = BTreeMap::from([("sonnet-high".to_owned(), boxes(10.0)), ("haiku-high".to_owned(), boxes(2.0)), ("haiku-xhigh".to_owned(), boxes(1.0)[..1].to_vec())]);
+    let live = cells::live("tooling", seed_cell("tooling"), &haiku_led);
+    assert_eq!(live[0].cell.name(), "haiku-high", "{live:?}");
+    assert!(live.iter().any(|live| live.cell == seed_cell("tooling") && live.role == Role::Challenger), "the starting cell stays live beside a Haiku leader that settled ahead of it: {live:?}");
 }
 
 #[test]

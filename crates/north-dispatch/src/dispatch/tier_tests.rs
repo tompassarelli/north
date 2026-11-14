@@ -66,7 +66,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     let live = super::cells::live("review", seed_cell("review"), &ledger(evidence(12.0, 9.0))["review"].cell_boxes);
     assert_eq!(live.len(), super::cells::LIVE, "{live:?}");
     assert_eq!(live[0].cell.name(), "opus-high");
-    assert!(live.iter().all(|live| live.cell.name() != "opus-medium"), "a challenger settled behind the leader leaves: {live:?}");
+    assert!(live.iter().any(|live| live.cell.name() == "opus-medium" && live.role == super::cells::Role::Challenger), "the starting cell stays live though it settled behind the leader: {live:?}");
 
     let draw = || (1..=4000).map(|n| context_arm(&format!("north#{n}"), "docs-policy", &History::default(), &Evidence::default()).0).collect::<Vec<_>>();
     let arms = draw();

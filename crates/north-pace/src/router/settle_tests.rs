@@ -48,12 +48,15 @@ fn an_arm_is_settled_only_on_a_bootstrap_over_real_closed_box_costs_and_until_th
     assert_eq!(settle::settled(Arm { runs: 15, boxes: &cheap }, Arm { runs: 15, boxes: &cheap }), None, "a tie is no evidence for either arm");
 
     assert_eq!(shares(&[&[], &[]], "feature tier"), (vec![0.5, 0.5], false), "two arms with no boxes start 50-50");
-    let (small_cheap, small_dear) = ([3.0, 4.0, 5.0, 30.0].map(|usd| flat(usd, 1, 1)[0]), [6.0, 8.0, 10.0, 60.0].map(|usd| flat(usd, 1, 1)[0]));
+    let (small_cheap, small_dear) = ([3.0, 4.0, 5.0, 6.0, 7.0, 30.0].map(|usd| flat(usd, 1, 1)[0]), [6.0, 8.0, 10.0, 12.0, 14.0, 60.0].map(|usd| flat(usd, 1, 1)[0]));
+    assert_eq!(shares(&[&small_cheap[..4], &small_dear[..4]], "feature tier"), (vec![0.5, 0.5], false), "arms short of ARM_EVIDENCE closed boxes stay level");
     let (moved, settled) = shares(&[&small_cheap, &small_dear], "feature tier");
     assert!(!settled && moved[0] > 0.6 && moved[1] >= FLOOR && (moved[0] + moved[1] - 1.0).abs() < 1e-9, "{moved:?}");
     assert_eq!(shares(&[&small_cheap, &small_dear], "feature tier").0, moved, "the draw is seeded");
-    let (floored, _) = shares(&[&flat(1.0, 4, 4), &flat(100.0, 4, 4)], "feature tier");
+    let (floored, _) = shares(&[&flat(1.0, 6, 6), &flat(100.0, 6, 6)], "feature tier");
     assert!((floored[0] - (1.0 - FLOOR)).abs() < 1e-9 && (floored[1] - FLOOR).abs() < 1e-9, "an arm that loses every draw keeps the floor until the rule settles: {floored:?}");
+    let (thin, _) = shares(&[&flat(10.0, 61, 50), &flat(1.0, 1, 1), &flat(20.0, 1, 0)], "tooling cell");
+    assert!((thin[1] - FLOOR).abs() < 1e-9 && (thin[2] - FLOOR).abs() < 1e-9 && (thin[0] - (1.0 - 2.0 * FLOOR)).abs() < 1e-9, "a one-box arm holds the floor and cannot win a draw against a 61-box arm: {thin:?}");
     assert_eq!(shares(&[&flat(1.0, 15, 15), &flat(100.0, 15, 15)], "feature tier"), (vec![1.0, 0.0], true), "a settled comparison gives the winner every box");
     assert_eq!(
         ["worker", "sonnet-high", "effort-xhigh", "no-handoff", "handoff-150k", "context-300k", "climb-split-tooling"].map(family),

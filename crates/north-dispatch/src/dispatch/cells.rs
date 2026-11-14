@@ -186,13 +186,13 @@ pub fn live<'a>(shape: impl Into<Shape<'a>>, seed: Cell, outcomes: &std::collect
     }
     let leader = leader(shape, seed, outcomes);
     let mut candidates: Vec<Cell> = allowed.iter().copied().filter(|cell| *cell != leader).collect();
-    candidates.sort_by(|a, b| distance(*a, leader).cmp(&distance(*b, leader)).then(a.cmp(b)));
+    candidates.sort_by(|a, b| (*b == seed).cmp(&(*a == seed)).then(distance(*a, leader).cmp(&distance(*b, leader))).then(a.cmp(b)));
     let mut live = vec![Live { cell: leader, role: Role::Leader }];
     for cell in candidates {
         if live.len() >= LIVE {
             break;
         }
-        if beats(outcomes, leader, cell) {
+        if cell != seed && beats(outcomes, leader, cell) {
             continue;
         }
         live.push(Live { cell, role: Role::Challenger });

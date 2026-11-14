@@ -5,6 +5,12 @@ use toml_edit::{DocumentMut, Item};
 
 /// Runs each arm needs in a category before dispatch routes it by the ledger's pick.
 pub const ARM_RUNS: usize = 15;
+/// Closed boxes an arm needs in a category before it takes part in the share draws; a thinner arm holds the floor
+/// share. Source: `threads backtest` arm-shares walk-forward over the 14 days to 2026-11-14 (1,895 boxes, 32
+/// experiments, the 30 days before as prior), USD per kept box against equal shares 0.343: 0.338 at 1, 0.336 at
+/// 2-5, 0.335 at 6-8, 0.343 at 10 and 15; the week before (571 boxes) is flat at every value. 6 is the smallest
+/// best value on one window; a second window of over 1,000 boxes that separates the values would settle it.
+pub const ARM_EVIDENCE: usize = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
