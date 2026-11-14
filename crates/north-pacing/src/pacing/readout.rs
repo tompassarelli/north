@@ -61,6 +61,10 @@ pub(super) fn open() -> Result<(Connection, bool), String> {
 }
 pub(super) fn prepare(db: &Connection) -> Result<(), String> {
     usage_table::ensure(db).map_err(|e| e.to_string())?;
+    let analyzed = db.query_row("SELECT 1 FROM sqlite_stat1 WHERE tbl = 'usage' LIMIT 1", [], |_| Ok(())).is_ok();
+    if analyzed {
+        return Ok(());
+    }
     db.execute_batch("PRAGMA analysis_limit=1000; ANALYZE usage;").map_err(|e| e.to_string())
 }
 pub(super) fn record(db: &Connection, readings: &[Value]) -> Result<(), String> {
