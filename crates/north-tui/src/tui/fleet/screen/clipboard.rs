@@ -4,7 +4,7 @@ use super::{Dialog, Focus, Notice, Screen};
 
 impl Screen {
     pub fn paste(&mut self, text: &str) {
-        self.insert_pasted(text);
+        self.insert_pasted(&text.replace("\r\n", "\n").replace('\r', "\n"));
         self.settle_help();
     }
 

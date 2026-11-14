@@ -344,6 +344,14 @@ fn a_refused_launch_keeps_the_form_as_typed() {
     assert_eq!(form.problem.as_deref(), Some("account a has nothing left"));
 }
 
+#[test]
+fn a_paste_with_carriage_returns_keeps_its_lines() {
+    let desk = desk();
+    let mut screen = screen(&desk);
+    apply_event(&mut screen, Event::Paste("first line\rsecond line\r\nthird line".into()));
+    assert_eq!(screen.composer.lines(), ["first line", "second line", "third line"]);
+}
+
 fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
     let request = GateRequest {
         verification: false,
