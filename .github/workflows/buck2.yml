@@ -3,12 +3,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      commit:
-        description: The commit to test; empty tests the run's own ref.
-        required: false
-        type: string
-        default: ''
 
 permissions:
   contents: read
@@ -23,8 +17,6 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          ref: ${{ inputs.commit || github.sha }}
       - name: Nix dev shell
         uses: ./.github/actions/nix-dev-shell
       - name: 'Environment: cargo tests'
