@@ -196,7 +196,7 @@ const FINISH_ARGUMENTS: &str = "NORTH_FINISH_IT_ARGUMENTS";
 fn finishing(world: &World, session: &str, check: &str, message: &str, path: &Path) -> std::process::Command {
     let arguments = ["--check", check, "--message", message, "--", path.to_str().unwrap()];
     let mut command = queueing(world, FINISH, FINISH_ARGUMENTS, &arguments);
-    command.env("NORTH_FLEET_SESSION", session).env("NORTH_FLEET_SESSION_PROVED", "1").env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts"));
+    command.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts"));
     command
 }
 
@@ -262,7 +262,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert!(!recorded.passed && recorded.command == "echo the box is red; exit 3", "the finish record does not name the failed acceptance command: {recorded:?}");
     let narrow = worktree(&north, "narrow");
     fs::write(narrow.join("red.txt"), "a change the named check does not read\n").unwrap();
-    let refused = finish(&world, "small", "true", "Add the red note (north#1233)", &narrow.join("red.txt"));
+    let refused = finishing(&world, "small", "true", "Add the red note (north#1233)", &narrow.join("red.txt")).env("NORTH_FLEET_SESSION_PROVED", "1").output().unwrap();
     let text = report(&refused);
     assert_eq!(refused.status.code(), Some(1), "{text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a lane one of the repository's checks before queueing failed was queued: {text}");
@@ -279,7 +279,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(stale.status.code(), Some(1), "another session's finish call committed the proposal kept for an earlier one: {}", report(&stale));
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "another session's empty-message finish call queued: {}", report(&stale));
     fs::write(lane.join("named.txt"), "the finished change, checked\n").unwrap();
-    let unproved = finishing(&world, "proposer", "echo the unproved check ran; exit 3", "", &lane.join("named.txt")).env_remove("NORTH_FLEET_SESSION_PROVED").output().unwrap();
+    let unproved = finishing(&world, "proposer", "echo the unproved check ran; exit 3", "", &lane.join("named.txt")).output().unwrap();
     let unproved_text = report(&unproved);
     assert!(unproved_text.contains("the unproved check ran") && !unproved_text.contains("the brief proposed none"), "a finish process no broker proved did not read the proposal kept for its session: {unproved_text}");
     let ran = world.path().join("check-ran");
@@ -589,7 +589,7 @@ fn finish_runs_acceptance_inside_the_pre_queue_run() {
         fs::write(lane.join("note.txt"), format!("the {session} note\n")).unwrap();
         let (queued_before, accepted_before) = (count(&queued), count(&accepted));
         let mut call = queueing(&world, PREQUEUE, PREQUEUE_ARGUMENTS, &["--check", &check, "--message", "Add the note (north#1036)", "--", lane.join("note.txt").to_str().unwrap()]);
-        let output = call.env("NORTH_FLEET_SESSION", session).env("NORTH_FLEET_SESSION_PROVED", "1").env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).env("NORTH_HOME", &harness_home).output().unwrap();
+        let output = call.env("NORTH_FLEET_SESSION", session).env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).env("NORTH_HOME", &harness_home).output().unwrap();
         let text = report(&output);
         let runs: Vec<&str> = text.lines().filter(|line| line.contains("check(s) before queueing the lane") && line.contains(&check)).collect();
         assert!(matches!(runs[..], [run] if run.contains(&check)), "the acceptance command did not run as one more check of one run before queueing: {text}");
