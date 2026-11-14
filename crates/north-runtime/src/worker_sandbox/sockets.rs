@@ -99,7 +99,7 @@ fn sockets(path: &Path, depth: usize, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// Puts a null device over each of `paths` in a user and mount namespace of this process, which maps the caller's own user and group only; every command it then starts sees a refused connection there. The overlay cannot be lifted from inside the Landlock domain applied after it, which refuses mount(2), and the domain's ptrace rule keeps the original sockets out of reach through the `/proc` entries of processes outside it. Needs a single-threaded process.
+/// Puts a null device over each of `paths` in a user and mount namespace of this process, which maps the caller's own user and group only; every command it then starts sees a refused connection there. A socket removed since it was listed needs no overlay, since nothing connects through a path that is gone. The overlay cannot be lifted from inside the Landlock domain applied after it, which refuses mount(2), and the domain's ptrace rule keeps the original sockets out of reach through the `/proc` entries of processes outside it. Needs a single-threaded process.
 pub fn hide(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
@@ -111,7 +111,7 @@ pub fn hide(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
     write("uid_map", format!("{uid} {uid} 1"))?;
     write("gid_map", format!("{gid} {gid} 1"))?;
     mount_change("/", MountPropagationFlags::SLAVE | MountPropagationFlags::REC).map_err(|error| format!("mount /: {error}"))?;
-    let mut failed: Vec<String> = paths.iter().filter_map(|path| mount_bind("/dev/null", path).err().map(|error| format!("{}: {error}", path.display()))).collect();
+    let mut failed: Vec<String> = paths.iter().filter_map(|path| mount_bind("/dev/null", path).err().filter(|error| *error != rustix::io::Errno::NOENT).map(|error| format!("{}: {error}", path.display()))).collect();
     failed.extend(own_includes_only(runtime).err());
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
 }
