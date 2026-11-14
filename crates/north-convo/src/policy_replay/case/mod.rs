@@ -36,8 +36,7 @@ const USAGE: &str = "usage: north policy-replay case CASE... [--arm NAME=GENERAT
   --dry-run prints each arm's appended-prompt hash and runs nothing.
   The first arm is the base. Each case runs --samples per arm (default 2, and a third when the two disagree); with two
   arms a judged case prints kept or regressed only when the arms differ at the 90% level, else inconclusive. A case file
-  replayed with arms named base and lane gets its graded samples in CASE.proof.jsonl beside it, the proof
-  `north land scan detector-proof` reads.";
+  replayed with arms named base and lane gets its graded samples in CASE.proof.jsonl beside it.";
 
 struct Options {
     ids: Vec<String>,

@@ -103,7 +103,7 @@ The data do not support making it a rule. The 29 first tries the harness lost in
 2. **A run's landing comes from the push log for its fleet session.** On north#791: 22 of 76 Done runs were mis-scored as unlanded. This is a join, and north#791's done-from-landed-sha box depends on it.
 3. **Box prose never holds a box for a host.** On north#787: a wrong placement costs one short `Stop: host` run that records the need (0.2% of 24 h worker usage). A prose hold idles a slot for as long as the box waits.
 4. **A landing that moves files re-merges the queued lanes it touches at once.** On north#360, which owns the landing-refusal class: 30 of 78 conflict send-backs in a week came from lanes landed while the lane waited.
-5. **A detector-filed box closes only with a proven guard.** On north#706: this makes the ratchet automatic behind its existing proofs. It ranks last because it compounds over weeks, and it needs mechanical attribution (north#791) to aim well.
+5. **A detector-filed box closes only with a proven guard.** On north#706: this makes the ratchet automatic behind its existing proofs. The land scan built for it (`detector-proof`) was deleted on 2026-11-14 (north#1544) after four decisions in 36 h and one judged refusal, which was wrong. It ranks last because it compounds over weeks, and it needs mechanical attribution (north#791) to aim well.
 
 ## What north will not do
 

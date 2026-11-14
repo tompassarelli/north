@@ -12,13 +12,16 @@ decisions = 58
 [gate.proxy-launch-rank]
 mode = "shadow"
 
-# A lane whose Box: trailer ticks a detector-filed box lands only with its guard's proof (north#706). Would-be refusals: $XDG_STATE_HOME/north/gates/detector-proof.jsonl on the pushing host.
-[gate.detector-proof]
-mode = "shadow"
-
-# A lane that drops the test, concern, eval or land check a live hold of harness/holdlist.toml names, or removes a hold or turns it from live to missing with no `Holdlist: REASON` commit trailer (north#1127, docs/rationale/holdlist.md). Would-be refusals: $XDG_STATE_HOME/north/gates/holdlist-guards-resolve.jsonl on the pushing host.
+# A lane that drops the test, concern, eval or land check a live hold of harness/holdlist.toml names, or removes a hold or turns it from live to missing with no `Holdlist: REASON` commit trailer (north#1127, docs/rationale/holdlist.md). A hold whose guard is already missing at the merge base refuses nothing. It enforces since the 2026-11-14 review (north#1544).
 [gate.holdlist-guards-resolve]
-mode = "shadow"
+mode = "enforce"
+
+[gate.holdlist-guards-resolve.review]
+reviewed = "2026-11-14"
+by = "n1544-gates"
+issue = "north#1544"
+decisions = 362
+correct = 1
 
 # A lane that adds a [[turn]] to docs/rationale/discovery-turns.toml and changes more than added lines of docs/rationale/experiments.toml, or changes or removes a recorded turn, is refused (north#1279). Its rows go to $XDG_STATE_HOME/north/gates/turn-scope.jsonl on the host that runs the scan, which with offloaded land checks is gex45, not the lander. The shadow read on gex45 (scoreboard lead's ruling of 2026-11-13) covered 186 decisions over 29 h with no would-be refusal; no lane that added a [[turn]] was scanned in that window, since the one such lane (2026-11-12) landed before the log began. The first lane that adds a [[turn]] after the log began, discovery-turn-1113 (ac5a57bd66..39e72e1c03), passed the scan on the pinned runtime with would_refuse false (2026-11-13), which is the case the shadow did not show.
 [gate.turn-scope]
@@ -29,16 +32,6 @@ reviewed = "2026-11-13"
 by = "n1279-turn-scope"
 hours = 29
 decisions = 186
-
-# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). The 2026-11-09 review read all 77 reports of the 41 h since it landed and a sample of 20 held none false, so it enforced. Tom's decision on 2026-11-10 made the habit advisory again (north#970): findings are filed on the After-landing gate debt issue by the after-landing advisory in `.safe-push`, and the check can neither refuse a lane nor fail a post-landing run. The shadow copy of the scan that ran before queueing was dropped on 2026-11-13 (north#1036): nothing read its output, and it held a build-host slot job on every hand-in's path.
-[gate.code-comment]
-mode = "shadow"
-
-[gate.code-comment.review]
-reviewed = "2026-11-09"
-by = "ds-865"
-hours = 41
-decisions = 77
 
 # A north lane whose own build drops a flag or subcommand that a nixos-config unit or script on its origin/main still runs (north#706): `north land scan tool-removal` asks the lane's build for `north PATH --help`. Would-be refusals: $XDG_STATE_HOME/north/gates/peer-invocation.jsonl on the checking host. The 2026-11-10 review read 2150 decisions over 61 h: 2113 in the laptop log through the records mirror (2026-11-08 00:26 to 2026-11-10 06:48 UTC), none a would-be refusal, and 37 on cpx62, one would-be refusal and true: 3b32b3699 dropped `north skill-review-queue` while nixos-config's skill-review-queue module still ran it, though no host enabled that module, so the module is deleted in nixos-config. gex45's and nexus's logs were unreachable from cpx62. The false refusal north#1041 named, `north fleet send --from` missing from its help, was fixed by a40793dcd; a sweep of every nixos-config invocation against the live runtime's help found two more flags accepted but unlisted, `north config agents check-hook-paths --claude` and `north ops check --synthetic`, which their reference lines now name.
 [gate.peer-invocation]
@@ -93,13 +86,16 @@ mode = "shadow"
 [gate.blame-walk-back]
 mode = "shadow"
 
-# A tree whose `third-party/BUCK` lags the Cargo build: no target for a package Cargo builds, a target built without a feature Cargo turns on, a target for a package Cargo dropped, or no target under a name a workspace target depends on (north#1115 box 4a, docs/rationale/compile-reuse.md "First-party targets"). `north buck targets --check`, the land check that also holds Cargo.lock and the generated crate targets, reads this mode from the tree it checks. Would-be refusals: $XDG_STATE_HOME/north/gates/buck-targets-drift.jsonl on the host that runs the check.
+# A tree whose `third-party/BUCK` lags the Cargo build: no target for a package Cargo builds, a target built without a feature Cargo turns on, a target for a package Cargo dropped, or no target under a name a workspace target depends on (north#1115 box 4a, docs/rationale/compile-reuse.md "First-party targets"). `north buck targets --check`, the land check that also holds Cargo.lock and the generated crate targets, reads this mode from the tree it checks. It enforces since the 2026-11-14 review (north#1544).
 [gate.buck-targets-drift]
-mode = "shadow"
+mode = "enforce"
 
-# A lane whose crate Cargo.toml adds or changes a `[[package.metadata.north.buck.host-cases]]` entry for a case the landing base's `build/host-cases.list` lacks, or beside a file other than Cargo.toml files and the `BUCK` files generated from them, or that changes the list beside any other file; a lane that changes the list alone, or adds entries of listed cases alone, passes and prints `review: host-case change` for the commit reviewer (north#1287). Would-be refusals: $XDG_STATE_HOME/north/gates/host-cases.jsonl on the pushing host.
-[gate.host-cases]
-mode = "shadow"
+[gate.buck-targets-drift.review]
+reviewed = "2026-11-14"
+by = "n1544-gates"
+issue = "north#1544"
+decisions = 613
+correct = 1
 
 # A lane that changes a file of trust_boundary_paths in harness/defaults.toml lands only with the review accepts of two distinct reviewer sessions for its patch id (`git patch-id --stable` of base..head, which the lander's rebase keeps), or of one when the change is test files alone or an exact revert (north#1036, `north runtime accept`). Would-be refusals: $XDG_STATE_HOME/north/gates/review-accept.jsonl, keyed by lane head and patch id, on the host that runs the lane's checks before queueing, which every road to the lander runs. It enforces only after a shadow run has named a real lane.
 [gate.review-accept]

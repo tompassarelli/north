@@ -184,7 +184,9 @@ pub fn check(directory: &Path, base: &str, head: &str) -> Result<(), String> {
         Some(text) => guards(&text)?,
         None => Vec::new(),
     };
+    let stale = unresolved(directory, &fork, &before);
     let mut refusals = unresolved(directory, head, &after);
+    refusals.retain(|line| !stale.contains(line));
     let given_up = weakened(&before, &after);
     if !given_up.is_empty() && !excused(directory, &fork, head) {
         refusals.extend(given_up.into_iter().map(|line| format!("{line}, and no commit of the lane says why in a `{TRAILER}: REASON` trailer")));

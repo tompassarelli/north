@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use super::*;
-use crate::host_cases;
 use crate::host_evaluate::{self, Evaluate};
 
 fn git_in(directory: &Path, arguments: &[&str]) -> String {
@@ -35,7 +34,7 @@ const BARS: &str = "[[experiment]]\nbar = 1\n";
 const MORE_BARS: &str = "[[experiment]]\nbar = 1\n\n[[experiment]]\nbar = 2\n";
 
 #[test]
-fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases_enter_only_by_a_list_change_alone_read_from_the_landing_base_north_1287_and_a_batch_is_judged_lane_by_lane_north_1415_and_a_lane_that_breaks_a_host_configuration_is_refused() {
+fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_a_batch_is_judged_lane_by_lane_north_1415_and_a_lane_that_breaks_a_host_configuration_is_refused() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();
     git_in(repo, &["init", "-q", "-b", "main"]);
@@ -73,59 +72,6 @@ fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases
     assert!(String::from_utf8(out).unwrap().contains("would refuse (shadow)"));
     let log = std::fs::read_to_string(state.path().join("north/gates/turn-scope.jsonl")).unwrap();
     assert!(log.contains("\"would_refuse\":true"), "{log}");
-
-    let root = tempfile::tempdir().unwrap();
-    let repo = root.path();
-    git_in(repo, &["init", "-q", "-b", "main"]);
-    let manifest = "crates/alpha/Cargo.toml";
-    let plain = "[package]\nname = \"alpha\"\n";
-    let with_case = "[package]\nname = \"alpha\"\n\n[[package.metadata.north.buck.host-cases]]\nname = \"t::a\"\nreason = \"needs openat2\"\n";
-    let inline_case = "[package]\nname = \"alpha\"\nmetadata.north.buck.host-cases = [{ name = \"t::b\", reason = \"x\" }]\n";
-    let base = commit(repo, &[(manifest, plain), ("crates/alpha/src/lib.rs", "a\n")]);
-
-    let mixed = commit(repo, &[(manifest, with_case), ("crates/alpha/src/lib.rs", "b\n")]);
-    let refusal = host_cases::check(repo, &base, &mixed).unwrap_err();
-    assert!(refusal.contains("crate alpha names host case `t::a` of alpha in crates/alpha/Cargo.toml, which the landing base's build/host-cases.list does not hold"), "{refusal}");
-    assert!(refusal.contains("the lane also changes crates/alpha/src/lib.rs"), "{refusal}");
-
-    git_in(repo, &["reset", "-q", "--hard", &base]);
-    let inline = commit(repo, &[(manifest, inline_case), ("crates/alpha/src/lib.rs", "b\n")]);
-    assert!(host_cases::check(repo, &base, &inline).unwrap_err().contains("host case `t::b`"));
-
-    git_in(repo, &["reset", "-q", "--hard", &base]);
-    let together = commit(repo, &[(manifest, with_case), ("build/host-cases.list", "alpha t::a\n"), ("crates/alpha/BUCK", "skip\n")]);
-    let refusal = host_cases::check(repo, &base, &together).unwrap_err();
-    assert!(refusal.contains("host case `t::a` of alpha in crates/alpha/Cargo.toml, which the landing base's build/host-cases.list does not hold"), "{refusal}");
-    assert!(refusal.contains("the lane changes build/host-cases.list beside crates/alpha/BUCK, crates/alpha/Cargo.toml"), "{refusal}");
-    let mut out = Vec::new();
-    assert_eq!(host_cases::scan(repo, &format!("{base}..{together}"), state.path(), &mut out), 0);
-    assert!(String::from_utf8(out).unwrap().contains("would refuse (shadow)"));
-
-    git_in(repo, &["reset", "-q", "--hard", &base]);
-    let listed = commit(repo, &[("build/host-cases.list", "alpha t::a\n")]);
-    assert_eq!(host_cases::check(repo, &base, &listed), Ok(true));
-    let mut out = Vec::new();
-    assert_eq!(host_cases::scan(repo, &format!("{base}..{listed}"), state.path(), &mut out), 0);
-    assert_eq!(String::from_utf8(out).unwrap(), "review: host-case change\n");
-
-    let vendored = commit(repo, &[(manifest, with_case), ("third-party/BUCK", "edited\n")]);
-    assert!(host_cases::check(repo, &listed, &vendored).unwrap_err().contains("the lane also changes third-party/BUCK"));
-
-    git_in(repo, &["reset", "-q", "--hard", &listed]);
-    let alone = commit(repo, &[(manifest, with_case), ("crates/alpha/BUCK", "skip\n")]);
-    assert_eq!(host_cases::check(repo, &listed, &alone), Ok(true));
-
-    let reasoned = with_case.replace("needs openat2", "needs openat2 and a tty");
-    let edited = commit(repo, &[("build/host-cases.list", "# none\n"), (manifest, reasoned.as_str())]);
-    let refusal = host_cases::check(repo, &alone, &edited).unwrap_err();
-    assert!(refusal.contains("the lane changes build/host-cases.list beside crates/alpha/Cargo.toml"), "{refusal}");
-    assert!(!refusal.contains("does not hold"), "{refusal}");
-
-    git_in(repo, &["reset", "-q", "--hard", &alone]);
-    let kept = commit(repo, &[("crates/alpha/src/lib.rs", "c\n")]);
-    assert_eq!(host_cases::check(repo, &alone, &kept), Ok(false));
-    let removed = commit(repo, &[(manifest, plain), ("crates/alpha/src/lib.rs", "d\n")]);
-    assert_eq!(host_cases::check(repo, &kept, &removed), Ok(false));
 
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();

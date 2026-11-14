@@ -18,7 +18,7 @@ A `[[hold.also]]` names a further guard of the same hold, and `incidents` lists 
 - `land-check`: a `land.check` or `land.after` line of `.safe-push` that names NAME.
 
 The scan names each hold whose live guard is gone, and each hold a lane removes or turns from live to missing without saying why.
-It is listed as `holdlist-guards-resolve` in `harness/gates.toml` and starts in shadow like every new gate: it logs what it would refuse until a reviewer has read those decisions and switches it to enforce. On north's tree it takes about 0.15 s (0.34 s measured with the 0.21 s lane wrapper).
+It is listed as `holdlist-guards-resolve` in `harness/gates.toml` and enforces since the 2026-11-14 review of 362 decisions (north#1544). A guard counts as dropped only when it resolves at the merge base and not at the head, so a hold already stale on main refuses no lane. On north's tree it takes about 0.15 s (0.34 s measured with the 0.21 s lane wrapper).
 
 ## Adding or retiring a hold
 

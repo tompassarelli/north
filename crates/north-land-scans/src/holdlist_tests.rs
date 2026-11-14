@@ -45,3 +45,14 @@ fn a_lane_that_deletes_a_holdlist_guard_is_refused() {
     let present = commit(repo, &[(TESTS, GUARD)], "write it back");
     assert_eq!(check(repo, &base, &present), Ok(()));
 }
+
+#[test]
+fn a_hold_whose_guard_is_already_missing_at_the_merge_base_refuses_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    let base = commit(repo, &[(HOLDLIST, HOLDS), (TESTS, "fn helper() {}\n")], "base holds a stale guard");
+
+    let unrelated = commit(repo, &[("src/a.rs", "fn a() {}\n")], "touch something else");
+    assert_eq!(check(repo, &base, &unrelated), Ok(()));
+}

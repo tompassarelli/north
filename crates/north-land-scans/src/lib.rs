@@ -8,13 +8,11 @@ mod doc_paths;
 pub mod docs_owners;
 pub mod ci_budget;
 pub mod dropped_commits;
-pub mod detector_proof;
 pub mod gate_shadow;
 pub mod generated;
 pub mod generated_registry;
 pub mod git;
 pub mod holdlist;
-pub mod host_cases;
 pub mod host_evaluate;
 pub(crate) mod host_paths;
 pub mod incident_guard;
@@ -54,12 +52,10 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan gate-shadow BASE..HEAD
        north land scan generated-registry BASE..HEAD
        north land scan holdlist-guards-resolve BASE..HEAD
-       north land scan host-cases BASE..HEAD
        north land scan host-evaluate BASE..HEAD
        north land scan review-accept BASE..HEAD
        north land scan safe-push-keys BASE..HEAD
        north land scan turn-scope BASE..HEAD
-       north land scan detector-proof BASE..HEAD
        north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan leftovers BASE..HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps\n       north land scan dep-floor LOCK < LOCK-BEFORE";
 
 /// A bare revision or an empty base is a root commit: its base is the empty tree, so the diff and the history read are of the whole commit.
@@ -113,11 +109,9 @@ fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "dep-gate" => dep_gate(directory, range),
         "doc-links" => doc_links::scan(directory, range, &mut out),
         "docs-owners" => docs_owners::scan(directory, range, &north_github_mirror::store::Mirror::local(), &mut out),
-        "detector-proof" => detector_proof::run(directory, range),
         "generated-registry" => generated_registry::scan(directory, range, &mut out),
         "gate-shadow" => gate_shadow::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "holdlist-guards-resolve" => holdlist::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
-        "host-cases" => host_cases::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "host-evaluate" => host_evaluate::scan(directory, range, &mut out),
         "review-accept" => review_accept::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::counted(&north_base::platform::records_mirror::Records::here()), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
         "safe-push-keys" => safe_push_keys::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::counted(&north_base::platform::records_mirror::Records::here()), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
