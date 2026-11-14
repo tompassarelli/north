@@ -7,6 +7,8 @@ mod brokered_reads;
 mod buck;
 mod check_request;
 mod finish_request;
+mod fleet_compile;
+pub use fleet_compile::checked_shell;
 mod hold_request;
 pub mod hold_client;
 mod eval_start;
@@ -359,13 +361,6 @@ pub fn ask_check(arguments: &[String]) -> u8 {
 pub fn finish_check(lane: &Path, command: &str, head: &str, log: &std::fs::File) -> Option<Result<u8, String>> {
     std::env::var_os(MARK)?;
     Some(broker::request_finish_check(lane, &finish_request::request_words(command, head), log))
-}
-
-/// The command that runs the program `program` in a new worker domain whatever role starts it, judged by no hook: what the checker the broker starts for a session runs a box's Done-when command as, since the command's text comes from an issue a session may have written.
-pub fn checked_shell(program: &[String]) -> Command {
-    let mut shell = Command::new(std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary()));
-    shell.args([FLAG, CHECKED, "--"]).args(program);
-    shell
 }
 
 /// Whether this process runs inside a worker sandbox's Landlock domain, asked of the kernel as the no-new-privileges flag it set when the domain was applied, which no process below it can clear; asked by prctl, since a /proc mounted for another PID namespace has no /proc/self to read.
