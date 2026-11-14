@@ -44,6 +44,24 @@ pub fn box_node(item: &str, text: &str) -> Option<String> {
     box_slug(text).map(|slug| format!("box:{item}:{slug}"))
 }
 
+/// The head of a box's text that its id is made of: the text before its ` (owner` note, at most 120 characters.
+pub fn box_head(text: &str) -> String {
+    let cut = text.to_ascii_lowercase().find(" (owner").unwrap_or(text.len());
+    text[..cut].chars().take(120).collect()
+}
+
+/// Whether the box id `whole` extends the short id `short` at a `-`, as a box's whole id extends the id of a run that named it by its leading words.
+pub fn extends_box(whole: &str, short: &str) -> bool {
+    whole.strip_prefix(short).is_some_and(|rest| rest.starts_with('-'))
+}
+
+/// The whole box id of `ids` that the short id `short` names: the one equal to it or extending it, or None when none or several do, so a name several boxes extend grades none of them.
+pub fn whole_box_of<'a>(ids: impl IntoIterator<Item = &'a str>, short: &str) -> Option<&'a str> {
+    let mut found = ids.into_iter().filter(|id| *id == short || extends_box(id, short));
+    let whole = found.next()?;
+    found.next().is_none().then_some(whole)
+}
+
 /// Whether `slug` names a box of the issue `body`, ticked or not, as [`same_box`] matches a claim to a box.
 pub fn names_box(body: &str, slug: &str) -> bool {
     boxes(body).filter_map(box_slug).any(|line| same_box(slug, &line))

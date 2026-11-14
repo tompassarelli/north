@@ -239,7 +239,13 @@ pub fn box_verified(body: &str, box_text: &str) -> bool {
 
 fn ticked_named<'a>(body: &'a str, box_text: &str) -> Vec<&'a str> {
     let Some(wanted) = crate::threads::claims::box_slug(box_text) else { return Vec::new() };
-    ticked(body).filter(|line| crate::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| slug.starts_with(&wanted))).collect()
+    ticked(body).filter(|line| crate::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| crate::threads::claims::same_box(&wanted, &slug))).collect()
+}
+
+/// The box id of `node`'s box as the graph holds it: the whole box of `item`'s body that the short id extends, read the way the graph ingest reads it.
+fn whole_node(bodies: &HashMap<String, String>, item: &str, node: String) -> String {
+    let ids: Vec<String> = bodies.get(item).map_or_else(Vec::new, |body| crate::threads::claims::boxes(body).filter_map(|text| crate::threads::claims::box_node(item, &crate::threads::claims::box_head(text))).collect());
+    crate::threads::claims::whole_box_of(ids.iter().map(String::as_str), &node).map_or(node, str::to_owned)
 }
 
 fn ticked(body: &str) -> impl Iterator<Item = &str> {
@@ -361,7 +367,7 @@ impl ClosedReport {
             let body = bodies.get(&arm.item).filter(|_| arm.closed);
             arm.issue_verified = body.is_some_and(|body| checker_verified(body));
             arm.verified = match corroborated {
-                Some(boxes) => arm.closed && arm.box_text.as_deref().and_then(|text| crate::threads::claims::box_node(&arm.item, text)).is_some_and(|node| boxes.contains(&node)),
+                Some(boxes) => arm.closed && arm.box_text.as_deref().and_then(|text| crate::threads::claims::box_node(&arm.item, text)).is_some_and(|node| boxes.contains(&whole_node(bodies, &arm.item, node))),
                 None => body.is_some_and(|body| arm.box_text.as_deref().map_or(arm.issue_verified, |text| box_verified(body, text))),
             };
         }

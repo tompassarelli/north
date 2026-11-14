@@ -57,8 +57,7 @@ fn line(line: &str) -> Option<Item> {
             }
         }
     }
-    let cut = text.to_ascii_lowercase().find(" (owner").unwrap_or(text.len());
-    let head: String = text[..cut].chars().take(120).collect();
+    let head = north_threads::threads::claims::box_head(&text);
     let done_when = done_when(&text);
     Some(Item { ticked, text, head, owner, landed, done_when })
 }

@@ -163,20 +163,12 @@ fn told_runs(facts: &mut Facts, box_ids: &BTreeMap<String, Vec<String>>, places:
 }
 
 fn whole_box(ids: &[String], node: String) -> String {
-    let mut found = ids.iter().filter(|id| *id == &node || wider(id, &node));
-    match (found.next(), found.next()) {
-        (Some(id), None) => id.clone(),
-        _ => node,
-    }
-}
-
-fn wider(id: &str, node: &str) -> bool {
-    id.strip_prefix(node).is_some_and(|rest| rest.starts_with('-'))
+    north_threads::threads::claims::whole_box_of(ids.iter().map(String::as_str), &node).map_or(node, str::to_owned)
 }
 
 fn widens(whole: &Term, short: &Term) -> bool {
     match (whole, short) {
-        (Term::Atom(Atom::String(whole)), Term::Atom(Atom::String(short))) => wider(whole, short),
+        (Term::Atom(Atom::String(whole)), Term::Atom(Atom::String(short))) => north_threads::threads::claims::extends_box(whole, short),
         _ => false,
     }
 }

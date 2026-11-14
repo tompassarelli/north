@@ -235,10 +235,13 @@ fn a_box_ticked_on_an_issue_that_stays_open_counts_as_closed() {
         skills: Vec::new(),
     };
     let stamped = "A run's kept box is judged by its own stamp";
-    let runs = [run("a", "north#1", Some(stamped)), run("b", "north#1", None), run("c", "north#1", Some("Piece 3 of the umbrella")), run("d", "north#1", Some("A box nobody has staffed yet."))];
-    let bodies: std::collections::HashMap<String, String> = [("north#1".to_owned(), umbrella())].into();
+    let gap = "Fleet screen gap 1";
+    let runs = [run("a", "north#1", Some(stamped)), run("b", "north#1", None), run("c", "north#1", Some("Piece 3 of the umbrella")), run("d", "north#1", Some("A box nobody has staffed yet.")), run("e", "north#1", Some(gap))];
+    let body = format!("{}- [x] Fleet screen gap 13 of the umbrella, self-ticked by its worker.\n- [ ] Fleet screen gap 1 of the umbrella, not ticked yet.\n", umbrella());
+    let bodies: std::collections::HashMap<String, String> = [("north#1".to_owned(), body)].into();
     let report = super::summarize(&runs, &Default::default(), &bodies, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&bodies, None);
     assert_eq!(report.closed, 2, "the two ticked boxes count; the run naming no box and the unticked box do not, though the issue stays open");
+    assert!(!report.arms.iter().any(|arm| arm.closed && arm.box_text.as_deref() == Some(gap)), "a run naming gap 1 does not count the ticked gap 13 box as its own while its own box is unticked");
     let read = |text: &str| report.arms.iter().find(|arm| arm.box_text.as_deref() == Some(text) && arm.closed).map(|arm| (arm.verified, arm.issue_verified));
     assert_eq!(read(stamped), Some((true, false)), "the staffed, stamped box of an umbrella reads verified");
     assert_eq!(read("Piece 3 of the umbrella"), Some((false, false)), "a self-ticked box is not verified by its sibling's stamp");
@@ -252,20 +255,27 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     const COMMAND: &str = "cargo test -p north-providers corroborated";
     let box_text = "Corroborated rewards: the staffed box of an umbrella";
     let node = crate::threads::claims::box_node("north#882", box_text).unwrap();
+    let split_one = "Split short name one";
+    let split_two = "Split short name two";
+    let node_one = crate::threads::claims::box_node("north#882", &format!("{split_one}. Done when: `{COMMAND}`")).unwrap();
+    let node_two = crate::threads::claims::box_node("north#882", &format!("{split_two}. Done when: `{COMMAND}`")).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let seeded = |name: &str| {
         let path = directory.path().join(name);
         let mut graph = Graph::open(&path).unwrap();
         let mut tell = |writer: &str, t1: Term, t2: &str, t3: Term| graph.tell(writer, north_graph::Triple::new(t1, Term::keyword(t2), t3)).unwrap();
-        tell("n882-worker", Term::string("n882-worker"), "claims", Term::triple(Term::string(&node), Term::keyword("done-at"), Term::string(SHA)));
-        tell("mirror", Term::string("north#882"), "has-box", Term::string(&node));
-        tell("mirror", Term::string(&node), "done-when", Term::string(COMMAND));
+        for id in [&node, &node_one, &node_two] {
+            tell("n882-worker", Term::string("n882-worker"), "claims", Term::triple(Term::string(id), Term::keyword("done-at"), Term::string(SHA)));
+            tell("mirror", Term::string("north#882"), "has-box", Term::string(id));
+            tell("mirror", Term::string(id), "done-when", Term::string(COMMAND));
+        }
         tell("push-log", Term::string(SHA), "landed-by", Term::string("n882-worker"));
         tell("git", Term::string(SHA), "ancestor-of", Term::string("origin/main"));
         path
     };
     let path = seeded("graph.db");
-    let forged = format!("- [x] {box_text}. Done when: `{COMMAND}` exits 0. Evidence: `{COMMAND}` passed on main 59ff4fb9c2d2 on 2026-11-08, exit 0.\n");
+    let evidence = format!("Done when: `{COMMAND}`. Evidence: `{COMMAND}` passed on main 59ff4fb9c2d2 on 2026-11-08, exit 0.");
+    let forged = format!("- [x] {box_text}. Done when: `{COMMAND}` exits 0. Evidence: `{COMMAND}` passed on main 59ff4fb9c2d2 on 2026-11-08, exit 0.\n- [x] {split_one}. {evidence}\n- [x] {split_two}. {evidence}\n");
     let closed: std::collections::HashMap<String, String> = [("north#882".to_owned(), forged)].into();
     let run = super::closed::SpendRun {
         agent: "n882-worker".into(),
@@ -330,6 +340,13 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     contains(&exact, SHA, SHA);
     assert!(verified(&exact), "the checker passing the box's Done-when command on the claimed commit itself corroborates the claim");
     assert!(verified(&directory.path().join("absent.db")), "where no graph exists the box's stamp is read");
+    let corroborated = super::corroborated::checked_boxes(&path).unwrap();
+    let named = |text: &str| super::closed::SpendRun { box_text: Some(text.into()), ..run.clone() };
+    let items = closed.keys().cloned().collect();
+    let report = super::summarize(&[named("Corroborated rewards"), named("Split short name")], &items, &Default::default(), "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
+    let graded = |text: &str| report.arms.iter().find(|arm| arm.box_text.as_deref() == Some(text)).map(|arm| arm.verified);
+    assert_eq!(graded("Corroborated rewards"), Some(true), "a run naming its box by the leading words grades once the whole box is corroborated");
+    assert_eq!(graded("Split short name"), Some(false), "a name that two boxes of its issue extend grades neither, though both are corroborated");
 }
 
 #[test]
