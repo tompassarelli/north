@@ -1,13 +1,47 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::Path;
 
+use regex::Regex;
 use serde_json::Value;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 
 use super::configuration;
 
 pub(super) const PATTERN: &str = r#"authoring_guards_off\(|const (UNIT|ID): &str = ""#;
 const CALL: &str = "authoring_guards_off(";
+
+pub(super) fn scan_sources(root: &Path) -> NorthResult<String> {
+    let pattern = Regex::new(PATTERN).map_err(|error| NorthError::Configuration(error.to_string()))?;
+    let mut lines = Vec::new();
+    for top in ["crates", "src"] {
+        scan_directory(root, &root.join(top), &pattern, &mut lines)?;
+    }
+    Ok(lines.join("\n"))
+}
+
+fn scan_directory(root: &Path, directory: &Path, pattern: &Regex, lines: &mut Vec<String>) -> NorthResult<()> {
+    let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            if entry.file_name() != "target" {
+                scan_directory(root, &path, pattern, lines)?;
+            }
+        } else if kind.is_file()
+            && let Ok(text) = fs::read_to_string(&path)
+            && let Ok(relative) = path.strip_prefix(root)
+        {
+            for (number, line) in text.lines().enumerate().filter(|(_, line)| pattern.is_match(line)) {
+                lines.push(format!("{}:{}:{line}", relative.display(), number + 1));
+            }
+        }
+    }
+    Ok(())
+}
 
 struct Call<'a> {
     path: &'a str,

@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::catalog_init::catalog_from;
+use super::catalog_init::{catalog_from, initial_catalog};
 use super::owner_modules::STRUCTURE_FILE;
 use super::registration_checks::{OwnerCheckRoots, canonical, check_owner_files, git_text};
 use crate::error::NorthResult;
@@ -58,7 +58,14 @@ fn checked_init(structure: &str) -> NorthResult<()> {
 const CHURNERS: usize = 4;
 
 #[test]
-fn catalog_init_resolves_and_refuses_an_unregistered_module_and_concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
+fn catalog_init_builds_without_a_git_checkout_resolves_and_refuses_an_unregistered_module_and_concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
+    let bare = tempfile::tempdir().expect("scratch");
+    std::fs::create_dir_all(bare.path().join("crates/a/src")).expect("source dir");
+    std::fs::create_dir_all(bare.path().join("src")).expect("src dir");
+    std::fs::write(bare.path().join("crates/a/src/lib.rs"), "const UNIT: &str = \"a-guard\";\nfn f() { authoring_guards_off(UNIT); }\n").expect("source");
+    std::fs::write(bare.path().join(STRUCTURE_FILE), "").expect("structure");
+    let catalog = initial_catalog(bare.path()).expect("catalog builds with no .git");
+    assert!(catalog["activation"].get("a-guard").is_some(), "{catalog}");
     checked_init("[[registered]]\nid = \"skill.a\"\npath = \"harness/skills/a/SKILL.md\"\n").expect("resolves");
     let error = checked_init("").expect_err("unregistered");
     assert!(error.to_string().contains("does not register skill.a"), "{error}");

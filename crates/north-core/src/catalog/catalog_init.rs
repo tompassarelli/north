@@ -5,13 +5,12 @@ use serde_json::{Map, Value, json};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::guard_ids::{PATTERN, guard_ids_asked};
+use super::guard_ids::{guard_ids_asked, scan_sources};
 use super::owner_modules::STRUCTURE_FILE;
-use super::registration_checks::git_text;
 
 pub fn initial_catalog(north: &Path) -> NorthResult<Value> {
     let structure = fs::read_to_string(north.join(STRUCTURE_FILE))?;
-    let guard_sources = git_text(north, &["grep", "-n", "-E", PATTERN, "--", "crates", "src"])?;
+    let guard_sources = scan_sources(north)?;
     catalog_from(&structure, &guard_sources)
 }
 
