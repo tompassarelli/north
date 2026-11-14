@@ -35,3 +35,7 @@ impl Panel {
         Self { title, headline: headline.into(), lines: Vec::new(), unread: Vec::new() }
     }
 }
+
+pub fn money(usd: f64) -> String {
+    format!("${:.2}", if usd.abs() < 0.005 { 0.0 } else { usd })
+}

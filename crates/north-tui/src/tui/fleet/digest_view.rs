@@ -4,6 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 
+use crate::fleet::board::money;
 use crate::fleet::books::{Landing, SessionSpend};
 use crate::fleet::gates::Gate;
 use crate::foundation::clock::Timestamp;
@@ -55,10 +56,21 @@ pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u6
         lines.push(Line::default());
         lines.push(Line::from(Span::styled(panel.title, BOLD)));
         lines.push(Line::from(format!("  {}", panel.headline)));
-        lines.extend(panel.lines.iter().map(|line| Line::from(format!("  {line}"))));
+        lines.extend(panel.lines.iter().map(|line| Line::from(format!("  {}", fit_row(line, width.saturating_sub(2))))));
         lines.extend(panel.unread.iter().map(|why| Line::from(Span::styled(format!("  unread: {why}"), MUTED))));
     }
     lines
+}
+
+fn fit_row(row: &str, room: usize) -> String {
+    if row.chars().count() <= room {
+        return row.to_owned();
+    }
+    let mut cells: Vec<String> = row.split("  ").map(str::trim).filter(|cell| !cell.is_empty()).map(str::to_owned).collect();
+    let joined = cells.iter().map(|cell| cell.chars().count()).sum::<usize>() + 2 * cells.len().saturating_sub(1);
+    let Some((longest, size)) = cells.iter().map(|cell| cell.chars().count()).enumerate().max_by_key(|&(index, size)| (size, std::cmp::Reverse(index))) else { return row.to_owned() };
+    cells[longest] = one_line(&cells[longest], size.saturating_sub(joined.saturating_sub(room)).max(1));
+    cells.join("  ")
 }
 
 fn gate_lines(gate: &Gate, selected: bool, now_ms: u64) -> Vec<Line<'static>> {
@@ -122,7 +134,7 @@ fn spend_text(spend: Option<&SessionSpend>, live_tokens: u64) -> String {
 }
 
 fn api_dollars(usd: f64) -> String {
-    if usd > 0.0 && usd < 0.01 { format!("api ${usd:.4}") } else { format!("api ${usd:.2}") }
+    if usd > 0.0 && usd < 0.01 { format!("api ${usd:.4}") } else { format!("api {}", money(usd)) }
 }
 
 fn landing_line(landing: &Landing) -> Line<'static> {

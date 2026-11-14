@@ -1,7 +1,7 @@
 //! The board's facts, read once per snapshot: Work from the fleet store and books, Accounts from the usage table and
 //! the one credit producer, Infra from `north infra`'s read, and Health from the readiness bars and the habit hook.
 use crate::cli::infra::report::{self, Price};
-use crate::fleet::board::{Board, Panel};
+use crate::fleet::board::{Board, Panel, money};
 use crate::fleet::books::Landing;
 use crate::fleet::gates::Gate;
 use crate::fleet::registry::Fleet;
@@ -123,8 +123,9 @@ fn accounts_panel(screen: &Screen, window: &str) -> Panel {
     let spent = Spend::of(screen);
     let spent_words = spent.as_ref().map_or_else(|_| "spend unread".to_owned(), |spent| format!("{} in the last {window}", money(spent.classes.iter().map(|class| class.usd).sum())));
     panel.headline = format!(
-        "{}; ${api_left:.2} left on {} api {}; {spent_words}",
+        "{}; {} left on {} api {}; {spent_words}",
         if short == 0 { format!("every account lasts to its reset ({} accounts)", accounts.len()) } else { format!("{short} of {} accounts run out before reset", accounts.len()) },
+        money(api_left),
         screen.credit.iter().filter(|org| !org.exhausted).count(),
         if screen.credit.len() == 1 { "organization" } else { "organizations" },
     );
@@ -256,10 +257,6 @@ pub(super) fn window_words(window: &str) -> String {
 
 fn whole_from_note(since: i64) -> String {
     Some(since).filter(|since| *since < WHOLE_FROM_UNIX_SECONDS).map_or_else(String::new, |_| format!("; whole from {WHOLE_FROM_COMMIT} at {}", Timestamp::from_unix_seconds(WHOLE_FROM_UNIX_SECONDS).local_twelve_hour()))
-}
-
-fn money(usd: f64) -> String {
-    format!("${usd:.2}")
 }
 
 fn count(number: usize, word: &str) -> String {

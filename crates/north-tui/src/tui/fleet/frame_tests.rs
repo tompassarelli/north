@@ -9,6 +9,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
 use super::desk::SessionSummary;
+use super::digest_view::digest_lines;
 use super::help_panel::Tab;
 use super::painter::{TranscriptPainter, paint};
 use super::screen::Screen;
@@ -183,4 +184,31 @@ fn the_digest_scrolls_to_its_last_row_and_shows_the_five_hour_window() {
         screen.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
     }
     assert_eq!(frame_rows(&mut screen, 80).join("\n"), before);
+}
+
+#[test]
+fn the_digest_reads_right_on_the_example_operator() {
+    use crate::fleet::board::{Board, Panel, money};
+    use crate::fleet::books::SessionSpend;
+    let mut accounts = Panel::new("Accounts", format!("every account lasts to its reset (1 accounts); {} in the last 1 day", money(-0.0)));
+    accounts.lines = vec!["account  plan  5h left".to_owned(), "work     -     90%".to_owned()];
+    let mut infra = Panel::new("Infra", "2 machines, $0.00/month, 1 idle");
+    let slow = format!("unreachable: {}", "ssh timed out after thirty seconds, ".repeat(8));
+    infra.lines = vec![
+        "resource  kind     per month  status  load".to_owned(),
+        format!("laptop    machine      $0.00  {slow}  idle"),
+        "builder   machine      $0.00  ok  2 jobs".to_owned(),
+    ];
+    let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
+    screen.sync(vec![family("alpha", None, 1, Status::Idle, 0)]);
+    screen.digest.books.spend = vec![SessionSpend { session: "alpha".into(), tokens: 10, api_usd: Some(-0.0) }];
+    screen.digest.board = Board { first_line: "0 landings".to_owned(), panels: vec![Panel::new("Work", "1 idle"), accounts, infra] };
+    let text: Vec<String> = digest_lines(&screen.digest, &screen.sessions, 0, 178).iter().map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect()).collect();
+    let all = text.join("\n");
+    assert!(!all.contains("wisp") && !all.contains("status unavailable"), "{all}");
+    assert!(!all.contains("-0.00") && all.contains("api $0.00") && all.contains("$0.00 in the last 1 day"), "{all}");
+    let laptop: Vec<&String> = text.iter().filter(|line| line.contains("laptop")).collect();
+    assert_eq!(laptop.len(), 1, "{all}");
+    assert!(laptop[0].chars().count() <= 178 && laptop[0].contains('…') && laptop[0].ends_with("  idle"), "{}", laptop[0]);
+    assert!(text.iter().all(|line| line.chars().count() <= 178), "{all}");
 }
