@@ -202,7 +202,7 @@ fn fetched_north(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Has a build host build the release north of `tree` from `commit` in `checkout` and waits for it, so the step asking gets a verdict for exactly that tree while this host compiles nothing. The request drains in a process of its own, since its slot goes on to build the requests queued behind it.
+/// Has a build host build the release north of `tree` from `commit` in `checkout` and waits for it, so the step asking gets a verdict for exactly that tree while this host compiles nothing. The request drains in a process of its own, since its slot goes on to build the requests queued behind it, and any drainer already holding a slot may claim it, so the wait ends only once the tree is neither building under its staging lock nor draining here, whose drainer runs while its request is filed (north#1570).
 fn built_now(layout: &Layout, tree: &str, commit: &str, checkout: &Path) -> Result<(), Failure> {
     let log = layout.artifacts().join(format!("{tree}.log"));
     let mut drainer = None;
@@ -216,13 +216,11 @@ fn built_now(layout: &Layout, tree: &str, commit: &str, checkout: &Path) -> Resu
     }
     eprintln!("north runtime build-ahead: no artifact for tree {}; a build host builds it from {} now, waited for up to {}s", layout::short(tree), layout::short(commit), AWAIT.as_secs());
     let started = std::time::Instant::now();
+    let mut idle = 0;
     while ready(layout, tree).is_none() {
-        let ended = match drainer.as_mut() {
-            Some(child) => child.try_wait().ok().flatten().is_some(),
-            None => !building(layout, tree),
-        };
-        if ended && ready(layout, tree).is_none() {
-            return Err(failed(75, format!("no build host built tree {} (see {})", layout::short(tree), log.display())));
+        idle = if pending(layout, tree, drainer.as_mut()) { 0 } else { idle + 1 };
+        if idle >= 2 {
+            return Err(failed(75, format!("no build host built tree {} (see {} and the build-ahead log of the slot that took it)", layout::short(tree), log.display())));
         }
         if started.elapsed() >= AWAIT {
             return Err(failed(75, format!("tree {} was not built within {}s (see {})", layout::short(tree), AWAIT.as_secs(), log.display())));
@@ -230,6 +228,10 @@ fn built_now(layout: &Layout, tree: &str, commit: &str, checkout: &Path) -> Resu
         std::thread::sleep(SLOT_POLL);
     }
     Ok(())
+}
+
+fn pending(layout: &Layout, tree: &str, drainer: Option<&mut std::process::Child>) -> bool {
+    drainer.is_some_and(|child| matches!(child.try_wait(), Ok(None))) || building(layout, tree)
 }
 
 fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
