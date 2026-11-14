@@ -195,6 +195,22 @@ adopted window gets no account failover from the fleet (`north proxy move` moves
 change breaks only delivery to it and shows as a failed send naming the window, and the north binary
 reading peer keys is the boundary crossing named above, accepted for this one sender path.
 
+Revisited 2026-11-14 (north#1281, gap 1): the fleet screen may now hold the proxy's conversation
+where no client window can open. Release condition 2 of north#1281 asks that the operator's daily
+loop can begin in the screen on a host with no desktop, and the window rule of north#1048 refused
+every start of the proxy there. `north proxy` decides when the operator runs it on a proxy that is
+not live: where the fleet's desk names why no window can open, it prints that reason and starts the
+proxy held by the screen, an ordinary fleet host the screen types into, and every start the operator
+did not type keeps the surface on the record, while a revive by `north proxy` on a desktop takes a
+proxy the screen held back to a window. The plan's three questions were answered by the owner
+on 2026-11-14. The proxy holds the same commands in the screen as in the window, so a session in the
+coordinator role is refused `north runtime hold`, which the window, running in no session's scope,
+cannot reach either. It runs under the same user and sandbox as the window does today, neither wider
+nor narrower. Any host where the operator's own user runs `north proxy` may hold it, with no new list
+of hosts. What stays: on a desktop the window is the path, with every refusal of the window rule
+unchanged, and there is still no second proxy, since the screen only sends to the host and never
+takes its conversation.
+
 Receipt volume: once the proxy has a reader it is the default parent of every launch from outside the
 fleet (`src/cli/fleet/lineage.rs:19`), and each message wakes a turn at about 263 k context. Messages
 to the proxy from `Service` and `Session` senders coalesce into one digest delivered at most every 10

@@ -1,4 +1,4 @@
-//! `north fleet relaunch`: restart a session on the same conversation under another model or effort.
+//! `north fleet relaunch`: restart a session under another model or effort, on the same conversation within the model's family and on a fresh one that carries the last report when the family changes.
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Effort;
 use crate::fleet::registry::Fleet;
