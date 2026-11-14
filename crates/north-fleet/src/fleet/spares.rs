@@ -237,12 +237,11 @@ pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spar
         spool = quote(&spool)
     );
     let nonce = new_uuid()?;
-    let launch = remote::launch_script(spec, &held, &unit, &dir, &nonce, IDLE, &[format!("ExecStopPost=/bin/sh {dir}/retire")]);
+    let launch = remote::launch_script(spec, &held, &remote::Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation: Some(conversation) }, IDLE, &[format!("ExecStopPost=/bin/sh {dir}/retire")]);
     let cwd = quote(&spec.cwd.to_string_lossy());
     let script = format!(
-        "{drop}\numask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && {{ {launch}; }} && printf %s {} > {q_dir}/conversation && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
+        "{drop}\numask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && {{ {launch}; }} && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
         quote(&retire),
-        quote(conversation),
         quote(&format!("{unit} {dir} {nonce} {conversation} {spare}")),
         drop = drop_function(&place.far_home()),
         entry_q = quote(&entry),

@@ -67,7 +67,7 @@ esac
 fn held(root: &Path, argv: &[&str], env: Vec<(String, std::ffi::OsString)>) -> Link {
     let shims = machine(root);
     let spec = HostSpec { key: "box one".into(), shared: false, argv: argv.iter().map(|word| (*word).to_owned()).collect(), env, env_remove: Vec::new(), cwd: root.to_path_buf() };
-    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root, "box one", &root.join("hops.jsonl")).unwrap();
+    let placed = held_under(spec, None, &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root, "box one", &root.join("hops.jsonl")).unwrap();
     assert_eq!(placed.argv[1], "session-link");
     Link { ssh: shims.join("ssh"), ..Link::parse(&placed.argv[2..]).unwrap() }
 }
@@ -149,7 +149,7 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     let root = tempfile::tempdir().unwrap();
     let lane = Path::new("/home/tom/code/north/worktrees/only-on-far");
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["opencode".into()], env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
-    let placed = held_under(spec, &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
+    let placed = held_under(spec, None, &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
     assert_eq!(placed.cwd, root.path());
     assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
     let first = Link::parse(&placed.argv[2..]).unwrap();
@@ -157,19 +157,19 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     let prepare = &launched[launched.find("; mkdir -p ").unwrap() + 2..launched.rfind(" && cd ").unwrap()];
     let bound = Path::new(&first.dir).join(north_base::platform::session_host_files::BOUND_CONVERSATION);
     fs::create_dir_all(&first.dir).unwrap();
-    fs::write(&bound, "c0ffee-bound").unwrap();
+    fs::write(&bound, "c0ffee-earlier").unwrap();
     let ran = std::process::Command::new("sh").args(["-c", prepare]).output().unwrap();
     assert!(ran.status.success(), "{prepare}: {}", String::from_utf8_lossy(&ran.stderr));
-    assert_eq!(fs::read_to_string(&bound).unwrap(), "c0ffee-bound", "starting the held unit again removed the conversation its record mirror had just bound it to (gex45, sb-box-trailer, north#1352)");
-    let fresh = HostSpec { key: "box two".into(), shared: false, argv: ["claude", "--session-id", "c0ffee-fresh"].map(String::from).to_vec(), env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
-    let started = Link::parse(&held_under(fresh, &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path(), "box two", &root.path().join("hops.jsonl")).unwrap().argv[2..]).unwrap();
+    assert!(!bound.exists(), "a fresh session that reuses an earlier one's name started bound to that session's conversation, and so inside its finish scope (north#1352)");
+    let fresh = HostSpec { key: "box two".into(), shared: false, argv: vec!["codex".into()], env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
+    let started = Link::parse(&held_under(fresh, Some("c0ffee-fresh"), &Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path(), "box two", &root.path().join("hops.jsonl")).unwrap().argv[2..]).unwrap();
     let launched = &started.launch[..started.launch.find(" && systemd-run").unwrap()];
     let ran = std::process::Command::new("sh").args(["-c", &launched[launched.find("; mkdir -p ").unwrap() + 2..launched.rfind(" && cd ").unwrap()]]).output().unwrap();
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
     assert_eq!(fs::read_to_string(Path::new(&started.dir).join(north_base::platform::session_host_files::BOUND_CONVERSATION)).unwrap(), "c0ffee-fresh", "the script that starts a held unit left it unbound until its record is mirrored, which can come first and find no directory (evalb sessions on cpx62b, north#1352)");
     let agent = Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: Some("agent@far".into()) };
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["claude".into()], env: Vec::new(), env_remove: Vec::new(), cwd: root.path().to_path_buf() };
-    let placed = held_under(spec, &agent, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
+    let placed = held_under(spec, None, &agent, root.path(), "box one", &root.path().join("hops.jsonl")).unwrap();
     let held_on_agent = Link::parse(&placed.argv[2..]).unwrap().dir;
     assert!(held_on_agent.starts_with("/home/agent/.local/state/north/held/"), "{held_on_agent}");
     let (ssh, sent) = (root.path().join("ssh"), root.path().join("sent"));
@@ -230,7 +230,7 @@ fn a_session_on_an_agent_login_stages_in_that_logins_own_checkout_north_1041() {
     let agent = Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: Some("agent@far".into()) };
     let operator_checkout = Path::new("/home/tom/code/north/main");
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["claude".into()], env: Vec::new(), env_remove: Vec::new(), cwd: operator_checkout.to_path_buf() };
-    let placed = held_under(spec, &agent, Path::new("/home/tom"), "box one", &root.path().join("hops.jsonl")).unwrap();
+    let placed = held_under(spec, None, &agent, Path::new("/home/tom"), "box one", &root.path().join("hops.jsonl")).unwrap();
     let launch = Link::parse(&placed.argv[2..]).unwrap().launch;
     assert!(launch.contains(&format!("cd {}", quote("/home/agent/code/north/main"))), "the session did not stage in its agent login's own checkout: {launch}");
     assert!(!launch.contains("/home/tom"), "the agent login was sent a path under the operator's home: {launch}");

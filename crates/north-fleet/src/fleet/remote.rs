@@ -37,7 +37,7 @@ const ABSENT: i32 = 3;
 pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResult<HostSpec> {
     match &record.machine {
         Some(_) if spec.shared => Err(NorthError::Usage(format!("{} runs one shared host per account, so it cannot run on another machine", record.provider.label()))),
-        Some(machine) => over_ssh(spec, machine, &record.name, trace),
+        Some(machine) => over_ssh(spec, record.conversation.as_deref(), machine, &record.name, trace),
         None => Ok(spec),
     }
 }
@@ -78,9 +78,9 @@ pub fn answer_on(machine: &Machine, script: &str) -> Seen {
     }
 }
 
-pub fn over_ssh(spec: HostSpec, machine: &Machine, session: &str, trace: &Path) -> NorthResult<HostSpec> {
+pub fn over_ssh(spec: HostSpec, conversation: Option<&str>, machine: &Machine, session: &str, trace: &Path) -> NorthResult<HostSpec> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or_else(|| NorthError::State("HOME is not set".into()))?;
-    held_under(spec, machine, Path::new(&home), session, trace)
+    held_under(spec, conversation, machine, Path::new(&home), session, trace)
 }
 
 /// The spec `machine` starts a session from: its working directory moved under the session login's own home, so an agent login stages in the checkout it reads and never in the operator's.
@@ -88,13 +88,13 @@ pub fn staged_on(spec: HostSpec, machine: &Machine, home: &Path) -> HostSpec {
     HostSpec { cwd: machine.session_path(&spec.cwd, home), ..spec }
 }
 
-pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path, session: &str, trace: &Path) -> NorthResult<HostSpec> {
+pub(super) fn held_under(spec: HostSpec, conversation: Option<&str>, machine: &Machine, home: &Path, session: &str, trace: &Path) -> NorthResult<HostSpec> {
     let spec = staged_on(spec, machine, home);
     let held = machine.session_home(home).unwrap_or_else(|| home.to_path_buf()).join(HELD);
     let unit = unit(&spec.key);
     let dir = held.join(&unit).to_string_lossy().into_owned();
     let nonce = new_uuid()?;
-    let launch = launch_script(&spec, &held, &unit, &dir, &nonce, DETACHED, &[]);
+    let launch = launch_script(&spec, &held, &Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation }, DETACHED, &[]);
     linked(spec, machine, home, Held { unit, dir, nonce, launch }, session, trace)
 }
 
@@ -132,10 +132,19 @@ fn linked(spec: HostSpec, machine: &Machine, home: &Path, held: Held, session: &
     Ok(HostSpec { argv, cwd: home.to_path_buf(), ..spec })
 }
 
-/// The script that starts `spec`'s CLI as the held unit `unit` in `dir`, stopped once no link has been attached for `detached`, with `properties` added to the unit.
-pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str, nonce: &str, detached: Duration, properties: &[String]) -> String {
+/// The held unit a launch starts: its name, its directory, the nonce a link attaches with and the conversation it is bound to, or None to leave it bound to none.
+pub(super) struct Starting<'a> {
+    pub unit: &'a str,
+    pub dir: &'a str,
+    pub nonce: &'a str,
+    pub conversation: Option<&'a str>,
+}
+
+/// The script that starts `spec`'s CLI as the held unit `starting` under `held`, stopped once no link has been attached for `detached`, with `properties` added to the unit.
+pub(super) fn launch_script(spec: &HostSpec, held: &Path, starting: &Starting, detached: Duration, properties: &[String]) -> String {
+    let Starting { unit, dir, nonce, conversation } = *starting;
     let (q_unit, q_dir) = (quote(unit), quote(dir));
-    let binding = conversation_in(&spec.argv).map_or_else(String::new, |conversation| format!(" && printf %s {} > {BOUND_CONVERSATION}.tmp && mv {BOUND_CONVERSATION}.tmp {BOUND_CONVERSATION}", quote(conversation)));
+    let binding = conversation.map_or_else(|| format!(" && rm -f {BOUND_CONVERSATION}"), |conversation| format!(" && printf %s {} > {BOUND_CONVERSATION}.tmp && mv {BOUND_CONVERSATION}.tmp {BOUND_CONVERSATION}", quote(conversation)));
     let mut launch = format!(
         "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit && : > in && : > out && : > err && printf %s {} > nonce{binding} && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group --property=IOAccounting=yes \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
@@ -157,11 +166,6 @@ pub(super) fn launch_script(spec: &HostSpec, held: &Path, unit: &str, dir: &str,
         launch.push_str(&quote(arg));
     }
     launch
-}
-
-/// The conversation `argv` starts or resumes the CLI on, when it names one.
-fn conversation_in(argv: &[String]) -> Option<&str> {
-    argv.windows(2).find(|pair| matches!(pair[0].as_str(), "--session-id" | "--resume" | "--session")).map(|pair| pair[1].as_str())
 }
 
 pub fn leave_record(record: &SessionRecord, placed: &Path) {
