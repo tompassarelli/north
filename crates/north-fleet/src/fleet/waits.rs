@@ -150,6 +150,10 @@ pub trait Probe {
     fn precedence(&self, _session: &str, _wait: &Registered) -> u8 {
         0
     }
+
+    fn note(&self, _session: &str, _wait: &Registered) -> Option<String> {
+        None
+    }
 }
 
 const DIR: &str = ".waits";
@@ -242,7 +246,8 @@ impl Waits {
         over.sort_by_key(|(precedence, _, wait, _)| (*precedence, wait.since_ms));
         let mut told = Vec::new();
         for (_, session, wait, result) in over {
-            if tell(&session, &revival(&wait, &result)).is_ok() && self.release(&session, &wait.run).is_ok() {
+            let note = probe.note(&session, &wait);
+            if tell(&session, &revival(&wait, &result, note.as_deref())).is_ok() && self.release(&session, &wait.run).is_ok() {
                 told.push(Settled { session, run: wait.run, result });
             }
         }
@@ -257,9 +262,12 @@ pub fn runtime_holds(live: Option<&Path>, sha: &str, cwd: &Path) -> Option<Strin
     run_command_within(ancestry, None, ANCESTRY).filter(|out| out.status.success()).map(|_| format!("is in the live runtime {live}"))
 }
 
-fn revival(wait: &Registered, result: &str) -> String {
+fn revival(wait: &Registered, result: &str, note: Option<&str>) -> String {
     if let Run::Usage { account, .. } = &wait.run {
-        return resume_message(account);
+        return match note {
+            Some(note) => format!("{}\n{note}", resume_message(account)),
+            None => resume_message(account),
+        };
     }
     let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
     format!("{OVER} {named}: {result}. Read its output and continue to a final report.")

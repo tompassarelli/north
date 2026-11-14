@@ -87,17 +87,27 @@ fn own_lane_unlanded(cwd: &Path) -> bool {
     Git.lanes(None, &[tree]).iter().any(|lane| lane.unlanded())
 }
 
-/// Whether a session holds work origin/main lacks that no queued ticket will land: a lane the lander sent
-/// back, or one never enqueued. Such a worker revives before the rest.
-pub(super) fn holds_unqueued_lane(session: &str, cwd: &Path) -> bool {
-    own_lane_unlanded(cwd) && !queued(session, cwd)
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum Unqueued {
+    SentBack { branch: String, cause: Option<String> },
+    NeverEnqueued,
 }
 
-fn queued(session: &str, cwd: &Path) -> bool {
+pub(super) fn unqueued_lane(session: &str, cwd: &Path, state_home: &Path, tickets: &BTreeMap<String, Vec<Lane>>) -> Option<Unqueued> {
+    if !own_lane_unlanded(cwd) || queued(session, cwd, state_home) {
+        return None;
+    }
+    Some(match tickets.get(session).into_iter().flatten().find(|lane| matches!(lane.phase, Phase::Failed | Phase::Conflict)) {
+        Some(lane) => Unqueued::SentBack { branch: lane.branch.clone(), cause: lane.cause.clone() },
+        None => Unqueued::NeverEnqueued,
+    })
+}
+
+fn queued(session: &str, cwd: &Path, state_home: &Path) -> bool {
     let cwd = cwd.to_string_lossy();
     let origin = run_within("git", &["-C", &cwd, "remote", "get-url", "--push", "origin"], QUERY).filter(|out| out.status.success()).map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned());
     let Some(origin) = origin else { return false };
-    queue::pending(&queue::directory(&watch::state_home(), &origin)).is_ok_and(|tickets| tickets.iter().any(|(_, ticket)| ticket.session.as_deref() == Some(session)))
+    queue::pending(&queue::directory(state_home, &origin)).is_ok_and(|tickets| tickets.iter().any(|(_, ticket)| ticket.session.as_deref() == Some(session)))
 }
 
 #[cfg(test)]

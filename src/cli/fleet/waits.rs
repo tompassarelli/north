@@ -30,7 +30,7 @@ use crate::pacing::placement::{config, gate};
 use crate::platform::process::{run_command_within, run_within};
 
 use super::placement::Overrides;
-use super::limit::{UsageTable, holds_unlanded_lane, holds_unqueued_lane, lane_of};
+use super::limit::{UsageTable, Unqueued, holds_unlanded_lane, lane_of, unqueued_lane};
 use super::row;
 use super::ledger::Ledger;
 use super::revive;
@@ -214,11 +214,17 @@ fn tell_tom(line: &str) -> Result<(), String> {
 struct Runs {
     job_rows: OnceCell<Option<Value>>,
     observed: OnceCell<Observed>,
+    lanes: OnceCell<std::collections::BTreeMap<String, Vec<crate::land_ticket::Lane>>>,
 }
 
 impl Runs {
     fn job_rows(&self, load: impl FnOnce() -> Option<Value>) -> Option<&Value> {
         self.job_rows.get_or_init(load).as_ref()
+    }
+
+    fn unqueued(&self, session: &str, wait: &Registered) -> Option<Unqueued> {
+        let lanes = self.lanes.get_or_init(|| reaper::Evidence::lanes(&reaper::Here));
+        unqueued_lane(session, &wait.cwd, &crate::watch::state_home(), lanes)
     }
 }
 
@@ -242,8 +248,25 @@ impl Probe for Runs {
 
     fn precedence(&self, session: &str, wait: &Registered) -> u8 {
         match wait.run {
-            Run::Usage { .. } if holds_unqueued_lane(session, &wait.cwd) => 0,
-            _ => 1,
+            Run::Usage { .. } => match self.unqueued(session, wait) {
+                Some(Unqueued::SentBack { .. }) => 0,
+                Some(Unqueued::NeverEnqueued) => 1,
+                None => 2,
+            },
+            _ => 2,
+        }
+    }
+
+    fn note(&self, session: &str, wait: &Registered) -> Option<String> {
+        if !matches!(wait.run, Run::Usage { .. }) {
+            return None;
+        }
+        match self.unqueued(session, wait)? {
+            Unqueued::SentBack { branch, cause } => {
+                let verdict = cause.map(|cause| format!(" with the verdict {cause}")).unwrap_or_default();
+                Some(format!("The lander sent back your lane `{branch}`{verdict}: fix what its verdict names before you re-enqueue it."))
+            }
+            Unqueued::NeverEnqueued => None,
         }
     }
 }
