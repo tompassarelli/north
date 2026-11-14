@@ -1,6 +1,6 @@
 use std::fmt;
-use std::fs::OpenOptions;
-use std::io::{ErrorKind, Write};
+use std::fs::{File, OpenOptions, TryLockError};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -11,7 +11,6 @@ use crate::platform::process;
 const SOUTH_REF: &str = "refs/south/main";
 const SOUTH_DENYLIST_PATH: &str = "privacy/public-denylist.toml";
 const FETCH_LIMIT: Duration = Duration::from_secs(90);
-const STALE_LOCK: Duration = Duration::from_secs(180);
 const WAIT_STEP: Duration = Duration::from_millis(20);
 const LOCK: &str = "north-fetch.lock";
 const FETCHED: &str = "north-last-fetch";
@@ -67,7 +66,7 @@ fn origin_url(main: &Path) -> Result<String, String> {
 fn fetched_after(mirror: &Path, url: &str, began: SystemTime) -> Result<String, String> {
     std::fs::create_dir_all(mirror).map_err(|e| format!("cannot create {}: {e}", mirror.display()))?;
     let lock = mirror.join(LOCK);
-    let deadline = Instant::now() + STALE_LOCK + FETCH_LIMIT;
+    let deadline = Instant::now() + FETCH_LIMIT * 2;
     loop {
         if let Some(commit) = shared_since(mirror, began) {
             return Ok(commit);
@@ -79,7 +78,7 @@ fn fetched_after(mirror: &Path, url: &str, began: SystemTime) -> Result<String, 
             };
         }
         if Instant::now() >= deadline {
-            return Err(format!("another scan held {} for over {} s", lock.display(), (STALE_LOCK + FETCH_LIMIT).as_secs()));
+            return Err(format!("another scan held {} for over {} s", lock.display(), (FETCH_LIMIT * 2).as_secs()));
         }
         std::thread::sleep(WAIT_STEP);
     }
@@ -92,30 +91,18 @@ fn shared_since(mirror: &Path, began: SystemTime) -> Option<String> {
     (started >= began && !commit.is_empty()).then(|| commit.to_owned())
 }
 
-struct Lock(PathBuf);
+struct Lock {
+    _held: File,
+}
 
 impl Lock {
     fn take(path: &Path) -> Result<Option<Self>, String> {
-        for _ in 0..2 {
-            match OpenOptions::new().write(true).create_new(true).open(path) {
-                Ok(_) => return Ok(Some(Self(path.to_owned()))),
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                    let held = std::fs::metadata(path).and_then(|lock| lock.modified()).ok().and_then(|at| SystemTime::now().duration_since(at).ok());
-                    if held.is_some_and(|held| held < STALE_LOCK) {
-                        return Ok(None);
-                    }
-                    let _ = std::fs::remove_file(path);
-                }
-                Err(e) => return Err(format!("cannot take {}: {e}", path.display())),
-            }
+        let file = OpenOptions::new().write(true).create(true).truncate(false).open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(Self { _held: file })),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(e)) => Err(format!("cannot take {}: {e}", path.display())),
         }
-        Ok(None)
-    }
-}
-
-impl Drop for Lock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }
 

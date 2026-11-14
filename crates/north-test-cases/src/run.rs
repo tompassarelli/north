@@ -7,10 +7,14 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+pub const CASE_LIMIT: Duration = Duration::from_secs(120);
+const POLL: Duration = Duration::from_millis(10);
+
 pub enum Verdict {
     Pass,
     Fail,
     Signal(i32),
+    Overran,
 }
 
 pub struct Outcome {
@@ -66,21 +70,33 @@ fn one(binary: &Path, name: &str, home: &Home) -> Result<Outcome, String> {
     let (written, mut read) = capture().map_err(|error| format!("cannot capture the output of {name}: {error}"))?;
     let both = written.try_clone().map_err(|error| format!("cannot capture the output of {name}: {error}"))?;
     let started = Instant::now();
-    let status = Command::new(binary)
+    let mut child = Command::new(binary)
         .args(["--exact", name, "--nocapture"])
         .env("HOME", &home.0)
         .stdin(Stdio::null())
         .stdout(written)
         .stderr(both)
-        .status()
+        .spawn()
         .map_err(|error| format!("cannot run {} {name}: {error}", binary.display()))?;
+    let status = loop {
+        match child.try_wait().map_err(|error| format!("cannot wait for {name}: {error}"))? {
+            Some(status) => break Some(status),
+            None if started.elapsed() >= CASE_LIMIT => {
+                _ = child.kill();
+                _ = child.wait();
+                break None;
+            }
+            None => std::thread::sleep(POLL),
+        }
+    };
     let took = started.elapsed();
     let mut output = Vec::new();
     read.read_to_end(&mut output).map_err(|error| format!("cannot read the output of {name}: {error}"))?;
-    let verdict = match status.signal() {
-        Some(signal) => Verdict::Signal(signal),
-        None if status.success() => Verdict::Pass,
-        None => Verdict::Fail,
+    let verdict = match status.map(|status| (status, status.signal())) {
+        None => Verdict::Overran,
+        Some((_, Some(signal))) => Verdict::Signal(signal),
+        Some((status, None)) if status.success() => Verdict::Pass,
+        Some(_) => Verdict::Fail,
     };
     Ok(Outcome { name: name.to_owned(), verdict, took, output })
 }
