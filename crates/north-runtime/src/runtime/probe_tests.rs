@@ -60,11 +60,8 @@ impl FakeProc {
     }
 
     fn hold(&self, unit: &str, ended: bool) {
-        let held = self.0.path().join("north/held").join(unit);
-        std::fs::create_dir_all(&held).unwrap();
-        std::fs::create_dir_all(self.0.path().join("cgroup").join(unit)).unwrap();
-        if ended {
-            std::fs::write(held.join("status"), "0\n").unwrap();
+        if !ended {
+            std::fs::create_dir_all(self.0.path().join("cgroup").join(unit)).unwrap();
         }
     }
 
@@ -89,7 +86,7 @@ impl FakeProc {
 }
 
 fn unit_of(session: &str) -> String {
-    format!("north-fleet-{session}-00000000.service")
+    north_base::platform::session_scope::session_unit("claude", &format!("{session}-00000000-0000-4000-8000-000000000000"))
 }
 
 #[test]
