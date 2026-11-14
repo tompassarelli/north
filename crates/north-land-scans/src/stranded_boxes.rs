@@ -1,11 +1,12 @@
 //! A lane that retires a `north` verb from the CLI reference or deletes a source path is refused while an open box
-//! in the GitHub mirror still names it, so a retirement cannot strand the boxes whose checks run it (north#1054). A box on an issue the lane's own commits name is the lane's to edit or tick, so it does not count.
+//! in the GitHub mirror still names it, so a retirement cannot strand the boxes whose checks run it (north#1054). A box on an issue the lane's own commits name is the lane's to edit or tick, so it does not count. Only a copy synced within the mirror's freshness bound decides, since an older one still lists issues closed since (north#1137 was closed 86 minutes before a check read it as open).
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
 use north_cli_reference::Verbs;
-use north_github_mirror::store::{Mirror, OPEN_ISSUES, key};
+use north_github_mirror::read;
+use north_github_mirror::store::{FRESH_S, Mirror, OPEN_ISSUES, key};
 use regex::Regex;
 
 use super::git;
@@ -63,10 +64,16 @@ pub fn scan(directory: &Path, from: &str, head: &str, mirror: &Mirror, out: &mut
     }
     let repo = git::origin_name(directory);
     let own = worked(&git::messages(directory, from, head), &repo);
-    let Some(issues) = mirror.read(&key(&repo, OPEN_ISSUES)).map(|copy| copy.body) else {
+    let Some(copy) = mirror.read(&key(&repo, OPEN_ISSUES)) else {
         let _ = writeln!(out, "{SELF}: ⚠ no open {repo} issues in {}, so the verbs and paths this lane retires were not checked against open boxes", mirror.path().display());
         return false;
     };
+    let age = read::now() - copy.synced;
+    if age > FRESH_S {
+        let _ = writeln!(out, "{SELF}: ⚠ the open {repo} issues in {} were synced {age:.0} s ago, past the {FRESH_S:.0} s their state holds for, so the verbs and paths this lane retires were not checked against open boxes", mirror.path().display());
+        return false;
+    }
+    let issues = copy.body;
     let mut stranded = Vec::new();
     for issue in issues.as_array().into_iter().flatten() {
         let number = issue["number"].as_u64().unwrap_or_default();

@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use north_github_mirror::read;
 use north_github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use serde_json::json;
 
@@ -27,7 +28,11 @@ fn commit(directory: &Path, reference: &str, arms: bool) -> String {
 }
 
 fn stranded(directory: &Path, base: &str, head: &str, mirror: &Mirror, body: &str) -> (bool, String) {
-    mirror.write(&key("north", OPEN_ISSUES), &json!([{"number": 872, "title": "climb", "body": body}]), None, 1.0).unwrap();
+    stranded_at(directory, base, head, mirror, 872, body, read::now())
+}
+
+fn stranded_at(directory: &Path, base: &str, head: &str, mirror: &Mirror, number: u64, body: &str, synced: f64) -> (bool, String) {
+    mirror.write(&key("north", OPEN_ISSUES), &json!([{"number": number, "title": "climb", "body": body}]), None, synced).unwrap();
     let mut out = Vec::new();
     let refused = scan(directory, base, head, mirror, &mut out);
     (refused, String::from_utf8(out).unwrap())
@@ -50,4 +55,7 @@ fn a_removal_naming_an_open_box_check_fails_its_landing() {
 
     let (refused, out) = stranded(&north, &base, &head, &mirror, &format!("- [x] {STRANDED}\n- [x] {ARMS}\n- [ ] the week's loss prints. Done when: `north ops dividend` exits 0"));
     assert!(!refused && out.is_empty(), "a ticked or edited box no longer strands: {out}");
+
+    let (refused, out) = stranded_at(&north, &base, &head, &mirror, 1137, &format!("- [ ] {ARMS}"), read::now() - 86.0 * 60.0);
+    assert!(!refused && out.contains("not checked"), "north#1137 was closed 86 minutes before a check read an open-issues copy synced earlier: {out}");
 }
