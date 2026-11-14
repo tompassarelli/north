@@ -1,4 +1,4 @@
-use crate::landing::{fails_first, flake, land_actions, land_dispatch, lane_squash, lane_target, land_test_runner, missed, mutant_runs, red_check};
+use crate::landing::{fails_first, flake, land_actions, land_dispatch, lane_squash, lane_target, land_test_runner, missed, red_check};
 use crate::land_abandon;
 
 pub(super) type Run = fn(&[String]) -> u8;
@@ -40,14 +40,27 @@ fn fails_first_runs(arguments: &[String]) -> u8 {
     };
     let names: std::collections::BTreeSet<String> = names.iter().cloned().collect();
     let Ok(cwd) = std::env::current_dir() else { return north_base::foundation::exit::NO_VERDICT };
-    match flake::executables(&cwd, &mut std::io::stderr()) {
-        Ok(executables) => match flake::verdicts(&cwd, &executables, &names, runs, &mut std::io::stderr()).and_then(|judged| flake::print(&judged, &mut std::io::stdout())) {
-            Ok(()) => 0,
-            Err(error) => {
-                eprintln!("north land fails-first-runs: {error}");
-                north_base::foundation::exit::NO_VERDICT
+    let side = north_build_system::here();
+    let built = side.test_build(&cwd).map_err(Some).and_then(|invocation| {
+        let output = invocation.command().stdin(std::process::Stdio::null()).output().map_err(|error| Some(error.to_string()))?;
+        let log = String::from_utf8_lossy(&output.stderr).into_owned();
+        eprint!("{log}");
+        if !output.status.success() {
+            return Err(if side.broken(output.status.code(), &log) { None } else { Some(format!("the build exited {}", output.status)) });
+        }
+        side.test_executables(&cwd, &String::from_utf8_lossy(&output.stdout)).map_err(Some)
+    });
+    match built {
+        Ok(executables) => {
+            let executables: Vec<std::path::PathBuf> = executables.iter().map(|executable| cwd.join(executable)).collect();
+            match flake::verdicts(&cwd, &executables, &names, runs, &mut std::io::stderr(), &mut std::io::stdout()) {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("north land fails-first-runs: {error}");
+                    north_base::foundation::exit::NO_VERDICT
+                }
             }
-        },
+        }
         Err(None) => {
             eprintln!("north land fails-first-runs: the tests do not build");
             flake::TESTS_DO_NOT_BUILD
@@ -59,28 +72,10 @@ fn fails_first_runs(arguments: &[String]) -> u8 {
     }
 }
 
-fn mutant_runs(arguments: &[String]) -> u8 {
-    if !arguments.is_empty() {
-        eprintln!("usage: north land mutant-runs (the names come from MUTANT_TESTS and the trees from MUTANT_TREES, one per line)");
-        return 64;
-    }
-    let lines = |variable: &str| -> Vec<String> { std::env::var(variable).unwrap_or_default().lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect() };
-    let names: std::collections::BTreeSet<String> = lines("MUTANT_TESTS").into_iter().collect();
-    let trees: Vec<std::path::PathBuf> = lines("MUTANT_TREES").into_iter().map(std::path::PathBuf::from).collect();
-    match mutant_runs::run(&trees, &names, &mut std::io::stdout()) {
-        Ok(()) => 0,
-        Err(error) => {
-            eprintln!("north land mutant-runs: {error}");
-            north_base::foundation::exit::NO_VERDICT
-        }
-    }
-}
-
 const LAND: &[(&str, Run)] = &[
     ("abandon", |arguments| land_abandon::abandon(arguments, &super::super::abandon_witness::FleetWitness)),
     ("actions", land_actions::run),
     ("fails-first-runs", fails_first_runs),
-    ("mutant-runs", mutant_runs),
     ("dispatch", land_dispatch::run),
     ("clean", lane_target::run),
     ("fails-first", fails_first::run),

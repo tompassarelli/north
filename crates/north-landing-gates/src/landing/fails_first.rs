@@ -233,7 +233,7 @@ fn on_base(
     };
     let top = PathBuf::from(git_text(cwd, None, &["rev-parse", "--show-toplevel"])?);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_nanos()).unwrap_or_default();
-    let dir = RunDir(top.join("target/fails-first").join(format!("{}-{nanos}", std::process::id())));
+    let dir = RunDir(env.cache_home.join("north/fails-first").join(format!("{}-{nanos}", std::process::id())));
     fs::create_dir_all(&dir.0)?;
     let tree = dir.0.join("base");
     trees::checkout(&top, &dir.0.join("index"), base, None, &tree)?;

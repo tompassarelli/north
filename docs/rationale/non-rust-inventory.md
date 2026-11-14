@@ -34,6 +34,7 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | bin/verify-north | 9 | stay | launcher: execs the promoted verify-north runtime binary |
 | harness/scripts/canary.sh | 60 | stay | 60-line CI glue that runs a family's own check on a planted fault; must run in CI before or beside the build, reads workflow YAML |
 | harness/scripts/cargo-tests.sh | 7 | stay | 7-line CI glue that builds test binaries for the offline land check |
+| harness/scripts/mutant-tests.sh | 62 | stay | 62-line CI glue that runs the mutant cargo slots |
 | harness/scripts/read-isolation-probe.sh | 51 | stay | 51-line manual probe that drives Claude Code tools under a config; no Rust caller, delete if unused for a month |
 | harness/skills/private-desktop-development/scripts/private-desktop.sh | 3 | stay | 3-line exec of `north desktop private`; named by lib/automation-chrome/cli.mjs and the desktop-action guard; delete when those name `north desktop private` |
 | harness/split/cut-plan.sh | 47 | deleted | deleted with its plan files 2026-11-11 (north#1131): nothing called it and its plans described 12 to 19 crates where the tree has over 60 |

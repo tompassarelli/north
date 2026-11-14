@@ -628,10 +628,6 @@ impl BuildSystem for Buck2 {
         let outputs: BTreeMap<String, PathBuf> = serde_json::from_str(printed).map_err(|error| format!("buck2 build printed no JSON map of its outputs: {error}"))?;
         Ok(outputs.into_values().collect())
     }
-
-    fn test_lock(&self, root: &Path) -> Result<Option<fs::File>, String> {
-        self.isolation.as_deref().map(|dir| generation::hold(root, dir)).transpose()
-    }
 }
 
 #[cfg(test)]

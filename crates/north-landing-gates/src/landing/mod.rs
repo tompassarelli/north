@@ -7,7 +7,6 @@ pub mod denylist_attest;
 pub mod fails_first;
 pub mod generated_registry;
 pub mod flake;
-pub mod mutant_runs;
 pub mod instruction_limits;
 pub mod judge;
 pub mod land_actions;

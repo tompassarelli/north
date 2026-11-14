@@ -69,9 +69,6 @@ pub trait BuildSystem {
     fn test_build(&self, root: &Path) -> Result<Invocation, String>;
     /// The test executables a [`BuildSystem::test_build`] run in the tree at `root` printed, as paths relative to `root`, so a caller in another view of the tree joins them to its own root.
     fn test_executables(&self, root: &Path, printed: &str) -> Result<Vec<PathBuf>, String>;
-    fn test_lock(&self, _root: &Path) -> Result<Option<std::fs::File>, String> {
-        Ok(None)
-    }
 }
 
 /// The build system this host runs: Buck2 when `[hosts.NAME] build_system` in the orchestration policy says `buck2`, with its test run once `buck2_tests` is set too, and Cargo when the key is unset, the policy unreadable, or the host holds no readable store generation, which it says.
