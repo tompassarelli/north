@@ -33,6 +33,7 @@ landlock = "0.4.7"
 
 [dev-dependencies]
 north-pacing = { path = "../north-pacing", features = ["test-support"] }
+north-fleet-supervisor = { path = "../north-fleet-supervisor", features = ["test-support"] }
 
 [lints]
 workspace = true

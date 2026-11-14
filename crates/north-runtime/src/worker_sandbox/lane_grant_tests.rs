@@ -331,3 +331,28 @@ fn a_reused_window_pid_is_not_the_adopted_window_and_a_held_service_inside_one_r
     let (found, record) = super::own_session(&Peer::with_pids(Some(cgroup), &[SHELL, window.pid]), &fixture.host, "absent").unwrap();
     assert_eq!((found, record["name"].as_str()), (placed, Some("placed-1529")));
 }
+
+#[test]
+fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
+    use crate::fleet::fakes::{Paper, Windows};
+    use crate::fleet::registry::Fleet;
+    use crate::fleet::runtimes::Runtimes;
+    let home = tempfile::tempdir().unwrap();
+    let window = Owner::current();
+    let runtime = std::sync::Arc::new(Windows { live: std::sync::Mutex::new(vec![("proxy-conversation".to_owned(), window.pid)]) });
+    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+    let directory = fleet.session_dir("proxy").unwrap();
+    fleet.adopt("proxy", "proxy-conversation", home.path().into()).unwrap();
+    let record = crate::fleet::records::record_file(&directory);
+    let mut recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
+    recorded.as_object_mut().unwrap().remove("window");
+    std::fs::write(&record, recorded.to_string()).unwrap();
+    let host = Host { fleet: directory.parent().unwrap().to_owned(), home: home.path().into(), code: Vec::new(), environment: Vec::new(), cgroups: home.path().join("cgroup") };
+    let peer = Peer::with_pids(Some(APP_CGROUP), &[SHELL, window.pid]);
+    assert_eq!(super::own_session(&peer, &host, "absent").unwrap_err(), "absent", "a window recorded without its start time passed for the adopted window");
+    assert!(fleet.refresh_adoption("proxy", "another-conversation", home.path().into()).is_err(), "another conversation refreshed the proxy's adoption");
+    assert_eq!(super::own_session(&peer, &host, "absent").unwrap_err(), "absent");
+    fleet.refresh_adoption("proxy", "proxy-conversation", home.path().into()).unwrap();
+    let (found, resolved) = super::own_session(&peer, &host, "absent").unwrap();
+    assert_eq!((found, resolved["name"].as_str()), (directory, Some("proxy")));
+}

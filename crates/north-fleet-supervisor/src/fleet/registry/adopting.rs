@@ -34,6 +34,15 @@ impl Fleet {
         self.bind_window(name, conversation, cwd, Others::Keep)
     }
 
+    /// Binds `name` again to the window holding `conversation`, recording its process with its start time, only when `name` is already adopted on that conversation, so the window that holds an adoption refreshes it and no other conversation takes the name this way.
+    pub fn refresh_adoption(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<SessionRecord> {
+        let held = self.record(name)?;
+        if !held.adopted() || held.conversation.as_deref() != Some(conversation) {
+            return Err(NorthError::Refused(format!("{name} is not adopted on conversation {conversation}; only the window holding its own adoption refreshes it")));
+        }
+        self.adopt(name, conversation, cwd)
+    }
+
     fn bind_window(&self, name: &str, conversation: &str, cwd: PathBuf, others: Others) -> NorthResult<SessionRecord> {
         let (runtime, inbox) = self.window_of(conversation).ok_or_else(|| NorthError::State(format!("no live interactive window holds conversation {conversation}")))?;
         runtime.adopt_window(conversation, &inbox)?;
@@ -238,88 +247,13 @@ mod tests {
     use std::io::Write;
     use std::sync::Mutex;
 
-    use serde_json::Value;
-
     use super::*;
-    use crate::fleet::fakes::{Paper, Stream};
-    use crate::fleet::model::{Account, Entry, EntryKind, ProviderName, Quota, Transcript};
-    use crate::fleet::roster::Roster;
-    use crate::fleet::runtime::{HostSpec, Instructions, Opening};
+    use crate::fleet::fakes::{Paper, Windows};
+    use crate::fleet::model::EntryKind;
     use crate::fleet::runtimes::Runtimes;
-    use crate::fleet::turns::TurnSignal;
 
     const HOLDER: &str = "conversation-of-the-dead-proxy";
     const OTHER: &str = "conversation-of-an-empty-window";
-
-    struct Windows {
-        live: Mutex<Vec<(String, u32)>>,
-    }
-
-    impl Runtime for Windows {
-        fn provider(&self) -> ProviderName {
-            Stream.provider()
-        }
-
-        fn models(&self) -> &'static [&'static str] {
-            Stream.models()
-        }
-
-        fn roster(&self, _state_root: &Path, home: &Path, _policy: &Path) -> Roster {
-            Roster { accounts: vec![Account { provider: Stream.provider(), label: "c".into(), home: home.join("claude-c"), token_file: None, api: None }], ..Roster::default() }
-        }
-
-        fn assign_conversation(&self) -> NorthResult<Option<String>> {
-            Stream.assign_conversation()
-        }
-
-        fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec> {
-            Stream.host(account, request, opening, instructions)
-        }
-
-        fn handshake(&self) -> Vec<String> {
-            Stream.handshake()
-        }
-
-        fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>> {
-            Stream.open(name, request, opening, instructions)
-        }
-
-        fn message(&self, transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {
-            Stream.message(transcript, id, text)
-        }
-
-        fn interrupt(&self, transcript: &Transcript) -> NorthResult<Vec<String>> {
-            Stream.interrupt(transcript)
-        }
-
-        fn close(&self, transcript: &Transcript) -> Vec<String> {
-            Stream.close(transcript)
-        }
-
-        fn observe(&self, frame: &Value, transcript: &mut Transcript) {
-            for block in frame["message"]["content"].as_array().into_iter().flatten().filter(|block| block["type"] == "tool_use") {
-                let (name, command) = (block["name"].as_str().unwrap_or_default(), block["input"]["command"].as_str().unwrap_or_default());
-                transcript.entries.push(Entry { kind: EntryKind::Tool, text: format!("{name} {command}") });
-            }
-            Stream.observe(frame, transcript);
-        }
-
-        fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
-            Stream.signals(frame)
-        }
-
-        fn quota(&self, frame: &Value) -> Option<Quota> {
-            Stream.quota(frame)
-        }
-
-        fn windows(&self, _accounts: &[Account]) -> Vec<LiveWindow> {
-            self.live.lock().unwrap().iter().map(|(conversation, pid)| LiveWindow { conversation: conversation.clone(), started_ms: 1, cwd: "/tmp".into(), inbox: WindowInbox { account: "c".into(), pid: *pid, socket: PathBuf::new(), token: "peer".into(), busy: false } }).collect()
-        }
-
-        fn conversation_log(&self, accounts: &[Account], conversation: &str) -> Option<PathBuf> {
-            accounts.first().map(|account| account.home.join("projects/project").join(format!("{conversation}.jsonl")))
-        }
-    }
 
     #[test]
     fn an_adopted_window_takes_a_dead_proxy_name_and_its_follower_shows_the_conversation() {

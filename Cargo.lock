@@ -2032,6 +2032,7 @@ dependencies = [
  "north-base",
  "north-build-system",
  "north-dispatch",
+ "north-fleet-supervisor",
  "north-lanes",
  "north-offload",
  "north-pacing",

@@ -1,7 +1,7 @@
 #![cfg(any(test, feature = "test-support"))]
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde_json::Value;
@@ -13,10 +13,10 @@ use crate::router::pricing::{PriceTable, TokenUse};
 use super::books::{Books, Landing, SessionSpend};
 use super::gate_lifecycle::GatePhase;
 use super::gates::{Closure, Gate, GateBook, GateRequest};
-use super::model::{Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
+use super::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
 use super::receipts::ReceiptBook;
 use super::roster::Roster;
-use super::runtime::{HostSpec, Instructions, Opening, Runtime, new_uuid};
+use super::runtime::{HostSpec, Instructions, LiveWindow, Opening, Runtime, WindowInbox, new_uuid};
 use super::turns::{RunRecord, RunSink, Tokens, TurnExit, TurnSignal, TurnTotals};
 
 #[derive(Default)]
@@ -255,5 +255,76 @@ fn totals(frame: &Value) -> TurnTotals {
 fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
     if !text.is_empty() {
         transcript.entries.push(Entry { kind, text });
+    }
+}
+
+/// A runtime whose live interactive windows are `live`, each a conversation held by a window process.
+pub struct Windows {
+    pub live: Mutex<Vec<(String, u32)>>,
+}
+
+impl Runtime for Windows {
+    fn provider(&self) -> ProviderName {
+        Stream.provider()
+    }
+
+    fn models(&self) -> &'static [&'static str] {
+        Stream.models()
+    }
+
+    fn roster(&self, _state_root: &Path, home: &Path, _policy: &Path) -> Roster {
+        Roster { accounts: vec![Account { provider: Stream.provider(), label: "c".into(), home: home.join("claude-c"), token_file: None, api: None }], ..Roster::default() }
+    }
+
+    fn assign_conversation(&self) -> NorthResult<Option<String>> {
+        Stream.assign_conversation()
+    }
+
+    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec> {
+        Stream.host(account, request, opening, instructions)
+    }
+
+    fn handshake(&self) -> Vec<String> {
+        Stream.handshake()
+    }
+
+    fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>> {
+        Stream.open(name, request, opening, instructions)
+    }
+
+    fn message(&self, transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {
+        Stream.message(transcript, id, text)
+    }
+
+    fn interrupt(&self, transcript: &Transcript) -> NorthResult<Vec<String>> {
+        Stream.interrupt(transcript)
+    }
+
+    fn close(&self, transcript: &Transcript) -> Vec<String> {
+        Stream.close(transcript)
+    }
+
+    fn observe(&self, frame: &Value, transcript: &mut Transcript) {
+        for block in frame["message"]["content"].as_array().into_iter().flatten().filter(|block| block["type"] == "tool_use") {
+            let (name, command) = (block["name"].as_str().unwrap_or_default(), block["input"]["command"].as_str().unwrap_or_default());
+            transcript.entries.push(Entry { kind: EntryKind::Tool, text: format!("{name} {command}") });
+        }
+        Stream.observe(frame, transcript);
+    }
+
+    fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
+        Stream.signals(frame)
+    }
+
+    fn quota(&self, frame: &Value) -> Option<Quota> {
+        Stream.quota(frame)
+    }
+
+    fn windows(&self, _accounts: &[Account]) -> Vec<LiveWindow> {
+        self.live.lock().unwrap().iter().map(|(conversation, pid)| LiveWindow { conversation: conversation.clone(), started_ms: 1, cwd: "/tmp".into(), inbox: WindowInbox { account: "c".into(), pid: *pid, socket: PathBuf::new(), token: "peer".into(), busy: false } }).collect()
+    }
+
+    fn conversation_log(&self, accounts: &[Account], conversation: &str) -> Option<PathBuf> {
+        accounts.first().map(|account| account.home.join("projects/project").join(format!("{conversation}.jsonl")))
     }
 }
