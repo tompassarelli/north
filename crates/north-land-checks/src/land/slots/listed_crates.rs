@@ -262,9 +262,9 @@ fn execute(declared: &str) -> u8 {
     };
     eprintln!("north land crate-tests: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
     let (status, output) = run_printing(&split.line, &[]);
-    drop(held);
     let summary = last_with(&output, SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
+    drop(held);
     let owner = |label: &str| split.owner(label).map(str::to_owned);
     let error = remote_error(&output);
     let Verdict::Passed(mut passed) = verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless, error.is_some()) else { return FAILED };
@@ -343,9 +343,9 @@ fn after_landing() -> u8 {
     };
     eprintln!("north land crate-tests after-landing: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
     let (status, output) = run_printing(&split.line, &[]);
-    drop(held);
     let summary = last_with(&output, SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests after-landing: cannot read Buck2's record of the run: {why}")).ok());
+    drop(held);
     let owner = |label: &str| split.owner(label).map(str::to_owned);
     match verdict(status, summary.as_deref(), record.as_deref(), &owner, &split.caseless, remote_error(&output).is_some()) {
         Verdict::Failed => FAILED,
