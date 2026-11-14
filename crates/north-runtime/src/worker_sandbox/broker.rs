@@ -546,10 +546,9 @@ struct Namespaces {
 
 static NAMESPACES: Mutex<Option<Namespaces>> = Mutex::new(None);
 
-/// Asks the broker for the namespaces that hide this host's process-starting sockets and joins them. Works from inside a Landlock domain, which cannot lay the overlay itself.
+/// Asks the broker for the namespaces that hide this host's process-starting sockets and joins them. Works from inside a Landlock domain, which cannot lay the overlay itself. It waits for the answer as long as the broker takes, since the broker answers or closes every request it takes, and under load laying fresh namespaces takes longer than any fixed wait, which would refuse an honest command.
 pub fn join_namespaces() -> Result<(), String> {
     let stream = UnixStream::connect(socket()).map_err(|error| format!("the outside broker does not answer ({error})"))?;
-    stream.set_read_timeout(Some(ANSWER_WAIT)).map_err(|error| error.to_string())?;
     let sent = ["TMUX_TMPDIR", super::sockets::AGENT_ENV].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
     let body = serde_json::to_vec(&Request { arguments: vec![NAMESPACE.to_owned()], directory: PathBuf::from("/"), environment: sent }).map_err(|error| error.to_string())?;
     (&stream).write_all(&(body.len() as u64).to_le_bytes()).and_then(|()| (&stream).write_all(&body)).map_err(|error| error.to_string())?;

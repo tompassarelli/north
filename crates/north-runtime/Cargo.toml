@@ -43,10 +43,6 @@ name = "worker_sandbox::buck::tests::a_buck2_slot_of_the_offload_gets_its_daemon
 reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
 
 [[package.metadata.north.buck.host-cases]]
-name = "worker_sandbox::buck::tests::a_build_output_directory_created_after_the_sandbox_starts_is_executable"
-reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
-
-[[package.metadata.north.buck.host-cases]]
 name = "worker_sandbox::buck::tests::a_worker_may_reset_its_buck2_daemon_state_and_nothing_else_in_home"
 reason = "runs a command in the worker sandbox's Landlock domain, which cannot execute a program it wrote inside a remote worker's build directory"
 

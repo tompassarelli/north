@@ -66,7 +66,6 @@ north_rust_test(
     ],
     skip = [
         "worker_sandbox::buck::tests::a_buck2_slot_of_the_offload_gets_its_daemon_directory_and_build_output_and_no_other_daemon",
-        "worker_sandbox::buck::tests::a_build_output_directory_created_after_the_sandbox_starts_is_executable",
         "worker_sandbox::buck::tests::a_worker_may_reset_its_buck2_daemon_state_and_nothing_else_in_home",
         "worker_sandbox::tests::a_lane_test_binary_run_by_path_outside_depbox_is_refused",
         "worker_sandbox::tests::a_sandboxed_git_fetch_leaves_no_lock_in_a_common_dir_it_cannot_remove_north_706",

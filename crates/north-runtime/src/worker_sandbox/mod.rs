@@ -190,13 +190,15 @@ fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
         return sweep::around(command, &context, SWEPT);
     }
     broker::ensure();
-    let hidden = confined && hide_sockets(&context);
+    if confined {
+        hide_sockets(&context);
+    }
     let roots = confined.then(|| removable(&context));
     let writable = roots.as_deref().map(|roots| writable(&context, roots));
     let replaced = if writable.is_some() { packed_refs::directories(&context) } else { Vec::new() };
     report(confine(roots.as_deref(), &readable(&context, Reader::of(confined)), Some(&executable(&context)), writable.as_deref(), &replaced));
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
-    let error = without_agent(Command::new(shell), confined).arg("-c").arg(command).envs(git_env(writable.is_some())).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).envs(confined.then_some((CONFINED, "1"))).exec();
+    let error = without_agent(Command::new(shell), confined).arg("-c").arg(command).envs(git_env(writable.is_some())).env_remove(SWEPT).env(MARK, "1").envs(confined.then_some((SOCKETS_HIDDEN, "1"))).envs(confined.then_some((CONFINED, "1"))).exec();
     eprintln!("north worker-sandbox: {error}");
     std::process::ExitCode::from(126)
 }
@@ -214,14 +216,16 @@ fn in_domain(program: &[String], lift: bool, worker: bool) -> std::process::Exit
     let context = Context::from_env(&program.join(" "));
     let fenced = std::env::var_os(LANE_ONLY).is_some();
     let confined = fenced || worker;
-    let hidden = confined && hide_sockets(&context);
+    if confined {
+        hide_sockets(&context);
+    }
     let roots = confined.then(|| removable(&context));
     let executable = (!lift).then(|| executable(&context));
     let readable = if fenced { lane_only::readable_in_lane(&context, &[]) } else { readable(&context, Reader::of(confined)) };
     let writable = roots.as_deref().map(|roots| if fenced { lane_only::writable_in_lane(roots) } else { writable(&context, roots) });
     let replaced = if writable.is_some() { packed_refs::directories(&context) } else { Vec::new() };
     report(confine(roots.as_deref(), &readable, executable.as_deref(), writable.as_deref(), &replaced));
-    let error = without_agent(Command::new(&program[0]), confined).args(&program[1..]).envs(git_env(writable.is_some())).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).envs(confined.then_some((CONFINED, "1"))).exec();
+    let error = without_agent(Command::new(&program[0]), confined).args(&program[1..]).envs(git_env(writable.is_some())).env(MARK, "1").envs(confined.then_some((SOCKETS_HIDDEN, "1"))).envs(confined.then_some((CONFINED, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }
@@ -231,7 +235,10 @@ fn in_lane(program: &[String], screen: Screen) -> std::process::ExitCode {
     if let Some(refused) = hook_screen::program_refusal(program, screen) {
         return refused;
     }
-    session_join::join_named_scope();
+    if let Err(message) = session_join::join_named_scope() {
+        eprintln!("{message}");
+        return std::process::ExitCode::from(126);
+    }
     broker::ensure();
     let mut context = Context::from_env(&program.join(" "));
     let kept = if std::env::var_os(LANE_ONLY).is_some() {
@@ -246,9 +253,9 @@ fn in_lane(program: &[String], screen: Screen) -> std::process::ExitCode {
         lane_session::begin(&context.cwd);
         Vec::new()
     };
-    let hidden = hide_sockets(&context);
+    hide_sockets(&context);
     report(confine_to_lane(&context, &kept));
-    let error = Command::new(&program[0]).args(&program[1..]).envs(git_env(true)).env(MARK, "1").env(LANE_ONLY, "1").env(CONFINED, "1").env_remove(SESSION_SCOPE).env_remove(sockets::AGENT_ENV).env(HOSTS_HIDDEN, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = Command::new(&program[0]).args(&program[1..]).envs(git_env(true)).env(MARK, "1").env(LANE_ONLY, "1").env(CONFINED, "1").env_remove(SESSION_SCOPE).env_remove(sockets::AGENT_ENV).env(HOSTS_HIDDEN, "1").env(SOCKETS_HIDDEN, "1").exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }
@@ -259,19 +266,16 @@ pub fn confine_to_lane(context: &Context, fresh: &[PathBuf]) -> Result<RulesetSt
     confine(Some(&roots), &lane_only::readable_in_lane(context, fresh), Some(&executable(context)), Some(&lane_only::writable_in_lane(&roots)), &packed_refs::directories(context))
 }
 
-/// Hides the sockets that start processes outside the domain, before the domain is applied: a kernel before Landlock ABI 9 cannot limit which Unix sockets a command connects through, and Landlock refuses mount(2), so a session that already runs inside a domain (one launched from a confined command) joins the namespaces the broker laid, and one that does not lays them itself. Whether they are hidden.
-fn hide_sockets(context: &Context) -> bool {
+/// Hides the sockets that start processes outside the domain, before the domain is applied: a kernel before Landlock ABI 9 cannot limit which Unix sockets a command connects through, and Landlock refuses mount(2), so a session that already runs inside a domain (one launched from a confined command) joins the namespaces the broker laid, and one that does not lays them itself. Those sockets are then the only barrier to starting a process outside the domain, so a command whose sockets cannot be hidden is refused with exit 126 and never started.
+fn hide_sockets(context: &Context) {
     if std::env::var_os(SOCKETS_HIDDEN).is_some_and(|hidden| hidden == "1") {
-        return true;
+        return;
     }
     let runtime = sockets::runtime(context);
     let direct = || sockets::hide(&runtime, &sockets::hidden(&runtime, &sockets::multiplexer(context.uid, std::env::var_os("TMUX_TMPDIR")), &sockets::ssh_reach(&context.home, context.uid, context.agent_socket.as_deref())));
-    match broker::join_namespaces().or_else(|brokered| direct().map_err(|error| format!("{brokered}; {error}"))) {
-        Ok(()) => true,
-        Err(error) => {
-            eprintln!("north worker-sandbox: cannot hide the sockets that start processes outside the domain ({error}), so they stay reachable");
-            false
-        }
+    if let Err(error) = broker::join_namespaces().or_else(|brokered| direct().map_err(|error| format!("{brokered}; {error}"))) {
+        eprintln!("north worker-sandbox: cannot hide the sockets that start processes outside the domain ({error}), so the command was not run");
+        std::process::exit(126);
     }
 }
 
@@ -294,15 +298,8 @@ fn report(confined: Result<RulesetStatus, String>) {
         Ok(status) => format!("Landlock {status:?} on this kernel"),
         Err(error) => format!("Landlock unavailable ({error})"),
     };
-    if north_base::platform::orchestration::read().is_ok_and(|policy| declares_no_landlock(&policy, &north_base::platform::host::name())) {
-        return;
-    }
-    eprintln!("north worker-sandbox: {why}, so removal, personal logins and build output cannot be confined and the command was not run; a host without Landlock says `landlock = false` under its `[hosts.NAME]` in the orchestration policy");
+    eprintln!("north worker-sandbox: {why}, so removal, personal logins and build output cannot be confined and the command was not run");
     std::process::exit(126);
-}
-
-fn declares_no_landlock(policy: &toml_edit::DocumentMut, host: &str) -> bool {
-    policy.get("hosts").and_then(|hosts| hosts.get(host)?.get("landlock")?.as_bool()) == Some(false)
 }
 
 /// Runs `north ARGUMENTS` outside the worker's Landlock domain when called inside it, for a verb that enforces its own removal rule (`north lane unlock`, `north lane stray`) or for `safe-push`, whose checks before queueing run tests that build their own mount namespace, which Landlock refuses to any process in a domain (north#1094); `None` outside a worker sandbox, where the verb runs in place.

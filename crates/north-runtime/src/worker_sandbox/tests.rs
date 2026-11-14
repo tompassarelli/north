@@ -726,23 +726,69 @@ fn a_hand_in_call_that_prints_a_long_log_returns_a_short_result_ending_in_its_ve
 }
 
 
+const STEP_CHILD: &str = "NORTH_1485_STEP_CHILD";
+
+fn echo_ran() -> Vec<String> {
+    ["sh", "-c", "echo RAN"].map(str::to_owned).to_vec()
+}
+
+fn no_screen(_: &str, _: &Path) -> Option<String> {
+    None
+}
+
+fn refused_unrun(test: &str, home: &Path, envs: &[(&str, &std::ffi::OsStr)]) {
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &format!("worker_sandbox::tests::a_confinement_step_that_cannot_apply_refuses_the_command_{test}"), "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", home)
+        .env(STEP_CHILD, "1")
+        .envs(envs.iter().copied())
+        .output()
+        .unwrap();
+    let (stdout, stderr) = (String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(stdout.contains("running 1 test"), "the child test was not found: {stdout}");
+    assert!(!stdout.contains("RAN"), "{test}: the command ran though its step could not apply: {stderr}");
+    assert_eq!(output.status.code(), Some(126), "{test}: {stdout}{stderr}");
+    assert!(stderr.contains("the command was not run"), "{test}: {stderr}");
+}
+
 #[test]
-fn a_command_the_kernel_cannot_confine_is_refused_unless_the_host_names_itself_without_landlock_north_1041() {
-    if std::env::var_os("NORTH_TEST_LANDLOCK_CHILD").is_some() {
+fn a_confinement_step_that_cannot_apply_refuses_the_command_landlock() {
+    if std::env::var_os(STEP_CHILD).is_some() {
         super::report(Err("no Landlock".to_owned()));
         println!("RAN");
         return;
     }
     let directory = tempfile::tempdir().unwrap();
-    for (declared, ran) in [("", false), ("landlock = false\n", true)] {
-        let policy = directory.path().join("orchestration.toml");
-        std::fs::write(&policy, format!("[hosts.probe]\n{declared}")).unwrap();
-        let output = Command::new(std::env::current_exe().unwrap()).args(["worker_sandbox::tests::a_command_the_kernel_cannot_confine", "--nocapture"]).env("NORTH_TEST_LANDLOCK_CHILD", "1").env("RESIDENT_CAP_HOST", "probe").env("AGENTS_ORCHESTRATION", &policy).output().unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("running 1 test"), "the child test was not found: {stdout}");
-        assert_eq!(stdout.contains("RAN"), ran, "{declared:?}: {stdout}");
-        assert_eq!(output.status.code() == Some(126), !ran, "{declared:?}: {stdout}");
+    let policy = directory.path().join("orchestration.toml");
+    std::fs::write(&policy, "[hosts.probe]\nlandlock = false\n").unwrap();
+    refused_unrun("landlock", directory.path(), &[("RESIDENT_CAP_HOST", "probe".as_ref()), ("AGENTS_ORCHESTRATION", policy.as_os_str())]);
+}
+
+#[test]
+fn a_confinement_step_that_cannot_apply_refuses_the_command_hiding_the_sockets() {
+    if std::env::var_os(STEP_CHILD).is_some() {
+        std::process::exit(if super::in_domain(&echo_ran(), false, true) == std::process::ExitCode::from(126) { 126 } else { 1 });
     }
+    let scratch = tempfile::tempdir().unwrap();
+    let runtime = scratch.path().join("run");
+    std::fs::create_dir(&runtime).unwrap();
+    let _bus = std::os::unix::net::UnixListener::bind(runtime.join("bus")).unwrap();
+    let broker = scratch.path().join("no-broker.sock");
+    refused_unrun("hiding_the_sockets", scratch.path(), &[("XDG_RUNTIME_DIR", runtime.as_os_str()), ("TMUX_TMPDIR", scratch.path().as_os_str()), (super::BROKER_SOCKET_ENV, broker.as_os_str())]);
+}
+
+#[test]
+fn a_confinement_step_that_cannot_apply_refuses_the_command_joining_the_session_scope() {
+    if std::env::var_os(STEP_CHILD).is_some() {
+        std::process::exit(if super::in_lane(&echo_ran(), no_screen) == std::process::ExitCode::from(126) { 126 } else { 1 });
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let broker = scratch.path().join("broker.sock");
+    let _listening = std::os::unix::net::UnixListener::bind(&broker).unwrap();
+    let procs = scratch.path().join("gone.scope/cgroup.procs");
+    refused_unrun("joining_the_session_scope", scratch.path(), &[("XDG_RUNTIME_DIR", scratch.path().as_os_str()), (super::BROKER_SOCKET_ENV, broker.as_os_str()), (super::SOCKETS_HIDDEN, "1".as_ref()), (super::SESSION_SCOPE, procs.as_os_str())]);
 }
 
 const SERVE_PROBE: &str = "NORTH_RUNTIME_BROKER_SERVE_PROBE";

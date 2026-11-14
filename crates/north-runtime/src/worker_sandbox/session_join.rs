@@ -18,12 +18,10 @@ pub(super) fn scope_for(arguments: &[String], peer: &Peer, root: &Path) -> Optio
     session_scope::lane_only_cgroup(path).then(|| (SESSION_SCOPE.to_owned(), procs.to_string_lossy().into_owned()))
 }
 
-/// Moves this process, and the command it then runs, into the session scope the broker named with [`scope_for`], telling the caller when it cannot.
-pub(super) fn join_named_scope() {
-    let Some(procs) = std::env::var_os(SESSION_SCOPE) else { return };
-    if let Err(error) = join_scope(Path::new(&procs)) {
-        eprintln!("north worker-sandbox: cannot join the session's scope through {} ({error}), so a safe-push or task check this command asks the broker for is refused", Path::new(&procs).display());
-    }
+/// Moves this process, and the command it then runs, into the session scope the broker named with [`scope_for`], or says why it cannot: a command left in the broker's own cgroup runs outside its session's scope, so it is not run.
+pub(super) fn join_named_scope() -> Result<(), String> {
+    let Some(procs) = std::env::var_os(SESSION_SCOPE) else { return Ok(()) };
+    join_scope(Path::new(&procs)).map_err(|error| format!("north worker-sandbox: cannot join the session's scope through {} ({error}), so the command was not run", Path::new(&procs).display()))
 }
 
 /// Moves this process into the cgroup whose `cgroup.procs` is `procs`.

@@ -62,7 +62,7 @@ OpenCode and Pi bind no hook, so their shell commands meet north's Bash deciders
 
 `north gh-session` runs `gh` with a private config directory that links no `hosts.yml`, since `gh` exits when a config file it finds cannot be read.
 
-A kernel without Landlock ABI 2 or later runs the command unconfined and says so on stderr. `no_new_privs`, which Landlock requires, also stops setuid programs inside a worker command.
+A confinement step that cannot apply refuses the command with exit 126 and says so on stderr, and the command is never started: a kernel without the Landlock rights the domain handles, sockets that cannot be hidden, and a lane-only command that cannot join its session's scope. No host can opt out. A confined command waits for the broker's namespaces as long as the broker takes to answer, since under load laying fresh ones took longer than the fixed ten seconds it once waited. `no_new_privs`, which Landlock requires, also stops setuid programs inside a worker command.
 
 ## Landing a lane-only session's lane (north#1041)
 
