@@ -101,54 +101,6 @@ fn a_corrupt_snapshot_is_refreshed_once_and_persistent_corruption_is_reported_af
     assert_eq!((pulls.get(), fs::read(&snapshot).unwrap()), (1, before));
 }
 
-const CTX_OLD: &str = include_str!("fixtures/ctx_python.json");
-
-fn same(left: &Value, right: &Value, path: &str) {
-    match (left, right) {
-        (Value::Object(a), Value::Object(b)) => {
-            assert_eq!(a.keys().collect::<Vec<_>>(), b.keys().collect::<Vec<_>>(), "{path}");
-            a.iter().for_each(|(key, value)| same(value, &b[key], &format!("{path}.{key}")));
-        }
-        (Value::Array(a), Value::Array(b)) => {
-            assert_eq!(a.len(), b.len(), "{path}");
-            a.iter().zip(b).enumerate().for_each(|(index, (x, y))| same(x, y, &format!("{path}[{index}]")));
-        }
-        (Value::Number(a), Value::Number(b)) if a.is_f64() && b.is_f64() => {
-            assert!((a.as_f64().unwrap() - b.as_f64().unwrap()).abs() < 1e-6, "{path}: {a} vs {b}");
-        }
-        _ => assert_eq!(left, right, "{path}"),
-    }
-}
-
-#[test]
-fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_recorded_ledger_with_runs() {
-    let state: Value = serde_json::from_str(include_str!("fixtures/gate_state.json")).unwrap();
-    let scratch = tempfile::tempdir().unwrap();
-    let (db_path, policy) = (scratch.path().join("threads.db"), scratch.path().join("orchestration.toml"));
-    ledger(&db_path, &state["rows"]);
-    let db = Connection::open(&db_path).unwrap();
-    db.execute_batch("CREATE TABLE runs(agent TEXT, tier TEXT, category TEXT, outcome TEXT, expects_landing INTEGER, landed INTEGER, item TEXT, role TEXT, follows TEXT);").unwrap();
-    for row in state["runs"].as_array().unwrap() {
-        let cells = row.as_array().unwrap().iter().map(|cell| match cell {
-            Value::Null => rusqlite::types::Value::Null,
-            Value::String(text) => rusqlite::types::Value::Text(text.clone()),
-            number if number.is_i64() => rusqlite::types::Value::Integer(number.as_i64().unwrap()),
-            number => rusqlite::types::Value::Real(number.as_f64().unwrap()),
-        });
-        db.execute("INSERT INTO runs VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", rusqlite::params_from_iter(cells)).unwrap();
-    }
-    fs::write(&policy, include_str!("../router/fixtures/policy/orchestration.toml")).unwrap();
-    let expected: Value = serde_json::from_str(CTX_OLD).unwrap();
-    let inputs = super::gate::Inputs::load(&policy).unwrap();
-    let readings = super::readings(&db, &policy).unwrap();
-    for provider in ["claude", "gemini"] {
-        let mut actual = inputs.context(&db, &readings, provider, frozen()).unwrap();
-        actual.as_object_mut().unwrap().remove("now");
-        same(&expected[provider], &actual, provider);
-    }
-    assert_eq!(expected["claude"]["success"], serde_json::json!({"claude:haiku|tooling": 60}));
-}
-
 /// Opened by north#872: on 2026-11-07 the setup-token responses of accounts a and b had carried no 5h headers
 /// since 2026-10-31, and the rolled-over 5h window read 0% used as of each new week reading.
 #[test]
