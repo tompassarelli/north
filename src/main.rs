@@ -19,6 +19,8 @@ use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint,
 use north_github_mirror as github_mirror;
 use north_tui::tui;
 use north_ops::ops;
+use north_ci::{ci_watch, private_check};
+use north_github_broker::gh_broker;
 use north_desktop::{agent_capture, private_desktop, warcraft_close, wc3_login_field};
 use north_runtime::{agent_contain, laptop_runner, runtime, worker_sandbox};
 use north_dispatch::{dispatch, laptop, pacing, resident_cap, spend};
@@ -33,7 +35,7 @@ static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },
     run_time_data::Consumer { path: "harness/loops.toml", validate: loops::validate },
     run_time_data::Consumer { path: "north-data/expectations.toml", validate: north_expectations::check::validate },
-    run_time_data::Consumer { path: "north-data/private-checks.toml", validate: ops::private_check::validate },
+    run_time_data::Consumer { path: "north-data/private-checks.toml", validate: private_check::validate },
     run_time_data::Consumer { path: "harness/nix/cards.toml", validate: guard::nix_activity::validate },
     run_time_data::Consumer { path: "harness/file-skills.toml", validate: guard::file_skill::validate },
 ];

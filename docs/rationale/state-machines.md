@@ -180,7 +180,7 @@ fixes in each machine's code from history.
     has no record. Shapes: presence-flag.
 24. **GitHub broker and tokens** (16: 8 x 2). A leftover `resident.wanted` makes on-demand brokers flap; a killed
     broker leaves the user's gh config pointing at a dead socket
-    (`crates/north-ops/src/ops/gh_broker/mod.rs:90-189`); a stale pushed `gh-write-token` disables minting for good
+    (`crates/north-github-broker/src/gh_broker/mod.rs:90-189`); a stale pushed `gh-write-token` disables minting for good
     (`crates/north-base/src/platform/github_app.rs:289`). Shapes: presence-flag, mtime-read.
 25. **Snapshot pull** (12: 6 x 2; pulls stopped 95 minutes on 2026-11-07). One `.tried` file carries three
     meanings, its mtime, its flock and its text (`crates/north-threads/src/threads/snapshot.rs:51-91`); a forced
@@ -191,8 +191,8 @@ fixes in each machine's code from history.
     leaves a worktree and branch in `~/code/north/main` (`health.rs:292-329`); `goals/tick.json` is saved before its
     lines are delivered (`crates/north-concerns/src/tick.rs:74`). Shapes: presence-flag.
 27. **Main-red episode on GitHub** (none counted). The sheriff's state is markers in an issue body; a failed rerun
-    request leaves the attempt-1 marker, so attempt 2 never runs (`crates/north-ops/src/ops/ci_watch/sheriff.rs:362`);
-    a private check killed after posting "pending" leaves it pending forever (`ops/private_check/judge.rs:161`).
+    request leaves the attempt-1 marker, so attempt 2 never runs (`crates/north-ci/src/ci_watch/sheriff.rs:362`);
+    a private check killed after posting "pending" leaves it pending forever (`crates/north-ci/src/private_check/judge.rs:161`).
     Shapes: reviewer-only (state in issue text).
 28. **Dispatch on and off** (2 incidents on 2026-11-07). The pause eba976a4f added is itself a presence-and-mtime
     file (`crates/north-base/src/dispatch_pause.rs`, `crates/north-dispatch/src/dispatch/pause.rs`) beside the timer

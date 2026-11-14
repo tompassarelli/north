@@ -212,7 +212,7 @@ pub(super) fn ops(arguments: &[String]) -> u8 {
 }
 
 fn ops_github(arguments: &[String]) -> u8 {
-    crate::ops::gh_broker::github(arguments)
+    crate::gh_broker::github(arguments)
 }
 
 fn ops_watch(arguments: &[String]) -> u8 {

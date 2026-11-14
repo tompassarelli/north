@@ -166,7 +166,7 @@ GitHub's blocked-by relation, which dispatch already reads. A checklist inside o
 Arrival, each piece additive and landed alone (stage 2 of the boxes):
 
 - the flat read of a repository's open issues with their parents, in dispatch's survey, through the caching
-  GitHub broker every `gh` call already passes (`crates/north-ops/src/ops/gh_broker`);
+  GitHub broker every `gh` call already passes (`crates/north-github-broker/src/gh_broker`);
 - `north issue child`, a verb of the sandbox's credential broker (`crates/north-broker`): one mutation that
   creates a typed, labelled child under a parent and refuses a title that matches an open issue, a body
   with no runnable Done when, a parent in another repository, and a private word;

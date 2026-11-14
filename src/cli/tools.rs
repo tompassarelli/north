@@ -60,7 +60,7 @@ const UNIFORM: &[(&str, Run)] = &[
         _ => super::fleet::proxy(arguments),
     }),
     ("ops", ops),
-    ("private-check", crate::ops::private_check::run),
+    ("private-check", crate::private_check::run),
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),
     ("github-mirror", crate::github_mirror::sync::run),
@@ -72,15 +72,15 @@ const UNIFORM: &[(&str, Run)] = &[
     ("spare-fill", super::fleet::fill_spares),
     ("spare-retire", super::fleet::retire_spares),
     ("git-credential", crate::platform::git_credential::run),
-    ("gh-broker", crate::ops::gh_broker::run),
+    ("gh-broker", crate::gh_broker::run),
     ("broker", north_broker::run),
     ("issue", |arguments| match arguments {
         [word, rest @ ..] if word == "child" => crate::issue_child::run(rest),
         _ => crate::issue_convert::run(arguments),
     }),
-    ("ci-diagnose", crate::ops::ci_watch::diagnose::run),
-    ("red-main-notify", crate::ops::ci_watch::notify::run),
-    ("main-red", crate::ops::ci_watch::sheriff::run),
+    ("ci-diagnose", crate::ci_watch::diagnose::run),
+    ("red-main-notify", crate::ci_watch::notify::run),
+    ("main-red", crate::ci_watch::sheriff::run),
 ];
 
 const DIRECT: &[(&str, Run)] = &[

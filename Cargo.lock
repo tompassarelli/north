@@ -955,6 +955,7 @@ dependencies = [
  "north-capacity",
  "north-capacity-host",
  "north-check-environment",
+ "north-ci",
  "north-claims",
  "north-cli-reference",
  "north-code-health",
@@ -969,6 +970,7 @@ dependencies = [
  "north-expectations",
  "north-fleet-store",
  "north-flow",
+ "north-github-broker",
  "north-github-mirror",
  "north-graph-change",
  "north-graph-ground",
@@ -1150,6 +1152,21 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "tempfile",
+]
+
+[[package]]
+name = "north-ci"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-github-mirror",
+ "regex",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml_edit",
 ]
 
 [[package]]
@@ -1451,6 +1468,19 @@ name = "north-git-locks"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "north-github-broker"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-runtime-follow",
+ "rustix 0.38.44",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1828,7 +1858,6 @@ dependencies = [
  "north-pace",
  "north-providers",
  "north-registries",
- "north-runtime-follow",
  "north-threads",
  "pbkdf2",
  "percent-encoding",

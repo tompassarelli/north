@@ -28,6 +28,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 1 platform | north-registries | Read a generated registry's per-unit source tree and render the registry. |
 | 1 platform | north-cli-reference | The command reference text and the calls it names. |
 | 1 platform | north-git-locks | Stale git lock files: the one removal an agent may make in a primary checkout's git directory. |
+| 1 platform | north-github-broker | The GitHub call broker: one quota, batched calls, gh and git credential requests served through it, and push tokens for hosts. |
 | 1 platform | north-runtime-follow | How a long-lived process moves onto the runtime its link promotes. |
 | 1 platform | north-agent-starts | Local agent starts: a start request the fleet tick admitted, read as fixed fields and handed to the agent user only through the host shell its polkit rule admits. |
 | 1 platform | north-ssh-spare | A spare ssh connection held ready and the framed run over it. |
@@ -80,6 +81,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-flow | The flow report, and agents, detectors, experiments, tempo and tool mining. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
 | 6 operations | north-desktop | The desktops agents drive: an isolated private desktop, screenshots off the owner's screen, and the game client a playtest opens. |
+| 6 operations | north-ci | The CI north runs and watches: private checks posted as commit statuses, and the main-is-red sheriff. |
 | 6 operations | north-ops | Thirty unrelated operations verb families, from agent capture to desktop upkeep. |
 | 6 operations | north-issue-boxes | An issue's checkboxes as work: converted into child issues, and ticked when their check passes. |
 | 6 operations | north-claims | Claims a written text makes about the tree, checked against it: cited commands, flags, paths and keys, and a design review's facts. |

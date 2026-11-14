@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-github-broker"
+layer = 1
+paths = ["crates/north-github-broker/src/**"]
+may_use = ["north-base", "north-runtime-follow"]
+

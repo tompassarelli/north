@@ -1,7 +1,7 @@
 use north_github_mirror::store::{self, FRESH_S, Mirror, key};
 use serde_json::{Value, json};
 
-use crate::ops::ci_watch::{diagnose, notify};
+use crate::ci_watch::{diagnose, notify};
 
 const AT: f64 = 1000.0;
 const REPO: &str = "tompassarelli/firn";
