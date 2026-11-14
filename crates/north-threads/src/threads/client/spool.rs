@@ -301,6 +301,32 @@ impl Client {
         (record.state == Phase::Refused).then_some(record.cause)
     }
 
+    /// Withdraws every claim `session` queued that the flush has not taken yet, so a launch that ends before its session starts leaves no claim to land later; a claim a flush already sends is left to the release that follows. Returns how many it withdrew.
+    pub(super) fn withdraw_claims_by(&self, session: &str) -> NorthResult<usize> {
+        if !self.spool.is_dir() {
+            return Ok(0);
+        }
+        let mut spool = self.spool_records()?;
+        let at = (self.clock)();
+        let mut withdrawn = 0;
+        for name in spool.queued(at)? {
+            if !self.claim_by(&name, session) || !spool.take(&name, at)? {
+                continue;
+            }
+            spool.go(&name, Phase::Sent, "withdrawn: the launch that queued the claim did not start", at)?;
+            match fs::remove_file(self.spool.join(&name)) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
+                _ => withdrawn += 1,
+            }
+        }
+        Ok(withdrawn)
+    }
+
+    fn claim_by(&self, name: &str, session: &str) -> bool {
+        let words = name.ends_with(".argv").then(|| fs::read(self.spool.join(name)).ok()).flatten().and_then(|text| serde_json::from_slice::<Vec<String>>(&text).ok());
+        words.is_some_and(|words| words.first().is_some_and(|verb| verb == "claim") && words.windows(2).any(|pair| pair[0] == "--by" && pair[1] == session))
+    }
+
     /// The spool's lock, or none while another call flushes it: that call sends every spooled write in order, so this one neither waits behind it nor sends any itself.
     fn spool_lock(&self) -> NorthResult<Option<File>> {
         let lock = File::create(self.spool.join(".lock"))?;

@@ -177,6 +177,11 @@ pub fn spooled_refusal(name: &str) -> Option<String> {
     ambient_client(unread_fleet())?.spooled_refusal(name)
 }
 
+/// Withdraws the claims `session` queued through [`spool_write`] that the ledger host has not been sent yet; returns how many.
+pub fn withdraw_spooled_claims(session: &str) -> usize {
+    ambient_client(unread_fleet()).and_then(|client| client.withdraw_claims_by(session).ok()).unwrap_or(0)
+}
+
 /// The threads ledger this host reads: `THREADS_DB`, else the mirrored snapshot on a remote client, else the local database.
 pub fn threads_database() -> PathBuf {
     if let Some(path) = std::env::var_os("THREADS_DB") {

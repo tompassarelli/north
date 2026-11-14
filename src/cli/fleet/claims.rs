@@ -192,6 +192,10 @@ impl Claims for ThreadsCli {
         client::spooled_refusal(queued)
     }
 
+    fn withdraw_queued(&self, session: &str) -> usize {
+        client::withdraw_spooled_claims(session)
+    }
+
     fn release(&self, key: &str, session: &str) -> NorthResult<()> {
         let named = named(key);
         let words: Vec<&str> = ["release"].into_iter().chain(named.iter().map(String::as_str)).chain(["--by", session, "--held-by", session]).collect();

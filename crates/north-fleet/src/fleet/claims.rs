@@ -43,6 +43,10 @@ pub trait Claims: Send + Sync {
     fn refusal(&self, _queued: &str) -> Option<String> {
         None
     }
+    /// Withdraws the claims queued for `session` that the ledger has not been sent, so they never land; returns how many.
+    fn withdraw_queued(&self, _session: &str) -> usize {
+        0
+    }
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
     /// The claim rows `rows` names as (item, owner), including those no dispatch or launch honours any more.
@@ -76,6 +80,7 @@ pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str, ancestors:
 }
 
 fn give_up(claims: &dyn Claims, tasks: &[String], session: &str) {
+    claims.withdraw_queued(session);
     for held in tasks {
         let _ = claims.release(held, session);
     }
@@ -147,6 +152,7 @@ pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
     if record.verification {
         return;
     }
+    claims.withdraw_queued(&record.name);
     for task in record.claim_keys() {
         if let Err(error) = claims.release(&task, &record.name) {
             eprintln!("north fleet: {} did not release {task}: {}", record.name, error.user_message());
@@ -289,7 +295,8 @@ mod tests {
     }
 
     /// A ledger that queues a claim and, once the spool sends it, refuses it.
-    struct RefusesQueued;
+    #[derive(Default)]
+    struct RefusesQueued(Mutex<Vec<String>>);
 
     impl Claims for RefusesQueued {
         fn hold(&self, _: &str, _: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
@@ -298,6 +305,11 @@ mod tests {
 
         fn refusal(&self, queued: &str) -> Option<String> {
             (queued == "1794399091624627536-3178642.argv").then(|| "the ledger host exited 1: NorthThreads: --box an-ordered-promotion-of-a-landed-commit names no box of north#1144".to_owned())
+        }
+
+        fn withdraw_queued(&self, session: &str) -> usize {
+            self.0.lock().unwrap().push(session.to_owned());
+            1
         }
 
         fn release(&self, _: &str, _: &str) -> NorthResult<()> {
@@ -309,11 +321,17 @@ mod tests {
         }
     }
 
-    /// On 2026-11-11 the ledger refused f-promote-order's queued claim 3 s after the spool sent it, and the launch polled for 30 s and then blamed the ledger for not taking it.
+    /// On 2026-11-11 the ledger refused f-promote-order's queued claim 3 s after the spool sent it, and the launch polled for 30 s and then blamed the ledger for not taking it. On 2026-11-14 a launch that was refused after it queued a box claim left the claim in the spool, and it landed later and took the box from the worker that held it.
     #[test]
-    fn a_queued_claim_the_ledger_refuses_refuses_the_launch_at_once_in_the_ledgers_words() {
-        let refused = hold_all(&RefusesQueued, &["north#1144@an_ordered_promotion_of_a_landed_commit".to_owned()], "f-promote-order", &BTreeSet::new()).unwrap_err();
+    fn a_queued_claim_the_ledger_refuses_refuses_the_launch_at_once_and_a_refused_launch_withdraws_its_queued_claims() {
+        let ledger = RefusesQueued::default();
+        let refused = hold_all(&ledger, &["north#1144@an_ordered_promotion_of_a_landed_commit".to_owned()], "f-promote-order", &BTreeSet::new()).unwrap_err();
         assert!(matches!(&refused, NorthError::Refused(why) if why.contains("names no box of north#1144")), "{}", refused.user_message());
+        assert_eq!(*ledger.0.lock().unwrap(), ["f-promote-order"], "the refused launch left its queued claim in the spool");
+
+        let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "f-start-refused", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": null, "task_ref": "north#1144"})).unwrap();
+        release_for(&ledger, &record);
+        assert_eq!(ledger.0.lock().unwrap().last().map(String::as_str), Some("f-start-refused"), "a launch that fails after it began withdraws its queued claim too");
     }
 
     #[test]
