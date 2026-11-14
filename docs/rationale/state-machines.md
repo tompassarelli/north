@@ -211,7 +211,7 @@ fixes in each machine's code from history.
     edit and the key file (`crates/north-flow/src/experiments/file.rs:127`); a deferred check written to an unlanded
     lane leaves its issue closed with a waiting box (`experiments/deferred.rs:240`). Shapes: reviewer-only.
 33. **Issue bodies as shared state** (none counted). Every box writer replaces the whole body with no
-    compare-and-swap (`crates/north-ops/src/ops/observation_boxes/mod.rs:43-109` reads no fresh copy), so concurrent
+    compare-and-swap (`crates/north-issue-boxes/src/observation_boxes/mod.rs:43-109` reads no fresh copy), so concurrent
     writers lose each other's ticks. The fix is a guarded edit, not a record. Shapes: reviewer-only.
 34. **Timers that read a session name as running** (none counted). incident-retro and watch-review count a fleet row
     named with their prefix and not `exited` as running (`crates/north-timers/src/timers/incident_retro/mod.rs:71`,

@@ -75,8 +75,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("gh-broker", crate::ops::gh_broker::run),
     ("broker", north_broker::run),
     ("issue", |arguments| match arguments {
-        [word, rest @ ..] if word == "child" => crate::ops::issue_child::run(rest),
-        _ => crate::ops::issue_convert::run(arguments),
+        [word, rest @ ..] if word == "child" => crate::issue_child::run(rest),
+        _ => crate::issue_convert::run(arguments),
     }),
     ("ci-diagnose", crate::ops::ci_watch::diagnose::run),
     ("red-main-notify", crate::ops::ci_watch::notify::run),
@@ -202,7 +202,7 @@ fn call_check(arguments: &[String]) -> u8 {
 }
 
 fn citation_check(arguments: &[String]) -> u8 {
-    crate::ops::citation_check::run(arguments, defines)
+    crate::citation_check::run(arguments, defines)
 }
 
 const CHECK: &[(&str, Run)] = &[
@@ -235,7 +235,7 @@ fn check(arguments: &[String]) -> u8 {
 }
 
 fn review_items(arguments: &[String]) -> u8 {
-    crate::ops::review_items::run(arguments, defines)
+    crate::review_items::run(arguments, defines)
 }
 
 pub(super) const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help"];

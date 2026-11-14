@@ -25,6 +25,8 @@ use north_tune::{loops, tune};
 use north_flow::{agents, experiments, flow, tempo, tool_mine};
 use north_convo::{context_audit, convo, policy_replay};
 use north_timers::{privacy, runtime_access, timers};
+use north_issue_boxes::{cargo_boxes, done_when_boxes, issue_child, issue_convert, observation_boxes};
+use north_claims::{citation_check, review_items};
 
 static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },

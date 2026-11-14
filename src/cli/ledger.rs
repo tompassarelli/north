@@ -17,7 +17,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
             crate::providers::claude::runs::run(rest).map(|()| ExitCode::SUCCESS)
         }
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "duplicate" => return ExitCode::from(super::ledger_duplicate::run(rest)),
-        [task, verb, rest @ ..] if task == "task" && verb == "rewrite-cargo" => crate::ops::cargo_boxes::run(rest).map(|()| ExitCode::SUCCESS),
+        [task, verb, rest @ ..] if task == "task" && verb == "rewrite-cargo" => crate::cargo_boxes::run(rest).map(|()| ExitCode::SUCCESS),
         _ => Ledger::open_default().and_then(|store| dispatch(&store, arguments)),
     };
     match outcome {
@@ -31,7 +31,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
 
 /// A Done-when check asked inside a worker sandbox: the outside broker runs the one that writes a verdict, since the domain keeps the ledger unwritable (north#1137); `None` outside a sandbox and for a run that writes nothing.
 fn sandboxed_check(rest: &[String]) -> Option<ExitCode> {
-    use crate::ops::done_when_boxes::{Sandboxed, sandboxed};
+    use crate::done_when_boxes::{Sandboxed, sandboxed};
     if !north_runtime::worker_sandbox::confined() {
         return None;
     }
@@ -58,11 +58,11 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
         }
         ["task", "check", rest @ ..] if rest.contains(&"--done-when") => {
             let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
-            crate::ops::done_when_boxes::run(store, &rest, &north_runtime::worker_sandbox::checked_shell).map(|()| ExitCode::SUCCESS)
+            crate::done_when_boxes::run(store, &rest, &north_runtime::worker_sandbox::checked_shell).map(|()| ExitCode::SUCCESS)
         }
         ["task", "check", rest @ ..] if rest.first().is_some_and(|word| ["--observations", "--dry-run", "--body-file", "--repo"].contains(word)) => {
             let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
-            crate::ops::observation_boxes::run(&rest).map(|()| ExitCode::SUCCESS)
+            crate::observation_boxes::run(&rest).map(|()| ExitCode::SUCCESS)
         }
         ["task", "check", task_ref, "--", command @ ..] if !command.is_empty() => {
             let argv: Vec<String> = command.iter().map(|word| (*word).to_owned()).collect();

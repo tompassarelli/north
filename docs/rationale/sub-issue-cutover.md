@@ -212,7 +212,7 @@ this order where one names another's flag:
    and untick edits; the outbox stays for comments and closes), `land/after/tick.rs`, `land/scans/boxes.rs`
    and `landing/after_landing.rs`; `crates/north-landing-gates/src/issue_box_lint.rs`;
    `crates/north-land-scans/src/detector_proof.rs` and `stranded_boxes.rs`;
-   `crates/north-ops/src/ops/done_when_boxes/` (the check stays, run on a leaf);
+   `crates/north-issue-boxes/src/done_when_boxes/` (the check stays, run on a leaf);
    `crates/north-runtime/src/worker_sandbox/lane_grant.rs`; the `Box:` trailer in
    `crates/north-safe-push/src/shell/` and `src/cli/cloud_land.rs`; feature pages 0015, 0037 and 0007.
 5. **The readers**: `crates/north-graph-ingest/src/issues.rs` and `ledger.rs`,

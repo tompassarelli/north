@@ -955,6 +955,7 @@ dependencies = [
  "north-capacity",
  "north-capacity-host",
  "north-check-environment",
+ "north-claims",
  "north-cli-reference",
  "north-code-health",
  "north-concerns",
@@ -974,6 +975,7 @@ dependencies = [
  "north-graph-loops",
  "north-guard",
  "north-health",
+ "north-issue-boxes",
  "north-land-watch",
  "north-lander",
  "north-lander-doctor",
@@ -1146,6 +1148,15 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "tempfile",
+]
+
+[[package]]
+name = "north-claims"
+version = "0.1.0"
+dependencies = [
+ "north-ops",
+ "regex",
+ "toml_edit",
 ]
 
 [[package]]
@@ -1543,6 +1554,22 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "regex",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-issue-boxes"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-github-mirror",
+ "north-ops",
+ "north-providers",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "toml_edit",
 ]
 

@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::fleet::overlap::{self, Lane};
-use crate::ops::citation_check;
+use crate::citation_check;
 
 static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#{2,3} +(.+)$").expect("heading pattern"));
 static BOX_START: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d+\. +\*\*([A-Z][0-9]+) +([^*]+?)\.?\*\*").expect("box pattern"));

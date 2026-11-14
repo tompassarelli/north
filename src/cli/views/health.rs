@@ -47,7 +47,7 @@ pub fn read(dry_run: bool) -> Result<Health, String> {
     let now = Timestamp::now().unix_seconds();
     let bars = crate::cli::scoreboard::ready::run(now, crate::cli::scoreboard::ready::View::default())?;
     let concerns = north_concerns::tick::latest(now);
-    let (invariants_ok, invariants) = crate::health::report(dry_run, |repo| crate::ops::citation_check::verdict(repo, crate::cli::tools::defines))?;
+    let (invariants_ok, invariants) = crate::health::report(dry_run, |repo| crate::citation_check::verdict(repo, crate::cli::tools::defines))?;
     let mut text = String::from("Health\n\nReadiness bars:\n");
     text.push_str(&bars);
     text.push_str(&format!("\nConcerns: {} rows, {} red, measured {} min ago\n", concerns.rows, concerns.red, (now - concerns.at).max(0) / 60));

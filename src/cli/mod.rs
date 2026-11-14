@@ -253,7 +253,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
-        Command::Health(arguments) => views::health::run(&arguments, |repo| crate::ops::citation_check::verdict(repo, tools::defines)),
+        Command::Health(arguments) => views::health::run(&arguments, |repo| crate::citation_check::verdict(repo, tools::defines)),
         Command::Glance(arguments) => match glance::run(&arguments) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure(error),

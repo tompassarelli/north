@@ -55,7 +55,7 @@
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/docs.rs,crates/north-docs/src/rationale_index.rs --no-build docs rationale-index --check
 	check = @enqueue,flake.lock,harness/nix/lock-allow.toml :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/doctor_nix/,src/cli/ --no-build check nix --lock flake.lock --allow harness/nix/lock-allow.toml
 	check = "@enqueue,@lane,src/,crates/,tests/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/ --no-build land scan test-admission kills --remote-north \"CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/\" ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
-	check = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-ops/src/ops/citation_check/ --no-build check citations --root $PWD
+	check = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ --no-build check citations --root $PWD
 	check = @enqueue,harness/scripts/,harness/lib/,bin/,.safe-push,flake.nix :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/nix_entry.rs --no-build land scan nix-entry ${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,.safe-push,src/,crates/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/safe_push_verbs.rs,src/cli/ --no-build land scan safe-push-verbs ${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-flow/src/experiments/ --no-build check experiments --root .
@@ -77,7 +77,7 @@
 	machine-bound = reads the south checkout beside north, which no lane tree holds, so a template value equal to the owner's is judged on the build host that owns it :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check src/cli/operator/template --distinct-from $HOME/code/south/main # hardcoded-repo-path:allow
 	machine-bound = resolves this host's Claude Code runtime, account token file and south checkout, which no Actions runner holds :: harness/mayday/mayday --self-test # mayday-self-test
 	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only machine-bound"
-	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-ops/src/ops/citation_check/ check citations --root $PWD
+	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ check citations --root $PWD
 	runner = build-host
 	after-only = the code-comment habit is debt on the after-landing gate debt issue and never refuses a lane :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ --no-build code-health habits --base ${SAFE_PUSH_LAND_BASE} --head ${SAFE_PUSH_LAND_HEAD}
 	after-only = every whole-tree habit finding is debt on the after-landing gate debt issue and never refuses a lane :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ --no-build code-health habits
