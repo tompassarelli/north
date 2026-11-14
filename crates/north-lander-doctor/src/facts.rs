@@ -285,7 +285,7 @@ fn target(link: &Path) -> Option<String> {
 pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u64, review_holds: &[ReviewHold]) -> Option<LinkFacts> {
     let lander = target(&home.join("lander"))?;
     let current = target(&home.join("current")).unwrap_or_default();
-    let behind = (lander != current).then(|| behind(home, north, &lander, &current, now));
+    let behind = (lander != current && !north.is_some_and(|checkout| descends(checkout, &current, &lander))).then(|| behind(home, north, &lander, &current, now));
     let lag = north.and_then(|checkout| lag(checkout, &lander));
     let review_hold = north.and_then(|checkout| review_hold::standing_over(checkout, &lander, review_holds));
     let link_set = link_age(&home.join("lander"), now).unwrap_or(0);
@@ -310,6 +310,12 @@ fn behind(home: &Path, north: Option<&Path>, lander: &str, current: &str, now: u
         Some(times) => Behind { landings: Some(landings(&times)), secs: now.saturating_sub(times.iter().copied().min().unwrap_or(now)), reason },
         None => Behind { landings: None, secs: link_hold::since(home).map_or_else(|| link_age(&home.join("current"), now).unwrap_or(0), |since| now.saturating_sub(since)), reason },
     }
+}
+
+/// Whether the runtime link `later` is built from a commit containing the one `earlier` names, so a lander ahead of the fleet pin counts as on it.
+fn descends(checkout: &Path, earlier: &str, later: &str) -> bool {
+    let sha = |link: &str| Path::new(link).file_name().map(|name| name.to_string_lossy().into_owned());
+    sha(earlier).zip(sha(later)).is_some_and(|(earlier, later)| git(checkout, &["merge-base", "--is-ancestor", &earlier, &later]).is_ok())
 }
 
 pub fn landings(committed: &[u64]) -> usize {

@@ -216,7 +216,7 @@ fn a_missing_registered_worktree_that_git_lists_prunable_is_pruned() {
     let repo = scratch.path().join("repo");
     fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "base"]);
     let slot = scratch.path().join("slot");
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap()]);
     fs::remove_dir_all(&slot).unwrap();
@@ -560,4 +560,27 @@ fn a_runtime_pinned_behind_a_review_hold_names_the_hold_once_and_pages_no_one() 
     assert_eq!(shown.lines().filter(|line| line.contains("02bb1eeff3") && line.contains("commit-reviewer")).count(), 1, "{shown}");
     assert!(!shown.contains("does not follow main"), "{shown}");
     assert!(hands.pages.borrow().is_empty(), "a runtime pinned on purpose pages no one: {:?}", hands.pages.borrow());
+}
+
+#[test]
+fn a_lander_on_a_descendant_of_the_fleet_pin_is_on_current_and_pages_no_one() {
+    let scratch = tempfile::tempdir().unwrap();
+    let checkout = scratch.path().join("north");
+    fs::create_dir_all(&checkout).unwrap();
+    git(&checkout, &["init", "-q"]);
+    let commit = |message: &str| {
+        git(&checkout, &["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", message]);
+        git(&checkout, &["rev-parse", "--short=10", "HEAD"]).trim().to_owned()
+    };
+    let (pin, newer) = (commit("pin"), commit("newer"));
+    let home = scratch.path().join("state");
+    fs::create_dir_all(&home).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{newer}"), home.join("lander")).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{pin}"), home.join("current")).unwrap();
+    let link = facts::link_facts(&home, Some(&checkout), Vec::new(), NOW, &[]).unwrap();
+    assert!(link.behind.is_none(), "{:?}", link.behind);
+    let hands = Fake::default();
+    let shown = render(&cure(&Facts { link: Some(link), ..Facts::default() }, &mut Book::default(), &hands, NOW));
+    assert!(shown.contains("bound link-behind lander: on current"), "{shown}");
+    assert!(hands.pages.borrow().is_empty(), "{:?}", hands.pages.borrow());
 }

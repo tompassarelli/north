@@ -349,9 +349,9 @@ fn judge_link(link: &LinkFacts) -> Vec<Finding> {
     let lag = match link.lag {
         None => Finding::healthy(Bound::LinkLag, subject, "unknown: no north checkout to read main from".to_owned()),
         Some(lag) if lag <= LINK_LAG_SECS => Finding::healthy(Bound::LinkLag, subject, minutes(lag)),
-        Some(lag) if link.lander != link.current => Finding::over(Bound::LinkLag, subject, minutes(lag), wait("behind", "the link-behind bound owns a lander that does not follow current")),
+        Some(lag) if link.behind.is_some() =>Finding::over(Bound::LinkLag, subject, minutes(lag), wait("behind", "the link-behind bound owns a lander that does not follow current")),
         Some(lag) if let Some(hold) = &link.review_hold => Finding::over(Bound::LinkLag, subject, minutes(lag), wait("held for review", format!("the runtime stays on {} on purpose: {} holds commit {} for review, so no head containing it goes live: {}", link.lander, hold.session, hold.commit, hold.why))),
-        Some(lag) => Finding::over(Bound::LinkLag, subject, minutes(lag), State::Unknown(format!("the lander runs {} and current is the same, yet main is {} newer: the runtime does not follow main", link.lander, minutes(lag)))),
+        Some(lag) => Finding::over(Bound::LinkLag, subject, minutes(lag), State::Unknown(format!("the lander runs {}, no older than current, yet main is {} newer: the runtime does not follow main", link.lander, minutes(lag)))),
     };
     vec![behind, lag, no_verdict(link)]
 }
