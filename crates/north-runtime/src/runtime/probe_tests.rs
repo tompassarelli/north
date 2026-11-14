@@ -255,3 +255,15 @@ fn an_empty_unit_state_is_unread_and_pages_no_one() {
     };
     assert_eq!(problems(&facts, |_| true), Vec::<String>::new());
 }
+
+#[test]
+fn a_held_host_behind_the_landing_is_not_late_while_an_unheld_lagging_host_is() {
+    let lagging = |held: Option<&str>| {
+        let facts = Facts { host: "tom@cpx62".to_owned(), runtime: Some(OLD.to_owned()), settings: vec!["settings.json".to_owned()], north: Some(NorthProcesses::default()), held: held.map(str::to_owned), ..Facts::default() };
+        (problems(&facts, |runtime| runtime == LIVE), record(&facts, &[]))
+    };
+    let (problems, record) = lagging(Some("d90ce156 of the lane red-fix-token-mirror, held on cpx62 by release-evals-lead"));
+    assert_eq!(problems, Vec::<String>::new());
+    assert_eq!(record["held"], "d90ce156 of the lane red-fix-token-mirror, held on cpx62 by release-evals-lead");
+    assert_eq!(lagging(None).0, [format!("{LAGS} 11111111 predates the landing")]);
+}

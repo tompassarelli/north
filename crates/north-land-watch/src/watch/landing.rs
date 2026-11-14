@@ -129,14 +129,17 @@ fn runtime(context: &WatchContext) -> Vec<Alert> {
     if context.now.saturating_sub(checked) > SETTLE_FRESH {
         return Vec::new();
     }
-    let failing: Vec<String> = report["hosts"].as_array().into_iter().flatten().filter_map(|host| {
+    let hosts = || report["hosts"].as_array().into_iter().flatten();
+    let name = |host: &serde_json::Value| host["host"].as_str().unwrap_or("?").to_owned();
+    let failing: Vec<String> = hosts().filter_map(|host| {
         let problems: Vec<&str> = host["problems"].as_array()?.iter().filter_map(serde_json::Value::as_str).collect();
-        (!problems.is_empty()).then(|| format!("{}: {}", host["host"].as_str().unwrap_or("?"), problems.join("; ")))
+        (!problems.is_empty()).then(|| format!("{}: {}", name(host), problems.join("; ")))
     }).collect();
-    if failing.is_empty() {
-        return Vec::new();
-    }
     let short = &landing[..landing.len().min(12)];
+    if failing.is_empty() {
+        let held: Vec<String> = hosts().filter_map(|host| Some(format!("{} stays on its runtime, held by {}", name(host), host["held"].as_str()?))).collect();
+        return (!held.is_empty()).then(|| Alert { key: format!("land:north:runtime-held:{short}"), severity: Severity::Info, repo: Some("north".into()), owner: None, summary: format!("north landing {short} is live and healthy on every host but the held: {}", held.join(" | ")), since: checked, detail: Detail::default() }).into_iter().collect();
+    }
     let landed = context.events.iter().find(|event| event.status == "landed" && event.sha == landing);
     let following = context.follow.as_ref().filter(|follow| follow.contains_landing);
     let held = following.is_some_and(|follow| context.now.saturating_sub(follow.at) < FOLLOW_PROGRESS_SECONDS);

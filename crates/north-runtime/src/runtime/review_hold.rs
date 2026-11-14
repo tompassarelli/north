@@ -336,6 +336,12 @@ impl Screen {
         Ok(trip)
     }
 
+    /// The first standing hold naming `host` or no host that keeps `head` off `host`, as its refusal reads; a store or git answer that cannot be read names none, so the host counts as late.
+    pub(crate) fn holding(&self, head: &str, host: &str) -> Option<String> {
+        let mut standing = self.holds.all().ok()?.into_iter().filter(|hold| hold.lifted.is_none() && hold.host.as_deref().is_none_or(|named| named == host));
+        standing.find(|hold| self.holds_in(hold, head) == Ok(true)).map(|hold| refusal(&hold))
+    }
+
     /// Whether `head` holds `hold`: it contains the held commit, or a commit a landing of the hold's lane made.
     fn holds_in(&self, hold: &Hold, head: &str) -> Result<bool, String> {
         if (self.contains)(&hold.commit, head)? {

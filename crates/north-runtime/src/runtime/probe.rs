@@ -86,6 +86,7 @@ pub(super) struct Facts {
     pub(super) north: Option<NorthProcesses>,
     pub(super) settings: Vec<String>,
     pub(super) unresolved: Vec<String>,
+    pub(super) held: Option<String>,
 }
 
 pub(super) fn live_runtime(shell: &Shell) -> Option<String> {
@@ -185,6 +186,12 @@ fn display(state: &str) -> String {
     state.split_whitespace().take(3).collect::<Vec<_>>().join(" ")
 }
 
+/// The lag of a host whose runtime predates the landing, unless a recorded hold keeps it there.
+fn late(facts: &Facts, live: impl Fn(&str) -> bool) -> Option<String> {
+    let runtime = facts.runtime.as_deref().filter(|runtime| facts.held.is_none() && !live(runtime))?;
+    Some(format!("{LAGS} {} predates the landing", &runtime[..8]))
+}
+
 pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String> {
     if let Some(why) = &facts.unreachable {
         return vec![format!("unreachable: {why}")];
@@ -193,9 +200,7 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
         return if facts.unresolved.is_empty() { Vec::new() } else { std::iter::once("no live runtime".to_owned()).chain(facts.unresolved.iter().map(|unresolved| format!("unresolved hook path {unresolved}"))).collect() };
     }
     let mut problems = Vec::new();
-    if let Some(runtime) = facts.runtime.as_deref().filter(|runtime| !live(runtime)) {
-        problems.push(format!("{LAGS} {} predates the landing", &runtime[..8]));
-    }
+    problems.extend(late(facts, live));
     for unit in UNITS {
         let state = facts.units.get(unit).map_or("", String::as_str);
         if !state.is_empty() && !healthy(state) {
@@ -226,6 +231,7 @@ pub(super) fn record(facts: &Facts, problems: &[String]) -> Value {
         "settings": facts.settings,
         "unresolved": facts.unresolved,
         "unreachable": facts.unreachable,
+        "held": facts.held,
         "problems": problems,
     })
 }

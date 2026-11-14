@@ -59,8 +59,8 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     let here = walk_and_ship(layout, &hosts, &checkout);
     let others = if canaries_at_once() { judged_at_once(layout, &hosts[1..]) } else { hosts[1..].iter().map(|host| probed(layout, host).0).collect() };
-    for facts in std::iter::once(here).chain(others) {
-        let (problems, window) = judged_problems(&facts, live, &mut growth);
+    for mut facts in std::iter::once(here).chain(others) {
+        let (problems, window) = judged_problems(&mut facts, landing.as_ref(), &checkout, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict::verdict(&facts, &problems, landing.is_some()));
         print_north(&facts, window.as_deref());
         if !problems.is_empty() {
@@ -183,7 +183,16 @@ fn handed_to_live(layout: &Layout) -> Option<String> {
     layout.live_sha().filter(|live| *live != own && layout::has_programs(&layout.runtime(live)))
 }
 
-fn judged_problems(facts: &probe::Facts, live: impl Fn(&str) -> bool, growth: &mut Growth) -> (Vec<String>, Option<String>) {
+/// The standing hold that keeps `landing` off the host `facts` describe while its runtime predates the landing, read under the deploy name a hold names that host by.
+fn held_off(landing: Option<&Landing>, checkout: &Path, facts: &probe::Facts, live: impl Fn(&str) -> bool) -> Option<String> {
+    let landing = landing.filter(|_| facts.runtime.as_deref().is_some_and(|runtime| !live(runtime)))?;
+    let deployment = land_offload::deployment();
+    let name = deployment.destinations.iter().position(|destination| *destination == facts.host).map_or(facts.host.as_str(), |at| deployment.names[at].as_str());
+    Screen::here(checkout).holding(&landing.sha, name)
+}
+
+fn judged_problems(facts: &mut probe::Facts, landing: Option<&Landing>, checkout: &Path, live: impl Fn(&str) -> bool, growth: &mut Growth) -> (Vec<String>, Option<String>) {
+    facts.held = held_off(landing, checkout, facts, &live);
     let mut problems = probe::problems(facts, live);
     let mut window = None;
     if let (Some(north), None, false) = (&facts.north, &facts.unreachable, probe::installing(facts)) {
