@@ -12,7 +12,7 @@ pub fn run(detector: Detector, gatherer: &Gatherer, now: f64, limits: &Limits, p
         Detector::RepeatedRefusal => refusal::repeated(&gatherer.refusals(now, limits.refusal_window_s), now, limits),
         Detector::LowDisk => disk::low(&gatherer.disks(), now, limits),
         Detector::RecurringSequence => return None,
-        Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes(), correction::graph_guard_landed),
+        Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes()),
         Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
         Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs)),
         Detector::CrateHeadroom => crate_headroom::near(&gatherer.crates()),

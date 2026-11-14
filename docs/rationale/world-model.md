@@ -18,7 +18,6 @@ hacking shows a self-improving loop needs.
 
 - `graph.db` 529 MB; `grounding/index.db` 259 MB (FTS5, 72,389 docs, 45 MB of text).
 - Full `north graph ingest`, which `north land follow` runs after every landing: 30.6 s (decisions re-read 285,825 rows).
-- `north graph validate --guards harness/graph-guards --shadow` after every landing: 11.3 s.
 - `north graph ready`: 0.12 s. `north graph ground query`: 0.38 to 0.49 s.
 - Unanchored `ask` over `triple(T, :reaches, F)`: 11.5 s, which was a wait on ingest's write lock, not query work: `ask`
   opened the store read-write and wrote its schema version on every open. Without a writer it reads 1.3 s cold and 0.38 s

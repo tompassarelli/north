@@ -64,16 +64,6 @@ reviewed = "2026-11-08"
 by = "n706-wipe"
 decisions = 65
 
-# The graph guards in harness/graph-guards, one gate per guard file and correction class (harness/corrections.toml graph_guard), run after each landing by `north graph guards harness/graph-guards --shadow` (.safe-push). Each would-be refusal is a `would refuse guard NAME:` line in that check's output on the landing host (north#706, north#882).
-[gate.graph-guard-dropped-thread]
-mode = "shadow"
-
-[gate.graph-guard-unverified-tick]
-mode = "shadow"
-
-[gate.graph-guard-duplicate-claim]
-mode = "shadow"
-
 # Phase 2 of docs/rationale/test-selection.md: a Rust change outside every function region selects only the tests whose reached functions refer to the changed item, by the `rust-analyzer scip` index recorded with the coverage map, and the crate closure where the index does not know the line (north#1039). `north graph ask affected` computes it beside the selection that gates and appends both sizes, the extra and the dropped tests to $XDG_STATE_HOME/north/gates/test-selection-proof.jsonl on the asking host.
 [gate.test-selection-proof]
 mode = "shadow"

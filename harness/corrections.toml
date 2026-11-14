@@ -6,8 +6,7 @@
 # after it is a recurrence and prints red in the proxy's fleet tick for a week.
 # A class may name skill, the harness/skills directory whose rule it corrects: a correction of that class after the skill's
 # last review files the skill-review detector's box for the skill.
-# Each class names either graph_guard, the harness/graph-guards file (without .json) that finds its failure in graph
-# facts, or not_structural, why no graph fact holds it; a class with a landed graph guard files no guard box.
+# Each class names not_structural, why no graph fact holds it.
 
 [[class]]
 name = "unanswered"
@@ -132,7 +131,7 @@ pattern = '''let (this|that|it) slip|slip like this|(dropped|lost) the (ball|thr
 paraphrase = "Tom said the proxy let a thread that waited on it slip."
 owner = "north#636"
 guard = "The proxy's fleet tick lists every message that names the proxy as the one waited on and has had no reply for 10 minutes."
-graph_guard = "dropped-thread"
+not_structural = "a waiting message is in the proxy's thread, and the wording that dropped it is issue text the 24-hour closer reads"
 
 [[class]]
 name = "noise-in-report"
@@ -169,8 +168,8 @@ pattern = '''(ticked|marked|claimed|reported) (it |this |that )?(as )?(done|land
 paraphrase = "Tom found a box ticked done whose commit no check or landing confirmed."
 owner = "north#706"
 skill = "verification"
-guard = "harness/graph-guards/unverified-tick.json finds a ticked box whose claimed commit landed or was pushed over 24 h ago and has no corroborated row (harness/graph-rules/corroborated.json)."
-graph_guard = "unverified-tick"
+guard = "None: the graph guard was deleted (north#1544), since claims hold 12-character shas and landed-at facts 40; a recurrence is read from the correction ledger."
+not_structural = "a claim's commit is corroborated only by a landing or a passing check, which a worker can still forge until north#1547 lands"
 
 [[class]]
 name = "duplicate-claim"
@@ -178,5 +177,5 @@ pattern = '''(two|both|2) (sessions|workers|agents) (are )?(on|working on|doing)
 paraphrase = "Tom found two sessions holding the same box."
 owner = "north#706"
 skill = "workers"
-guard = "harness/graph-guards/duplicate-claim.json finds each holder of an unticked box that another session's claim in the threads claims table also holds."
-graph_guard = "duplicate-claim"
+guard = "None: the graph guard was deleted (north#1544), since refusing a landing releases no claim; a recurrence is read from the correction ledger."
+not_structural = "holders of a box are rows of the threads claims table, which refusing a landing cannot release"

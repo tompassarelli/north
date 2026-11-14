@@ -1,1 +1,1 @@
-  graph validate [--db PATH] [--guards DIR] [--shadow]  Validate the graph against its guards
+  graph validate [--db PATH]  Check the graph is sound

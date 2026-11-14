@@ -17,14 +17,6 @@ fn the_five_verbs_run_against_a_database_file_and_validate_exits_zero_when_sound
     let query = r#"{"find":"o","rules":[{"head":{"rel":"o","args":[{"var":"c"}]},"body":[{"rel":"occurrence","args":[{"var":"c"},{"var":"a"},{"var":"p"}]}]}]}"#;
     assert_eq!(graph(&database, &["ask", query]), 0);
     assert_eq!(graph(&database, &["validate"]), 0);
-    let guards = directory.path().join("guards");
-    std::fs::create_dir(&guards).unwrap();
-    let forbidden = r#"{"find":"o","rules":[{"head":{"rel":"o","args":[{"var":"c"}]},"body":[{"rel":"occurrence","args":[{"var":"c"},{"var":"a"},{"var":"p"}]}]}]}"#;
-    let guards_flag = guards.display().to_string();
-    assert_eq!(graph(&database, &["validate", "--guards", &guards_flag]), 0);
-    std::fs::write(guards.join("no-history.json"), forbidden).unwrap();
-    assert_eq!(graph(&database, &["validate", "--guards", &guards_flag]), 1);
-    assert_eq!(graph(&database, &["validate", "--guards", &guards_flag, "--shadow"]), 0);
 }
 
 #[test]

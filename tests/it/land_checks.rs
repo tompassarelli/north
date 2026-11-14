@@ -130,6 +130,7 @@ impl Fixture {
             .arg(self.path("outcome"))
             .env("PATH", path)
             .env("NORTH_LAND_NORTH", self.path("stubs/north"))
+            .env("DEPBOX", "1")
             .env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("STUB_TRACE", self.path("trace"))
             .env("XDG_STATE_HOME", self.path("state"))

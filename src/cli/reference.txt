@@ -141,7 +141,7 @@ Commands:
   graph ingest [SOURCE...]                      Ingest facts from their sources
   graph split [--repo DIR] [--record FILE] [--plan FILE | --prompt FILE] --base SHA (--task FILE | -)  Split a task into a first box of shared signatures, parts that share no file and a last box, from the base tree and one planning call
   graph split --check ID --parts N [--record FILE]  Check that every part of a split landed and no stub of its first box remains on origin/main
-  graph validate [--db PATH] [--guards DIR] [--shadow]  Validate the graph against its guards
+  graph validate [--db PATH]  Check the graph is sound
   work brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
   work brief pack [--issue REF]... PATH...   Print, in at most 3,000 characters, each path's public items with lines, its structure.toml module and what it may use, the files that changed with it most in 90 days with any revert within 48 h, and the nextest filter for the tests that reach it
   config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
