@@ -27,7 +27,6 @@ pub mod outbox;
 pub mod probe_slots;
 pub mod queue;
 pub mod outlive;
-pub mod pair;
 pub mod post_land;
 pub mod records;
 mod red_episode;

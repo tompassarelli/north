@@ -1,10 +1,9 @@
-//! One check read twice at a base tree and twice at a candidate tree by the same north in one slot, and what the pair says. Only a
+//! One check read twice at a base and twice at a candidate, trees or commits, by the same north in one slot, and what the pair says. Only a
 //! candidate that fails both its runs the same way over a base that passes both regressed, and only a regression may block or revert
-//! it. A tree whose two runs answer differently names the check as nondeterministic and blames no commit, a run that gives no
+//! it. A side whose two runs answer differently names the check as nondeterministic and blames no commit, a run that gives no
 //! verdict leaves the pair without one, and a candidate red another way than a red base is a red that changed, which blames nothing.
-use std::path::Path;
 
-/// One run of a check on one tree: green, red with the signature two runs must share to fail the same way, or no verdict with what the check said.
+/// One run of a check on one side: green, red with the signature two runs must share to fail the same way, or no verdict with what the check said.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reading {
     Green(String),
@@ -56,8 +55,9 @@ impl Compared {
 }
 
 /// Reads `check` at `base`, `candidate`, `base` and `candidate` in turn in this process, so one north and one slot give all four
-/// answers and a change on the host between runs shows as two answers in one tree, never as a regression.
-pub fn compare(check: &dyn Fn(&Path) -> Reading, base: &Path, candidate: &Path) -> Compared {
+/// answers and a change on the host between runs shows as two answers on one side, never as a regression. A side is whatever the
+/// check reads: a checked-out tree, a commit id it checks out itself.
+pub fn compare<T: ?Sized>(check: &dyn Fn(&T) -> Reading, base: &T, candidate: &T) -> Compared {
     let (base_first, candidate_first) = (check(base), check(candidate));
     let (base_second, candidate_second) = (check(base), check(candidate));
     let (base, candidate) = ([base_first, base_second], [candidate_first, candidate_second]);

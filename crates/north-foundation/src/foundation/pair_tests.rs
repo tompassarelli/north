@@ -1,11 +1,10 @@
 use std::cell::RefCell;
-use std::path::Path;
 
 use super::{Pair, Reading, compare};
 
 fn pair(base: [Reading; 2], candidate: [Reading; 2]) -> Pair {
     let runs = RefCell::new(vec![base[0].clone(), candidate[0].clone(), base[1].clone(), candidate[1].clone()].into_iter());
-    compare(&|_: &Path| runs.borrow_mut().next().unwrap(), Path::new("base"), Path::new("candidate")).pair
+    compare(&|_: &str| runs.borrow_mut().next().unwrap(), "base", "candidate").pair
 }
 
 #[test]

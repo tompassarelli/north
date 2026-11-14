@@ -9,6 +9,7 @@ pub mod exit;
 pub mod hook_deadline;
 pub mod limit_clock;
 pub mod offload;
+pub mod pair;
 pub mod redact;
 pub mod shim;
 pub mod stale_rewrites;
