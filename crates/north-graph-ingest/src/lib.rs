@@ -17,6 +17,7 @@ mod ranking;
 mod reads;
 mod run;
 mod shas;
+mod source;
 mod touches;
 mod trusted_writers;
 mod waits;
@@ -27,4 +28,5 @@ mod ingest_tests;
 mod waits_tests;
 
 pub use places::Places;
-pub use run::{Report, Source, ingest, run};
+pub use run::{Report, ingest, run};
+pub use source::Source;
