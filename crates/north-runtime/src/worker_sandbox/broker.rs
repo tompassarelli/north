@@ -23,6 +23,7 @@ use super::peer::Peer;
 use super::offload_request;
 pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
+use super::judge_request;
 use super::typed_requests;
 use super::withdraw_request;
 use super::request_checkout;
@@ -63,7 +64,7 @@ fn socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).filter(|value| !value.is_empty()).map_or_else(|| runtime().join(DIRECTORY).join(SOCKET), PathBuf::from)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `capacity host status` and `capacity host backlog` take the admission lock, reclaim ended leases and drop dead tickets as they read, in state the worker's domain keeps unwritable; `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `finish-check COMMAND HEAD` is no verb of `north`: the broker runs that acceptance command in the caller's lane in a new worker domain and records the verdict from its exit code for the session whose scope the caller runs in (finish_request.rs); `review-hold place|lift ...` is no verb of `north` either: the broker writes or lifts a reviewer's hold on a commit in the verdict store for the session whose scope the caller runs in, with nothing of the client's but those words (hold_request.rs); `review-accept PATCH-ID` records a reviewer's accept of a patch the same way (hold_request.rs); `eval-unit start finish-proof LABEL LEVEL | state LABEL | stop LABEL` starts, reads or stops the evaluation unit of a listed lead session, with nothing of the client's but those words (eval_unit_request.rs); `host-op state HOST UNIT | restart HOST UNIT | sync COPY` reads or restarts a listed north unit on a reached host or refreshes a listed copy, for a lead session or the coordinator, with nothing of the client's but those words (host_op_request.rs); `threads` and `fleet need` reach a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and `gate open` writes the gate into this host's fleet ledger, which a worker's domain keeps unwritable; `land withdraw TICKET` writes the landing queue's ticket store, which a worker's domain keeps unwritable, and is run only for a ticket the session whose scope the caller runs in queued (withdraw_request.rs); all four are refused to a lane-only caller, and `gate open` and `fleet need` speak as the session whose scope the caller runs in, never one the client names (request_env.rs); `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not reach, and started with nothing of the client's but those words (offload_request.rs). Each of them is served only from a lane or a main checkout of a project this host keeps, or a slot the build offload recorded as one's, and refused from a directory the broker cannot place in one (request_checkout.rs). Ahead of that, `task check --done-when --box TEXT OWNER/REPO#N` from a session outside every lane-only scope starts the Done-when checker outside the caller's domain, which alone writes the verdict the caller asked for, with nothing of the client's but those words, its directory included (check_request.rs).
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `capacity host status` and `capacity host backlog` take the admission lock, reclaim ended leases and drop dead tickets as they read, in state the worker's domain keeps unwritable; `lane unlock` and `lane stray` enforce their own removal rule; `lane sync` fast-forwards a main checkout, which unlinks files the worker's domain refuses to remove (north#1097); `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other; `finish-check COMMAND HEAD` is no verb of `north`: the broker runs that acceptance command in the caller's lane in a new worker domain and records the verdict from its exit code for the session whose scope the caller runs in (finish_request.rs); `review-hold place|lift ...` is no verb of `north` either: the broker writes or lifts a reviewer's hold on a commit in the verdict store for the session whose scope the caller runs in, with nothing of the client's but those words (hold_request.rs); `review-accept PATCH-ID` records a reviewer's accept of a patch the same way (hold_request.rs); `eval-unit start finish-proof LABEL LEVEL | state LABEL | stop LABEL` starts, reads or stops the evaluation unit of a listed lead session, with nothing of the client's but those words (eval_unit_request.rs); `host-op state HOST UNIT | restart HOST UNIT | sync COPY` reads or restarts a listed north unit on a reached host or refreshes a listed copy, for a lead session or the coordinator, with nothing of the client's but those words (host_op_request.rs); `privacy-judge [at-once]` runs the private-text judge outside every domain, which alone reaches a model account's login, with the broker's environment and the caller's standard input as the text, for a fleet session outside every lane-only scope, relaying only the judge's output and exit code with every token withheld (judge_request.rs); `threads` and `fleet need` reach a ledger kept on another host over ssh, which a worker's domain refuses (south#118), and `gate open` writes the gate into this host's fleet ledger, which a worker's domain keeps unwritable; `land withdraw TICKET` writes the landing queue's ticket store, which a worker's domain keeps unwritable, and is run only for a ticket the session whose scope the caller runs in queued (withdraw_request.rs); all four are refused to a lane-only caller, and `gate open` and `fleet need` speak as the session whose scope the caller runs in, never one the client names (request_env.rs); `capacity offload` in the words `land_offload::worker_request` reads runs a command on another declared host under that host's lease, the one way a worker command reaches a build host, refused to a lane-only caller and for any host this one does not reach, and started with nothing of the client's but those words (offload_request.rs). Each of them is served only from a lane or a main checkout of a project this host keeps, or a slot the build offload recorded as one's, and refused from a directory the broker cannot place in one (request_checkout.rs). Ahead of that, `task check --done-when --box TEXT OWNER/REPO#N` from a session outside every lane-only scope starts the Done-when checker outside the caller's domain, which alone writes the verdict the caller asked for, with nothing of the client's but those words, its directory included (check_request.rs).
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -93,6 +94,7 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
         ["capacity", "host", "status" | "backlog"] => true,
         ["capacity", "offload", rest @ ..] => north_offload::land_offload::worker_request(rest).is_some(),
         [finish_request::VERB, ..] => true,
+        [judge_request::VERB, ..] => judge_request::asked(arguments).is_some(),
         _ => typed_requests::named(arguments) || lane_grant::privileged(arguments),
     }
 }
@@ -130,10 +132,15 @@ pub fn request_finish_check(directory: &Path, arguments: &[String], log: &File) 
 
 /// Asks the broker for a request that carries only its words, the Done-when check `arguments` name (check_request.rs) or a reviewer's hold or accept (hold_request.rs), with this process's standard streams and nothing else of it: the request holds those words, no working directory and no environment; its exit code.
 pub fn request_check(arguments: &[String]) -> Result<u8, String> {
+    request_with_input(arguments, std::io::stdin().as_fd())
+}
+
+/// Asks the broker for a request that carries only its words, as `request_check` does, with `input` in place of this process's standard input; its exit code.
+pub(super) fn request_with_input(arguments: &[String], input: BorrowedFd) -> Result<u8, String> {
     let path = socket();
     let stream = UnixStream::connect(&path).map_err(|error| format!("north worker-sandbox: the outside broker at {} does not answer ({error}); it starts with the next agent command", path.display()))?;
-    let (stdin, stdout, stderr) = (std::io::stdin(), std::io::stdout(), std::io::stderr());
-    send(&stream, Request { arguments: arguments.to_vec(), directory: PathBuf::from("/"), environment: Vec::new() }, [stdin.as_fd(), stdout.as_fd(), stderr.as_fd()])
+    let (stdout, stderr) = (std::io::stdout(), std::io::stderr());
+    send(&stream, Request { arguments: arguments.to_vec(), directory: PathBuf::from("/"), environment: Vec::new() }, [input, stdout.as_fd(), stderr.as_fd()])
 }
 
 /// Whether `arguments` have a shape no older than the question `knows` asks, so a broker still serving from a replaced build may never have heard it; every shape older than the question is sent as it always was.
@@ -346,6 +353,9 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     {
         return run_check(north, asked, streams, stream, peer, host);
     }
+    if let Some(at_once) = judge_request::asked(&request.arguments) {
+        return run_judge(north, at_once, streams, stream, peer, host);
+    }
     if typed_requests::named(&request.arguments) {
         return typed_requests::answer(&request.arguments, streams, peer, host);
     }
@@ -411,7 +421,7 @@ fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, 
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: running the finish check of {}", granted.session);
-    let code = relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment.clone(), peer, host), [stdout, stderr], stream)?;
+    let code = relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment.clone(), peer, host), Stdio::null(), [stdout, stderr], stream)?;
     match granted.record(code, &host.environment, &host.home) {
         Ok(()) => eprintln!("north worker-sandbox broker: recorded the finish verdict of {} (exit {code})", granted.session),
         Err(why) => eprintln!("north worker-sandbox broker: {why}"),
@@ -454,7 +464,7 @@ fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], 
         }
     };
     eprintln!("north worker-sandbox broker: granted {} to {} ({})", arguments.iter().take(3).cloned().collect::<Vec<_>>().join(" "), session.name, session.task);
-    relayed(north, &arguments, &session.lane, urgency(variables, peer, host), [stdout, stderr], stream)
+    relayed(north, &arguments, &session.lane, urgency(variables, peer, host), Stdio::null(), [stdout, stderr], stream)
 }
 
 /// Runs the Done-when check `asked` names for a caller `peer` outside every lane-only scope (check_request.rs), relaying the checker's output to the client; a refusal is told to the client and logged.
@@ -465,17 +475,35 @@ fn run_check(north: &Path, asked: Result<check_request::Check, String>, streams:
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: checking {} for {}", granted.arguments.last().map(String::as_str).unwrap_or_default(), granted.session);
-    relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment, peer, host), [stdout, stderr], stream)
+    relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment, peer, host), Stdio::null(), [stdout, stderr], stream)
 }
 
-/// Starts `north ARGUMENTS` in `directory` with `variables` and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; its exit code.
-fn relayed(north: &Path, arguments: &[String], directory: &Path, variables: Vec<(String, String)>, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream) -> Result<u8, String> {
+/// Runs the private-text judge for a confined caller in a fleet session's own scope outside every lane-only one (judge_request.rs), outside every domain with this broker's own environment and the caller's standard input as the text. Only the judge's answer reaches the client, every token withheld: its standard output and exit code, while its standard error, which carries each refusing model's own words, goes to this broker's log.
+fn run_judge(north: &Path, at_once: bool, streams: Vec<OwnedFd>, stream: &UnixStream, peer: &Peer, host: &Host) -> Result<u8, String> {
+    if peer.cgroup().is_none_or(north_base::platform::session_scope::lane_only_cgroup) {
+        return Err(refuse(streams, "the private-text judge is run for a fleet session outside every lane-only scope, and this caller is not one".to_owned()));
+    }
+    if let Err(why) = lane_grant::own_session(peer, host, "the private-text judge is run for a fleet session's own scope, and this caller runs in none") {
+        return Err(refuse(streams, why));
+    }
+    let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
+    let log = std::io::stderr().as_fd().try_clone_to_owned().map_err(|error| error.to_string())?;
+    let (arguments, added) = judge_request::judge(at_once);
+    let code = relayed(north, &arguments, &host.home, host.environment.iter().cloned().chain(added).collect(), Stdio::from(stdin), [stdout, log], stream)?;
+    if !judge_request::answered(code) {
+        let _ = writeln!(File::from(stderr), "privacy judge: the judge the outside broker ran did not answer (exit {code}); the broker's log holds why");
+    }
+    Ok(code)
+}
+
+/// Starts `north ARGUMENTS` in `directory` with `variables` and `stdin` as its input, relaying its output to the client's `stdout` and `stderr` with every token withheld; its exit code.
+fn relayed(north: &Path, arguments: &[String], directory: &Path, variables: Vec<(String, String)>, stdin: Stdio, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream) -> Result<u8, String> {
     let mut child = Command::new(north)
         .args(arguments)
         .current_dir(directory)
         .env_clear()
         .envs(variables)
-        .stdin(Stdio::null())
+        .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0)

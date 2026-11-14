@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -19,8 +18,6 @@ pub struct Tier {
 
 const SCREEN: Tier = Tier { name: "screen", model: "claude-haiku-5-5", effort: "low" };
 const CONFIRM: Tier = Tier { name: "confirm", model: "claude-sonnet-5-5", effort: "low" };
-/// agy models the judge tries in turn; only Google and Anthropic models, the vendors the judge already sends to.
-const AGY_MODELS: [&str; 4] = ["gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-4-argon-medium", "claude-sonnet-5-5-low"];
 const PROMPT_VERSION: &str = "1";
 const CLEAN: &str = "NONE\n";
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(90);
@@ -154,8 +151,8 @@ fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, a
     Ok(fresh)
 }
 
-/// Asks each judge in turn until one answers: the Claude subscription accounts, then the Claude API credit pool,
-/// then agy's models. Every judge is Anthropic or Google, the two vendors the judge already used; a judge that fails
+/// Asks each judge in turn until one answers: the Claude subscription accounts, then the Claude API credit pool. No
+/// judge runs a client with tools, since the prompt carries a session's text (north#1553); a judge that fails
 /// only moves the ask on, and a run where none answers stays unjudged, so the push stays refused (fail closed).
 pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Result<(String, String), String> {
     let question = oneshot::Ask { model: tier.model, effort: tier.effort, system: SYSTEM, input: prompt };
@@ -169,8 +166,7 @@ pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Re
         (Asked::Failed(reason), _) => Err(reason),
     };
     let api = || ask_api_pool(tier, prompt);
-    let agy = || ask_agy(prompt);
-    let (answer, judge) = first_answer(&[("subscription", &subscription), ("api credit", &api), ("agy", &agy)])?;
+    let (answer, judge) = first_answer(&[("subscription", &subscription), ("api credit", &api)])?;
     let by = answered.borrow().clone().filter(|_| judge == "subscription").map_or_else(|| judge.to_owned(), |place| format!("{judge}:{place}"));
     Ok((answer, by))
 }
@@ -225,47 +221,6 @@ fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
         }
     }
     if refused.is_empty() { Err("no api organization has credit left".to_owned()) } else { Err(refused.join("; ")) }
-}
-
-/// Asks agy's models in turn: Gemini first, then the Claude models agy also serves.
-fn ask_agy(prompt: &str) -> Result<String, String> {
-    ask_agy_with(std::env::var_os("DBUS_SESSION_BUS_ADDRESS").as_deref(), &|model| ask_agy_model(model, prompt))
-}
-
-fn ask_agy_with(bus: Option<&OsStr>, ask: &dyn Fn(&str) -> Result<String, String>) -> Result<String, String> {
-    keyring_reachable(bus)?;
-    let mut refused = Vec::new();
-    for model in AGY_MODELS {
-        match ask(model) {
-            Ok(answer) => return Ok(answer),
-            Err(why) => refused.push(format!("{model}: {why}")),
-        }
-    }
-    Err(refused.join("; "))
-}
-
-/// agy keeps its Google login in the desktop keyring over the D-Bus session bus, and without the bus it opens a browser sign-in.
-fn keyring_reachable(bus: Option<&OsStr>) -> Result<(), String> {
-    let address = bus.and_then(OsStr::to_str).unwrap_or_default();
-    let refused = |why: String| Err(format!("agy's Google login lives in the desktop keyring, which this process cannot reach ({why}), so agy is not started: it would open a browser sign-in"));
-    match address.strip_prefix("unix:path=").map(|rest| rest.split(',').next().unwrap_or_default()) {
-        Some(path) => std::os::unix::net::UnixStream::connect(path).map(drop).or_else(|error| refused(format!("session bus {path}: {error}"))),
-        None => refused(format!("no unix:path session bus in DBUS_SESSION_BUS_ADDRESS={address:?}")),
-    }
-}
-
-fn ask_agy_model(model: &str, prompt: &str) -> Result<String, String> {
-    let prompt_arg = format!("-p={prompt}");
-    let mut command = std::process::Command::new(crate::fleet::install::runtime("agy"));
-    command.env("AGY_CLI_DISABLE_AUTO_UPDATE", "1").env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY").env("BROWSER", "false").args(["--model", model, "--dangerously-skip-permissions", "--disable-slash-commands", prompt_arg.as_str()]);
-    let output = crate::platform::process::run_command_within(command, None, ATTEMPT_LIMIT).ok_or("agy did not finish")?;
-    let answer = String::from_utf8_lossy(&output.stdout).into_owned();
-    if output.status.success() && !answer.trim().is_empty() {
-        Ok(answer)
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("agy exited {:?}: {} {}", output.status.code(), answer.trim(), stderr.trim()))
-    }
 }
 
 fn key(kinds: &Kinds, tier: &Tier, run: usize, chunk: &str) -> String {
@@ -443,20 +398,9 @@ mod tests {
             later.set(true);
             Ok("too late".to_owned())
         };
-        assert_eq!(first_answer(&[("subscription", &refuse), ("api credit", &answer), ("agy", &after)]), Ok(("NONE".to_owned(), "api credit")));
+        assert_eq!(first_answer(&[("subscription", &refuse), ("api credit", &answer), ("later", &after)]), Ok(("NONE".to_owned(), "api credit")));
         assert!(!later.get(), "a judge after the one that answered was asked");
-        let none = first_answer(&[("subscription", &refuse), ("api credit", &refuse), ("agy", &refuse)]).unwrap_err();
-        assert!(["subscription:", "api credit:", "agy:"].iter().all(|name| none.contains(name)), "{none}");
-    }
-
-    #[test]
-    fn agy_behind_a_masked_session_bus_is_refused_naming_its_keyring_login_and_never_started_north_1553() {
-        let started = std::cell::Cell::new(0);
-        let refused = ask_agy_with(Some(OsStr::new("unix:path=/dev/null")), &|_| {
-            started.set(started.get() + 1);
-            Ok("NONE".to_owned())
-        });
-        assert!(refused.as_ref().is_err_and(|why| why.contains("Google login lives in the desktop keyring")), "{refused:?}");
-        assert_eq!(started.get(), 0, "agy started without a reachable keyring and would open a browser sign-in");
+        let none = first_answer(&[("subscription", &refuse), ("api credit", &refuse), ("later", &refuse)]).unwrap_err();
+        assert!(["subscription:", "api credit:", "later:"].iter().all(|name| none.contains(name)), "{none}");
     }
 }

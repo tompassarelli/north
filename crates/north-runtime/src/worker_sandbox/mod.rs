@@ -16,6 +16,8 @@ mod eval_unit_request;
 mod eval_units;
 pub mod eval_unit_client;
 mod host_op_request;
+mod judge_request;
+pub mod judge_client;
 pub mod host_op_client;
 mod typed_requests;
 mod except;

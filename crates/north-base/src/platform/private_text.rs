@@ -16,7 +16,7 @@ const HOOK_MARGIN_SECS: u64 = 15;
 const HOOK_LIMIT: Duration = Duration::from_secs(HOOK_TIMEOUT_SECS as u64 - HOOK_MARGIN_SECS);
 const _: () = assert!(HOOK_LIMIT.as_secs() >= JUDGE_P90_SECS + 10, "the hook must wait past the judge's measured p90 (13 to 28 s on 2026-11-08) with room to spare");
 const AT_ONCE_LIMIT: Duration = Duration::from_millis(300);
-const JUDGE_ARGS: [&str; 5] = ["check", "privacy", "judge", "--text", "-"];
+pub const JUDGE_ARGS: [&str; 5] = ["check", "privacy", "judge", "--text", "-"];
 const SPAN_CHARS: usize = 160;
 const JUDGE_SLOTS: usize = 4;
 const SLOT_POLL: Duration = Duration::from_millis(100);

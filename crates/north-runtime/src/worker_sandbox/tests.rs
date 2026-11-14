@@ -859,3 +859,41 @@ fn a_confined_command_that_unsets_its_mark_still_reads_confined() {
     assert!(output.status.success(), "a command in a Landlock domain without the sandbox mark read as unconfined: {}", String::from_utf8_lossy(&output.stderr));
 }
 
+#[test]
+fn a_confined_sessions_privacy_judge_runs_outside_through_the_broker_with_its_text_in_and_only_the_answer_back_north_1553() {
+    use std::io::{Read, Seek};
+    use std::os::fd::AsFd;
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixStream;
+    let scratch = tempfile::tempdir().unwrap();
+    let north = scratch.path().join("north");
+    std::fs::write(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE\"\ncat\necho 'api credit: a refusing model said this' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(&north, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let text = scratch.path().join("text");
+    std::fs::write(&text, "a session's text\n").unwrap();
+    let (home, fleet) = (scratch.path().join("home"), scratch.path().join("fleet"));
+    std::fs::create_dir_all(fleet.join("worker")).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(fleet.join("worker/host.scope"), "north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n").unwrap();
+    std::fs::write(fleet.join("worker/session.json"), json!({ "name": "worker", "role": "worker", "cwd": home }).to_string()).unwrap();
+    let host = super::lane_grant::Host { fleet, code: vec![home.join("code")], home, environment: Vec::new(), cgroups: PathBuf::from("/sys/fs/cgroup") };
+    let judged = |scope: Option<&str>| {
+        let (input, mut output, mut errors) = (std::fs::File::open(&text).unwrap(), tempfile::tempfile().unwrap(), tempfile::tempfile().unwrap());
+        let (client, server) = UnixStream::pair().unwrap();
+        let request = super::broker::Request { arguments: vec!["privacy-judge".to_owned(), "at-once".to_owned()], directory: PathBuf::from("/"), environment: Vec::new() };
+        let code = std::thread::scope(|threads| {
+            let _ = threads.spawn(|| super::broker::answer(&north, &server, &Peer::from(scope), &host));
+            super::broker::send(&client, request, [input.as_fd(), output.as_fd(), errors.as_fd()]).unwrap()
+        });
+        let (mut answered, mut told) = (String::new(), String::new());
+        output.rewind().unwrap();
+        output.read_to_string(&mut answered).unwrap();
+        errors.rewind().unwrap();
+        errors.read_to_string(&mut told).unwrap();
+        (code, answered, told)
+    };
+    let session = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
+    assert_eq!(judged(Some(session)), (1, "check privacy judge --text - at-once=1\na session's text\n".to_owned(), String::new()), "a confined session's judge request was refused, or a refusing model's words reached the client");
+    let (code, answered, told) = judged(None);
+    assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "a caller in no session's scope drew the judge: {told}");
+}
