@@ -28,7 +28,7 @@ pub(super) struct Schema {
 }
 
 pub(super) fn credential_values(source: &str) -> Result<(), String> {
-    north_credentials::credentials::declared::parse(source).map(drop)
+    north_ops::ops::credentials::declared::parse(source).map(drop)
 }
 
 pub(super) fn runner_closures(source: &str) -> Result<(), String> {

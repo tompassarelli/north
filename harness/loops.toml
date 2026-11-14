@@ -402,8 +402,8 @@ constants = [
 name = "credentials"
 decision = "which credentials the fleet may depend on and when each is renewed or announced"
 sites = [
-  "crates/north-credentials/src/credentials/registry.rs",
-  "crates/north-credentials/src/credentials/renew.rs",
+  "crates/north-ops/src/ops/credentials/registry.rs",
+  "crates/north-ops/src/ops/credentials/renew.rs",
   "crates/north-base/src/platform/signin.rs",
 ]
 signal = "expiry of each machine credential, and the human sessions the registry finds"

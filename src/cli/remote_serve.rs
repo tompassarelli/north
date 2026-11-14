@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
-use crate::remote_serve::{self, Grants, Launch, LedgerJobs, Plan, audit, log};
+use crate::ops::remote_serve::{self, Grants, Launch, LedgerJobs, Plan, audit, log};
 use crate::threads::{client, outside::FleetView};
 
 const USAGE: &str = "Usage: north remote-serve --peer HOST [--repos REPO,...] [--threads-only] [--log FILE] | north remote-serve audit --peer HOST [--log FILE] [--keys FILE]";

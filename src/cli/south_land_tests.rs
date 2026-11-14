@@ -3,8 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use north_core::fleet::attachments::base64;
-use north_remote_serve::remote_serve::south_land::{self, Config, Refusal, TOKEN_FILE};
-use north_remote_serve::remote_serve::south_policy;
+use north_ops::ops::remote_serve::south_land::{self, Config, Refusal, TOKEN_FILE};
+use north_ops::ops::remote_serve::south_policy;
 use tempfile::TempDir;
 
 use super::south_test_repo::{Repo, git};
