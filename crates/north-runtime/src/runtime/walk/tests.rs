@@ -145,7 +145,7 @@ fn a_hold_naming_one_host_leaves_only_that_host_out_of_the_ship_and_a_hold_namin
 
     let scoped = tempfile::tempdir().unwrap();
     let screen = screen_holding(scoped.path());
-    let place = |host: Option<&str>| Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), until: None, why: "the elsewhere canary reads the wrong lock".to_owned() };
+    let place = |host: Option<&str>| Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), why: "the elsewhere canary reads the wrong lock".to_owned() };
     screen.holds.serve(place(Some("elsewhere")), &caller, now(), checkout.path()).unwrap();
     assert!(screen.order(MAIN, &[here.as_str()], now()).is_ok(), "a hold naming another host refused this host's own ship");
     let (kept, left_out) = held_out(&plan, &screen, MAIN, now());

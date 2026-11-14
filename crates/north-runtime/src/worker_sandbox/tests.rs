@@ -596,7 +596,7 @@ fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
     let host = super::lane_grant::Host { fleet, home: root.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: root.path().join("cgroup") };
     let holds = Holds::of(&[("NORTH_VERDICT_CACHE_DIR".to_owned(), root.path().join("verdicts").display().to_string())], &host.home);
     let caller = |name: &str| super::hold_request::caller(&Peer::from(Some(cgroup(name).as_str())), &host).unwrap();
-    let place = || Ask::Place { commit: commit.clone(), lane: "f-fix".to_owned(), host: None, until: None, why: "held for review".to_owned() };
+    let place = || Ask::Place { commit: commit.clone(), lane: "f-fix".to_owned(), host: None, why: "held for review".to_owned() };
     let lift = || Ask::Lift { commit: commit.clone(), why: "reviewed".to_owned() };
     let refusal = "proxy-session runs in the coordinator role, which neither places nor lifts a hold";
 

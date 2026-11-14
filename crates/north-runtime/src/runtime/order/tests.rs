@@ -370,7 +370,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let checkout = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
     git(&["init", "-q"]);
-    let absent = Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() };
+    let absent = Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() };
     let refused = Holds(state.path().join("absent-holds")).serve(absent, &Caller { session: "f-review".to_owned(), coordinator: false, reviewer: false }, now(), checkout.path()).unwrap_err();
     assert!(refused.contains(REVIEWED) && refused.contains("no commit in the north checkout"), "a hold placed on a commit the checkout lacks made every later screen fail: {refused}");
     git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "reviewed"]);
@@ -382,7 +382,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
     let session = |name: &str| Caller { session: name.to_owned(), coordinator: false, reviewer: false };
     let (reviewer, author) = (session("f-review"), session("f-holds"));
-    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() }, caller, now(), checkout.path());
+    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now(), checkout.path());
     let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: held.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now(), checkout.path());
     place(&reviewer).unwrap();
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
@@ -493,30 +493,4 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     for branches in [vec!["main".to_owned()], vec!["f-fix".to_owned(), "f-other".to_owned()]] {
         assert!(lane_of(REVIEWED, "", &branches).is_err(), "a hold whose lane is not one branch is refused at placement: {branches:?}");
     }
-}
-
-#[test]
-fn a_hold_naming_the_lane_whose_landing_lifts_it_is_gone_once_that_lane_lands() {
-    let state = tempfile::tempdir().unwrap();
-    let checkout = tempfile::tempdir().unwrap();
-    let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
-    git(&["init", "-q"]);
-    git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "broken"]);
-    let held = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap().trim().to_owned();
-    let ledger = state.path().join("pushes.tsv");
-    fs::write(&ledger, format!("1794600000\tnorth\tf-cure\t{OLD}\t\tf-cure\n")).unwrap();
-    let broken = held.clone();
-    let contains = move |commit: &str, head: &str| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR || (head == NEW && (commit == broken || commit == SQUASHED)));
-    let screen = Screen { holds: Holds(state.path().join("holds")), contains: Box::new(contains), landed: landed_in(ledger.clone()), after_landing: Box::new(|_| Landing::Green), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none() };
-    let caller = Caller { session: "f-review".to_owned(), coordinator: false, reviewer: false };
-    let ask = Ask::Place { commit: held.clone(), lane: "f-broken".to_owned(), host: None, until: Some("f-cure".to_owned()), why: "the canary reads the wrong lock until f-cure lands".to_owned() };
-    screen.holds.serve(ask, &caller, now(), checkout.path()).unwrap();
-    let refused = screen.order(NEW, &["whiterabbit"], now()).err().unwrap_or_default();
-    assert!(refused.contains(&held), "a hold whose cure is queued but not landed stands: {refused:?}");
-
-    fs::write(&ledger, format!("1794600000\tnorth\tf-cure\t{OLD}\t\tf-cure\n1794600060\tnorth\tf-cure\t{OLD}\t{SQUASHED}\tf-cure\n")).unwrap();
-    let named = screen.order(NEW, &["whiterabbit"], now()).unwrap();
-    assert!(named.iter().any(|line| line.contains("f-cure landed as") && line.contains(SQUASHED)), "on 2026-11-14 a hold stood about an hour after the fix it named had landed, until its placer lifted it by hand: {named:?}");
-    let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
-    assert!(review_hold::standing(&environment, state.path()).unwrap().is_empty(), "the landed lane leaves no hold standing");
 }

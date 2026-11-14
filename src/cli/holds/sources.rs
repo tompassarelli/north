@@ -90,7 +90,7 @@ fn review_hold(hold: north_runtime::runtime::review_hold::Standing) -> Hold {
         set_by: hold.session.clone(),
         why: format!("{} (lane {}{on})", hold.why, hold.lane),
         since: i64::try_from(hold.at).ok(),
-        lifts: Lift::Named(format!("`north runtime hold --lift {} --why TEXT` from {}{}", hold.commit, hold.session, hold.until.as_deref().map_or(String::new(), |until| format!(", or a landing of {until} reaching the screened head")))),
+        lifts: Lift::Named(format!("`north runtime hold --lift {} --why TEXT` from {}", hold.commit, hold.session)),
         lifts_when: String::new(),
         red: None,
     }
