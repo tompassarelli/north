@@ -107,7 +107,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("job-watch", Status),
     ("land abandon", Bookkeeping),
     ("land actions", Landing),
-    ("land adopt", Landing),
     ("land clean", Bookkeeping),
     ("land fails-first", Diagnosis),
     ("land missed", Status),

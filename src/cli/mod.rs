@@ -36,7 +36,6 @@ mod orders;
 mod probe_account;
 pub(crate) mod remote_land;
 mod draft_road;
-mod land_adopt;
 mod remote_serve;
 #[cfg(test)]
 mod remote_serve_tests;

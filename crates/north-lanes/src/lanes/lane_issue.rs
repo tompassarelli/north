@@ -71,8 +71,3 @@ pub(super) fn forget(main: &Path, branch: &str) {
     }
 }
 
-
-/// The issue the lane at `lane` serves, as `north lane new` recorded it for its branch.
-pub fn of_lane(lane: &Path) -> Option<String> {
-    recorded(lane, &git_out(lane, &["branch", "--show-current"])?)
-}
