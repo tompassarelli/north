@@ -1,14 +1,14 @@
 use super::{Failure, Filed, Filing, filing};
 
 #[test]
-fn an_advisory_after_landing_check_files_what_it_prints_even_when_it_exits_zero() {
+fn an_advisory_after_landing_check_files_what_it_prints_on_stdout_even_when_it_exits_zero_and_not_its_stderr_notes() {
     let directory = tempfile::tempdir().unwrap();
     let checks = [("code-comment habit".to_owned(), "echo 'code-comment lib.rs:3 narrates the change'".to_owned())];
     let failures = super::repo_advisory_failures(directory.path(), &checks, "base", "head");
     assert_eq!(failures.len(), 1);
     assert_eq!(failures[0].gate, "code-comment habit");
     assert!(failures[0].output.contains("code-comment lib.rs:3"), "{:?}", failures[0].output);
-    let quiet = [("quiet".to_owned(), "true".to_owned())];
+    let quiet = [("quiet".to_owned(), "echo 'head-north: running the north this host built from tree 0a57932f1231' >&2".to_owned())];
     assert!(super::repo_advisory_failures(directory.path(), &quiet, "base", "head").is_empty());
 }
 

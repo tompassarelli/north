@@ -4,7 +4,7 @@ const FIELDS: &str = "Category: bug-known-cause\nSpec: measured\nScope: cross-mo
 const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
 const DROPPED: &str = "Older sections dropped: ";
 const DONE_WHEN: &str = "\n## Done when\n- [ ] No section remains below: each failed gate is fixed forward on main and its section deleted.";
-const CHECK: &str = " Done when: `gh issue list --state open --search 'in:title \"After-landing gate debt\"' --json body -q '.[].body' | rg -qF '<!-- after-landing-gate: '; test $? -eq 1` exits 0.";
+const CHECK: &str = " Done when: `gh issue list --state open --search 'in:title \"After-landing gate debt\"' --json body -q '.[].body' | rg -q '^<!-- after-landing-gate: '; test $? -eq 1` exits 0.";
 const SPLIT_ONLY_GATE: &str = "crate-lines";
 
 fn is_box(line: &str) -> bool {

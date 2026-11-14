@@ -325,17 +325,18 @@ pub fn repo_check_failures(tree: &Path, checks: &[(String, String)], base: &str,
         .collect()
 }
 
-/// The `after-landing.advisory` checks: whatever a check prints, and whether it exits 0 or not, is debt on the
+/// The `after-landing.advisory` checks: whatever a check prints on stdout, and any exit other than 0, is debt on the
 /// After-landing gate debt issue, never a refusal and never a revert.
 pub fn repo_advisory_failures(tree: &Path, checks: &[(String, String)], base: &str, head: &str) -> Vec<Failure> {
     checks
         .iter()
         .filter_map(|(name, command)| {
             let output = match Command::new("sh").args(["-c", command]).current_dir(tree).env("SAFE_PUSH_LAND_BASE", base).env("SAFE_PUSH_LAND_HEAD", head).output() {
+                Ok(output) if output.status.success() && output.stdout.trim_ascii().is_empty() => String::new(),
                 Ok(output) => format!("{}{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr), if output.status.success() { String::new() } else { format!("\n{command} exited {}", output.status) }),
                 Err(error) => format!("cannot run {command}: {error}"),
             };
-            if output.trim().is_empty() {
+            if output.is_empty() {
                 println!("after-landing: advisory {name} found nothing");
                 return None;
             }
