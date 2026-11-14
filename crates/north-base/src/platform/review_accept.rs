@@ -71,6 +71,19 @@ impl Accepts {
         pending.persist(self.0.join(Self::file(&accept.patch_id, &accept.session))).map(|_| ()).map_err(|error| failure(error.error))
     }
 
+    /// Removes the accept of `patch_id` by `session`; whether there was one.
+    pub fn withdraw(&self, patch_id: &str, session: &str) -> Result<bool, String> {
+        if !is_patch_id(patch_id) || !is_session(session) {
+            return Err(format!("{patch_id:?} by {session:?} is no accept of a patch id by a fleet session"));
+        }
+        let path = self.0.join(Self::file(patch_id, session));
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(format!("the accept {} cannot be removed: {error}", path.display())),
+        }
+    }
+
     /// The sessions that accepted `patch_id`; a store that exists and cannot be read, or an entry of it that is not the accept its name says, is an error, never fewer accepts.
     pub fn sessions(&self, patch_id: &str) -> Result<BTreeSet<String>, String> {
         let entries = match fs::read_dir(&self.0) {

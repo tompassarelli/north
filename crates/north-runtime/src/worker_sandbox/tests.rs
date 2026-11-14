@@ -565,7 +565,7 @@ fn review_pass_records_only_a_reviewer_session_s_accept_and_a_forged_session_nev
     let host = super::lane_grant::Host { fleet, home: root.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: root.path().join("cgroup") };
 
     let store = Accepts(root.path().join("accepts"));
-    let accept = Accept { patch_id: PATCH.to_owned() };
+    let accept = Accept { patch_id: PATCH.to_owned(), withdraw: false };
     let caller = |name: &str| super::hold_request::caller(&Peer::from(Some(cgroup(name).as_str())), &host).unwrap();
     accept.serve(&store, &caller("north-reviewer"), 1).unwrap();
     assert_eq!(store.sessions(PATCH).unwrap().into_iter().collect::<Vec<_>>(), ["north-reviewer"]);

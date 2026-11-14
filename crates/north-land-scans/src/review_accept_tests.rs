@@ -18,6 +18,30 @@ fn git_in(directory: &Path, arguments: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
+#[test]
+fn a_withdrawn_accept_no_longer_counts() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let accepts = Accepts(root.path().join("accepts"));
+    git_in(&repo, &["init", "-q", "-b", "main"]);
+    let base = commit(&repo, &[("crates/north-lander/src/land.rs", "a\n")], "base");
+    let lane = commit(&repo, &[("crates/north-lander/src/land.rs", "b\n")], "inside the boundary");
+    let test = commit(&repo, &[("crates/north-lander/tests/land.rs", "t\n")], "a test");
+    accept(&accepts, &repo, &base, &lane, "reviewer-a");
+    accept(&accepts, &repo, &base, &lane, "reviewer-b");
+    assert_eq!(check(&repo, &base, &lane, &accepts, &[]), Ok(()));
+    let patch = patch_id(&repo, &base, &lane).unwrap();
+    assert_eq!(accepts.withdraw(&patch, "reviewer-b"), Ok(true));
+    assert!(check(&repo, &base, &lane, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "a withdrawn accept still counted");
+    assert_eq!(accepts.withdraw(&patch, "reviewer-b"), Ok(false), "a second withdrawal finds nothing");
+
+    accept(&accepts, &repo, &lane, &test, "reviewer-b");
+    assert_eq!(check(&repo, &lane, &test, &accepts, &[]), Ok(()));
+    assert_eq!(accepts.withdraw(&patch_id(&repo, &lane, &test).unwrap(), "reviewer-b"), Ok(true));
+    assert!(check(&repo, &lane, &test, &accepts, &[]).is_err(), "a withdrawn accept still landed a one-accept change");
+}
+
 fn commit(repo: &Path, files: &[(&str, &str)], message: &str) -> String {
     for (path, text) in files {
         let path = repo.join(path);
