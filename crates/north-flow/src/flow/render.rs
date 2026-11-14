@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use super::host::iso;
 use crate::router::choose::missed_target;
-use crate::router::moment::python_g;
+use crate::router::moment::compact_number;
 
 fn plain(value: &Value) -> String {
     value.as_str().map_or_else(|| value.to_string(), str::to_owned)
@@ -19,7 +19,7 @@ fn shown(value: &Value, digits: usize, unit: &str) -> String {
 
 fn general(value: &Value, unit: &str) -> String {
     match value.as_f64() {
-        Some(number) => format!("{}{unit}", python_g(number)),
+        Some(number) => format!("{}{unit}", compact_number(number)),
         None if value.is_null() => "n/a".into(),
         None => plain(value),
     }

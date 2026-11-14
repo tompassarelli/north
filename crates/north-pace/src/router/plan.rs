@@ -1,7 +1,7 @@
 use super::brief::codex_qualifies;
 use super::choose::brief;
 use super::ctx::{Ctx, Metrics, Tier, WorkBox, provider};
-use super::moment::{Moment, python_str};
+use super::moment::{Moment, scalar_text};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -295,7 +295,7 @@ impl Ctx {
             } else {
                 "off"
             };
-            let difficulty = python_str(&item.difficulty);
+            let difficulty = scalar_text(&item.difficulty);
             out.push(format!(
                 "box {} ({} {} d{difficulty}): {what}{tag}, fast {fast}",
                 item.id, item.project, item.category
@@ -325,7 +325,7 @@ impl Ctx {
 }
 
 fn shown(value: &Value) -> String {
-    python_str(value)
+    scalar_text(value)
 }
 
 pub fn divergence(result: &Value, expect: &Value) -> Option<String> {

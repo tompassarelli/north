@@ -2,7 +2,7 @@ use super::brief::{
     brief_header, codex_class, codex_explore_qualifies, codex_qualifies, header_word,
 };
 use super::ctx::{Ctx, Project, Tier, WorkBox, account_of, provider, truthy};
-use super::moment::{python_g, python_str};
+use super::moment::{compact_number, scalar_text};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -48,11 +48,11 @@ fn lever(service: &Value) -> Option<String> {
     };
     let price = service["usd_per_week"].as_f64().map_or_else(
         || "$ unmeasured".to_owned(),
-        |amount| format!("current ledger cost ${}/week", python_g(amount)),
+        |amount| format!("current ledger cost ${}/week", compact_number(amount)),
     );
     Some(format!(
         "{action}: {} {price}, speedup unmeasured",
-        python_str(&service["id"])
+        scalar_text(&service["id"])
     ))
 }
 
@@ -226,7 +226,7 @@ impl Ctx {
             let target = project
                 .target
                 .as_ref()
-                .map_or_else(|| "its target".to_owned(), python_str);
+                .map_or_else(|| "its target".to_owned(), scalar_text);
             out.needs = Some(self.missed(item, project, &target));
         }
         out
@@ -240,14 +240,14 @@ impl Ctx {
                     item.id,
                     item.project,
                     item.category,
-                    python_str(&item.difficulty)
+                    scalar_text(&item.difficulty)
                 )),
                 ..Choice::default()
             };
         }
         match project.target.as_ref().filter(|t| truthy(t)) {
             Some(target) => Choice {
-                needs: Some(self.missed(item, project, &python_str(target))),
+                needs: Some(self.missed(item, project, &scalar_text(target))),
                 ..Choice::default()
             },
             None => Choice {

@@ -167,7 +167,7 @@ pub fn target_open(target: &Value, now: Moment) -> bool {
     Moment::of(target).is_none_or(|when| when >= now)
 }
 
-pub fn python_g(value: f64) -> String {
+pub fn compact_number(value: f64) -> String {
     if value == 0.0 {
         return "0".into();
     }
@@ -192,7 +192,7 @@ pub fn python_g(value: f64) -> String {
     }
 }
 
-pub fn python_str(value: &Value) -> String {
+pub fn scalar_text(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
         Value::Null => "None".into(),

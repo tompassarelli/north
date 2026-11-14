@@ -83,7 +83,7 @@ fn prior_lines(batch: &[&Row], now: f64) -> Vec<String> {
         batch.len(),
         count("MEASURABLE-NOT-MEASURED")
     )];
-    lines.extend(batch.iter().map(|row| format!("    {} {} n={}/{}", state(row), row.cell, row.n.unwrap_or(0), crate::router::moment::python_g(row.value.unwrap_or(0.0)))));
+    lines.extend(batch.iter().map(|row| format!("    {} {} n={}/{}", state(row), row.cell, row.n.unwrap_or(0), crate::router::moment::compact_number(row.value.unwrap_or(0.0)))));
     lines
 }
 
