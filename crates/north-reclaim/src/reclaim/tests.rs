@@ -223,3 +223,16 @@ fn a_scratch_root_no_session_record_names_is_left_in_place() {
     assert_eq!(machine.reclaim(false), Vec::<PathBuf>::new());
     assert!(evaluation.join("results.jsonl").exists() && download.exists());
 }
+
+#[test]
+fn a_cargo_target_of_a_crate_below_an_idle_lane_is_reclaimed_like_the_lane_s_own() {
+    let machine = Machine::new();
+    let lane = machine.dir("code/wisp/worktrees/perf-ticks", 3 * DAY);
+    let nested = machine.dir("code/wisp/worktrees/perf-ticks/window/target", 3 * DAY);
+    fs::write(nested.join("CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55\n").unwrap();
+    touch(&nested.join("CACHEDIR.TAG"), machine.now - 3 * DAY);
+    touch(&nested, machine.now - 3 * DAY);
+
+    assert_eq!(machine.reclaim(false), vec![nested.clone()]);
+    assert!(lane.exists() && !nested.exists());
+}
