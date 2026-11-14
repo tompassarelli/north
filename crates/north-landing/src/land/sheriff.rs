@@ -268,13 +268,11 @@ impl Probes<'_> {
         }).collect()
     }
 
-    /// The host a probe runs on: the case's pinned host, else one `north capacity offload choose` picks away from `avoid`;
-    /// tests the sheriff runs itself run here unless they must run elsewhere.
-    fn place(&self, on: On, tests: bool) -> Option<String> {
-        let here = north_base::platform::host::name();
+    /// The host a probe runs on: the case's pinned host, else one `north capacity offload choose` picks away from `avoid`,
+    /// so a host that runs no checks sends the sheriff's test reruns to a build host or finds none.
+    fn place(&self, on: On) -> Option<String> {
         match on {
             On::Host(host) => Some(host.to_owned()),
-            On::Any if tests => Some(here),
             On::Any => post_land::choose_host(&self.lander.repo, None),
             On::Besides(avoid) => post_land::choose_host(&self.lander.repo, Some(avoid)).filter(|host| host != avoid),
         }
@@ -282,7 +280,7 @@ impl Probes<'_> {
 
     fn rerun(&self, commit: &str, tree: &str, on: On) -> Option<Probed> {
         let tests = self.tests();
-        let host = self.place(on, !tests.is_empty())?;
+        let host = self.place(on)?;
         if tests.is_empty() {
             let steps = self.steps();
             if steps.is_empty() {
