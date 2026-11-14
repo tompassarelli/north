@@ -787,3 +787,21 @@ fn a_lead_with_no_task_is_confined_like_a_tasked_one() {
     assert!(!confined_role(Some(PROXY_ROLE)), "the proxy seat drives windows and units");
     assert!(!confined_role(None), "an adopted human window carries no launcher role");
 }
+
+const UNMARKED: &str = "NORTH_1485_UNMARKED";
+
+#[test]
+fn a_confined_command_that_unsets_its_mark_still_reads_confined() {
+    if std::env::var_os(UNMARKED).is_some() {
+        assert!(matches!(super::confine_removal(&[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+        std::process::exit(if super::confined() { 0 } else { 1 });
+    }
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::a_confined_command_that_unsets_its_mark_still_reads_confined", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env(UNMARKED, "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "a command in a Landlock domain without the sandbox mark read as unconfined: {}", String::from_utf8_lossy(&output.stderr));
+}

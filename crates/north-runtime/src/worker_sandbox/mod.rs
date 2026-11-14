@@ -365,9 +365,9 @@ pub fn checked_shell(program: &[String]) -> Command {
     shell
 }
 
-/// Whether this process runs inside a worker sandbox's Landlock domain.
+/// Whether this process runs inside a worker sandbox's Landlock domain, read from the no-new-privileges flag the kernel set when the domain was applied, which no process below it can clear.
 pub fn confined() -> bool {
-    std::env::var_os(MARK).is_some()
+    std::fs::read_to_string("/proc/self/status").is_ok_and(|status| status.lines().any(|line| line.split_whitespace().eq(["NoNewPrivs:", "1"])))
 }
 
 /// Runs `program` without the domain's rule against executing build output, keeping its other rules, when called inside a worker sandbox; `None` outside one, where nothing refuses it.
