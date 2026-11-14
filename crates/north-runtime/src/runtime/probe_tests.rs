@@ -267,3 +267,15 @@ fn a_held_host_behind_the_landing_is_not_late_while_an_unheld_lagging_host_is() 
     assert_eq!(record["held"], "d90ce156 of the lane red-fix-token-mirror, held on cpx62 by release-evals-lead");
     assert_eq!(lagging(None).0, [format!("{LAGS} 11111111 predates the landing")]);
 }
+
+#[test]
+fn a_probe_past_its_limit_takes_the_children_it_started_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let pidfile = dir.path().join("child.pid");
+    let script = format!("sleep 4321 &\necho $! > {}\nwait\n", pidfile.display());
+    let ended = Shell::Here("here".to_owned()).exec(&script, Duration::from_secs(1), Rerun::Anywhere).unwrap();
+    assert!(ended.is_none(), "the probe should have passed its limit");
+    let pid: u32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+    let alive = |pid: u32| rustix::process::Pid::from_raw(pid as i32).is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok());
+    assert!(north_base::platform::wait::until(Duration::from_secs(5), || !alive(pid)), "child {pid} outlived the probe's limit");
+}

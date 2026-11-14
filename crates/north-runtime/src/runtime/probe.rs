@@ -47,7 +47,7 @@ impl Shell {
     }
 
     fn attempt(&self, script: &str, within: Duration, link: Link) -> Reply<std::io::Result<Option<Output>>> {
-        let result = process::try_run_command_within(self.bash(link), Some(script.as_bytes()), limit(within));
+        let result = process::try_run_group_with_input_within(self.bash(link), Some(script.as_bytes()), limit(within));
         let (exit, said) = match &result {
             Ok(Some(output)) => (output.status.code(), String::from_utf8_lossy(&output.stderr).into_owned()),
             _ => (None, String::new()),

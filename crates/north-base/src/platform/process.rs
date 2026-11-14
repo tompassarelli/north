@@ -102,6 +102,12 @@ pub fn try_run_group_traced_within(mut command: Command, limit: Duration) -> std
     run_prepared(command, None, limit, true, true, false)
 }
 
+pub fn try_run_group_with_input_within(mut command: Command, input: Option<&[u8]>, limit: Duration) -> std::io::Result<Option<Output>> {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    run_prepared(command, input, limit, true, false, false).map(Result::ok)
+}
+
 pub enum Ended {
     Finished(Output),
     Stalled(String),
