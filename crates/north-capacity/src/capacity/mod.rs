@@ -56,4 +56,5 @@ pub mod cpus;
 pub mod local_machine;
 pub mod fixtures;
 pub mod replay;
+pub mod gate_shim;
 pub mod tool_homes;
