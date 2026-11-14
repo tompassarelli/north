@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
+use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
@@ -49,17 +50,28 @@ struct Indexed {
     opening: bool,
 }
 
-fn label(row: &Value, indexed: &Indexed, home: &str, reach: Reach) -> Option<Label> {
-    let at_home = indexed.cwd == home;
+const HUMAN: i64 = 1;
+const ORIGIN: i64 = 2;
+const INJECTED: i64 = 4;
+const SDK: i64 = 8;
+
+fn said(row: &Value) -> i64 {
     let origin = origin(row).filter(|origin| !origin.is_null());
-    if origin.is_some_and(|origin| origin.is_object() && origin.get("kind").and_then(Value::as_str) == Some("human")) {
+    let human = origin.is_some_and(|origin| origin.is_object() && origin.get("kind").and_then(Value::as_str) == Some("human"));
+    let flagged = |key: &str| row.get(key).is_some_and(truthy);
+    let sdk = row.get("promptSource").and_then(Value::as_str) == Some("sdk");
+    [(human, HUMAN), (origin.is_some(), ORIGIN), (flagged("isMeta") || flagged("isCompactSummary"), INJECTED), (sdk, SDK)].into_iter().filter(|(on, _)| *on).map(|(_, bit)| bit).sum()
+}
+
+fn label(said: i64, indexed: &Indexed, home: &str, reach: Reach) -> Option<Label> {
+    let at_home = indexed.cwd == home;
+    if said & HUMAN != 0 {
         return Some(Label::Exact);
     }
-    let flagged = |key: &str| row.get(key).is_some_and(truthy);
-    if origin.is_some() || flagged("isMeta") || flagged("isCompactSummary") {
+    if said & (ORIGIN | INJECTED) != 0 {
         return None;
     }
-    let sent = row.get("promptSource").and_then(Value::as_str) == Some("sdk") && !DELIVERED.iter().any(|prefix| indexed.text.trim_start().starts_with(prefix));
+    let sent = said & SDK != 0 && !DELIVERED.iter().any(|prefix| indexed.text.trim_start().starts_with(prefix));
     if sent && !indexed.opening {
         return Some(Label::Fleet);
     }
@@ -106,7 +118,7 @@ pub fn typed_turn(index: &Path, home: &Path, reach: Reach, id: i64) -> Option<Ty
         return None;
     }
     let grouped = indexed_texts(index, &Pick::Turn(id), true).ok()?;
-    attested(&grouped, home, reach).into_iter().next()
+    attested(index, &grouped, home, reach).into_iter().next()
 }
 
 pub fn typed_messages(index: &Path, home: &Path, reach: Reach, start: i64, end: i64) -> Vec<Typed> {
@@ -115,18 +127,71 @@ pub fn typed_messages(index: &Path, home: &Path, reach: Reach, start: i64, end: 
     }
     let pick = Pick::Window { start: Timestamp::from_unix_seconds(start).iso(), end: Timestamp::from_unix_seconds(end).iso() };
     let Ok(grouped) = indexed_texts(index, &pick, false) else { return Vec::new() };
-    attested(&grouped, home, reach)
+    attested(index, &grouped, home, reach)
 }
 
-fn attested(grouped: &TextsByFile, home: &Path, reach: Reach) -> Vec<Typed> {
+const SEEN: &str = "typed-said.db";
+
+type Seen = BTreeMap<i64, (i64, i64)>;
+
+fn seen_store(index: &Path) -> Option<Connection> {
+    let db = Connection::open(index.with_file_name(SEEN)).ok()?;
+    db.busy_timeout(Duration::from_secs(5)).ok()?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS said(path TEXT NOT NULL, line INTEGER NOT NULL, said INTEGER NOT NULL, next INTEGER NOT NULL, PRIMARY KEY(path, line)) WITHOUT ROWID").ok()?;
+    Some(db)
+}
+
+fn seen_in(store: Option<&Connection>, path: &str) -> Seen {
+    let Some(mut query) = store.and_then(|db| db.prepare_cached("SELECT line, said, next FROM said WHERE path=?1").ok()) else { return Seen::new() };
+    query.query_map([path], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?)))).map(|rows| rows.flatten().collect()).unwrap_or_default()
+}
+
+fn read_unseen(path: &str, wanted: &BTreeMap<i64, Indexed>, seen: &mut Seen) -> Vec<(i64, i64, i64)> {
+    let unseen: Vec<i64> = wanted.keys().copied().filter(|line| !seen.contains_key(line)).collect();
+    let (Some(&first), Some(&last)) = (unseen.first(), unseen.last()) else { return Vec::new() };
+    let (start_line, start) = seen.range(..first).next_back().map_or((1, 0), |(line, (_, next))| (line + 1, *next));
+    let Ok(mut file) = fs::File::open(path) else { return Vec::new() };
+    if !u64::try_from(start).is_ok_and(|start| file.seek(SeekFrom::Start(start)).is_ok()) {
+        return Vec::new();
+    }
+    let mut fresh = Vec::new();
+    let mut offset = start;
+    for (number, line) in (start_line..=last).zip(BufReader::new(file).split(b'\n')) {
+        let Ok(line) = line else { break };
+        offset = offset.saturating_add(i64::try_from(line.len() + 1).unwrap_or(i64::MAX));
+        if wanted.contains_key(&number)
+            && let Ok(row) = serde_json::from_slice::<Value>(&line)
+        {
+            let said = said(&row);
+            seen.insert(number, (said, offset));
+            fresh.push((number, said, offset));
+        }
+    }
+    fresh
+}
+
+fn remember(store: Option<&Connection>, path: &str, fresh: &[(i64, i64, i64)]) {
+    let Some(db) = store.filter(|_| !fresh.is_empty()) else { return };
+    let Ok(transaction) = db.unchecked_transaction() else { return };
+    if let Ok(mut insert) = transaction.prepare_cached("INSERT OR REPLACE INTO said VALUES (?1, ?2, ?3, ?4)") {
+        for (line, said, next) in fresh {
+            let _ = insert.execute((path, line, said, next));
+        }
+    }
+    let _ = transaction.commit();
+}
+
+fn attested(index: &Path, grouped: &TextsByFile, home: &Path, reach: Reach) -> Vec<Typed> {
     let home = home.to_string_lossy();
+    let store = seen_store(index);
     let mut found: Vec<(Label, Typed)> = Vec::new();
     for (name, wanted) in grouped {
-        let (Ok(file), Some(last)) = (fs::File::open(name), wanted.keys().next_back().copied()) else { continue };
-        for (number, line) in BufReader::new(file).split(b'\n').enumerate().take(usize::try_from(last).unwrap_or(0)) {
-            let Some(indexed) = wanted.get(&(number as i64 + 1)) else { continue };
-            let Some(row) = line.ok().and_then(|line| serde_json::from_slice::<Value>(&line).ok()) else { continue };
-            if let (Some(label), Some(at)) = (label(&row, indexed, &home, reach), Timestamp::parse_rfc3339(&indexed.at)) {
+        let mut seen = seen_in(store.as_ref(), name);
+        let fresh = read_unseen(name, wanted, &mut seen);
+        remember(store.as_ref(), name, &fresh);
+        for (line, indexed) in wanted {
+            let Some((said, _)) = seen.get(line) else { continue };
+            if let (Some(label), Some(at)) = (label(*said, indexed, &home, reach), Timestamp::parse_rfc3339(&indexed.at)) {
                 found.push((label, Typed { id: indexed.id, session: name.clone(), at: at.unix_seconds(), text: indexed.text.clone() }));
             }
         }
