@@ -55,15 +55,6 @@ Measured 2026-11-14 against T3 Code v0.1.8 on the load ladder's small tasks t01 
 
 Time ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. R's 80% interval resamples tasks and then runs within each task, 10,000 times from seed 20261114. Band N: the median over tasks of the faster T3 Code arm's slowest time over its fastest across the cell's runs, read from three valid runs. Reading, on time: far ahead when R is at or below 0.67 and below 1/N, ahead when R is below 1/N, behind when R is above N, inside the band otherwise, with low confidence when the interval crosses the threshold the label is read against; a cell whose every task got slower, or faster, run after run is not read. Cost ratio: north's cost per task over the faster arm's, at the list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens.
 
-The registered large cells, from the five frozen large tasks of north's own history, one session per task, both arms on one build host: five at once, then one at a time. A run is valid when both arms hold all five tasks, and a cell is read only at three valid runs.
-
-| Cell | Valid runs x tasks | Correct: north / plain | Time to all five landed: north / plain | F1, the wait for all five | F2, per task | F3, first try | Cost per run: north / plain | Reading |
-|---|---|---|---|---|---|---|---|---|
-| large five-at-once cell | 0 x 5 | - | - | - | - | - | - | not yet run: 0 of 3 runs |
-| large one-worker cell | 0 x 5 | - | - | - | - | - | - | not yet run: 0 of 3 runs |
-
-F1 (five at once only): north's time to all five landed is at most 0.8 of plain's and north has at least as many correct. F2: north is at least 20 percent faster on at least 3 of the 5 tasks and more than 10 percent slower on none, counting only tasks both arms got correct in every run. F3: north's first hand-ins that passed are at least plain's. Each line reads each task's mean over the valid runs; the time to all five landed is the arm's last landing at five at once and the five times added at one worker, and a unit that reached the 4-hour stop, landed nothing or failed its check is a failed row, not a time. Cost sits beside the lines and decides none; a lead bought at more than twice plain's cost says so. With fewer than three valid runs a row is indicative and decides nothing.
-
 Not counted:
 
 - runs 2 and 3 of the small one-worker cell, void under the protocol's load rule and not counted
@@ -71,7 +62,7 @@ Not counted:
 
 Not measured yet:
 
-- large tasks beyond the five frozen ones, and each large cell until it holds three valid runs
+- large tasks (the cells a general claim needs): not yet run
 - tasks of one to ten minutes
 - ten and twenty at once
 - an outside benchmark
