@@ -44,6 +44,10 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             0
         }
         [program, rest @ ..] if !program.starts_with('-') => {
+            if let Some(refusal) = super::tool_homes::refusal("north capacity gate") {
+                eprintln!("{refusal}");
+                return 126;
+            }
             let name = shell::basename(program).to_owned();
             if let Some(mode) = sandboxed(&name, rest) {
                 return enter_depbox(mode, program, rest);

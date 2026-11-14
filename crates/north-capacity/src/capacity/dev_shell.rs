@@ -223,6 +223,10 @@ fn replace_with(who: &str, command: &mut std::process::Command, name: &str) -> u
 }
 
 fn run_directly(who: &str, command: &[String]) -> u8 {
+    if let Some(refusal) = super::tool_homes::refusal(who) {
+        eprintln!("{refusal}");
+        return NOT_EXECUTABLE;
+    }
     let (program, rest) = command.split_first().expect("a non-empty command");
     match resolve(program) {
         Some(resolved) => {

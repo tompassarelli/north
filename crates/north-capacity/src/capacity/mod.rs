@@ -27,6 +27,7 @@ mod process_tree;
 pub mod dev_shell;
 mod store_client;
 pub mod subject_start;
+pub mod tool_homes;
 pub mod sandbox;
 pub mod carry;
 mod lease_deadline;
