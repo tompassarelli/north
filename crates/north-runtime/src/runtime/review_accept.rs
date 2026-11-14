@@ -92,6 +92,15 @@ fn resolved(named: &str) -> Option<String> {
     })
 }
 
+/// The line `line` of an accept recorded or withdrawn in `accepts`, said once the records mirror of every build host holds the change, so a scan there counts what the reviewer is told; it names each host the change did not reach.
+pub(crate) fn carried(accepts: &Accepts, line: String) -> String {
+    let missed = super::mirror::carry_accepts(&accepts.0);
+    match missed.is_empty() {
+        true => line,
+        false => format!("{line}; a build host that was not reached counts it only after the next records mirror run: {}", missed.join("; ")),
+    }
+}
+
 #[cfg(test)]
 #[path = "review_accept_tests.rs"]
 mod tests;

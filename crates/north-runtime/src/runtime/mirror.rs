@@ -4,7 +4,7 @@ use super::follow::own_scope;
 use super::remote::OWN_RSH;
 use north_offload::land_offload;
 use crate::platform::host;
-use crate::platform::records_mirror::{self, CHECKOUT_PREFIX, QUEUES, ROOT, STAMP, Stamp, TICK_JOURNAL};
+use crate::platform::records_mirror::{self, ACCEPTS, CHECKOUT_PREFIX, QUEUES, ROOT, STAMP, Stamp, TICK_JOURNAL};
 use rustix::fs::{FlockOperation, flock};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -29,6 +29,7 @@ const BATCH_BYTES: u64 = 1 << 30;
 const BATCH_FILES: usize = 20_000;
 const BANDWIDTH_KIB: u32 = 8192;
 const PARTIAL_DIR: &str = ".rsync-partial";
+const CARRY: Duration = Duration::from_secs(20);
 
 type Signature = (u64, u128);
 type Sent = BTreeMap<String, Signature>;
@@ -68,6 +69,43 @@ pub(super) fn run() -> Result<(), Failure> {
     }
     println!("north runtime mirror: copied {copied} records to {}", destinations.join(", "));
     Ok(())
+}
+
+/// Copies the accepts store `store` of the host that settles the fleet into the records mirror of every host it ships runtimes to, so a scan there counts an accept, or stops counting a withdrawn one, by the time the reviewer is told; why each host was not reached.
+pub(crate) fn carry_accepts(store: &Path) -> Vec<String> {
+    if !land_offload::settles_fleet_here() {
+        return Vec::new();
+    }
+    let targets: Vec<String> = land_offload::other_destinations().iter().map(|destination| format!("{destination}:.local/state/{ROOT}/{ACCEPTS}/")).collect();
+    carry(store, &targets)
+}
+
+fn carry(store: &Path, targets: &[String]) -> Vec<String> {
+    let lock = match File::create(store.with_extension("lock")) {
+        Ok(lock) => lock,
+        Err(error) => return vec![format!("the carry lock beside {}: {error}", store.display())],
+    };
+    if let Err(error) = flock(&lock, FlockOperation::LockExclusive) {
+        return vec![format!("the carry lock beside {}: {error}", store.display())];
+    }
+    let sends: Vec<_> = targets
+        .iter()
+        .map(|target| {
+            let (store, to) = (store.to_owned(), target.clone());
+            (target, std::thread::spawn(move || send_accepts(&store, &to)))
+        })
+        .collect();
+    sends.into_iter().filter_map(|(target, send)| send.join().unwrap_or_else(|_| Err("the copy panicked".to_owned())).err().map(|why| format!("{target}: {why}"))).collect()
+}
+
+fn send_accepts(store: &Path, target: &str) -> Result<(), String> {
+    let mut rsync = Command::new("rsync");
+    rsync.args(["-r", "-t", "--delete", "--mkpath", "--timeout=10", "-e", OWN_RSH]).arg(format!("{}/", store.display())).arg(target).stdin(Stdio::null()).stdout(Stdio::null());
+    let (status, said) = bounded::status_keeping_stderr(&mut rsync, CARRY, 4).map_err(|error| error.to_string())?;
+    match status.success() {
+        true => Ok(()),
+        false => Err(format!("rsync {status}: {}", said.join(" | "))),
+    }
 }
 
 fn publish_from(state: &Path, destinations: &[String]) -> Result<(usize, Vec<String>), Failure> {

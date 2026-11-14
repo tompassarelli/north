@@ -44,6 +44,9 @@ fn hold(ask: Ask) -> Result<String, String> {
 fn accept(accept: Accept) -> Result<String, String> {
     match brokered(&accept.words(), "accept") {
         Some(told) => told,
-        None => accept.serve(&Accepts::here(), &own_caller()?, now()),
+        None => {
+            let accepts = Accepts::here();
+            accept.serve(&accepts, &own_caller()?, now()).map(|line| review_accept::carried(&accepts, line))
+        }
     }
 }

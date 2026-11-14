@@ -29,7 +29,8 @@ fn served(ask: Ask, peer: &Peer, host: &Host) -> Result<String, String> {
 /// Records the accept `accept` names for the session the caller `peer` runs in, in the verdict store of the broker's own environment; the line saying what was done.
 fn accepted(accept: &Accept, peer: &Peer, host: &Host) -> Result<String, String> {
     let caller = caller(peer, host)?;
-    accept.serve(&Accepts::of(&host.environment, &host.home), &caller, now())
+    let accepts = Accepts::of(&host.environment, &host.home);
+    accept.serve(&accepts, &caller, now()).map(|line| crate::runtime::review_accept::carried(&accepts, line))
 }
 
 /// Answers the hold request `asked` from the caller `peer`, telling the client on its standard output what was done; a refusal is told to the client and returned for the broker's log.
