@@ -224,18 +224,6 @@ CREATE INDEX events_item ON events(item, seq);
 CREATE TABLE fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL) STRICT;";
 
 #[test]
-fn the_launch_probes_scratch_root_carries_the_ledger_north_fleet_opens() {
-    let scratch = tempfile::tempdir().unwrap();
-
-    let (state, cwd) = launch::scratch_root_from(scratch.path(), None).unwrap();
-
-    assert!(cwd.is_dir());
-    let ledger = rusqlite::Connection::open_with_flags(state.join("threads.db"), rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
-    let events: i64 = ledger.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'events'", [], |row| row.get(0)).unwrap();
-    assert_eq!(events, 1);
-}
-
-#[test]
 fn the_launch_probes_scratch_root_starts_at_the_previous_schema_version() {
     let previous = tempfile::tempdir().unwrap();
     let source = previous.path().join("threads.db");

@@ -2078,3 +2078,11 @@ source = "guess: 2026-11-13 capture on the laptop saw agent.slice writeback burs
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose full IO pressure can be compared at this cap against the same bursts uncapped" }
 fallback = "none: the cap is applied when the profile is applied and agent.slice shows no write rate"
 consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
+
+[eval_unit_askers]
+value = ["release-evals-lead"]
+allowed = { min_len = 1 }
+unit = "names of the lead sessions whose request the outside broker answers with an eval unit it starts, reads or stops (crates/north-runtime/src/worker_sandbox/eval_unit_request.rs); the session's own record must also name the role lead, and its scope is the one the caller runs in"
+source = "north#1414 (2026-11-14): the coordinator ordered a typed request through the outside broker for the evaluation lead, which cannot reach the user manager's bus or the evaluation data directory from its confined domain"
+fallback = "an empty or missing list answers no request, so no eval unit starts through the broker"
+consumers = ["crates/north-runtime/src/worker_sandbox/eval_unit_request.rs"]

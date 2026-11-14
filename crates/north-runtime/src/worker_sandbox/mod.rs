@@ -8,6 +8,8 @@ mod check_request;
 mod finish_request;
 mod hold_request;
 pub mod hold_client;
+mod eval_unit_request;
+pub mod eval_unit_client;
 mod except;
 mod executable;
 mod file_tools;

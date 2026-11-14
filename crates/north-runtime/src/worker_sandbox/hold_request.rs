@@ -43,7 +43,7 @@ pub(super) fn answer_accept(asked: Result<Accept, String>, streams: Vec<OwnedFd>
     tell(asked.and_then(|accept| accepted(&accept, cgroup.unwrap_or_default(), host)), streams, "a review accept")
 }
 
-fn tell(outcome: Result<String, String>, streams: Vec<OwnedFd>, what: &str) -> Result<u8, String> {
+pub(super) fn tell(outcome: Result<String, String>, streams: Vec<OwnedFd>, what: &str) -> Result<u8, String> {
     match outcome {
         Ok(line) => {
             eprintln!("north worker-sandbox broker: {line}");

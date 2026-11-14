@@ -308,6 +308,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let wrapped = super::broker::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"));
     assert_eq!(wrapped.join(" "), "capacity host run --class heavy --owner o -- /n/north --worker-sandbox --program -- cargo test -p x");
     offload_request::an_offload_request_s_process_takes_nothing_of_the_worker_s_but_its_typed_words();
+    super::eval_unit_request::tests::a_listed_lead_starts_reads_and_stops_only_the_finish_proof_unit_and_a_request_outside_the_closed_list_starts_nothing();
 }
 
 #[test]
