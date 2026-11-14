@@ -1,4 +1,5 @@
 use super::*;
+use north_base::foundation::shim::write_script;
 
 fn commit_all(root: &Path, message: &str) {
     git(root, &["add", "-A"]).unwrap();
@@ -145,8 +146,7 @@ fn rebase_compile_scenario(dir: &Path) {
     fs::create_dir_all(tree.join(".cargo")).unwrap();
     fs::write(tree.join(".cargo/config.toml"), "[build\nrustc = \"the lane's own program\"\n").unwrap();
     let north = dir.join("north");
-    fs::write(&north, format!("#!/bin/sh\necho \"$NORTH_OFFLOAD_LANDER_SLOT $*\" >> {}\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) printf 'error[E0063]: missing field `user_runtime` in initializer of `a::Context`\\n --> crates/b/src/lib.rs:1:35\\nerror: could not compile `b`\\n' >&2; exit 101 ;;\nesac\n", dir.join("asked").display())).unwrap();
-    fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    write_script(&north, &format!("echo \"$NORTH_OFFLOAD_LANDER_SLOT $*\" >> {}\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) printf 'error[E0063]: missing field `user_runtime` in initializer of `a::Context`\\n --> crates/b/src/lib.rs:1:35\\nerror: could not compile `b`\\n' >&2; exit 101 ;;\nesac\n", dir.join("asked").display()));
     let logs = dir.join("logs");
     let unmoved = Rebased { tree: &repo, checked_on: Some(&moved), picked_onto: &moved, head: &head, shipped_from: &moved };
     assert!(rebase_compile::judge(&unmoved, &north, &logs, "lane").unwrap().is_none() && !dir.join("asked").exists(), "a lane checked on the main it is picked onto compiles nothing");
@@ -163,8 +163,7 @@ fn rebase_compile_scenario(dir: &Path) {
     let lane_tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
     assert!(rebase_compile::reused(&ahead, &lane_tree, "waiting").flatten().is_some_and(|refused| refused.verdict.contains("error[E0063]")), "the compile that ran while the lane waited, onto the main it is picked onto, still refuses it before its push");
     let offline = dir.join("offline");
-    fs::write(&offline, "#!/bin/sh\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n").unwrap();
-    fs::set_permissions(&offline, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    write_script(&offline, "case \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n");
     assert!(rebase_compile::judge(&rebased, &offline, &logs, "lane").unwrap().is_none(), "cargo exits 101 for a resolver failure too, which says nothing about the lane");
     let rechecked = git(&repo, &["commit-tree", &format!("{checked_on}^{{tree}}"), "-p", &checked_on, "-m", "Check the lane again"]).unwrap();
     let unjudged = [(dir.join("unjudged.json"), Ticket { branch: "unjudged".to_owned(), head: head.clone(), root: repo.clone(), origin: repo.display().to_string(), gated_from: Some(rechecked.clone()), ..Default::default() })];
