@@ -108,7 +108,7 @@ fn emptied_pick_scenario(dir: &Path) {
 
 #[test]
 fn a_candidate_of_ten_lanes_runs_its_pick_time_gates_outside_the_serving_loop() {
-    let jobs: Vec<GateJob> = (0..10).map(|at| GateJob { name: format!("lane-{at}"), gating: Gating { base: String::new(), checked_on: None, picked_onto: String::new(), head: String::new() } }).collect();
+    let jobs: Vec<GateJob> = (0..10).map(|at| GateJob { name: format!("lane-{at}"), gating: Gating { base: String::new(), checked_on: None, picked_onto: String::new(), head: String::new(), lane_head: String::new() } }).collect();
     let together = std::sync::Barrier::new(5);
     let judged = gate_lanes_with(&jobs, 5, |job| {
         together.wait();
@@ -155,6 +155,12 @@ fn rebase_compile_scenario(dir: &Path) {
     assert!(refused.verdict.contains("error[E0063]: missing field `user_runtime`") && refused.verdict.contains("--> crates/b/src/lib.rs:1:35"), "on 2026-11-13 80b143969c, checked on an older main, was pushed onto 68f3121884 without a compile and main stayed red with E0063: {}", refused.verdict);
     assert!(fs::read_to_string(dir.join("asked")).unwrap().contains("cargo check --all-targets --locked --offline -p a -p b"), "the base changed crate a, which the lane's crate b depends on, so both are checked");
     assert!(fs::read_to_string(dir.join("asked")).unwrap().contains("1 capacity offload run --host build-host-one"), "on 2026-11-13 four of nine compiles after a rebase waited in the build host's line behind worker builds until the 110 s limit and landed with no verdict; the lander's compile takes its first-in-line slot");
+    git(&repo, &["update-ref", "refs/remotes/origin/main", &moved]).unwrap();
+    let waiting = [(dir.join("waiting.json"), Ticket { branch: "waiting".to_owned(), head: head.clone(), root: repo.clone(), origin: repo.display().to_string(), gated_from: Some(checked_on.clone()), ..Default::default() })];
+    compile_ahead(&repo, &logs, &north, &waiting);
+    let ahead = Ahead { lane_head: head.clone(), picked_onto: moved.clone(), checked_on: checked_on.clone() };
+    let lane_tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
+    assert!(rebase_compile::reused(&ahead, &lane_tree, "waiting").flatten().is_some_and(|refused| refused.verdict.contains("error[E0063]")), "the compile that ran while the lane waited, onto the main it is picked onto, still refuses it before its push");
     let offline = dir.join("offline");
     fs::write(&offline, "#!/bin/sh\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n").unwrap();
     fs::set_permissions(&offline, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();

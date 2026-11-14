@@ -86,6 +86,7 @@ impl Serve<'_> {
         let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
         queued.retain(|(path, _)| !claimed.contains(path));
         ahead::queued(self, &queued);
+        candidate::compile_ahead(&self.worktree, logs, Path::new(&after::follow::program()), &queued);
         let open: Vec<(PathBuf, Ticket)> = queued.iter().filter(|(path, _)| !watch.alone.as_ref().is_some_and(|flight| flight.checks(path))).cloned().collect();
         let repo = self.repo.clone();
         let verdict: Arc<unjudged::Verdict> = Arc::new(move |ticket, base, wait| private_kinds::verdict(&repo, ticket, base, wait));

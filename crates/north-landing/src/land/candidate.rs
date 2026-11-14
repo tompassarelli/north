@@ -12,7 +12,7 @@ use super::landed_copy;
 use super::on_main::{self, OnMain};
 use super::queue::{self, Ticket};
 use super::lane_gates::{self, Lane};
-use super::rebase_compile::{self, Rebased};
+use super::rebase_compile::{self, Ahead, Claim, Rebased};
 use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
 use crate::landing_refusals;
@@ -247,8 +247,8 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         shadowed.record(&state_home, "revert guard", &stale_revert::refusal(&found));
     }
     let head = git(worktree, &["rev-parse", "HEAD"])?;
-    let checked_on = ticket.passed_alone_on().or(ticket.gated_from.as_deref()).map(str::to_owned);
-    *gating = (!lane_gates::judged_before_queueing(worktree, ticket.gated_from.as_deref(), &ticket.head, &picked_onto)).then(|| Gating { base: base.to_owned(), checked_on, picked_onto, head });
+    let checked_on = checked_on(ticket).map(str::to_owned);
+    *gating = (!lane_gates::judged_before_queueing(worktree, ticket.gated_from.as_deref(), &ticket.head, &picked_onto)).then(|| Gating { base: base.to_owned(), checked_on, picked_onto, head, lane_head: ticket.head.clone() });
     Ok(Pick::Included)
 }
 
@@ -257,6 +257,7 @@ struct Gating {
     checked_on: Option<String>,
     picked_onto: String,
     head: String,
+    lane_head: String,
 }
 
 struct GateJob {
@@ -277,7 +278,7 @@ fn gate_lane(worktree: &Path, job: &GateJob, logs: &Path) -> Gated {
         let lane = Lane { worktree: &tree, base: &job.gating.picked_onto, head: &job.gating.head, state_home: &state_home, code_health: &code_health, registry: &crate::dep_gate::PublicRegistries, advisory_db: &advisory_db };
         let rebased = Rebased { tree: &tree, checked_on: job.gating.checked_on.as_deref(), picked_onto: &job.gating.picked_onto, head: &job.gating.head, shipped_from: &job.gating.base };
         std::thread::scope(|scope| {
-            let compiled = rebase_compile::enabled().then(|| scope.spawn(|| rebase_compile::judge(&rebased, Path::new(&super::after::follow::program()), logs, &job.name)));
+            let compiled = rebase_compile::enabled().then(|| scope.spawn(|| compile(&rebased, job, logs)));
             let gates = lane_gates::judge(&lane, logs, &job.name)?;
             let compile = match compiled {
                 Some(compiled) => compiled.join().map_err(|_| "the compile after the rebase panicked".to_owned())??,
@@ -288,6 +289,51 @@ fn gate_lane(worktree: &Path, job: &GateJob, logs: &Path) -> Gated {
     });
     let _ = change_worktrees_alone(worktree, &["worktree", "remove", "--force", path]);
     judged
+}
+
+fn checked_on(ticket: &Ticket) -> Option<&str> {
+    ticket.passed_alone_on().or(ticket.gated_from.as_deref())
+}
+
+fn compile(rebased: &Rebased, job: &GateJob, logs: &Path) -> Gated {
+    if let Some(checked_on) = &job.gating.checked_on
+        && let Ok(tree) = git(rebased.tree, &["rev-parse", &format!("{}^{{tree}}", job.gating.head)])
+        && let Some(verdict) = rebase_compile::reused(&Ahead { lane_head: job.gating.lane_head.clone(), picked_onto: job.gating.picked_onto.clone(), checked_on: checked_on.clone() }, &tree, &job.name)
+    {
+        return Ok(verdict);
+    }
+    rebase_compile::judge(rebased, Path::new(&super::after::follow::program()), logs, &job.name)
+}
+
+pub fn compile_ahead(worktree: &Path, logs: &Path, program: &Path, queued: &[(PathBuf, Ticket)]) {
+    if !rebase_compile::enabled() {
+        return;
+    }
+    let Ok(main) = git(worktree, &["rev-parse", "-q", "--verify", "refs/remotes/origin/main^{commit}"]) else { return };
+    for (path, ticket) in queued {
+        let Some(checked_on) = checked_on(ticket).filter(|checked_on| *checked_on != main && ticket.gated_from.as_deref() != Some(main.as_str())) else { continue };
+        let Some(claim) = rebase_compile::claim(Ahead { lane_head: ticket.head.clone(), picked_onto: main.clone(), checked_on: checked_on.to_owned() }) else { continue };
+        let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane").to_owned();
+        let (worktree, logs, program, main, checked_on, ticket) = (worktree.to_owned(), logs.to_owned(), program.to_owned(), main.clone(), checked_on.to_owned(), ticket.clone());
+        std::thread::spawn(move || compiled_ahead(&worktree, (&logs, &name), &program, (&main, &checked_on, &ticket), claim));
+    }
+}
+
+fn compiled_ahead(worktree: &Path, (logs, name): (&Path, &str), program: &Path, (onto, checked_on, ticket): (&str, &str, &Ticket), claim: Claim) {
+    let Ok(scratch) = tempfile::tempdir_in(worktree.parent().unwrap_or(worktree)) else { return };
+    let tree = scratch.path().join("tree");
+    let Some(path) = tree.to_str() else { return };
+    if change_worktrees_alone(worktree, &["worktree", "add", "-q", "-f", "--detach", path, onto]).is_err() {
+        return;
+    }
+    let picked = readable(&tree, ticket) && output(&tree, &["cherry-pick", "--allow-empty", "--empty=drop", &format!("{onto}..{}", ticket.head)]).is_ok_and(|picked| picked.status.success());
+    if picked
+        && let (Ok(head), Ok(id)) = (git(&tree, &["rev-parse", "HEAD"]), git(&tree, &["rev-parse", "HEAD^{tree}"]))
+        && let Ok(outcome) = rebase_compile::outcome(&Rebased { tree: &tree, checked_on: Some(checked_on), picked_onto: onto, head: &head, shipped_from: onto }, program, logs, name)
+    {
+        claim.ran(id, outcome);
+    }
+    let _ = change_worktrees_alone(worktree, &["worktree", "remove", "--force", path]);
 }
 
 const GATE_THREADS: usize = 8;
