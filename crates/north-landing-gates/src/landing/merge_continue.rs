@@ -64,15 +64,34 @@ fn generator(worktree: &Path, command: &str, code: &[String], tree: Option<&str>
     Ok(command)
 }
 
-fn generate(worktree: &Path, command: &str, code: &[String], tree: Option<&str>) -> Result<(), String> {
-    let output = generator(worktree, command, code, tree)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
+#[derive(Clone, Copy)]
+enum Confinement {
+    Caller,
+    Candidate,
+}
+
+fn confined(generator: Command, confinement: Confinement) -> Result<Command, String> {
+    let Confinement::Candidate = confinement else { return Ok(generator) };
+    let north = merge_set::driver_program().ok_or("no north runs this lander to confine a regenerate command to the candidate")?;
+    let mut jailed = Command::new(north);
+    jailed.args(["--worker-sandbox", "--candidate", "--"]).arg(generator.get_program()).args(generator.get_args());
+    for (name, value) in generator.get_envs() {
+        if let Some(value) = value {
+            jailed.env(name, value);
+        }
+    }
+    Ok(jailed)
+}
+
+fn generate(worktree: &Path, command: &str, code: &[String], tree: Option<&str>, confinement: Confinement) -> Result<(), String> {
+    let output = confined(generator(worktree, command, code, tree)?, confinement)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
     if !output.status.success() {
         return Err(format!("{command} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
     Ok(())
 }
 
-fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation) -> Result<(), String> {
+fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation, confinement: Confinement) -> Result<(), String> {
     let conflicted = stdout(worktree, &["diff", "--name-only", "-z", "--diff-filter=U"])?;
     let conflicted = conflicted.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();
     if conflicted.is_empty() {
@@ -87,7 +106,7 @@ fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation) 
         }
     }
     for (command, generator) in commands {
-        generate(worktree, command, generator, None)?;
+        generate(worktree, command, generator, None, confinement)?;
     }
     let mut add = vec!["add", "--"];
     add.extend(conflicted);
@@ -96,10 +115,24 @@ fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation) 
 
 pub fn finish(worktree: &Path, config: &Path) -> Result<(), String> {
     let top = PathBuf::from(stdout(worktree, &["rev-parse", "--show-toplevel"])?.trim());
-    let worktree = top.as_path();
-    let rules = merge_set::read_rules(config)?;
+    continue_with(&top, &merge_set::load_rules(config)?, Confinement::Caller)
+}
+
+pub fn finish_at(worktree: &Path, base: &str) -> Result<(), String> {
+    continue_with(worktree, &rules_at(worktree, base)?, Confinement::Candidate)
+}
+
+fn rules_at(worktree: &Path, commit: &str) -> Result<Vec<merge_set::Rule>, String> {
+    if stdout(worktree, &["ls-tree", "--name-only", commit, "--", merge_set::DEFAULT_CONFIG])?.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let text = stdout(worktree, &["show", &format!("{commit}:{}", merge_set::DEFAULT_CONFIG)])?;
+    merge_set::read_rules(&text, &Path::new(commit).join(merge_set::DEFAULT_CONFIG))
+}
+
+fn continue_with(worktree: &Path, rules: &[merge_set::Rule], confinement: Confinement) -> Result<(), String> {
     while let Some(operation) = in_progress(worktree)? {
-        regenerate(worktree, &rules, operation)?;
+        regenerate(worktree, rules, operation, confinement)?;
         let before = stdout(worktree, &["rev-parse", "HEAD"])?;
         let continued = git(worktree, &[operation.verb(), "--continue"])?;
         let stopped_again = stdout(worktree, &["rev-parse", "HEAD"])? != before && in_progress(worktree)?.is_some();
@@ -114,11 +147,11 @@ fn names(worktree: &Path, range: &str) -> Result<Vec<String>, String> {
     Ok(stdout(worktree, &["diff", "--name-only", "-z", range])?.split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect())
 }
 
-pub fn generator_moved(worktree: &Path, config: &Path, base: &str, picked_onto: &str) -> Result<Option<String>, String> {
-    if !config.exists() || base == picked_onto {
+pub fn generator_moved(worktree: &Path, base: &str, picked_onto: &str) -> Result<Option<String>, String> {
+    if base == picked_onto {
         return Ok(None);
     }
-    let rules = merge_set::read_rules(config)?;
+    let rules = rules_at(worktree, picked_onto)?;
     let (ahead, pick) = (names(worktree, &format!("{base}..{picked_onto}"))?, names(worktree, &format!("{picked_onto}..HEAD"))?);
     Ok(merge_set::generator_moved(&rules, &ahead, &pick))
 }
@@ -131,7 +164,7 @@ pub fn fold(worktree: &Path, config: &Path, base: &str) -> Result<Vec<String>, S
     let changed = stdout(worktree, &["diff", "--name-only", "-z", fork.trim(), "HEAD"])?;
     let changed: Vec<&str> = changed.split('\0').filter(|path| !path.is_empty()).collect();
     let mut folded = Vec::new();
-    for rule in merge_set::read_rules(config)? {
+    for rule in merge_set::load_rules(config)? {
         match &rule.kind {
             Kind::Regenerate { .. } => continue,
             Kind::Block { start, end, sorted: true } if changed.contains(&rule.path.as_str()) => {
@@ -154,11 +187,8 @@ pub fn fold(worktree: &Path, config: &Path, base: &str) -> Result<Vec<String>, S
     Ok(folded)
 }
 
-pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<String>, String> {
-    if !config.exists() {
-        return Ok(Vec::new());
-    }
-    let rules = merge_set::read_rules(config)?;
+pub fn refresh(worktree: &Path, picked_onto: &str) -> Result<Vec<String>, String> {
+    let rules = rules_at(worktree, picked_onto)?;
     let changed = stdout(worktree, &["diff", "--name-only", "-z", picked_onto, "HEAD"])?;
     let changed = changed.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();
     let stale: Vec<(&merge_set::Rule, &String, &Vec<String>)> = rules
@@ -174,7 +204,7 @@ pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<
     let tree = stdout(worktree, &["rev-parse", "HEAD^{tree}"])?.trim().to_owned();
     let mut refreshed = Vec::new();
     for (rule, command, generator) in stale {
-        generate(worktree, command, generator, Some(&tree))?;
+        generate(worktree, command, generator, Some(&tree), Confinement::Candidate)?;
         if !stdout(worktree, &["status", "--porcelain", "--", &rule.path])?.is_empty() {
             stdout(worktree, &["add", "--", &rule.path])?;
             refreshed.push(rule.path.clone());

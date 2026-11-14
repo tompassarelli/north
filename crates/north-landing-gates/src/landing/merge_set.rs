@@ -65,7 +65,7 @@ pub fn run_drivers_with(program: &Path) {
     let _ = PROGRAM.set(program.to_owned());
 }
 
-fn driver_program() -> Option<PathBuf> {
+pub(crate) fn driver_program() -> Option<PathBuf> {
     PROGRAM.get().cloned().or_else(|| std::env::current_exe().ok().filter(|exe| exe.file_name().is_some_and(|name| name == "north")))
 }
 
@@ -367,8 +367,12 @@ fn text_rule<'a>(rules: &'a mut Vec<Rule>, path: &str) -> (&'a mut Vec<String>, 
     }
 }
 
-pub fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
+pub fn load_rules(config: &Path) -> Result<Vec<Rule>, String> {
     let text = fs::read_to_string(config).map_err(|error| format!("{}: {error}", config.display()))?;
+    read_rules(&text, config)
+}
+
+pub fn read_rules(text: &str, config: &Path) -> Result<Vec<Rule>, String> {
     let document = text.parse::<toml_edit::DocumentMut>().map_err(|error| format!("{}: {error}", config.display()))?;
     let mut rules = Vec::new();
     for table in document.get("set").and_then(|set| set.as_array_of_tables()).into_iter().flatten() {
@@ -427,7 +431,7 @@ fn merge_text(kind: &Kind, base: &str, ours: &str, theirs: &str) -> Result<Strin
 pub fn drive(config: &Path, base: &Path, ours: &Path, theirs: &Path, path: &str) -> Result<(), String> {
     let read = |file: &Path| fs::read_to_string(file).map_err(|error| format!("{}: {error}", file.display()));
     let (base_text, ours_text, theirs_text) = (read(base)?, read(ours)?, read(theirs)?);
-    let outcome = read_rules(config).and_then(|rules| match rules.iter().find(|rule| rule.path == path) {
+    let outcome = load_rules(config).and_then(|rules| match rules.iter().find(|rule| rule.path == path) {
         Some(rule) => merge_text(&rule.kind, &base_text, &ours_text, &theirs_text),
         None => match text_merge(&base_text, &ours_text, &theirs_text)? {
             (merged, false) => Ok(merged),

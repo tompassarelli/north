@@ -10,6 +10,8 @@ use north_lander::landing::merge_set;
 const DRIVER: &str = "NORTH_MERGE_SETS_DRIVER";
 const HOME: &str = "NORTH_MERGE_SETS_HOME";
 const NAME: &str = "land_merge_sets::land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_capacity_module_and_a_feature_in_one_candidate";
+const OWN_RULES: &str = "land_merge_sets::a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick";
+const JAILED: &str = "jailed";
 
 const CARGO: &str = r#"[workspace]
 members = ["crates/north-a", "crates/north-b"]
@@ -53,7 +55,8 @@ const CAPACITY_PATH: &str = "crates/north-capacity/src/capacity/mod.rs";
 const CAPACITY: &str = "pub mod admission;\nmod aperture;\npub mod fixtures;\npub mod replay;\n";
 
 const MAIN: &str = "mod cli;\nmod run;\n\nfn main() {}\n";
-const INDEX: &str = r#"cd "$(git rev-parse --show-toplevel)"
+const INDEX: &str = r#"[ -n "${IN_CANDIDATE_JAIL:-}" ] || touch "$HOME/unjailed"
+cd "$(git rev-parse --show-toplevel)"
 case "$*" in
   *structure-index*) { for file in structure/*.toml; do cat "$file"; printf '\n'; done; } > structure.toml ;;
   *) ls docs/features | sed 's/^/- /' > docs/features.md ;;
@@ -127,11 +130,16 @@ fn adds_everything(root: &Path, name: &str) {
     write(root, &format!("{krate}/src/lib.rs"), "");
 }
 
-fn scenario(home: &Path) {
+fn north_shim(home: &Path, name: &str) {
     let shim = home.join("north");
     let exe = std::env::current_exe().unwrap();
-    write_script(&shim, &format!("{DRIVER}=\"$*\" exec '{}' {NAME} --exact --quiet --test-threads=1\n", exe.display()));
+    let jailed = home.join(JAILED);
+    write_script(&shim, &format!("if [ \"$1\" = --worker-sandbox ]; then echo \"$*\" >>'{}'; shift 3; IN_CANDIDATE_JAIL=1 exec \"$@\"; fi\n{DRIVER}=\"$*\" exec '{}' {name} --exact --quiet --test-threads=1\n", jailed.display(), exe.display()));
     merge_set::run_drivers_with(&shim);
+}
+
+fn scenario(home: &Path) {
+    north_shim(home, NAME);
     let main = main_repo(home);
     let tickets: Vec<(std::path::PathBuf, Ticket)> = [
         lane(&main, "x", |root| adds_everything(root, "x")),
@@ -154,8 +162,28 @@ fn scenario(home: &Path) {
     assert_eq!(show("src/main.rs"), "mod cli;\nmod run;\nmod x;\nmod y;\n\nfn main() {}", "a line that is not a mod line still conflicts");
 }
 
-#[test]
-fn land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_capacity_module_and_a_feature_in_one_candidate() {
+fn own_rules(home: &Path) {
+    north_shim(home, OWN_RULES);
+    let main = main_repo(home);
+    let marker = home.join("ran-the-lane-rule");
+    let ticket = lane(&main, "rules", |root| {
+        edit(root, "harness/merge-sets.toml", |text| text.replace("command = \"north docs structure-index\"", &format!("command = \"touch {}\"", marker.display())));
+        write(root, "structure/9000-allow-rules.toml", "[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"crates/north-a/src/rules.rs\"\nreason = \"an external format\"\n");
+    });
+    let generator = lane(&main, "generator", |root| write(root, "crates/north-docs/src/structure_index.rs", "fn lane_code() {}\n"));
+    let tickets = vec![(home.join("queue/rules.json"), ticket), (home.join("queue/generator.json"), generator)];
+    let worktree = main.parent().unwrap().join("worktrees/lander");
+    let base = candidate::prepare(&main, &worktree).unwrap();
+    let built = candidate::build(&worktree, &base, &tickets, &[], usize::MAX, &home.join("logs")).unwrap();
+    assert!(!marker.exists(), "on 2026-11-15 the lander ran a regenerate command the lane under judgment wrote into its own harness/merge-sets.toml");
+    assert!(!home.join("unjailed").exists(), "a lane's regenerate step ran outside the candidate jail, as on 2026-11-15 for a lane that changed only a generator source");
+    assert!(matches!(built.picks[..], [Pick::Included, Pick::Included]), "{:?}", built.picks.iter().map(candidate::recorded).collect::<Vec<_>>());
+    let jailed = fs::read_to_string(home.join(JAILED)).unwrap_or_default();
+    assert!(jailed.starts_with("--worker-sandbox --candidate -- ") && jailed.contains("bin/head-north") && jailed.contains("structure-index"), "the landing base's regenerate command runs inside the candidate jail: {jailed:?}");
+    assert_eq!(run(&worktree, &["show", "HEAD:structure.toml"]).matches("[[implicit_state.allow]]").count(), 2);
+}
+
+fn isolated(name: &str, scenario: fn(&Path)) {
     if let Some(arguments) = std::env::var_os(DRIVER) {
         let arguments: Vec<String> = arguments.to_string_lossy().split_whitespace().skip(1).map(str::to_owned).collect();
         std::process::exit(merge_set::run(&arguments).into());
@@ -167,7 +195,7 @@ fn land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_ca
     let gitconfig = home.path().join("gitconfig");
     fs::write(&gitconfig, "[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[user]\n\tname = lander\n\temail = lander@example.com\n").unwrap();
     let output = Command::new(std::env::current_exe().unwrap())
-        .args([NAME, "--exact", "--nocapture", "--test-threads=1"])
+        .args([name, "--exact", "--nocapture", "--test-threads=1"])
         .env(HOME, home.path())
         .env("HOME", home.path())
         .env("XDG_STATE_HOME", home.path().join("state"))
@@ -178,4 +206,14 @@ fn land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_ca
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success() && stdout.contains("1 passed"), "the candidate scenario failed in its own home:\n{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_capacity_module_and_a_feature_in_one_candidate() {
+    isolated(NAME, scenario);
+}
+
+#[test]
+fn a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick() {
+    isolated(OWN_RULES, own_rules);
 }

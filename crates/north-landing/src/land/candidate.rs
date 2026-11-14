@@ -196,7 +196,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     let stack_cherry = git(worktree, &["cherry", &picked_onto, &ticket.head])?;
     let unlanded: Vec<&str> = stack_cherry.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
     let picked = output(worktree, &["cherry-pick", "--allow-empty", "--empty=drop", &format!("{base}..{}", ticket.head)])?;
-    let resolved = picked.status.success() || merge_continue::finish(worktree, &worktree.join(merge_set::DEFAULT_CONFIG)).is_ok();
+    let resolved = picked.status.success() || merge_continue::finish_at(worktree, &picked_onto).is_ok();
     case.picked_clean = Some(resolved);
     if !resolved {
         let files = git(worktree, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default().lines().collect::<Vec<_>>().join(",");
@@ -230,7 +230,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
             Ok,
         );
     }
-    match merge_continue::generator_moved(worktree, &worktree.join(merge_set::DEFAULT_CONFIG), base, &picked_onto) {
+    match merge_continue::generator_moved(worktree, base, &picked_onto) {
         Ok(None) => {}
         Ok(Some(reason)) => {
             case.generator_moved = Some(reason.clone());
@@ -243,7 +243,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
             return refuse(logs, name, "regenerate", &format!("could not read the regenerate rules: {error}; NOT landed."));
         }
     }
-    if let Err(error) = merge_continue::refresh(worktree, &worktree.join(merge_set::DEFAULT_CONFIG), &picked_onto) {
+    if let Err(error) = merge_continue::refresh(worktree, &picked_onto) {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         return refuse(logs, name, "regenerate", &format!("could not regenerate an index the lane leaves stale: {error}; NOT landed."));
     }

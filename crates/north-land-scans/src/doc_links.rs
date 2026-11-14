@@ -82,7 +82,7 @@ fn pointing_at_nothing(revision: &Revision, documents: &BTreeMap<String, String>
 
 fn listing(directory: &Path, revision: &str) -> Option<Tree> {
     let mut tree = Tree::new(&git::text(directory, &["ls-tree", "-r", "--name-only", revision])?);
-    for rule in merge_set::read_rules(&directory.join(merge_set::DEFAULT_CONFIG)).unwrap_or_default() {
+    for rule in merge_set::load_rules(&directory.join(merge_set::DEFAULT_CONFIG)).unwrap_or_default() {
         if matches!(rule.kind, Kind::Regenerate { .. }) {
             tree.files.insert(rule.path);
         }
