@@ -119,8 +119,8 @@ fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "holdlist-guards-resolve" => holdlist::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "host-cases" => host_cases::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "host-evaluate" => host_evaluate::scan(directory, range, &mut out),
-        "review-accept" => review_accept::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::here(), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
-        "safe-push-keys" => safe_push_keys::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::here(), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
+        "review-accept" => review_accept::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::counted(&north_base::platform::records_mirror::Records::here()), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
+        "safe-push-keys" => safe_push_keys::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::counted(&north_base::platform::records_mirror::Records::here()), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
         "turn-scope" => turn_scope::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "tool-removal" => {
             let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();

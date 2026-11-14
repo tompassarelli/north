@@ -124,3 +124,30 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_
     accept(&accepts, &repo, &inside, &pretend, "reviewer-a");
     assert!(check(&repo, &inside, &pretend, &accepts, &[]).is_err(), "a message naming a revert does not make a different patch one");
 }
+
+#[test]
+fn accepts_recorded_on_the_reviewers_host_count_on_a_build_host_lander() {
+    use north_base::platform::records_mirror::{self, ROOT, STAMP, Records, Stamp};
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_in(&repo, &["init", "-q", "-b", "main"]);
+    let base = commit(&repo, &[(LANDER, "a\n")], "base");
+    let inside = commit(&repo, &[(LANDER, "b\n")], "inside the boundary");
+
+    let reviewers_state = root.path().join("reviewers-host");
+    let recorded = Accepts::of(&[("XDG_STATE_HOME".to_owned(), reviewers_state.display().to_string())], root.path());
+    accept(&recorded, &repo, &base, &inside, "reviewer-a");
+    accept(&recorded, &repo, &base, &inside, "reviewer-b");
+
+    let build_state = root.path().join("build-host");
+    let mirror = build_state.join(ROOT);
+    for path in records_mirror::selected(&reviewers_state, std::time::UNIX_EPOCH + records_mirror::KEPT) {
+        std::fs::create_dir_all(mirror.join(&path).parent().unwrap()).unwrap();
+        std::fs::copy(reviewers_state.join(&path), mirror.join(&path)).unwrap();
+    }
+    std::fs::write(mirror.join(STAMP), serde_json::to_vec(&Stamp { host: "reviewers-host".to_owned(), state: reviewers_state, at: 1.0 }).unwrap()).unwrap();
+
+    let counted = Accepts::counted(&Records::of(&build_state, "build-host"));
+    assert_eq!(check(&repo, &base, &inside, &counted, &[]), Ok(()), "the two accepts recorded on the reviewers' host land the lane on the build host");
+}

@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::platform::finish_record::verdict_store;
+use crate::platform::records_mirror::{self, Records};
 use crate::platform::{git, process};
 
 const DIR: &str = "accepts";
@@ -45,6 +46,14 @@ impl Accepts {
 
     pub fn of(environment: &[(String, String)], home: &Path) -> Self {
         Self(verdict_store(environment, home).join(DIR))
+    }
+
+    /// The accepts a landing counts on the host whose records are `records`: the copy the records mirror keeps of the settling host's, where reviewers record them, when this host reads mirrored records, else its own.
+    pub fn counted(records: &Records) -> Self {
+        match records.mirrored() {
+            true => Self(records.home().join(records_mirror::ACCEPTS)),
+            false => Self::here(),
+        }
     }
 
     fn file(patch_id: &str, session: &str) -> String {
