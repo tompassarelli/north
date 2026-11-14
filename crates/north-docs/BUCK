@@ -40,8 +40,8 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-registries:north-registries",
-        "//third-party:tempfile",
         "//third-party:serde_json",
+        "//third-party:tempfile",
         "//third-party:toml_edit",
     ],
     visibility = ["PUBLIC"],

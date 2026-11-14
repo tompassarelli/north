@@ -867,7 +867,7 @@ fn a_confined_sessions_privacy_judge_runs_outside_through_the_broker_with_its_te
     use std::os::unix::net::UnixStream;
     let scratch = tempfile::tempdir().unwrap();
     let north = scratch.path().join("north");
-    std::fs::write(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE\"\ncat\necho 'api credit: a refusing model said this' >&2\nexit 1\n").unwrap();
+    std::fs::write(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n").unwrap();
     std::fs::set_permissions(&north, std::fs::Permissions::from_mode(0o755)).unwrap();
     let text = scratch.path().join("text");
     std::fs::write(&text, "a session's text\n").unwrap();
