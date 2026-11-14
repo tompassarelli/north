@@ -423,7 +423,6 @@ fn a_worded_gate_answer_waits_for_confirmation() {
     assert_eq!(desk.performed().last(), Some(&decided(Decision::Option(2))));
 }
 
-
 #[test]
 fn a_copy_reaches_the_terminal_clipboard_without_wl_copy() {
     let desk = desk();
@@ -436,4 +435,54 @@ fn a_copy_reaches_the_terminal_clipboard_without_wl_copy() {
     assert!(matches!(&screen.notice, Some(Notice::Info(text)) if text.contains("through the terminal")));
     apply_event(&mut screen, Event::Key(control('v')));
     assert!(matches!(&screen.notice, Some(Notice::Error(text)) if text.contains("needs north-test-absent-wl-paste") && text.contains("not installed")));
+}
+
+fn feed(transcript: &mut Transcript, frame: serde_json::Value, now_ms: u64) {
+    use crate::fleet::runtime::Runtime;
+    let claude = north_providers::providers::claude::fleet::Claude;
+    claude.observe(&frame, transcript);
+    for signal in claude.signals(&frame) {
+        transcript.tracker.observe(signal, now_ms);
+    }
+}
+
+fn delta(text: &str) -> serde_json::Value {
+    serde_json::json!({"type": "stream_event", "session_id": "c1", "parent_tool_use_id": null, "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}})
+}
+
+fn frame_text(transcript: &Transcript, now_ms: u64) -> String {
+    let mut screen = Screen::new(PathBuf::from("/code"), Vec::new());
+    screen.sync(vec![summary("parser", Status::Working, 1)]);
+    let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    let mut painter = super::painter::TranscriptPainter::default();
+    terminal.draw(|frame| super::view::draw(frame, &mut screen, Some(transcript), &mut painter, now_ms)).unwrap();
+    let buffer = terminal.backend().buffer();
+    buffer.content().chunks(100).map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+#[test]
+fn a_reply_in_progress_is_drawn_before_its_turn_ends() {
+    let started = 1_000_000;
+    let mut transcript = Transcript::new();
+    let prompt = serde_json::json!({"type": "user", "session_id": "c1", "uuid": "u1", "message": {"role": "user", "content": "write an essay"}});
+    feed(&mut transcript, prompt, started);
+    feed(&mut transcript, delta("The first paragraph of a long essay, "), started + 1_000);
+    feed(&mut transcript, delta("still being writ"), started + 2_000);
+    let frame = frame_text(&transcript, started + 83_000);
+    assert!(frame.contains("The first paragraph of a long essay, still being writ"), "{frame}");
+    assert!(frame.contains("1m23s"), "{frame}");
+    assert_eq!(transcript.entries.len(), 1, "a reader of the entries sees whole messages only");
+
+    let mut interrupted = transcript.clone();
+    let aborted = serde_json::json!({"type": "result", "session_id": "c1", "subtype": "error_during_execution", "is_error": true, "terminal_reason": "aborted_streaming"});
+    feed(&mut interrupted, aborted, started + 84_000);
+    let frame = frame_text(&interrupted, started + 85_000);
+    assert!(frame.contains("The first paragraph of a long essay, still being writ"), "an interrupt keeps what was written: {frame}");
+    assert!(!frame.contains("1m2"), "{frame}");
+
+    let whole = serde_json::json!({"type": "assistant", "session_id": "c1", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": "The first paragraph of a long essay, still being written."}]}});
+    feed(&mut transcript, whole, started + 3_000);
+    let frame = frame_text(&transcript, started + 83_000);
+    assert_eq!(frame.matches("The first paragraph").count(), 1, "{frame}");
+    assert!(frame.contains("still being written."), "{frame}");
 }

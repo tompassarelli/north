@@ -413,6 +413,8 @@ pub struct Transcript {
     pub name: String,
     pub status: Status,
     pub entries: Vec<Entry>,
+    /// The reply the client is still writing, kept apart from `entries` so every reader of them sees whole messages only.
+    pub partial_reply: Option<String>,
     pub conversation: Option<String>,
     pub last_activity_ms: Option<u64>,
     pub active_turn: Option<String>,
@@ -429,11 +431,16 @@ impl Default for Transcript {
 }
 
 impl Transcript {
+    pub fn turn_started_ms(&self) -> Option<u64> {
+        self.tracker.turn_started_ms()
+    }
+
     pub fn new() -> Self {
         Self {
             name: String::new(),
             status: Status::Starting,
             entries: Vec::new(),
+            partial_reply: None,
             conversation: None,
             last_activity_ms: None,
             active_turn: None,

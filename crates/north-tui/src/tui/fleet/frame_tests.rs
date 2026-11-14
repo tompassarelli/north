@@ -123,7 +123,7 @@ fn help_shows_the_proxys_account_and_log_path_and_closes_when_its_slash_is_backs
 #[test]
 fn a_reply_with_tabs_keeps_its_columns_apart() {
     let entries = [Entry { kind: EntryKind::Assistant, text: "name\tstatus\tage".into() }];
-    let lines = paint(&entries, &[], 80);
+    let lines = paint(&entries, "", &[], 80);
     let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 1));
     buffer.set_line(0, 0, &lines[0], 80);
     let row: String = buffer.content().iter().map(|cell| cell.symbol()).collect::<String>().trim_end().to_owned();

@@ -189,6 +189,10 @@ impl Turns {
         self.threads.get(conversation).is_some_and(|thread| !thread.tasks.is_empty())
     }
 
+    pub fn turn_started_ms(&self) -> Option<u64> {
+        self.threads.values().filter_map(|thread| thread.open.as_ref()).map(|open| open.started_ms).min()
+    }
+
     pub fn turn_open(&self) -> bool {
         self.threads.values().any(|thread| thread.open.is_some())
     }

@@ -36,7 +36,7 @@ use ratatui::backend::{Backend, CrosstermBackend};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::board::Board;
-use crate::fleet::model::Transcript;
+use crate::fleet::model::{Status, Transcript};
 use crate::fleet::registry::Fleet;
 
 use desk::{FleetDesk, SessionDesk};
@@ -101,7 +101,7 @@ where
     let mut painter = TranscriptPainter::default();
     let mut next_poll = Instant::now();
     let mut dirty = true;
-    let mut minute = 0;
+    let mut clock = Clock::default();
     while !screen.quitting() {
         if settle_completed(&mut runner, screen) {
             dirty = true;
@@ -112,7 +112,7 @@ where
             next_poll = Instant::now() + POLL_INTERVAL;
         }
         let now = now_ms();
-        dirty |= std::mem::replace(&mut minute, now / 60_000) != now / 60_000;
+        dirty |= clock.ticked(now, screen);
         if dirty {
             terminal.draw(|frame| view::draw(frame, screen, screen_transcript(desk, screen), &mut painter, now)).map_err(|error| NorthError::Io(io::Error::other(error)))?;
             ring_bell(screen);
@@ -135,6 +135,20 @@ where
         }
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct Clock {
+    minute: u64,
+    second: u64,
+}
+
+impl Clock {
+    fn ticked(&mut self, now_ms: u64, screen: &Screen) -> bool {
+        let minute = std::mem::replace(&mut self.minute, now_ms / 60_000) != now_ms / 60_000;
+        let second = std::mem::replace(&mut self.second, now_ms / 1000) != now_ms / 1000;
+        minute || (second && screen.selected_session().is_some_and(|session| session.status == Status::Working))
+    }
 }
 
 fn settle_completed(runner: &mut Runner, screen: &mut Screen) -> bool {

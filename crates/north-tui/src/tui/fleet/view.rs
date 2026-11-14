@@ -28,7 +28,7 @@ pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Tran
     if screen.digest.shown {
         draw_digest(frame, screen, rows[0], now_ms);
     } else {
-        draw_transcript(frame, screen, transcript, painter, rows[0]);
+        draw_transcript(frame, screen, transcript, painter, rows[0], now_ms);
     }
     draw_strip(frame, screen, rows[1]);
     draw_composer(frame, screen, rows[2]);
@@ -59,7 +59,15 @@ pub fn age(now_ms: u64, then_ms: u64) -> String {
     }
 }
 
-fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, area: Rect) {
+fn elapsed(millis: u64) -> String {
+    let seconds = millis / 1000;
+    match seconds {
+        0..=59 => format!("{seconds}s"),
+        _ => format!("{}m{:02}s", seconds / 60, seconds % 60),
+    }
+}
+
+fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, area: Rect, now_ms: u64) {
     let Some(session) = screen.selected_session() else {
         frame.render_widget(pane(Line::from(" transcript "), false), area);
         return;
@@ -72,6 +80,9 @@ fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Optio
     ];
     if let Some(model) = &record.model {
         title.push(Span::styled(format!("· {model} "), MUTED));
+    }
+    if let Some(started) = transcript.and_then(Transcript::turn_started_ms).filter(|_| session.status == Status::Working) {
+        title.push(Span::styled(format!("· {} ", elapsed(now_ms.saturating_sub(started))), Style::default().fg(Color::Green)));
     }
     if screen.scroll > 0 {
         title.push(Span::styled(format!("· ↑{} ", screen.scroll), Style::default().fg(Color::Yellow)));

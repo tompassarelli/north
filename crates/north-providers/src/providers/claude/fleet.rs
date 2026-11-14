@@ -67,6 +67,7 @@ impl Runtime for Claude {
                 "--output-format",
                 "stream-json",
                 "--verbose",
+                "--include-partial-messages",
                 "--replay-user-messages",
                 "--strict-mcp-config",
                 "--permission-mode",
@@ -169,6 +170,7 @@ impl Runtime for Claude {
             Some("assistant") => observe_assistant(frame, transcript),
             Some("result") => observe_result(frame, transcript),
             Some("rate_limit_event") => observe_rate_limit(frame, transcript),
+            Some("stream_event") => observe_stream_event(frame, transcript),
             _ => {}
         }
     }
@@ -326,6 +328,16 @@ fn tool_use_text(block: &Value) -> String {
     format!("{name} {}", summarize(&detail, TOOL_RESULT_CHARS))
 }
 
+fn observe_stream_event(frame: &Value, transcript: &mut Transcript) {
+    if !frame["parent_tool_use_id"].is_null() {
+        return;
+    }
+    let event = &frame["event"];
+    if event["type"] == "content_block_delta" && event["delta"]["type"] == "text_delta" {
+        transcript.partial_reply.get_or_insert_with(String::new).push_str(event["delta"]["text"].as_str().unwrap_or_default());
+    }
+}
+
 fn observe_rate_limit(frame: &Value, transcript: &mut Transcript) {
     if let Some(rejected) = limit::rejected_window(frame) {
         limit::record(rejected, &mut transcript.limit);
@@ -333,6 +345,7 @@ fn observe_rate_limit(frame: &Value, transcript: &mut Transcript) {
 }
 
 fn observe_assistant_text(text: &str, transcript: &mut Transcript) {
+    transcript.partial_reply = None;
     if limit::stop_text(text) {
         limit::record(UsageLimit { resets_at_s: None, message: Some(text.to_owned()) }, &mut transcript.limit);
     }
@@ -346,6 +359,9 @@ fn observe_result(frame: &Value, transcript: &mut Transcript) {
     }
     transcript.status = Status::Idle;
     transcript.active_turn = None;
+    if let Some(written) = transcript.partial_reply.take() {
+        push(transcript, EntryKind::Assistant, written);
+    }
     let subtype = frame["subtype"].as_str().unwrap_or("result");
     let aborted = frame["terminal_reason"].as_str().is_some_and(|reason| reason.starts_with("aborted"));
     if frame["is_error"] == true && !aborted {

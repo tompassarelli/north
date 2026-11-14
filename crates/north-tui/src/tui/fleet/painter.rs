@@ -19,6 +19,7 @@ struct PaintKey {
     name: String,
     entries: usize,
     tail: usize,
+    partial: usize,
     pending: usize,
     width: u16,
 }
@@ -26,25 +27,28 @@ struct PaintKey {
 impl TranscriptPainter {
     pub fn lines(&mut self, name: &str, transcript: Option<&Transcript>, pending: &[&str], width: u16) -> &[Line<'static>] {
         let entries = transcript.map_or(&[][..], |transcript| transcript.entries.as_slice());
+        let partial = transcript.and_then(|transcript| transcript.partial_reply.as_deref()).unwrap_or_default();
         let key = PaintKey {
             name: name.to_owned(),
             entries: entries.len(),
             tail: entries.last().map_or(0, |entry| entry.text.len()),
+            partial: partial.len(),
             pending: pending.len(),
             width,
         };
         if self.key.as_ref() != Some(&key) {
-            self.lines = paint(entries, pending, usize::from(width.max(1)));
+            self.lines = paint(entries, partial, pending, usize::from(width.max(1)));
             self.key = Some(key);
         }
         &self.lines
     }
 }
 
-pub fn paint(entries: &[Entry], pending: &[&str], width: usize) -> Vec<Line<'static>> {
+pub fn paint(entries: &[Entry], partial: &str, pending: &[&str], width: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut previous: Option<EntryKind> = None;
-    for entry in entries {
+    let writing = (!partial.is_empty()).then(|| Entry { kind: EntryKind::Assistant, text: partial.to_owned() });
+    for entry in entries.iter().chain(&writing) {
         if entry.kind == EntryKind::TurnEnd {
             previous = Some(EntryKind::TurnEnd);
             continue;
