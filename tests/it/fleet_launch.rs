@@ -363,13 +363,16 @@ fn a_revived_proxy_opens_in_a_window_on_the_desktop_and_starts_no_host_where_the
     fs::write(root.join("run/niri.wayland-1.1.sock"), "").unwrap();
     let shown = north(root, &["fleet", "revive", "proxy"]);
     let opened = fs::read_to_string(&spawned).unwrap_or_default();
+    let bound = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(session.join("session.json")).unwrap()).unwrap();
     north(root, &["fleet", "forget", "proxy"]);
 
     assert!(!headless.status.success(), "{}", text(&headless.stdout));
     assert!(text(&headless.stderr).contains("runs only in a window Tom types into"), "{}", text(&headless.stderr));
     assert!(host_after_refusal.is_null(), "a refused revive started host {host_after_refusal}");
     assert!(shown.status.success(), "{}", text(&shown.stderr));
-    assert!(opened.contains("--title=north proxy -e env") && opened.ends_with("fleet interactive proxy --after-turn\n"), "{opened}");
+    assert!(opened.contains("ghostty -e env -C") && opened.contains("--resume 6d1f6f3c-1048-4c1e-9a52-6a0c8b0e1048 --permission-mode bypassPermissions"), "{opened}");
+    assert!(!opened.contains("--title") && !opened.contains("fleet interactive"), "{opened}");
+    assert!(bound["host_pid"].is_null() && bound["adopted_ms"].is_u64(), "{bound}");
 }
 
 #[test]
@@ -409,9 +412,11 @@ esac
     assert!(text(&screened.stderr).contains("no window opened for proxy, so the fleet screen holds it: no graphical session is live on this host"), "{}", text(&screened.stderr));
     assert!(!held["host_pid"].is_null() && held["surface"] == "screen", "{held}");
     assert!(revived.status.success(), "{}", text(&revived.stderr));
-    assert!(windowed["surface"].is_null() && reopened.ends_with("fleet interactive proxy --after-turn\n"), "{windowed}\n{reopened}");
+    let resumed = format!("--resume {}", held["conversation"].as_str().unwrap_or_default());
+    assert!(windowed["surface"].is_null() && windowed["host_pid"].is_null() && windowed["adopted_ms"].is_u64() && reopened.contains(&resumed) && !reopened.contains("fleet interactive"), "{windowed}\n{reopened}");
     assert!(launched.status.success(), "{}", text(&launched.stderr));
-    assert!(!fresh["host_pid"].is_null() && fresh["surface"].is_null() && opened.lines().count() == 2, "{fresh}\n{opened}");
+    let started = format!("--session-id {}", fresh["conversation"].as_str().unwrap_or_default());
+    assert!(fresh["host_pid"].is_null() && fresh["adopted_ms"].is_u64() && fresh["surface"].is_null() && opened.matches("action spawn").count() == 2 && opened.contains(&started), "{fresh}\n{opened}");
 }
 
 #[test]

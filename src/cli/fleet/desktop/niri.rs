@@ -65,10 +65,10 @@ pub(in crate::cli::fleet) fn live() -> Result<(), String> {
     socket().map(drop).ok_or_else(|| "no graphical session is live on this host (no niri socket)".to_owned())
 }
 
-/// Opens `command` in a ghostty window titled `title` that niri spawns, so the window is the compositor's child and outlives the north process that asked for it; returns the window's id.
-pub(in crate::cli::fleet) fn open_terminal(title: &str, command: &[String]) -> Result<u64, String> {
+/// Opens `command` in a ghostty window that niri spawns, so the window is the compositor's child and outlives the north process that asked for it; returns the window's id.
+pub(in crate::cli::fleet) fn open_terminal(command: &[String]) -> Result<u64, String> {
     live()?;
-    let mut terminal = vec!["ghostty".to_owned(), format!("--title={title}"), "-e".to_owned()];
+    let mut terminal = vec!["ghostty".to_owned(), "-e".to_owned()];
     terminal.extend_from_slice(command);
     open(&terminal).map(|placed| placed.id).map_err(|error| error.user_message())
 }

@@ -95,13 +95,21 @@ impl Runtime for Claude {
         })
     }
 
-    fn interactive(&self, account: &Account, request: &LaunchRequest, conversation: &str, instructions: &str) -> NorthResult<HostSpec> {
-        let mut argv = vec![install::runtime("claude").display().to_string(), "--resume".into(), conversation.into(), "--permission-mode".into(), "bypassPermissions".into()];
+    fn interactive(&self, account: &Account, request: &LaunchRequest, opening: Opening, prompt: Option<&str>, instructions: &str) -> NorthResult<HostSpec> {
+        let conversation = match opening {
+            Opening::Fresh(Some(conversation)) => ["--session-id", conversation],
+            Opening::Resume(conversation) => ["--resume", conversation],
+            Opening::Fresh(None) => return Err(NorthError::State(format!("{} has no conversation id for its interactive client to open", request.name))),
+        };
+        let mut argv = vec![install::runtime("claude").display().to_string()];
+        argv.extend(conversation.map(str::to_owned));
+        argv.extend(["--permission-mode".into(), "bypassPermissions".into()]);
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
         if !instructions.is_empty() {
             argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
         }
+        argv.extend(prompt.into_iter().flat_map(|prompt| ["--".to_owned(), prompt.to_owned()]));
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,

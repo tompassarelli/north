@@ -94,6 +94,14 @@ impl Fleet {
         })
     }
 
+    /// Binds `record`'s name to the window the fleet opened on its conversation, so no host starts under the name and its messages go to that window.
+    pub(super) fn hold_in_window(&self, record: &mut SessionRecord) -> NorthResult<()> {
+        record.adopted_ms = Some(now_ms());
+        let session_dir = self.session_dir(&record.name)?;
+        write_record(&session_dir, record)?;
+        bar_hosts(&session_dir)
+    }
+
     pub fn follow_conversation(&self, name: &str, conversation: &str) -> NorthResult<()> {
         let mut record = self.record(name)?;
         if record.conversation.as_deref() == Some(conversation) {

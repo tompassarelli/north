@@ -17,6 +17,7 @@ use crate::fleet::store::{Claim, SessionRow};
 use super::grounding;
 use super::reserve;
 use super::stopping::Halt;
+use super::proxy_window::{held_in_window, hosts_early};
 use super::takeover::Predecessor;
 use super::starting::{OpenedHost, Settling};
 use super::{Fleet, efforts, session_running};
@@ -86,7 +87,7 @@ impl Fleet {
         let unrecorded = record.clone();
         std::thread::scope(|scope| {
             let shown = scope.spawn(|| first_prompt(request, verification));
-            let mut early = (claim == Claim::Fresh).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
+            let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             if let Err(error) = self.registrar.register(&row, claim) {
                 self.abandon_early(joined(), session_dir);
@@ -170,21 +171,28 @@ impl Fleet {
         };
         let settling = match opened {
             Some(opened) => self.go_live_claimed(record, opening, hooks, opened?, claimed)?,
+            None if held_in_window(record) => {
+                claimed()?;
+                self.open_proxy_window(record, account, opening, Some(&prompt().0), hooks)?;
+                return self.join_launch_task(record);
+            }
             None => {
                 claimed()?;
                 self.start(record, account, opening, hooks)?;
                 Settling::default()
             }
         };
-        if let Some(task_ref) = &record.task_ref {
-            self.ledger.join_task(task_ref, &request.name)?;
-        }
+        self.join_launch_task(record)?;
         let (prompt, predicted) = prompt();
         if predicted.is_some() {
             record.predicted = predicted;
             write_record(&self.session_dir(&request.name)?, record)?;
         }
         self.deliver_first_turn(record, account, &prompt, settling)
+    }
+
+    fn join_launch_task(&self, record: &SessionRecord) -> NorthResult<()> {
+        record.task_ref.as_deref().map_or(Ok(()), |task_ref| self.ledger.join_task(task_ref, &record.name))
     }
 
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.

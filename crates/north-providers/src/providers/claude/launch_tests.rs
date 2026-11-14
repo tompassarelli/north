@@ -154,7 +154,7 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
     assert!(spec.argv.iter().all(|arg| !arg.contains("sk-test-value")), "{:?}", spec.argv);
     let settings = spec.argv.windows(2).find(|pair| pair[0] == "--settings").map(|pair| serde_json::from_str::<serde_json::Value>(&pair[1]).unwrap());
     assert!(settings.is_some_and(|settings| settings["switchModelsOnFlag"] == true), "a fleet session lets a safety-flagged turn finish on the fallback model: {:?}", spec.argv);
-    let interactive = Claude.interactive(&account, &request(), "conversation", "").unwrap();
+    let interactive = Claude.interactive(&account, &request(), Opening::Resume("conversation"), None, "").unwrap();
     assert!(interactive.argv.iter().all(|arg| arg != "--settings"), "Tom's interactive window keeps ~/.claude/settings.json: {:?}", interactive.argv);
     assert!(spec.env.iter().all(|(_, value)| !value.to_string_lossy().contains("sk-test-value")), "{:?}", spec.env);
     assert!(spec.env_remove.contains(&"CLAUDE_CODE_OAUTH_TOKEN".to_owned()), "{:?}", spec.env_remove);

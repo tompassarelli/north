@@ -20,6 +20,7 @@ use crate::fleet::transcript::{session_stream_path, stream_len};
 use crate::fleet::unaccepted::Unaccepted;
 
 use super::awaiting::await_conversation;
+use super::proxy_window::held_in_window;
 use super::{Fleet, session_running};
 
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
@@ -27,6 +28,9 @@ const HOSTS: &str = ".hosts";
 
 impl Fleet {
     pub(super) fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening, hooks: HooksCheck) -> NorthResult<()> {
+        if held_in_window(record) {
+            return self.open_proxy_window(record, account, opening, None, hooks);
+        }
         let opened = self.open_host(record, account, opening, None)?;
         self.go_live(record, opening, hooks, opened).map(drop)
     }
@@ -128,9 +132,7 @@ impl Fleet {
         if started {
             host.send(&Unaccepted::to_replay(&host_dir))?;
         }
-        let settling = self.settle_beside(record);
-        self.show_proxy(record, &host)?;
-        Ok(settling)
+        Ok(self.settle_beside(record))
     }
 
     /// Mirrors the record to the session's machine and holds its claims again on a thread of their own: an ssh round trip and two or three threads ledger calls of about 0.6 s each that the session's first request does not read, so the first prompt goes out while they run.

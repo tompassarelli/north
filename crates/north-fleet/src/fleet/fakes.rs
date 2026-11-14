@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use serde_json::Value;
 
 use north_claude_stream::{encode_interrupt, encode_user_message};
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::router::pricing::{PriceTable, TokenUse};
 
 use super::books::{Books, Landing, SessionSpend};
@@ -150,6 +150,16 @@ impl Runtime for Stream {
 
     fn host(&self, _account: &super::model::Account, request: &LaunchRequest, _opening: Opening, _instructions: &str) -> NorthResult<HostSpec> {
         Ok(HostSpec { key: request.name.clone(), shared: false, argv: vec!["true".into()], env: Vec::new(), env_remove: Vec::new(), cwd: request.cwd.clone() })
+    }
+
+    fn interactive(&self, _account: &super::model::Account, request: &LaunchRequest, opening: Opening, prompt: Option<&str>, _instructions: &str) -> NorthResult<HostSpec> {
+        let conversation = match opening {
+            Opening::Fresh(Some(conversation)) => ["--session-id", conversation],
+            Opening::Resume(conversation) => ["--resume", conversation],
+            Opening::Fresh(None) => return Err(NorthError::State("no conversation id".into())),
+        };
+        let argv = ["client"].into_iter().chain(conversation).chain(prompt).map(str::to_owned).collect();
+        Ok(HostSpec { key: request.name.clone(), shared: false, argv, env: Vec::new(), env_remove: Vec::new(), cwd: request.cwd.clone() })
     }
 
     fn handshake(&self) -> Vec<String> {

@@ -17,9 +17,9 @@ use super::{Fleet, session_running};
 /// How many owners one `threads holder` read names, so a fleet with hundreds of exited sessions never asks for them all in a read the ledger cannot answer within its bound.
 const OWNERS_PER_READ: usize = 64;
 
-/// Whether a session's record names no host long after its launch: the host never started, so the session holds nothing.
+/// Whether a session's record names no host and no window long after its launch: the host never started, so the session holds nothing.
 pub(super) fn never_started(record: &SessionRecord) -> bool {
-    record.host_pid.is_none() && record.host_dir.as_os_str().is_empty() && now_ms().saturating_sub(record.created_ms) > LAUNCH_GRACE_MS
+    !record.adopted() && record.host_pid.is_none() && record.host_dir.as_os_str().is_empty() && now_ms().saturating_sub(record.created_ms) > LAUNCH_GRACE_MS
 }
 
 /// A host a launch opened beside its claims, if it opened one there.

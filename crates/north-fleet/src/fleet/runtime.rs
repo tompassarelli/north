@@ -98,7 +98,8 @@ pub trait Runtime: Send + Sync {
     }
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec>;
-    fn interactive(&self, _account: &Account, _request: &LaunchRequest, _conversation: &str, _instructions: &str) -> NorthResult<HostSpec> {
+    /// The provider's interactive client on `opening`'s conversation, with `prompt` as its first turn when there is one.
+    fn interactive(&self, _account: &Account, _request: &LaunchRequest, _opening: Opening, _prompt: Option<&str>, _instructions: &str) -> NorthResult<HostSpec> {
         Err(NorthError::Usage(format!("{} sessions have no interactive UI to hand over to", self.provider().label())))
     }
     /// Writes the first-run state north can complete by itself, so the interactive UI opens on the conversation instead of a setup question; `interactive_prompt` then names whatever would still stop it.

@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
 use crate::fleet::model::{Entry, LaunchRequest, SessionRecord, Status};
-use crate::fleet::runtime::HostSpec;
+use crate::fleet::runtime::{HostSpec, Opening};
 use crate::fleet::unaccepted::Unaccepted;
 
 use super::Follower;
@@ -37,7 +37,7 @@ impl Fleet {
         runtime.prepare_interactive(&account, &request)?;
         self.refuse_beside_interactive(&record)?;
         let (instructions, _) = self.instructions(&record)?;
-        let spec = runtime.interactive(&account, &request, &conversation, &instructions)?;
+        let spec = runtime.interactive(&account, &request, Opening::Resume(&conversation), None, &instructions)?;
         if after_turn {
             self.await_turn_end(name, pause, show)?;
         }
