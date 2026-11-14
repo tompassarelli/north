@@ -72,28 +72,21 @@ fn a_verdict_the_shadow_tick_records_is_found_by_the_slot_runners_lookup_for_the
     assert_eq!((host.as_str(), pass.sha.as_str()), ("gex45", merged.as_str()));
 }
 
-mod reuse_report {
-    use north_base::verdict_cache::reuse_log::Record;
-    use super::super::reuse::{render, summarize};
+#[test]
+fn a_shadow_round_skips_the_queued_candidate_the_lander_is_checking() {
+    use north_base::land_ticket::{Phase, Records};
+    use super::super::queue::Ticket;
+    use super::pick::not_checking;
 
-    fn unit(probe: &str, set: Option<&str>, passed: bool, seconds: f64) -> Record {
-        Record::Unit { probe: probe.into(), unit: format!("north-base {probe}"), set: set.map(str::to_owned), passed, seconds }
-    }
+    let queue = tempfile::tempdir().unwrap();
+    let held = queue.path().join("held.json");
+    let waiting = queue.path().join("waiting.json");
+    let mut records = Records::open(queue.path()).unwrap();
+    records.moved(&held, Phase::Queued, "queued").unwrap();
+    records.moved(&waiting, Phase::Queued, "queued").unwrap();
+    records.checking(std::slice::from_ref(&held)).unwrap();
 
-    #[test]
-    fn the_report_counts_landings_units_and_both_kinds_of_disagreement() {
-        let records = vec![
-            unit("p1", Some("aaaaaaaaaaaaaaaa"), true, 2.0),
-            unit("p1", None, true, 6.0),
-            unit("p2", Some("bbbbbbbbbbbbbbbb"), false, 2.0),
-            Record::SetDiffers { probe: "p2".into(), unit: "north-base other".into(), reused: "cccccccccccccccc".into(), real: "dddddddddddddddd".into(), path: "content harness/x".into() },
-        ];
-        let summary = summarize(&records);
-        assert_eq!((summary.landings, summary.units, summary.reused), (2, 3, 2));
-        assert_eq!(summary.disagreements.len(), 2);
-        let text = render(&summary, "1h");
-        assert!(text.contains("would reuse: 2 of 3 units (66.7%)"), "{text}");
-        assert!(text.contains("would reuse by test-seconds: 4.0 of 10.0 s (40.0%)"), "{text}");
-        assert!(text.contains("first difference: content harness/x"), "{text}");
-    }
+    let queued = vec![(held, Ticket::default()), (waiting.clone(), Ticket::default())];
+    let kept: Vec<_> = not_checking(queued, queue.path()).into_iter().map(|(path, _)| path).collect();
+    assert_eq!(kept, vec![waiting]);
 }
