@@ -101,6 +101,12 @@ impl Fleet {
     /// Starts a proxy held in a window: no fleet host, but a terminal on Tom's desktop running the provider's interactive client on
     /// `opening`'s conversation with `prompt` as its first turn, and once that window is up the name bound to the conversation.
     pub(super) fn open_proxy_window(&self, record: &mut SessionRecord, account: &Account, opening: Opening, prompt: Option<&str>, hooks: HooksCheck) -> NorthResult<()> {
+        self.open_window(record, account, opening, prompt, hooks)?;
+        self.hold_in_window(record)
+    }
+
+    /// Opens the window [`Self::open_proxy_window`] opens and puts its conversation on `record`, leaving the name bound where it was, so a take-over binds it only once the successor's window is up.
+    pub(super) fn open_window(&self, record: &mut SessionRecord, account: &Account, opening: Opening, prompt: Option<&str>, hooks: HooksCheck) -> NorthResult<()> {
         let (Opening::Fresh(Some(conversation)) | Opening::Resume(conversation)) = opening else {
             return Err(NorthError::State(format!("{} has no conversation id for its window to open", record.name)));
         };
@@ -118,7 +124,7 @@ impl Fleet {
         record.conversation = Some(conversation.to_owned());
         record.system_prompt_sha = Some(sha);
         record.host_pid = None;
-        self.hold_in_window(record)
+        Ok(())
     }
 }
 

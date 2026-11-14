@@ -83,6 +83,11 @@ impl Fleet {
 
     /// Stops `name` as `halt` does and says whether the stop cut a running turn short.
     pub(super) fn halt_cut_short(&self, name: &str, why: Halt) -> NorthResult<bool> {
+        self.halt_carrying(name, why, &[])
+    }
+
+    /// Stops `name` as `halt_cut_short` does, keeping the claims in `carried`, which the session taking over its name holds.
+    fn halt_carrying(&self, name: &str, why: Halt, carried: &[String]) -> NorthResult<bool> {
         let record = self.record(name)?;
         let mut phases = self.phases()?;
         if record.adopted() {
@@ -109,7 +114,7 @@ impl Fleet {
         if terminate {
             Unaccepted::discard(&record.host_dir);
         }
-        claims::release_for(self.claims.as_ref(), &record);
+        claims::release_for_all_but(self.claims.as_ref(), &record, carried);
         if mid_turn {
             why.record(name);
         }
@@ -154,7 +159,12 @@ impl Fleet {
     /// Stops the session, moves its directory out of the registry and retires its launch for `cause`, returning
     /// where it now lies.
     pub(super) fn archive(&self, name: &str, why: Halt, cause: &str) -> NorthResult<PathBuf> {
-        self.halt(name, why)?;
+        self.archive_carrying(name, why, cause, &[])
+    }
+
+    /// Archives `name` as `archive` does, keeping the claims in `carried`, which the session taking over its name holds.
+    pub(super) fn archive_carrying(&self, name: &str, why: Halt, cause: &str, carried: &[String]) -> NorthResult<PathBuf> {
+        self.halt_carrying(name, why, carried)?;
         let archive = self.root.join(ARCHIVE);
         fs::create_dir_all(&archive)?;
         let archived = archive.join(format!("{name}-{}", now_ms()));

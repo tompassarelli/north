@@ -149,11 +149,18 @@ pub fn release_task(claims: &dyn Claims, session: &str, task: &str) -> NorthResu
 }
 
 pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
+    release_for_all_but(claims, record, &[]);
+}
+
+/// Gives up the claims `record` names except the keys in `carried`, which a successor under the same name holds on; while it carries any, the claims spooled under the name are the successor's and stay queued.
+pub fn release_for_all_but(claims: &dyn Claims, record: &SessionRecord, carried: &[String]) {
     if record.verification {
         return;
     }
-    claims.withdraw_queued(&record.name);
-    for task in record.claim_keys() {
+    if carried.is_empty() {
+        claims.withdraw_queued(&record.name);
+    }
+    for task in record.claim_keys().into_iter().filter(|key| !carried.contains(key)) {
         if let Err(error) = claims.release(&task, &record.name) {
             eprintln!("north fleet: {} did not release {task}: {}", record.name, error.user_message());
         }

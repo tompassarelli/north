@@ -41,7 +41,23 @@ pub(crate) fn live_under(fleet: &Fleet, name: &str, parent: Option<&str>) -> Ses
     let assistant = serde_json::json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": "Not done: waiting."}]}});
     let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": name});
     std::fs::write(dir.join("g1/stream.jsonl"), format!("{assistant}\n{result}\n")).unwrap();
-    let listener = std::os::unix::net::UnixListener::bind(north_base::platform::session_host_files::socket_path(&dir)).unwrap();
+    Session { frames: answering(&dir, false) }
+}
+
+/// Stands in for the session host a start brings up in `dir`: this process is its pid, its socket answers every frame, and its client answers each one with a turn of the conversation the record names.
+#[cfg(test)]
+pub(crate) fn standing_host(dir: &std::path::Path, _: &crate::fleet::runtime::HostSpec, _: &crate::fleet::model::ProviderName, _: Option<std::time::Duration>, _: &str) -> crate::error::NorthResult<u32> {
+    std::fs::create_dir_all(dir.join("g1"))?;
+    std::fs::write(north_base::platform::session_host_files::pid_path(dir), std::process::id().to_string())?;
+    answering(dir, true);
+    Ok(std::process::id())
+}
+
+fn answering(dir: &std::path::Path, turns: bool) -> Arc<Mutex<Vec<String>>> {
+    let session = dir.to_path_buf();
+    let socket = north_base::platform::session_host_files::socket_path(dir);
+    let _ = std::fs::remove_file(&socket);
+    let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
     let frames = Arc::new(Mutex::new(Vec::new()));
     let seen = frames.clone();
     std::thread::spawn(move || {
@@ -49,9 +65,21 @@ pub(crate) fn live_under(fleet: &Fleet, name: &str, parent: Option<&str>) -> Ses
             let mut writer = &stream;
             for line in BufReader::new(&stream).lines().map_while(Result::ok) {
                 seen.lock().unwrap().push(line);
+                if turns {
+                    take_turn(&session);
+                }
                 writeln!(writer, "{{\"host_seq\":1}}").unwrap();
             }
         }
     });
-    Session { frames }
+    frames
+}
+
+fn take_turn(dir: &std::path::Path) {
+    let record: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("session.json")).unwrap_or_default()).unwrap_or_default();
+    let conversation = record["conversation"].clone();
+    let prompt = serde_json::json!({"type": "user", "session_id": conversation, "message": {"role": "user", "content": "go"}});
+    let answer = serde_json::json!({"type": "assistant", "session_id": conversation, "message": {"content": [{"type": "text", "text": "working"}]}});
+    let mut stream = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("g1/stream.jsonl")).unwrap();
+    writeln!(stream, "{prompt}\n{answer}").unwrap();
 }

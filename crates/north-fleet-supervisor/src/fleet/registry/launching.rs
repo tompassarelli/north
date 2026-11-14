@@ -18,7 +18,7 @@ use super::grounding;
 use super::reserve;
 use super::stopping::Halt;
 use super::proxy_window::{held_in_window, hosts_early};
-use super::takeover::Predecessor;
+use super::takeover::{Predecessor, Seat};
 use super::starting::{OpenedHost, Settling};
 use super::{Fleet, efforts, session_running};
 
@@ -92,32 +92,53 @@ impl Fleet {
             let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             let registered = self.register_beside(scope, &row, claim)?;
-            let launched = self.succeed(&request.name, claim, |predecessor| {
-                record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
-                let tasks = predecessor.as_ref().filter(|predecessor| predecessor.carries_for(&request.tasks())).map_or_else(|| tasks.clone(), |predecessor| predecessor.carry_into(&mut record));
+            let launched = self.succeed(&request.name, claim, |seat| {
+                let (tasks, claimed_first) = self.claim_for(seat, request, &mut record, &tasks, verification)?;
+                if held_in_window(&record) && seat.held().is_some() && request.resume.is_none() {
+                    self.take_over_in_window(seat, &mut record, &account, fresh_opening(request, conversation.as_deref()), &shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)).0, hooks)?;
+                    return self.settled(&record, Ok(()), registered).map(|()| record);
+                }
+                let predecessor = seat.hand_to(&mut record)?;
                 let brought = std::thread::scope(|beside| {
-                    let claiming = beside.spawn(|| self.claim_before_start(request, &tasks, verification));
+                    let claiming = beside.spawn(|| if claimed_first { Ok(()) } else { self.claim_before_start(request, &tasks, verification) });
                     let claimed = || claiming.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
                     let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
                     Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))))
                 })?;
-                let Err(error) = self.settled(&record, brought, registered) else {
-                    if let Err(error) = self.inherit_workers(request, &record) {
-                        eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
-                    }
-                    super::spares::fill_after(&record);
-                    return Ok(record);
-                };
-                Err(match self.discard_failed_launch(session_dir) {
-                    Ok(()) => error,
-                    Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
-                })
+                match self.settled(&record, brought, registered) {
+                    Ok(()) => Ok(self.launched(request, record)),
+                    Err(error) => Err(self.discarded(session_dir, error)),
+                }
             });
             if launched.is_err() {
                 self.abandon_early(joined(), session_dir);
             }
             launched
         })
+    }
+
+    /// Takes over `seat` with a successor held in a window: the window opens before the seat retires, so one that never opens leaves the seat as it was, and the name moves to the successor only once its window is up.
+    fn take_over_in_window(&self, seat: &mut Seat<'_>, record: &mut SessionRecord, account: &Account, opening: Opening, prompt: &str, hooks: HooksCheck) -> NorthResult<()> {
+        self.open_window(record, account, opening, Some(prompt), hooks)?;
+        seat.hand_to(record)?;
+        fs::create_dir_all(self.session_dir(&record.name)?)?;
+        self.hold_in_window(record)?;
+        self.join_launch_task(record)
+    }
+
+    fn launched(&self, request: &LaunchRequest, record: SessionRecord) -> SessionRecord {
+        if let Err(error) = self.inherit_workers(request, &record) {
+            eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
+        }
+        super::spares::fill_after(&record);
+        record
+    }
+
+    fn discarded(&self, session_dir: &Path, error: NorthError) -> NorthError {
+        match self.discard_failed_launch(session_dir) {
+            Ok(()) => error,
+            Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
+        }
     }
 
     fn move_in_place(&self, request: &LaunchRequest) -> Option<NorthResult<SessionRecord>> {
@@ -296,10 +317,14 @@ impl Fleet {
         if placement.is_some() {
             record.placement = placement;
         }
-        if session_running(&record) {
+        let host = Host::new(record.host_dir.clone());
+        if session_running(&record) && !host.closed() {
             return Ok(record);
         }
         self.refuse_beside_interactive(&record)?;
+        if session_running(&record) {
+            host.terminate()?;
+        }
         let conversation = record
             .conversation
             .clone()

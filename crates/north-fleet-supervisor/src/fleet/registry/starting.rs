@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,11 +10,11 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::claims;
 use crate::fleet::host::Host;
 use crate::fleet::hops;
-use crate::fleet::model::{Account, LaunchRequest, SessionRecord};
+use crate::fleet::model::{Account, LaunchRequest, ProviderName, SessionRecord};
 use crate::fleet::prompt::{PromptInputs, prompt_sha, render};
 use crate::fleet::records::{CLAIMS_RELEASED, PLACED, write_record};
 use crate::fleet::remote::{self, HooksCheck};
-use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
+use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, now_ms};
 use crate::fleet::spares::Taken;
 use crate::fleet::transcript::{session_stream_path, stream_len};
 use crate::fleet::unaccepted::Unaccepted;
@@ -25,6 +25,13 @@ use super::{Fleet, session_running};
 
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
 const HOSTS: &str = ".hosts";
+
+/// Starts the session host serving the directory it is given and returns its pid; a test stands in one that answers on the directory's socket.
+pub type HostStart = fn(&Path, &HostSpec, &ProviderName, Option<Duration>, &str) -> NorthResult<u32>;
+
+pub(super) fn start_host(dir: &Path, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>, served_by: &str) -> NorthResult<u32> {
+    Host::new(dir.to_path_buf()).start(spec, provider, idle_exit, served_by)
+}
 
 impl Fleet {
     pub(super) fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening, hooks: HooksCheck) -> NorthResult<()> {
@@ -61,7 +68,7 @@ impl Fleet {
         let host = Host::new(host_dir.clone());
         let started = !host.running();
         if started {
-            host.start(&spec, &record.provider, idle_exit(record), &account.recorded_label())?;
+            (self.hosts)(&host_dir, &spec, &record.provider, idle_exit(record), &account.recorded_label())?;
             host.send(&runtime.handshake())?;
         }
         hops::record(&trace, &hops::Span { session: record.name.clone(), hop: hops::Hop::HostOpen, start_ms: since_ms, end_ms: now_ms() });
