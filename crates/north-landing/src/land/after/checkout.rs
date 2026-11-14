@@ -25,6 +25,7 @@ pub fn follow(lander: &Lander, head: &str) {
 /// Fast-forwards `repo`'s main to `head` when it is a clean checkout of `main` behind it: the line to print when it
 /// moved, `None` when it already held `head`, or why it was left where it was.
 pub fn fast_forward(repo: &Path, head: &str) -> Result<Option<String>, String> {
+    let _ = git(repo, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"]);
     let at = git(repo, &["rev-parse", "--verify", "HEAD"])?;
     if at == head {
         return Ok(None);

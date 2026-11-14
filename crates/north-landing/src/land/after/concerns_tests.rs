@@ -3,7 +3,7 @@ use std::process::Command;
 
 use super::{Landed, culprits, queue, settled};
 use crate::land::lander::Lander;
-use crate::land::candidate::git;
+use crate::land::candidate::{self, git};
 
 const GOALS: &str = "[[concern]]\nname = \"no-bad-file\"\nsource = \"AGENTS.md: nothing named BAD\"\noracle = \"ls BAD 2>/dev/null | wc -l\"\nunit = \"files\"\nmax = 0\nclass = \"contract\"\n";
 
@@ -40,7 +40,7 @@ fn the_commit_that_turned_a_contract_goal_red_is_named_among_a_landed_range_and_
     let lander = Lander { queue: container.join("queue"), ..Lander::new(&repo, Vec::new()).unwrap() };
     let landed = Landed { base: &base, ..already_red };
     queue(&landed, &lander, &culprit, "no-bad-file").unwrap();
-    let message = git(&repo, &["log", "-1", "--format=%B", &format!("concerns-revert-{}", &culprit[..12])]).unwrap();
+    let message = git(&candidate::lander_worktree(&repo, "lander-concerns").unwrap(), &["log", "-1", "--format=%B", &format!("concerns-revert-{}", &culprit[..12])]).unwrap();
     assert!(message.contains(&format!("Reverts: {culprit}")) && message.contains("Concern-red: no-bad-file"), "{message}");
     let queued = std::fs::read_dir(&lander.queue).unwrap().flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).count();
     assert_eq!(queued, 1, "one ticket for the revert goes ahead of the queue");

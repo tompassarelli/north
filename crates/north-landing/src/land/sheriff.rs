@@ -315,7 +315,7 @@ fn lane_ticket(lander: &Lander, request: &Request, tip: &str, lane: &str) -> Opt
     let store = north_base::land_ticket::recorded(&lander.queue);
     let landed = done.filter_map(Result::ok).map(|entry| entry.path()).filter_map(|path| Some((queue::read(&path).ok()?, path)));
     landed.filter(|(ticket, path)| north_base::land_ticket::read(store.as_ref(), &lander.queue, path, ticket.verdict.as_deref()) == north_base::land_ticket::Phase::Landed).map(|(ticket, _)| ticket).find(|ticket| {
-        ticket.head == lane || git(&lander.repo, &["cherry", &ticket.head, tip, &request.parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}")))
+        ticket.head == lane || git(&lander.worktree, &["cherry", &ticket.head, tip, &request.parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}")))
     })
 }
 
@@ -437,12 +437,12 @@ pub fn chase(lander: &Lander, head: &str, failing: &BTreeSet<Failure>, log: &Pat
     }
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let repository = crate::platform::push_ledger::repository(&origin);
-    let history = git(&lander.repo, &["log", "--first-parent", "--format=%H", "-n", "400", &format!("{head}^")])?;
+    let history = git(&lander.worktree, &["log", "--first-parent", "--format=%H", "-n", "400", &format!("{head}^")])?;
     let ledger = fs::read_to_string(post_land::ledger_path()).unwrap_or_default();
     let Some(parent) = green_ancestor(&ledger, &repository, &history.lines().collect::<Vec<_>>()) else {
         return Ok(format!("no landing within 400 of {} has a green post-land verdict, so no revert is requested", short(head)));
     };
-    file(&lander.repo, head, &parent, failing, log)?;
+    file(&lander.worktree, head, &parent, failing, log)?;
     Ok(format!("main was green at {} and is red at {} on {}; the sheriff bisects the landings between", short(&parent), short(head), names(&failing.iter().cloned().collect::<Vec<_>>())))
 }
 

@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-trusted-mirror"
+layer = 1
+paths = ["crates/north-trusted-mirror/src/**"]
+may_use = []
+

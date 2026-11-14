@@ -409,14 +409,14 @@ fn promote_bisects_an_undeclared_replay_change_to_its_commit_queues_its_revert_a
     assert_eq!(reverts.len(), 1, "{stdout}");
     let revert = &reverts[0];
     assert_eq!(revert.branch, format!("sheriff-revert-{}", &culprit[..9]));
-    assert!(git(&chain.checkout, &["log", "-1", "--format=%B", &revert.head]).contains(&format!("Sheriff-Reverts: {culprit}")));
+    assert!(git(&revert.root, &["log", "-1", "--format=%B", &revert.head]).contains(&format!("Sheriff-Reverts: {culprit}")));
     assert!(chain.told().contains("goes back to the held runtime") && chain.told().contains(&culprit[..9]), "{}", chain.told());
 
     let again = chain.promote();
     assert!(again.stdout.contains("rolled back"), "{}", again.stdout);
     assert_eq!(chain.reverts().len(), 1, "a second promotion queues no second revert: {}", again.stdout);
 
-    git(&chain.checkout, &["push", "-q", "origin", &format!("{}:refs/heads/main", revert.head)]);
+    git(&revert.root, &["push", "-q", "origin", &format!("{}:refs/heads/main", revert.head)]);
     chain.runtime(&revert.head, "echo 'replay: verdict landed'");
     chain.current(&revert.head);
     let next = chain.promote();

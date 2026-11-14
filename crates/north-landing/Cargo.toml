@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 north-git-locks = { path = "../north-git-locks" }
+north-trusted-mirror = { path = "../north-trusted-mirror" }
 north-base = { path = "../north-base" }
 north-check-environment = { path = "../north-check-environment" }
 north-diff-gates = { path = "../north-diff-gates" }

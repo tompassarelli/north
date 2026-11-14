@@ -226,7 +226,7 @@ fn open(repo: &Path, options: &Options) -> Result<Opened, String> {
     match hold::take(&lander.queue, &lander.repo) {
         Ok(hold) => {
             reap_offloads(&lander);
-            for path in post_land::reap_scratch(&lander.repo, &lander.queue) {
+            for path in post_land::reap_scratch(&lander.worktree, &lander.queue) {
                 println!("north land: removed the after-landing worktree {} a previous lander of {} left", path.display(), lander.repo.display());
             }
             Ok(Opened::Serving(lander, hold))

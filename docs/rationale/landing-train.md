@@ -635,7 +635,8 @@ then S2b and S2c in parallel; then S3 and S4.
   S1 fills), bin/safe-push (`--check-candidate --base SHA` as described above, and `usage()` deleted),
   tests/it/land_serve.rs. `north land serve [--once]` reads the queue and builds one candidate for an
   origin: red-fix tickets first, then oldest, re-enqueued tickets replacing older ones. The candidate
-  is a detached HEAD in the stable worktree `~/code/<repo>/worktrees/lander`. At each pick it
+  is a detached HEAD in the stable worktree `~/code/<repo>/trusted/worktrees/lander` of the repository's
+  trusted mirror, which fetches origin and lane heads and which no worker writes (south#128). At each pick it
   runs `git cherry`, so a lane already on main counts as landed, and `north stale-revert` against the
   lane's head. A conflict ejects that lane and records its files. The candidate is checked with
   `safe-push --check-candidate`, in an environment with `GH_TOKEN` and the App key removed. On green

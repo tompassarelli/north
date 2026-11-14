@@ -1011,6 +1011,7 @@ north_tree(
         "//crates/north-test-cases:files",
         "//crates/north-threads:files",
         "//crates/north-timers:files",
+        "//crates/north-trusted-mirror:files",
         "//crates/north-tui:files",
         "//crates/north-tui/monitor:files",
         "//crates/north-tune:files",

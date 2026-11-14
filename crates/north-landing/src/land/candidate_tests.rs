@@ -100,6 +100,7 @@ fn emptied_pick_scenario(dir: &Path) {
     fs::write(repo.join("f"), "A1\nC\nB1\n").unwrap();
     commit_all(&repo, "Land lane-one");
     let landed = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    git(&worktree, &["fetch", "-q", "--no-write-fetch-head", &repo.to_string_lossy(), "main"]).unwrap();
     let alone = [lane_ticket(&repo, dir, "lane-two", &second)];
     let built = build(&worktree, &landed, &alone, &[], usize::MAX, &logs).unwrap();
     assert!(matches!(built.picks[0], Pick::Decided(_)));
@@ -181,4 +182,80 @@ fn rebase_compile_scenario(dir: &Path) {
     assert!(refused.verdict.contains("duplicate key") && refused.verdict.contains("--> Cargo.toml:7:1"), "on 2026-11-13 e62678a196 left main's Cargo.toml with a second thiserror key; the compile after the rebase could not read which crates it reached and landed it with no verdict: {}", refused.verdict);
     let reverted = Rebased { checked_on: None, ..broken };
     assert!(rebase_compile::judge(&reverted, &offline, &logs, "sheriff-revert").unwrap().is_some_and(|refused| refused.verdict.contains("duplicate key")), "on 2026-11-13 the sheriff's queued revert 7ba951faca, a ticket checked on no base, dropped the workspace's thiserror entry while north-graph still inherited it, and landed past the manifest read");
+}
+
+fn origin_and_main(dir: &Path) -> (PathBuf, PathBuf, String) {
+    let (origin, main) = (dir.join("origin.git"), dir.join("main"));
+    git(dir, &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()]).unwrap();
+    git(dir, &["clone", "-q", &origin.to_string_lossy(), &main.to_string_lossy()]).unwrap();
+    for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        git(&main, &["config", key, value]).unwrap();
+    }
+    fs::write(main.join("f"), "good\n").unwrap();
+    commit_all(&main, "base");
+    git(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]).unwrap();
+    let base = git(&main, &["rev-parse", "HEAD"]).unwrap();
+    (origin, main, base)
+}
+
+fn forged(main: &Path, base: &str) -> String {
+    fs::write(main.join("f"), "forged\n").unwrap();
+    git(main, &["add", "f"]).unwrap();
+    let tree = git(main, &["write-tree"]).unwrap();
+    git(main, &["reset", "-q", "--hard", base]).unwrap();
+    git(main, &["commit-tree", &tree, "-m", "forged"]).unwrap()
+}
+
+#[test]
+fn the_lander_reads_only_what_origin_sent_whatever_a_worker_writes_into_the_main_store() {
+    a_replace_ref_a_worker_plants_in_the_main_store_does_not_reach_the_candidate();
+    an_origin_main_a_worker_moves_in_the_main_store_is_not_the_one_the_lander_reads();
+    an_object_a_worker_plants_under_a_future_name_does_not_reach_the_candidate();
+}
+
+fn a_replace_ref_a_worker_plants_in_the_main_store_does_not_reach_the_candidate() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, main, base) = origin_and_main(dir.path());
+    let forged = forged(&main, &base);
+    git(&main, &["replace", &base, &forged]).unwrap();
+    let worktree = lander_worktree(&main, "lander").unwrap();
+    assert_eq!(prepare(&main, &worktree).unwrap(), base);
+    build(&worktree, &base, &[], &[], 1, &dir.path().join("logs")).unwrap();
+    assert_eq!(fs::read_to_string(worktree.join("f")).unwrap(), "good\n", "the candidate holds origin's content, not what the main checkout's store says (north#1513)");
+}
+
+fn an_origin_main_a_worker_moves_in_the_main_store_is_not_the_one_the_lander_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, main, base) = origin_and_main(dir.path());
+    let worktree = lander_worktree(&main, "lander").unwrap();
+    ensure(&main, &worktree).unwrap();
+    let forged = forged(&main, &base);
+    git(&main, &["update-ref", "refs/remotes/origin/main", &forged]).unwrap();
+    assert_eq!(git(&worktree, &["rev-parse", "refs/remotes/origin/main"]).unwrap(), base, "the lander reads origin/main as its own fetch of origin left it, not as the main checkout's store says (north#1513)");
+}
+
+fn an_object_a_worker_plants_under_a_future_name_does_not_reach_the_candidate() {
+    let dir = tempfile::tempdir().unwrap();
+    let (origin, main, _) = origin_and_main(dir.path());
+    let objects = main.join(".git/objects");
+    let loose = |sha: &str| objects.join(&sha[..2]).join(&sha[2..]);
+    fs::write(dir.path().join("bad"), "bad\n").unwrap();
+    fs::write(dir.path().join("later"), "later\n").unwrap();
+    let bad = git(&main, &["hash-object", "-w", &dir.path().join("bad").to_string_lossy()]).unwrap();
+    let later = git(&main, &["hash-object", &dir.path().join("later").to_string_lossy()]).unwrap();
+    fs::create_dir_all(loose(&later).parent().unwrap()).unwrap();
+    fs::copy(loose(&bad), loose(&later)).unwrap();
+    let elsewhere = dir.path().join("elsewhere");
+    git(dir.path(), &["clone", "-q", &origin.to_string_lossy(), &elsewhere.to_string_lossy()]).unwrap();
+    for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        git(&elsewhere, &["config", key, value]).unwrap();
+    }
+    fs::write(elsewhere.join("g"), "later\n").unwrap();
+    commit_all(&elsewhere, "Land the later file");
+    git(&elsewhere, &["push", "-q", "origin", "HEAD:refs/heads/main"]).unwrap();
+    let landed = git(&elsewhere, &["rev-parse", "HEAD"]).unwrap();
+    let worktree = lander_worktree(&main, "lander").unwrap();
+    assert_eq!(prepare(&main, &worktree).unwrap(), landed);
+    build(&worktree, &landed, &[], &[], 1, &dir.path().join("logs")).unwrap();
+    assert_eq!(fs::read_to_string(worktree.join("g")).unwrap(), "later\n", "the candidate holds the content origin sent, not an object of the same name in the main checkout's store (north#1513)");
 }

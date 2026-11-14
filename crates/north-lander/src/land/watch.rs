@@ -280,13 +280,13 @@ impl Watch {
     }
 
     fn supersede(&self, lander: &Lander, newest: &str) {
-        let Some(current) = Config::after_lines(&lander.repo, newest) else {
+        let Some(current) = Config::after_lines(&lander.worktree, newest) else {
             println!("north land: the check lines of {newest}, which landed past this lander, are not in {}, so no after-landing run in flight is cancelled for it", lander.repo.display());
             return;
         };
         let flights = self.running.iter().map(|running| (&running.batch, &running.cancel)).chain(self.searching.iter().map(|searching| (&searching.batch, &searching.cancel)));
         for (batch, cancel) in flights {
-            let Some(running) = Config::after_lines(&lander.repo, &batch.head) else { continue };
+            let Some(running) = Config::after_lines(&lander.worktree, &batch.head) else { continue };
             if !cancel.requested() && superseded(&running, &current) {
                 println!("north land: {newest} changed the check lines of the after-landing run of {} in flight, so that run is cancelled as superseded and its landings are checked with {newest}", batch.head);
                 cancel.request(newest);
@@ -324,7 +324,7 @@ impl Watch {
         let cancel = Cancel::default();
         moved(heads(&batch), Run::Running, &format!("its after-landing run of {} started{}", batch.head, host.as_deref().map_or_else(String::new, |host| format!(" on {host}"))));
         let run = post_land::start(lander, landed(lander, &batch), host.clone(), cancel.clone());
-        if let Some(run) = buck2_after::start(&lander.wake, &lander.repo, &lander.queue, &lander.offload_owner, &batch.head) {
+        if let Some(run) = buck2_after::start(&lander.wake, &lander.worktree, &lander.queue, &lander.offload_owner, &batch.head) {
             self.buck2.push(Buck2Run { head: batch.head.clone(), base: batch.base.clone(), lanes: batch.lanes.clone(), run });
         }
         self.running.push(Running { batch, run, host, cancel });
@@ -425,7 +425,7 @@ fn landed(lander: &Lander, batch: &Batch) -> post_land::Landed {
     let heads = batch.heads.iter().map(|followed| followed.head.clone()).collect();
     let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
     let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
-    let currency = Currency::at(&lander.repo, &batch.base);
+    let currency = Currency::at(&lander.worktree, &batch.base);
     let ran = batch.lanes.iter().filter(|lane| !lane.ticket.tests_after_landing).filter_map(|lane| lane.ticket.passed_alone_on().filter(|on| currency.current(on)).map(|on| format!("{}={on}..{}", lane.ticket.branch, lane.ticket.head))).collect();
     post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips, ran)
 }

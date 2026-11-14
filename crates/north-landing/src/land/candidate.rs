@@ -7,6 +7,7 @@ use std::sync::{Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
 use north_base::platform::process;
+use north_trusted_mirror::{self as trusted_mirror, Mirror};
 
 use super::landed_copy;
 use super::on_main::{self, OnMain};
@@ -27,7 +28,7 @@ const NO_AUTO_MAINTENANCE: [&str; 2] = ["-c", "maintenance.auto=false"];
 
 fn run(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
     let mut command = Command::new("git");
-    command.arg("-C").arg(directory).args(NO_AUTO_MAINTENANCE).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true");
+    command.arg("-C").arg(directory).args(NO_AUTO_MAINTENANCE).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").env("GIT_NO_REPLACE_OBJECTS", "1");
     match process::try_run_group_traced_within(command, DEADLINE) {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(stalled)) => Err(format!("git {} gave no answer within {} s and was killed: {stalled}", arguments.join(" "), DEADLINE.as_secs())),
@@ -69,14 +70,15 @@ fn succeeds(directory: &Path, arguments: &[&str]) -> bool {
 
 pub fn lander_worktree(repo: &Path, name: &str) -> Result<PathBuf, String> {
     let checkout = super::repositories::checkout(repo)?;
-    let container = checkout.parent().ok_or_else(|| format!("{} has no project container", checkout.display()))?;
-    Ok(container.join("worktrees").join(name))
+    Ok(Mirror::directory(&checkout)?.join("worktrees").join(name))
 }
 
 pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
     if !worktree.join(".git").exists() {
         let path = worktree.to_str().ok_or_else(|| format!("{} is not UTF-8", worktree.display()))?;
-        git(repo, &["worktree", "add", "-q", "-f", "--detach", path, "HEAD"])?;
+        let mirror = Mirror::open(&super::repositories::checkout(repo)?)?;
+        let start = mirror.origin_main().unwrap_or_else(|_| trusted_mirror::SEED_HEAD.to_owned());
+        git(mirror.git_dir(), &["worktree", "add", "-q", "-f", "--detach", path, &start])?;
     }
     if let Ok(lock) = git(worktree, &["rev-parse", "--path-format=absolute", "--git-path", "index.lock"]) {
         let _ = fs::remove_file(lock);
@@ -133,7 +135,7 @@ pub fn readable(worktree: &Path, ticket: &Ticket) -> bool {
         return true;
     }
     let root = ticket.root.to_str().unwrap_or_default();
-    let _ = output(worktree, &["fetch", "-q", "--no-tags", root, &format!("refs/heads/{}", ticket.branch)]);
+    let _ = output(worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", root, &format!("+{}:refs/lanes/{}", ticket.head, ticket.branch)]);
     has_commit(worktree, &ticket.head)
 }
 

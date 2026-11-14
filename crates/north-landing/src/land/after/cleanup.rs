@@ -76,21 +76,21 @@ fn occupant(root: &Path) -> Option<u32> {
 
 fn delete_held_remote_branch(lander: &Lander, branch: &str, holder: &str) {
     let reference = format!("refs/heads/{branch}");
-    let Ok(listing) = git(&lander.repo, &["ls-remote", "origin", &reference]) else { return };
+    let Ok(listing) = git(&lander.worktree, &["ls-remote", "origin", &reference]) else { return };
     let Some(remote_oid) = listing.split_whitespace().next().filter(|oid| !oid.is_empty()) else { return };
     let scratch = format!("refs/land-cleanup/{}", queue::slug(branch));
-    if git(&lander.repo, &["fetch", "-q", "--no-tags", "origin", &format!("+{reference}:{scratch}")]).is_err() {
+    if git(&lander.worktree, &["fetch", "-q", "--no-tags", "origin", &format!("+{reference}:{scratch}")]).is_err() {
         return;
     }
-    let merged = on_main(&lander.repo, holder, &scratch) || landed_tree::landed(&lander.repo, holder, &scratch).is_some();
-    let _ = git(&lander.repo, &["update-ref", "-d", &scratch]);
+    let merged = on_main(&lander.worktree, holder, &scratch) || landed_tree::landed(&lander.worktree, holder, &scratch).is_some();
+    let _ = git(&lander.worktree, &["update-ref", "-d", &scratch]);
     if !merged {
         println!("north land: origin {branch} holds work {holder} lacks; left for north lane gc --remote");
         return;
     }
     let pushed = Command::new("git")
         .arg("-C")
-        .arg(&lander.repo)
+        .arg(&lander.worktree)
         .args(["push", "-q", "--no-verify", "--no-follow-tags", &format!("--force-with-lease={reference}:{remote_oid}"), "origin", &format!(":{reference}")])
         .env("SAFE_PUSH_ACTIVE", "1")
         .output();
