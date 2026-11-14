@@ -47,10 +47,13 @@ impl Follower {
     }
 
     pub fn poll(&mut self) -> NorthResult<bool> {
+        self.refresh_record();
+        if self.record.conversation.is_some() {
+            self.transcript.conversation.clone_from(&self.record.conversation);
+        }
         let Some(tail) = self.tail.as_mut() else { return Ok(false) };
         let frames = tail.frames()?;
         let before = (self.transcript.entries.len(), self.transcript.status);
-        self.refresh_record();
         let frames: Vec<_> = frames.into_iter().filter(|frame| self.runtime.frame_conversation(frame) == self.record.conversation.as_deref()).collect();
         let got_frames = !frames.is_empty();
         self.observe(frames);

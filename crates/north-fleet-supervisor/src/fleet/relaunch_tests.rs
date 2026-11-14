@@ -50,3 +50,21 @@ fn a_relaunch_across_model_families_starts_a_fresh_conversation_that_follows_the
     assert_eq!(same.conversation, conversation, "a relaunch within one family resumes the conversation");
     assert!(matches!(plans.lock().unwrap().pop(), Some(Restart::Resume)), "a relaunch within one family resumed");
 }
+
+#[test]
+fn a_restart_on_another_model_family_keeps_replies_in_the_transcript() {
+    use std::io::Write;
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path());
+    stopped(&fleet, "worker", "opus");
+    let mut follower = fleet.follow("worker").unwrap();
+    let restarted = fleet.relaunch_with("worker", Some("sonnet"), None, |_, _| fleet.record("worker")).unwrap();
+    let conversation = restarted.conversation.unwrap();
+    assert_ne!(conversation, "worker");
+    let reply = json!({"type": "assistant", "session_id": &conversation, "message": {"content": [{"type": "text", "text": "Done: alive."}]}});
+    let mut stream = std::fs::OpenOptions::new().append(true).open(fleet.record("worker").unwrap().host_dir.join("g1/stream.jsonl")).unwrap();
+    writeln!(stream, "{reply}").unwrap();
+    follower.poll().unwrap();
+    assert!(follower.transcript().entries.iter().any(|entry| entry.text == "Done: alive."), "{:?}", follower.transcript().entries);
+    assert_eq!(fleet.record("worker").unwrap().conversation, Some(conversation), "the record keeps the conversation the client writes");
+}

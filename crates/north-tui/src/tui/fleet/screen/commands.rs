@@ -20,7 +20,7 @@ impl Screen {
                 format!("launching {}…", request.name)
             }
             Command::Revive(name) => format!("resuming {name}…"),
-            Command::Relaunch { name, .. } => format!("restarting {name} on the same conversation…"),
+            Command::Relaunch { name, .. } => format!("restarting {name}…"),
             Command::Interrupt(name) => format!("interrupting {name}…"),
             Command::Stop(name) => format!("stopping {name}…"),
             Command::Forget(name) => format!("forgetting {name}…"),
@@ -80,8 +80,10 @@ impl Screen {
     }
 
     fn relaunched(&mut self, name: String, model: Option<String>, effort: Option<Effort>) {
+        let changes_model = model.is_some();
         let changes: Vec<String> = model.into_iter().chain(effort.map(|effort| format!("{} effort", effort.label()))).collect();
-        self.notice = Some(Notice::Info(format!("restarted {name} on {}; the conversation continues", changes.join(", "))));
+        let continues = if changes_model { "; on a model of another family the conversation is a new one that starts from the last report" } else { "; the conversation continues" };
+        self.notice = Some(Notice::Info(format!("restarted {name} on {}{continues}", changes.join(", "))));
     }
 
     fn forgotten(&mut self, name: String) {

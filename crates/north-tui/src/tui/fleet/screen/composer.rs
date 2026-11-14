@@ -94,14 +94,14 @@ impl Screen {
             },
             Tuning::Model(None) => {
                 let models = choices.map_or_else(String::new, |choices| choices.models.join(", "));
-                self.notice = Some(Notice::Info(format!("{name} runs {}; /model NAME restarts it on the same conversation with one of: {models}", record.model.as_deref().unwrap_or("the account default model"))));
+                self.notice = Some(Notice::Info(format!("{name} runs {}; /model NAME restarts it with one of: {models}", record.model.as_deref().unwrap_or("the account default model"))));
             }
             Tuning::Effort(None) if choices.is_some_and(|choices| !choices.takes_effort) => {
                 self.notice = Some(Notice::Info(format!("{} sessions take no effort", record.provider.label())));
             }
             Tuning::Effort(None) => {
                 let levels = Effort::ALL.map(Effort::label).join(", ");
-                self.notice = Some(Notice::Info(format!("{name} runs at {} effort; /effort LEVEL restarts it on the same conversation with one of: {levels}", record.effort.map_or("the account default", Effort::label))));
+                self.notice = Some(Notice::Info(format!("{name} runs at {} effort; /effort LEVEL restarts it with one of: {levels}", record.effort.map_or("the account default", Effort::label))));
             }
         }
         None
