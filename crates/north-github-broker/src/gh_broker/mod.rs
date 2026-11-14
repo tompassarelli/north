@@ -21,7 +21,7 @@ use upstream::Upstream;
 
 pub use budget::github;
 
-const USAGE: &str = "usage: north gh-broker serve [--resident] | north gh-broker release | north gh-broker quota
+const USAGE: &str = "usage: north gh-broker serve [--resident [--adopt]] | north gh-broker release | north gh-broker quota
 
 The one local GitHub broker every gh call on this host goes through (north#638). north gh-session,
 which bin/gh runs in a fleet session, starts the broker when its socket does not answer and runs
@@ -96,17 +96,18 @@ fn serve(resident: bool, adopt: bool) -> u8 {
     drain_on_sigterm(place.socket(), Arc::clone(&activity));
     let ended = server::serve(&listener, DRAIN_LIMIT, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls(), place.quota())), &Arc::new(app_reads::AppReads::from_host()));
     drop(lock);
-    end(&ended, &listener);
-    0
+    end(&ended, &listener)
 }
 
-fn end(ended: &server::Ended, listener: &UnixListener) {
+fn end(ended: &server::Ended, listener: &UnixListener) -> u8 {
     if !ended.finished() {
         eprintln!("north gh-broker: {} s passed with calls still open; leaving them", DRAIN_LIMIT.as_secs());
     }
     if let server::Ended::HandingOver { .. } = ended {
-        eprintln!("north gh-broker: cannot hand the socket to the new runtime: {}; exiting so the service restarts", hand_over(listener));
+        eprintln!("north gh-broker: cannot hand the socket to the new runtime: {}; exiting 1 so north-gh-broker.service, whose Restart=always is in nixos-config modules/gh-broker, starts it afresh", hand_over(listener));
+        return 1;
     }
+    0
 }
 
 fn bound(place: &Place) -> Option<UnixListener> {
