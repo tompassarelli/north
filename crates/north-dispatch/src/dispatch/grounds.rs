@@ -226,8 +226,9 @@ impl Grounds {
             Some(constant) => (Some(constant.value), format!("{source}; p50 the median of every worker run, {}", constant.why)),
             None => (p50, source),
         };
-        let (p90, source) = match self.floor.filter(|(floor, _)| p90 < *floor) {
-            Some((floor, boxes)) => (floor, format!("{source}; the p90 ${p90:.2} is below the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), which one real box needs")),
+        let floored = floored_p90(p90, self.floor.map(|(floor, _)| floor));
+        let (p90, source) = match self.floor.filter(|_| floored > p90) {
+            Some((_, boxes)) => (floored, format!("{source}; the p90 ${p90:.2} is below the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), which one real box needs")),
             None => (p90, source),
         };
         let stated = match p50.map(|p50| p50.min(p90)) {
@@ -278,6 +279,11 @@ fn carried(report: &str, home: Option<&Path>) -> String {
         out.push_str(&part[word.len()..]);
     }
     out.chars().take(REPORT_CHARS).collect()
+}
+
+/// The Budget's p90 raised to `floor`, the median cost of a closed box across every cell, when it sits under it.
+pub fn floored_p90(p90: f64, floor: Option<f64>) -> f64 {
+    floor.filter(|floor| p90 < *floor).unwrap_or(p90)
 }
 
 /// The minutes a brief's ETA gives a box in a cell with these figures.

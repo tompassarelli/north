@@ -1,5 +1,5 @@
 //! Each estimator against what its runs came to: per tier and category over the week, the median
-//! and p90 ratio of actual to estimated minutes and cost and the share of runs inside their
+//! and p90 ratio of actual to estimated minutes per run and cost per box and the share inside their
 //! estimate, beside the same ratio for an estimate replayed from the cell's own runs of the 7 days
 //! before each run started. A cell drifted when the estimate in use sat outside the calibrated band
 //! at the quantile its estimator covers and the replayed one sat inside it: a stale estimate, kept
@@ -8,6 +8,7 @@
 use crate::foundation::clock::Timestamp;
 use crate::ledger::EstimatedRun;
 use crate::ledger::closed::percentile;
+use crate::dispatch::floored_p90;
 use crate::tune::budgets::BUDGET_COVERAGE;
 use crate::threads::calibration::Knobs;
 use std::collections::BTreeMap;
@@ -96,49 +97,100 @@ pub struct Calibration {
     pub cost: Option<Reading>,
 }
 
+struct Sample<'a> {
+    tier: &'a str,
+    category: &'a str,
+    actual: f64,
+    stated: Option<f64>,
+    started: Option<i64>,
+    ended: Option<i64>,
+    week: bool,
+}
+
 #[derive(Default)]
 struct Cell<'a> {
-    scored: Vec<&'a EstimatedRun>,
-    pool: Vec<&'a EstimatedRun>,
+    scored: Vec<&'a Sample<'a>>,
+    pool: Vec<&'a Sample<'a>>,
+}
+
+fn cells<'a>(samples: &'a [Sample<'a>]) -> BTreeMap<(&'a str, &'a str), Cell<'a>> {
+    let mut cells: BTreeMap<(&str, &str), Cell> = BTreeMap::new();
+    for sample in samples.iter().filter(|sample| sample.week && !sample.tier.starts_with(OPENCODE_TIERS)) {
+        cells.entry((sample.tier, sample.category)).or_default().scored.push(sample);
+    }
+    for ((tier, category), cell) in &mut cells {
+        cell.pool.extend(samples.iter().filter(|sample| sample.category == *category && sample.tier == *tier));
+    }
+    cells
+}
+
+fn dated(runs: &EstimatedRuns) -> impl Iterator<Item = (&EstimatedRun, bool)> {
+    runs.week.iter().map(|run| (run, true)).chain(runs.earlier.iter().map(|run| (run, false)))
+}
+
+fn ended(run: &EstimatedRun) -> Option<i64> {
+    Timestamp::parse(&run.ended).ok().map(Timestamp::unix_seconds)
+}
+
+fn minutes(runs: &EstimatedRuns) -> Vec<Sample<'_>> {
+    dated(runs).map(|(run, week)| Sample { tier: &run.tier, category: &run.category, actual: run.minutes, stated: Some(run.eta_min), started: run.started, ended: ended(run), week }).collect()
+}
+
+type BoxKey<'a> = (&'a str, &'a str, Result<&'a str, usize>);
+
+/// A cell's runs collapsed by item into boxes, each its runs' spend against the first Budget its briefs stated, as a brief's Budget prices a box.
+fn boxes(runs: &EstimatedRuns) -> Vec<Sample<'_>> {
+    let mut grouped: BTreeMap<BoxKey, Vec<(&EstimatedRun, bool)>> = BTreeMap::new();
+    for (index, (run, week)) in dated(runs).enumerate() {
+        grouped.entry((&run.tier, &run.category, run.item.as_deref().ok_or(index))).or_default().push((run, week));
+    }
+    grouped
+        .into_iter()
+        .map(|((tier, category, _), mut runs)| {
+            runs.sort_by_key(|(run, _)| run.started.unwrap_or(i64::MAX));
+            Sample { tier, category, actual: runs.iter().map(|(run, _)| run.usd).sum(), stated: runs.iter().find_map(|(run, _)| run.estimated_usd), started: runs.first().and_then(|(run, _)| run.started), ended: runs.iter().filter_map(|(run, _)| ended(run)).max(), week: runs.iter().any(|(_, week)| *week) }
+        })
+        .collect()
 }
 
 struct Estimator {
     percent: usize,
-    actual: fn(&EstimatedRun) -> f64,
-    stated: fn(&EstimatedRun) -> Option<f64>,
+    floored: bool,
 }
 
 impl Estimator {
-    fn reading(&self, scored: &[&EstimatedRun], pool: &[&EstimatedRun]) -> Option<Reading> {
-        let stated = Ratios::of(self.percent, scored.iter().filter_map(|run| Some(((self.actual)(run), (self.stated)(run)?))))?;
-        let replayed = Ratios::of(self.percent, scored.iter().filter(|run| (self.stated)(run).is_some_and(|estimate| estimate > 0.0)).filter_map(|run| Some(((self.actual)(run), self.replay(run, pool)?))));
+    fn reading(&self, cell: &Cell, every: &[Sample]) -> Option<Reading> {
+        let stated = Ratios::of(self.percent, cell.scored.iter().filter_map(|sample| Some((sample.actual, sample.stated?))))?;
+        let replayed = Ratios::of(self.percent, cell.scored.iter().filter(|sample| sample.stated.is_some_and(|estimate| estimate > 0.0)).filter_map(|sample| Some((sample.actual, self.replay(sample, &cell.pool, every)?))));
         Some(Reading { stated, replayed })
     }
 
-    fn replay(&self, run: &EstimatedRun, pool: &[&EstimatedRun]) -> Option<f64> {
-        let started = run.started?;
-        let mut earlier: Vec<f64> = pool.iter().filter(|other| (self.stated)(other).is_some_and(|estimate| estimate > 0.0) && Timestamp::parse(&other.ended).is_ok_and(|ended| (started - REPLAY_SECONDS..started).contains(&ended.unix_seconds()))).map(|other| (self.actual)(other)).collect();
-        (earlier.len() >= DRIFT_MIN_RUNS).then(|| percentile(&mut earlier, self.percent))
+    fn replay(&self, sample: &Sample, pool: &[&Sample], every: &[Sample]) -> Option<f64> {
+        let started = sample.started?;
+        let before = |other: &Sample| other.ended.is_some_and(|ended| (started - REPLAY_SECONDS..started).contains(&ended));
+        let mut earlier: Vec<f64> = pool.iter().filter(|other| other.stated.is_some_and(|estimate| estimate > 0.0) && before(other)).map(|other| other.actual).collect();
+        if earlier.len() < DRIFT_MIN_RUNS {
+            return None;
+        }
+        let replayed = percentile(&mut earlier, self.percent);
+        if !self.floored {
+            return Some(replayed);
+        }
+        let mut across: Vec<f64> = every.iter().filter(|other| before(other)).map(|other| other.actual).collect();
+        Some(floored_p90(replayed, (!across.is_empty()).then(|| percentile(&mut across, 50))))
     }
 }
 
-/// Each cell's readings over the week's runs; the minutes estimate covers the quantile `eta_coverage` names, the cost estimate the p90 `BUDGET_COVERAGE`.
+/// Each cell's readings over the week's runs; the minutes estimate covers the quantile `eta_coverage` names per run, the cost estimate the p90 `BUDGET_COVERAGE` per box, raised to the median box across cells as a brief's Budget is.
 pub fn calibrations(runs: &EstimatedRuns) -> Vec<Calibration> {
-    let minutes = Estimator { percent: (Knobs::registry().eta_coverage * 100.0).round() as usize, actual: |run| run.minutes, stated: |run| Some(run.eta_min) };
-    let cost = Estimator { percent: BUDGET_COVERAGE, actual: |run| run.usd, stated: |run| run.estimated_usd };
-    let mut cells: BTreeMap<(&str, &str), Cell> = BTreeMap::new();
-    for run in runs.week.iter().filter(|run| !run.tier.starts_with(OPENCODE_TIERS)) {
-        cells.entry((run.tier.as_str(), run.category.as_str())).or_default().scored.push(run);
-    }
-    for run in runs.week.iter().chain(&runs.earlier) {
-        if let Some(cell) = cells.get_mut(&(run.tier.as_str(), run.category.as_str())) {
-            cell.pool.push(run);
-        }
-    }
-    cells
+    let minutes_estimator = Estimator { percent: (Knobs::registry().eta_coverage * 100.0).round() as usize, floored: false };
+    let cost_estimator = Estimator { percent: BUDGET_COVERAGE, floored: true };
+    let (minutes, boxes) = (minutes(runs), boxes(runs));
+    let costs = cells(&boxes);
+    cells(&minutes)
         .into_iter()
         .filter_map(|((tier, category), cell)| {
-            Some(Calibration { tier: tier.to_owned(), category: category.to_owned(), minutes: minutes.reading(&cell.scored, &cell.pool)?, cost: cost.reading(&cell.scored, &cell.pool) })
+            Some(Calibration { tier: tier.to_owned(), category: category.to_owned(), minutes: minutes_estimator.reading(&cell, &minutes)?, cost: costs.get(&(tier, category)).and_then(|cell| cost_estimator.reading(cell, &boxes)) })
         })
         .collect()
 }
