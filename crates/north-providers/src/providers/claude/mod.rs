@@ -1,5 +1,6 @@
 mod accounts;
 pub mod admin;
+mod conversation_log;
 pub mod api_probe;
 pub mod api_pool;
 pub mod client_probe;

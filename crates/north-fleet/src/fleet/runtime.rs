@@ -115,6 +115,10 @@ pub trait Runtime: Send + Sync {
     fn windows(&self, _accounts: &[Account]) -> Vec<LiveWindow> {
         Vec::new()
     }
+    /// The file a client keeps `conversation` in, which a window's follower reads as the conversation happens; `None` while the client has not written it.
+    fn conversation_log(&self, _accounts: &[Account], _conversation: &str) -> Option<PathBuf> {
+        None
+    }
     fn tell_window(&self, _inbox: &WindowInbox, _text: &str) -> NorthResult<()> {
         Err(NorthError::Usage(format!("{} has no window inbox to deliver into", self.provider().label())))
     }

@@ -234,13 +234,14 @@ fn bar_hosts(session_dir: &Path) -> NorthResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::sync::Mutex;
 
     use serde_json::Value;
 
     use super::*;
     use crate::fleet::fakes::{Paper, Stream};
-    use crate::fleet::model::{Account, ProviderName, Quota, Transcript};
+    use crate::fleet::model::{Account, Entry, EntryKind, ProviderName, Quota, Transcript};
     use crate::fleet::roster::Roster;
     use crate::fleet::runtime::{HostSpec, Instructions, Opening};
     use crate::fleet::runtimes::Runtimes;
@@ -295,6 +296,10 @@ mod tests {
         }
 
         fn observe(&self, frame: &Value, transcript: &mut Transcript) {
+            for block in frame["message"]["content"].as_array().into_iter().flatten().filter(|block| block["type"] == "tool_use") {
+                let (name, command) = (block["name"].as_str().unwrap_or_default(), block["input"]["command"].as_str().unwrap_or_default());
+                transcript.entries.push(Entry { kind: EntryKind::Tool, text: format!("{name} {command}") });
+            }
             Stream.observe(frame, transcript);
         }
 
@@ -309,10 +314,14 @@ mod tests {
         fn windows(&self, _accounts: &[Account]) -> Vec<LiveWindow> {
             self.live.lock().unwrap().iter().map(|(conversation, pid)| LiveWindow { conversation: conversation.clone(), started_ms: 1, cwd: "/tmp".into(), inbox: WindowInbox { account: "c".into(), pid: *pid, socket: PathBuf::new(), token: "peer".into(), busy: false } }).collect()
         }
+
+        fn conversation_log(&self, accounts: &[Account], conversation: &str) -> Option<PathBuf> {
+            accounts.first().map(|account| account.home.join("projects/project").join(format!("{conversation}.jsonl")))
+        }
     }
 
     #[test]
-    fn rebind_dead_proxy_binds_no_window_but_the_holders_own_conversation() {
+    fn an_adopted_window_takes_a_dead_proxy_name_and_its_follower_shows_the_conversation() {
         let home = tempfile::tempdir().unwrap();
         let runtime = Arc::new(Windows { live: Mutex::new(vec![(OTHER.to_owned(), 4102)]) });
         let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
@@ -332,5 +341,25 @@ mod tests {
         fleet.rebind_dead_proxy(PROXY).unwrap();
         let held = fleet.record(PROXY).unwrap();
         assert_eq!((held.conversation.as_deref(), held.placement.as_deref()), (Some(HOLDER), Some("adopted window, process 4103")));
+
+        let account = fleet.accounts().into_iter().find(|account| account.label == "c").unwrap();
+        let log = account.home.join("projects/project").join(format!("{HOLDER}.jsonl"));
+        fs::create_dir_all(log.parent().unwrap()).unwrap();
+        let lines = [
+            serde_json::json!({"type": "user", "message": {"role": "user", "content": "ship it"}}),
+            serde_json::json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "cargo test"}}]}}),
+            serde_json::json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "tests pass"}]}}),
+        ];
+        fs::write(&log, lines.iter().map(|line| format!("{line}\n")).collect::<String>()).unwrap();
+
+        let mut follower = fleet.follow(PROXY).unwrap();
+        let shown: Vec<(EntryKind, String)> = follower.transcript().entries.iter().map(|entry| (entry.kind, entry.text.clone())).collect();
+        assert_eq!(shown, [(EntryKind::User, "ship it".to_owned()), (EntryKind::Tool, "Bash cargo test".to_owned()), (EntryKind::Assistant, "tests pass".to_owned())]);
+        assert_eq!(follower.transcript().status, Status::Idle, "the live window is idle, whatever the file's last line says");
+
+        let mut file = fs::OpenOptions::new().append(true).open(&log).unwrap();
+        writeln!(file, "{}", serde_json::json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "and the reply after"}]}})).unwrap();
+        assert!(follower.poll().unwrap());
+        assert_eq!(follower.transcript().entries.last().map(|entry| entry.text.as_str()), Some("and the reply after"));
     }
 }
