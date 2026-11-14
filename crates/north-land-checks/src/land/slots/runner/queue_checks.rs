@@ -15,7 +15,7 @@ use super::super::select::changed;
 const ATTEMPTS: usize = 3;
 const FAILING: &str = "; failing check `";
 const TESTS_AFTER_LANDING: &str = "tests_after_landing";
-/// The most the checks before queueing wait in slot lines in all before the lane queues without them (north#1508): short of
+/// The most the checks before queueing wait in slot lines in all before the hand-in is refused unchecked (north#1508, north#1537): short of
 /// the 30-minute cap that ends a lead's background command, which twice ended a hand-in still waiting in line; a guess
 /// that the hand-in-to-queued times after it lands settle.
 const LINE_SECONDS: u64 = 180;
@@ -98,10 +98,9 @@ impl Judged {
         Self { run: Err(QueueRefusal::Unjudged(text)), accepted: Accepted::Unjudged, output: String::new() }
     }
 
-    /// No check ran because every build host's slot line expected a wait past its deadline: the lane queues and the lander's own check is its one run, which still guards main (north#1508).
+    /// No check ran because every build host's slot line expected a wait past its deadline: no verdict, so the lane is never vouched for as passed alone (north#1537).
     fn unplaced(why: &str) -> Self {
-        say(&format!("safe-push: {why}, so the lane is queued without its checks before queueing and the lander's own check is its one run"));
-        Self { run: Ok(()), accepted: Accepted::Unjudged, output: String::new() }
+        Self::unjudged(format!("{why} (exit 96), so no check before queueing ran; the lane is not queued unchecked, so run safe-push again once a build host has room"))
     }
 
     /// Whether the finish call passes: its acceptance command passed and no check before queueing failed (north#1233).
