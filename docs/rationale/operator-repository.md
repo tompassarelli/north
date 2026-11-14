@@ -40,7 +40,7 @@ A file that holds two classes has two rows. Line numbers are at commit `c013d612
 | 1 | `agents/orchestration.toml` | resolved in `crates/north-shared-config/src/lib.rs:54` and `crates/north-base/src/platform/orchestration.rs:9`; 59 non-test source files reach it | schema |
 | 2 | `agents/costs.toml` | `crates/north-pace/src/router/choose.rs:28`, `crates/north-pace/src/usage/mod.rs:59`, `crates/north-pacing/src/pacing/placement/credit.rs:45`, `crates/north-flow/src/agents/status/mod.rs:136`, `crates/north-core/src/agent_config_check/accounts.rs:55`, `crates/north-threads/src/threads/outside.rs:54` | schema |
 | 3 | `agents/claude-accounts.toml` | `crates/north-pace/src/credit.rs:49`, `:233` | schema |
-| 4 | `agents/credentials.toml` | `crates/north-ops/src/ops/credentials/declared.rs:8`, `crates/north-broker/src/credentials.rs:51` | schema |
+| 4 | `agents/credentials.toml` | `crates/north-credentials/src/credentials/declared.rs:8`, `crates/north-broker/src/credentials.rs:51` | schema |
 | 5 | `agents/frozen-topics.toml` | `crates/north-base/src/platform/frozen_topics.rs:35` | schema |
 | 6 | `agents/operating-point.toml` | `crates/north-core/src/agent_config_check/gate.rs:266`, `crates/north-convo/src/policy_replay/point.rs:184`, `crates/north-timers/src/timers/skill_prune.rs:131` | schema |
 | 7 | `agents/watch.toml` | `crates/north-flow/src/detectors/gather/sources.rs:16`, `crates/north-flow/src/detectors/gather/skills.rs:16`, `crates/north-timers/src/timers/watch_review/system.rs:15` | schema |
@@ -63,11 +63,11 @@ A file that holds two classes has two rows. Line numbers are at commit `c013d612
 | 24 | `bin/` | the same search | private value |
 | 25 | the checkout's Git facts: origin URL, main's revision, a fetch of origin's main | `crates/north-land-scans/src/outgoing/denylist.rs:172`, `crates/north-landing-gates/src/landing/denylist_mirror.rs:63`, `crates/north-landing-gates/src/landing/base_relative.rs:42`, `crates/north-shared-config/src/lib.rs:92`, `crates/north-runtime/src/runtime/checkouts.rs:26` | private value |
 | 26 to 31 | six encrypted files, one per service the broker calls, each named by a constant in north | `crates/north-broker/src/credentials.rs:11` to `:16` | secret |
-| 32 | every encrypted file under the secrets directory, listed and fingerprinted, never decrypted | `crates/north-ops/src/ops/credentials/declared.rs:102` | secret |
+| 32 | every encrypted file under the secrets directory, listed and fingerprinted, never decrypted | `crates/north-credentials/src/credentials/declared.rs:102` | secret |
 
 Counts per class: **schema 15, generic method 1, private value 9, secret 7; 32 rows.**
 
-North also writes into the operator repository on five paths, each through a session or a verb of its own: incident rows and rule candidates (`crates/north-timers/src/timers/incident_retro/mod.rs:58`), the watch list (`crates/north-timers/src/timers/watch_review/mod.rs:67`), replay sweeps (`crates/north-convo/src/policy_replay/sweep.rs:157`), host facts (`crates/north-runtime/src/runtime/host_facts.rs:13`) and the landing verb for a host whose ledger lives elsewhere (`crates/north-ops/src/ops/remote_serve/south_land.rs`).
+North also writes into the operator repository on five paths, each through a session or a verb of its own: incident rows and rule candidates (`crates/north-timers/src/timers/incident_retro/mod.rs:58`), the watch list (`crates/north-timers/src/timers/watch_review/mod.rs:67`), replay sweeps (`crates/north-convo/src/policy_replay/sweep.rs:157`), host facts (`crates/north-runtime/src/runtime/host_facts.rs:13`) and the landing verb for a host whose ledger lives elsewhere (`crates/north-remote-serve/src/remote_serve/south_land.rs`).
 
 ### The private tree, by kind
 

@@ -1,0 +1,22 @@
+[package]
+name = "north-remote-serve"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-calibration = { path = "../north-calibration" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
+rusqlite.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

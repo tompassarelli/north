@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-remote-serve"
+layer = 6
+paths = ["crates/north-remote-serve/src/**"]
+may_use = ["north-base", "north-calibration", "north-fleet-supervisor"]
+

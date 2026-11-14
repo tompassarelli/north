@@ -1,4 +1,4 @@
-use north_ops::ops::remote_serve::south_policy::{self, Refusal};
+use north_remote_serve::remote_serve::south_policy::{self, Refusal};
 
 use super::south_test_repo::{Repo, raw_diff};
 
