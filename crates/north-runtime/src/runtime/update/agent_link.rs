@@ -17,6 +17,7 @@ const ROOT: &str = "agent-runtime";
 const STAGING: &str = "agent-runtime-staging";
 const CLAUDE_INSTALL: &str = ".local/lib/claude/current";
 const HARNESS: &str = "harness";
+const GH_SHIM: &str = "bin/gh";
 
 #[cfg(not(test))]
 const NAMING_FILE: &str = north_base::platform::agent_runtime::NAMING_FILE;
@@ -67,7 +68,7 @@ pub(super) struct Published {
     claude: Option<PathBuf>,
 }
 
-/// Adds the runtime's programs, with `worker-sandbox` linked beside its `north`, and its harness tree to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place and reads the harness of its own runtime.
+/// Adds the runtime's programs, with `worker-sandbox` linked beside its `north` and the gh shim copied beside it, so an agent home that links this runtime as its shim directory calls GitHub as the Agent App (north#1394), and its harness tree to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place and reads the harness of its own runtime.
 pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
     if configured().is_none() {
         return Ok(None);
@@ -79,6 +80,7 @@ pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
         fs::copy(runtime.join(program), staging.join(program))?;
     }
     std::os::unix::fs::symlink("north", staging.join(EntryPoint::WorkerSandbox.name()))?;
+    fs::copy(runtime.join(TREE).join(GH_SHIM), staging.join("gh"))?;
     copy_tree(&runtime.join(TREE).join(HARNESS), &staging.join(TREE).join(HARNESS))?;
     let added = store::add_rooted(&staging, &runtime.join(ROOT), "the agent runtime");
     fs::remove_dir_all(&staging)?;
