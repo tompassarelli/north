@@ -275,3 +275,18 @@ fn a_host_names_its_agent_link_by_variable_else_by_the_first_line_of_a_file_only
     agent_link::roll_back(&Layout { state: state.path().to_path_buf() }, state.path(), &"f".repeat(40));
     assert_eq!(fs::read_dir(state.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn the_published_agent_runtime_carries_the_gh_shim() {
+    let runtime = tempfile::tempdir().unwrap();
+    for program in layout::PROGRAMS {
+        fs::write(runtime.path().join(program), "").unwrap();
+    }
+    let tree = runtime.path().join(TREE);
+    fs::create_dir_all(tree.join("harness")).unwrap();
+    fs::create_dir_all(tree.join("bin")).unwrap();
+    fs::write(tree.join("bin/gh"), format!("#!/bin/sh\n# {}\n", north_base::platform::gh_shim::MARKER)).unwrap();
+    let staging = runtime.path().join("staging");
+    agent_link::stage(runtime.path(), &staging).unwrap();
+    assert!(north_base::platform::gh_shim::is_shim(&staging.join("gh")), "the agent runtime has no gh shim beside its north, so the agent login's gh answers as no north session");
+}

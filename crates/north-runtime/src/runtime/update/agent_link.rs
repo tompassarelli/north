@@ -17,6 +17,7 @@ const ROOT: &str = "agent-runtime";
 const STAGING: &str = "agent-runtime-staging";
 const CLAUDE_INSTALL: &str = ".local/lib/claude/current";
 const HARNESS: &str = "harness";
+const GH_SHIM: &str = "gh";
 
 #[cfg(not(test))]
 const NAMING_FILE: &str = north_base::platform::agent_runtime::NAMING_FILE;
@@ -67,23 +68,28 @@ pub(super) struct Published {
     claude: Option<PathBuf>,
 }
 
-/// Adds the runtime's programs, with `worker-sandbox` linked beside its `north`, and its harness tree to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place and reads the harness of its own runtime.
+/// Adds the runtime's programs, with `worker-sandbox` linked and north's gh shim copied beside its `north`, and its harness tree to the Nix store as one path rooted at `agent-runtime` in the runtime, and the operator's Claude Code as another rooted at `agent-claude`, so the agent runs copies no one can change in place and reads the harness of its own runtime.
 pub(super) fn publish(runtime: &Path) -> Result<Option<Published>, Failure> {
     if configured().is_none() {
         return Ok(None);
     }
     let staging = runtime.join(STAGING);
-    let _ = fs::remove_dir_all(&staging);
-    fs::create_dir_all(&staging)?;
-    for program in PROGRAMS {
-        fs::copy(runtime.join(program), staging.join(program))?;
-    }
-    std::os::unix::fs::symlink("north", staging.join(EntryPoint::WorkerSandbox.name()))?;
-    copy_tree(&runtime.join(TREE).join(HARNESS), &staging.join(TREE).join(HARNESS))?;
+    stage(runtime, &staging)?;
     let added = store::add_rooted(&staging, &runtime.join(ROOT), "the agent runtime");
     fs::remove_dir_all(&staging)?;
     let claude = publish_claude(runtime, operator_claude().as_deref()).inspect_err(|failure| eprintln!("north runtime update: the agent keeps the Claude Code it had: {}", failure.message)).ok();
     Ok(Some(Published { north: added?, claude }))
+}
+
+pub(super) fn stage(runtime: &Path, staging: &Path) -> Result<(), Failure> {
+    let _ = fs::remove_dir_all(staging);
+    fs::create_dir_all(staging)?;
+    for program in PROGRAMS {
+        fs::copy(runtime.join(program), staging.join(program))?;
+    }
+    std::os::unix::fs::symlink("north", staging.join(EntryPoint::WorkerSandbox.name()))?;
+    fs::copy(runtime.join(TREE).join("bin").join(GH_SHIM), staging.join(GH_SHIM))?;
+    copy_tree(&runtime.join(TREE).join(HARNESS), &staging.join(TREE).join(HARNESS))
 }
 
 /// The version of Claude Code the operator's managed install names as current when this runtime is installed, which its own updater may have moved since the canary launched one.

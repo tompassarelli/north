@@ -43,6 +43,8 @@ impl Host {
         fs::create_dir_all(source.join("harness")).unwrap();
         fs::create_dir_all(&home).unwrap();
         fs::copy(crate::support::manifest_dir().join("harness/defaults.toml"), source.join("harness/defaults.toml")).unwrap();
+        fs::create_dir_all(source.join("bin")).unwrap();
+        fs::write(source.join("bin/gh"), format!("#!/bin/sh\n# {}\n", north_base::platform::gh_shim::MARKER)).unwrap();
         git(&home, &source, &["init", "-q", "-b", "main"]);
         git(&home, &source, &["add", "."]);
         match date {
