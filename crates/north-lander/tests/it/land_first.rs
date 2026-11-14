@@ -110,6 +110,25 @@ fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts
     assert_eq!(sent.lines().filter(|line| line.contains("did not fail again when rerun once at the tip") && line.contains("-again.log")).count(), 1, "{sent}\n{journal}");
 }
 
+#[test]
+fn a_one_lane_batch_is_blamed_only_on_a_rerun_of_its_prefix() {
+    let world = World::new();
+    let north = world.repository("north");
+    north_base::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
+    north.lane_with("flaky", "origin/main", ("flaky.txt", "flaky\n"), ("flaky (north#1257)", None));
+    let journal = serve(&world, &north);
+    assert!(!subjects(&north).iter().any(|subject| subject == "Revert flaky (north#1257)"), "a one-lane batch its rerun did not reproduce was blamed: {journal}");
+    let sent = fs::read_to_string(world.path().join("bin/north.sent")).unwrap_or_default();
+    assert!(sent.lines().any(|line| line.contains("did not fail again when rerun once at the tip") && line.contains("-again.log")), "{sent}\n{journal}");
+
+    let world = World::new();
+    let north = world.repository("north");
+    north_base::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
+    north.lane_with("bad-plan", "origin/main", ("bad.txt", "bad\n"), ("bad-plan (north#360)", None));
+    let journal = serve(&world, &north);
+    assert!(subjects(&north).iter().any(|subject| subject == "Revert bad-plan (north#360)"), "a one-lane batch its rerun reproduced was not blamed: {journal}");
+}
+
 const HELD_AFTER_RUNNER: &str = r#"#!/bin/sh
 printf '%s|%s\n' "$SAFE_PUSH_LAND_RUNNER" "$*" >> "$0.argv"
 if [ "$1 $2 $3" = "capacity offload choose" ]; then
