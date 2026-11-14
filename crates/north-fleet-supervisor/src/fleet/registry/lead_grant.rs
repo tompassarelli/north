@@ -6,11 +6,11 @@ use crate::fleet::model::{Role, SessionRecord};
 
 use super::Fleet;
 
-const VALUED: [&str; 11] = ["--name", "--task", "--box", "--cwd", "--provider", "--model", "--effort", "--route", "--tier-reason", "--idle-exit", "--priority"];
+const VALUED: [&str; 13] = ["--name", "--task", "--box", "--cwd", "--provider", "--account", "--local", "--model", "--effort", "--route", "--tier-reason", "--idle-exit", "--priority"];
 const BARE: [&str; 2] = ["--wait", "--no-wait"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-const LAUNCH_SHAPE: &str = "a lead launches with north fleet launch --name N --task REF [--box TEXT] [--cwd PROJECT/main] [--provider claude] [--model M] [--effort LEVEL] [--route SPEC] [--tier-reason TEXT] [--idle-exit MINUTES] [--priority normal] [--wait | --no-wait] BRIEF...";
-const REVIVE_SHAPE: &str = "a lead revives with north fleet revive NAME [--effort LEVEL]";
+const LAUNCH_SHAPE: &str = "a lead launches with north fleet launch --name N --task REF [--box TEXT] [--cwd PROJECT/main] [--provider claude] [--account LABEL] [--local REASON] [--model M] [--effort LEVEL] [--route SPEC] [--tier-reason TEXT] [--idle-exit MINUTES] [--priority normal] [--wait | --no-wait] BRIEF...";
+const REVIVE_SHAPE: &str = "a lead revives with north fleet revive NAME [--effort LEVEL] [--account LABEL]";
 
 /// What the tick runs for a lead: `north fleet ARGUMENTS`, which starts or revives the session `name`, in `cwd`, the main checkout of the lead's own project.
 #[derive(Debug, PartialEq)]
@@ -20,9 +20,10 @@ pub struct Granted {
     pub cwd: PathBuf,
 }
 
-/// The lead that asks: its record and the main checkout of the project it runs in.
+/// The lead that asks: its record, the issues its parent's record holds and the main checkout of the project it runs in.
 struct Lead {
     record: SessionRecord,
+    parent_tasks: Vec<String>,
     main: PathBuf,
 }
 
@@ -60,16 +61,13 @@ impl Fleet {
             return Err(format!("{writer}'s record holds no task: a lead with an empty record runs unconfined and writes the fleet's records itself, so its launch is not granted"));
         }
         let main = own_main(writer, &record.cwd, &self.home.join("code"))?;
-        Ok(Lead { record, main })
+        let parent_tasks = record.parent.as_deref().and_then(|parent| self.record(parent).ok()).map(|parent| parent.tasks().map(str::to_owned).collect()).unwrap_or_default();
+        Ok(Lead { record, parent_tasks, main })
     }
 
     fn revive_arguments(&self, lead: &Lead, words: &[String]) -> Result<Vec<String>, String> {
-        let words: Vec<&str> = words.iter().map(String::as_str).collect();
-        let (name, effort) = match words.as_slice() {
-            [name] => (*name, None),
-            [name, "--effort", level] if EFFORTS.contains(level) => (*name, Some(*level)),
-            _ => return Err(format!("fleet revive {} is not granted: {REVIVE_SHAPE}", words.join(" "))),
-        };
+        let granted = revive_words(words)?;
+        let name = granted[1].as_str();
         if !session_name(name) {
             return Err(format!("{name} is not a session name; {REVIVE_SHAPE}"));
         }
@@ -82,7 +80,33 @@ impl Fleet {
             return Err(format!("{name} is live; a lead revives only a child that has stopped"));
         }
         placed_again(&child)?;
-        Ok(["revive", name].into_iter().chain(effort.into_iter().flat_map(|level| ["--effort", level])).map(str::to_owned).collect())
+        Ok(granted)
+    }
+}
+
+/// The arguments after `north fleet` that revive the session `words` names, each of `--effort` and `--account` at most once, or why they are not granted to a lead.
+fn revive_words(words: &[String]) -> Result<Vec<String>, String> {
+    let refused = || format!("fleet revive {} is not granted: {REVIVE_SHAPE}", words.join(" "));
+    let [name, flags @ ..] = words else { return Err(refused()) };
+    let (pairs, []) = flags.as_chunks::<2>() else { return Err(refused()) };
+    let mut granted = vec!["revive".to_owned(), name.clone()];
+    for [flag, value] in pairs {
+        if granted.contains(flag) {
+            return Err(refused());
+        }
+        revive_flag(flag, value).ok_or_else(refused)??;
+        granted.extend([flag.clone(), value.clone()]);
+    }
+    Ok(granted)
+}
+
+/// None for a revive flag a lead is not granted, else whether its value `value` is.
+fn revive_flag(flag: &str, value: &str) -> Option<Result<(), String>> {
+    match flag {
+        "--effort" => EFFORTS.contains(&value).then_some(Ok(())),
+        "--account" if names_api(value) => Some(Err(format!("fleet revive --account {value} names an API account, which no lead draws while the API hold stands"))),
+        "--account" => (!value.is_empty() && !value.starts_with("--")).then_some(Ok(())),
+        _ => None,
     }
 }
 
@@ -133,13 +157,13 @@ fn launch(lead: &Lead, words: &[String]) -> Result<(String, Vec<String>), String
 /// The value `value` the launch flag `word` carries, or why the flag or its value is not granted to `lead`.
 fn flag_value<'a>(lead: &Lead, word: &str, value: Option<&'a str>) -> Result<&'a str, String> {
     if !VALUED.contains(&word) {
-        return Err(format!("fleet launch {word} is not granted to a lead: the parent is the lead itself, the role is worker, the account is the placement step's and no file is opened; {LAUNCH_SHAPE}"));
+        return Err(format!("fleet launch {word} is not granted to a lead: the parent is the lead itself, the role is worker and no file is opened; {LAUNCH_SHAPE}"));
     }
     let value = value.filter(|value| !value.starts_with("--") && !value.trim().is_empty()).ok_or_else(|| format!("fleet launch {word} needs a value; {LAUNCH_SHAPE}"))?;
     let refusal = match word {
         "--provider" => (value != "claude").then(|| format!("fleet launch --provider {value} is not granted to a lead: while the API hold stands a lead launches claude subscription workers only")),
         "--priority" => (value != "normal").then(|| format!("fleet launch --priority {value} is not granted to a lead: only the coordinator grants urgent priority")),
-        "--model" | "--route" => names_api(value).then(|| format!("fleet launch {word} {value} names an API organization or key, which no lead draws while the API hold stands")),
+        "--model" | "--route" | "--account" => names_api(value).then(|| format!("fleet launch {word} {value} names an API organization or key, which no lead draws while the API hold stands")),
         "--effort" => (!EFFORTS.contains(&value)).then(|| format!("fleet launch --effort {value} is not one of {}", EFFORTS.join(", "))),
         "--idle-exit" => (!value.bytes().all(|byte| byte.is_ascii_digit())).then(|| format!("fleet launch --idle-exit {value} is not a number of minutes")),
         "--name" => (!session_name(value)).then(|| format!("fleet launch --name {value} is not a session name")),
@@ -150,12 +174,13 @@ fn flag_value<'a>(lead: &Lead, word: &str, value: Option<&'a str>) -> Result<&'a
     refusal.map_or(Ok(value), Err)
 }
 
-/// Refuses a `--task` that is no issue of the lead's own project or that its record does not hold, owner prefix aside.
+/// Refuses a `--task` that is no issue of the lead's own project or that neither its record nor its parent's holds, owner prefix aside.
 fn own_task(lead: &Lead, value: &str) -> Result<(), String> {
     own_project(lead, value)?;
     let issue = |task: &str| task.rsplit('/').next().unwrap_or(task).to_owned();
-    if !lead.record.tasks().any(|held| issue(held) == issue(value)) {
-        return Err(format!("fleet launch --task {value} is not granted to {}: a lead launches workers only for an issue its own record holds ({})", lead.record.name, lead.record.tasks().collect::<Vec<_>>().join(", ")));
+    let held: Vec<&str> = lead.record.tasks().chain(lead.parent_tasks.iter().map(String::as_str)).collect();
+    if !held.iter().any(|held| issue(held) == issue(value)) {
+        return Err(format!("fleet launch --task {value} is not granted to {}: a lead launches workers only for an issue its own record or its parent's holds ({})", lead.record.name, held.join(", ")));
     }
     Ok(())
 }
@@ -201,4 +226,37 @@ fn session_name(name: &str) -> bool {
 fn names_api(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
     lower.split([',', ':', '/']).any(|part| part == "api") || lower.contains("sk-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::fixtures::fleet;
+    use super::*;
+
+    fn recorded(fleet: &Fleet, name: &str, fields: serde_json::Value) {
+        let dir = fleet.root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": fleet.home.join("code/north/main"), "model": null, "created_ms": 1, "host_pid": null, "conversation": name, "host_dir": dir, "stream_offset": 0});
+        record.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
+    }
+
+    #[test]
+    fn a_lead_launches_on_a_named_account_here_for_its_parents_issue_and_revives_its_stopped_worker_onto_another_account() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        std::fs::create_dir_all(fleet.home.join("code/north/main")).unwrap();
+        recorded(&fleet, "release-lead", serde_json::json!({"role": "lead", "parent": "proxy", "task_ref": "tompassarelli/north#1281", "extra_tasks": ["tompassarelli/north#1054"]}));
+        recorded(&fleet, "scoreboard-lead", serde_json::json!({"role": "lead", "parent": "release-lead", "task_ref": "tompassarelli/north#35"}));
+        recorded(&fleet, "sb-lookup", serde_json::json!({"role": "worker", "parent": "scoreboard-lead", "task_ref": "tompassarelli/north#35"}));
+        let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+
+        let launched = fleet.granted_launch("scoreboard-lead", &words(&["--name", "n1054-child", "--task", "north#1054", "--local", "the build host is down", "--account", "e", "brief"])).unwrap();
+        let revived = fleet.granted_revive("scoreboard-lead", &words(&["sb-lookup", "--account", "e"])).unwrap();
+        let outside = fleet.granted_launch("scoreboard-lead", &words(&["--name", "n259-child", "--task", "north#259", "brief"])).unwrap_err();
+
+        assert!(launched.arguments.windows(2).any(|pair| pair == ["--local", "the build host is down"]) && launched.arguments.windows(2).any(|pair| pair == ["--account", "e"]), "{:?}", launched.arguments);
+        assert_eq!(revived.arguments, ["revive", "sb-lookup", "--account", "e"]);
+        assert!(outside.contains("--task north#259 is not granted to scoreboard-lead"), "{outside}");
+    }
 }
