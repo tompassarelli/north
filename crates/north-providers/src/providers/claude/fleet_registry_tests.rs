@@ -139,7 +139,7 @@ fn the_session_start_adoption_takes_a_free_name_and_leaves_a_name_a_live_session
 }
 
 #[test]
-fn a_launch_or_message_naming_the_proxy_whose_holder_died_binds_a_live_window_its_own_conversation_first_and_revives_nothing() {
+fn a_launch_or_message_naming_the_proxy_whose_holder_died_binds_a_window_on_its_own_conversation_only_and_reaches_no_other() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
     fleet_proxy(home.path(), "fleet-proxy");
@@ -156,14 +156,13 @@ fn a_launch_or_message_naming_the_proxy_whose_holder_died_binds_a_live_window_it
     holder.wait().unwrap();
     assert!(proxies(&fleet).is_empty(), "the holder's window is gone");
 
-    let sender = std::thread::spawn(move || fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "proxy", "main is red", crate::fleet::model::Delivery::Queued).map(|_| fleet));
-    let lines = received(&newest);
-    let fleet = sender.join().unwrap().unwrap();
-
-    assert_eq!(lines[0], serde_json::json!({"type": "auth", "token": newest.token}));
-    assert!(lines[1]["message"]["content"].as_str().unwrap().ends_with("main is red"), "{}", lines[1]);
-    assert_eq!(proxies(&fleet), ["window-newest"]);
-    assert!(fleet.session("proxy").unwrap().adopted(), "no host was started under the name");
+    newest.inbox.set_nonblocking(true).unwrap();
+    let Err(refusal) = fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "proxy", "main is red", crate::fleet::model::Delivery::Queued) else {
+        panic!("a message to the dead name was accepted");
+    };
+    assert!(refusal.user_message().contains("north fleet adopt --name proxy"), "{}", refusal.user_message());
+    assert!(proxies(&fleet).is_empty(), "no window on the holder's own conversation is left, so the name stays unbound");
+    assert_eq!(newest.inbox.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock, "window-newest, on another conversation, receives nothing");
 }
 
 #[test]

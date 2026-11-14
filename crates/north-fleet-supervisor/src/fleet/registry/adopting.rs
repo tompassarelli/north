@@ -160,16 +160,15 @@ impl Fleet {
         self.adopt(name, conversation, cwd).map(Some)
     }
 
-    /// Binds a proxy name whose holder is dead to a live interactive window no other session holds, preferring the window on the holder's own conversation, so a window that resumed the proxy holds the name without anyone running adopt.
+    /// Binds a proxy name whose holder is dead to the free live window on the holder's own conversation, so a window that resumed the proxy holds the name without anyone running adopt; with no such window nothing is bound.
     pub(super) fn rebind_dead_proxy(&self, name: &str) -> NorthResult<()> {
         let held = self.record(name)?;
         if held.role() != Role::Proxy || self.holds(&held) {
             return Ok(());
         }
         let bound: Vec<String> = self.sessions()?.into_iter().filter(|record| record.adopted() && self.holds(record)).filter_map(|record| record.conversation).collect();
-        let free: Vec<LiveWindow> = self.live_windows().into_iter().filter(|window| !bound.contains(&window.conversation)).collect();
-        let own = free.iter().position(|window| held.conversation.as_deref() == Some(window.conversation.as_str())).unwrap_or(0);
-        match free.into_iter().nth(own) {
+        let own = self.live_windows().into_iter().find(|window| held.conversation.as_deref() == Some(window.conversation.as_str()) && !bound.contains(&window.conversation));
+        match own {
             Some(window) => self.adopt(name, &window.conversation, window.cwd).map(drop),
             None => Ok(()),
         }
@@ -223,4 +222,107 @@ fn bar_hosts(session_dir: &Path) -> NorthResult<()> {
         fs::create_dir(&socket)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use serde_json::Value;
+
+    use super::*;
+    use crate::fleet::fakes::{Paper, Stream};
+    use crate::fleet::model::{Account, ProviderName, Quota, Transcript};
+    use crate::fleet::roster::Roster;
+    use crate::fleet::runtime::{HostSpec, Instructions, Opening};
+    use crate::fleet::runtimes::Runtimes;
+    use crate::fleet::turns::TurnSignal;
+
+    const HOLDER: &str = "conversation-of-the-dead-proxy";
+    const OTHER: &str = "conversation-of-an-empty-window";
+
+    struct Windows {
+        live: Mutex<Vec<(String, u32)>>,
+    }
+
+    impl Runtime for Windows {
+        fn provider(&self) -> ProviderName {
+            Stream.provider()
+        }
+
+        fn models(&self) -> &'static [&'static str] {
+            Stream.models()
+        }
+
+        fn roster(&self, _state_root: &Path, home: &Path, _policy: &Path) -> Roster {
+            Roster { accounts: vec![Account { provider: Stream.provider(), label: "c".into(), home: home.join("claude-c"), token_file: None, api: None }], ..Roster::default() }
+        }
+
+        fn assign_conversation(&self) -> NorthResult<Option<String>> {
+            Stream.assign_conversation()
+        }
+
+        fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec> {
+            Stream.host(account, request, opening, instructions)
+        }
+
+        fn handshake(&self) -> Vec<String> {
+            Stream.handshake()
+        }
+
+        fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>> {
+            Stream.open(name, request, opening, instructions)
+        }
+
+        fn message(&self, transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {
+            Stream.message(transcript, id, text)
+        }
+
+        fn interrupt(&self, transcript: &Transcript) -> NorthResult<Vec<String>> {
+            Stream.interrupt(transcript)
+        }
+
+        fn close(&self, transcript: &Transcript) -> Vec<String> {
+            Stream.close(transcript)
+        }
+
+        fn observe(&self, frame: &Value, transcript: &mut Transcript) {
+            Stream.observe(frame, transcript);
+        }
+
+        fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
+            Stream.signals(frame)
+        }
+
+        fn quota(&self, frame: &Value) -> Option<Quota> {
+            Stream.quota(frame)
+        }
+
+        fn windows(&self, _accounts: &[Account]) -> Vec<LiveWindow> {
+            self.live.lock().unwrap().iter().map(|(conversation, pid)| LiveWindow { conversation: conversation.clone(), started_ms: 1, cwd: "/tmp".into(), inbox: WindowInbox { account: "c".into(), pid: *pid, socket: PathBuf::new(), token: "peer".into(), busy: false } }).collect()
+        }
+    }
+
+    #[test]
+    fn rebind_dead_proxy_binds_no_window_but_the_holders_own_conversation() {
+        let home = tempfile::tempdir().unwrap();
+        let runtime = Arc::new(Windows { live: Mutex::new(vec![(OTHER.to_owned(), 4102)]) });
+        let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+        let request: LaunchRequest = serde_json::from_value(serde_json::json!({
+            "verification": false, "name": PROXY, "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "prompt": "", "system_prompt": null,
+            "foreground_cap_secs": null, "prompt_mode": "north", "idle_exit_minutes": null, "parent": null, "task_ref": null, "placement": null, "machine": null, "role": "proxy"
+        }))
+        .unwrap();
+        let session_dir = fleet.session_dir(PROXY).unwrap();
+        fs::create_dir_all(&session_dir).unwrap();
+        write_record(&session_dir, &request.record(None, Some(HOLDER.to_owned()), false, 0)).unwrap();
+
+        fleet.rebind_dead_proxy(PROXY).unwrap();
+        assert!(!fleet.record(PROXY).unwrap().adopted(), "a window on another conversation never takes a dead proxy's name");
+
+        runtime.live.lock().unwrap().push((HOLDER.to_owned(), 4103));
+        fleet.rebind_dead_proxy(PROXY).unwrap();
+        let held = fleet.record(PROXY).unwrap();
+        assert_eq!((held.conversation.as_deref(), held.placement.as_deref()), (Some(HOLDER), Some("adopted window, process 4103")));
+    }
 }
