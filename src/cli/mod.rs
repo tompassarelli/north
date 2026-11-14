@@ -49,6 +49,8 @@ mod spend;
 #[cfg(test)]
 mod laptop_runner_tests;
 #[cfg(test)]
+mod repeat_unblock_tests;
+#[cfg(test)]
 mod fleet_peer_row_tests;
 #[cfg(test)]
 mod south_land_tests;
@@ -245,6 +247,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::ConfigCheck(arguments) => in_runtime(async move { agent_catalog::config_check(&arguments).map(ExitCode::from) }),
         Command::Work(arguments) => match arguments.first().map(String::as_str) {
             None => views::work::run(&arguments).into(),
+            Some("own") => views::work::own(&arguments[1..]).into(),
             Some(flag) if flag.starts_with('-') => views::work::run(&arguments).into(),
             Some(_) => in_runtime(async move { work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS) }),
         },

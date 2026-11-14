@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-unblocks"
+layer = 3
+paths = ["crates/north-unblocks/src/**"]
+may_use = ["north-base", "north-github-mirror", "north-threads"]
+

@@ -36,6 +36,7 @@ struct LaunchFlags {
     take_over: bool,
     priority: Priority,
     route: Option<String>,
+    issue: Option<String>,
     dispatched: bool,
     screen: bool,
 }
@@ -67,6 +68,7 @@ impl LaunchFlags {
             "--box" => self.claim_box = Some(value),
             "--role" => self.role = Some(Role::parse(&value)?),
             "--priority" => self.priority = Priority::parse(&value).ok_or_else(usage)?,
+            "--issue" => self.issue = Some(value),
             "--route" if Route::parse(&value).is_some() => self.route = Some(value),
             _ if self.overrides.set(flag, &value) => {}
             _ => return Err(usage()),
@@ -151,6 +153,8 @@ pub(super) struct LaunchParts {
     pub priority: Priority,
     /// The launch's own command line, replayed when the queue starts it.
     pub words: Vec<String>,
+    /// `--issue REPO#N`: the open, owned issue that fixes the cause of the refusal this coordinator relaunch repeats (north#1577).
+    pub issue: Option<String>,
 }
 
 pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<LaunchParts> {
@@ -175,8 +179,8 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
         index += 1;
     }
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
-    let (overrides, take_over, priority) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority);
-    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect() })
+    let (overrides, take_over, priority, issue) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority, flags.issue.take());
+    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect(), issue })
 }
 
 fn container_dir(path: &str) -> NorthResult<PathBuf> {
