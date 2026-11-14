@@ -292,6 +292,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if !unnamed_deletions.is_empty() {
         return Err(format!("the lane's commits also delete {}, which the hand-in did not name", unnamed_deletions.join(" ")));
     }
+    let named: Vec<String> = named.into_iter().zip(&relative).filter(|(path, name)| Path::new(path).exists() || tracked(&root, name)).map(|(path, _)| path).collect();
     Ok(Named { lane: Lane { root, destination, message }, paths: named, targets, committed: !committed.is_empty(), added: unnamed })
 }
 
@@ -340,6 +341,9 @@ fn changed(target: &Path, file: &File, earlier: Option<&str>) -> Result<String, 
 fn commit(named: &Named) -> Result<(), String> {
     let message = named.lane.message.as_str();
     let (root, paths) = (&named.lane.root, named.paths.iter().map(String::as_str).collect::<Vec<_>>());
+    if paths.is_empty() && named.committed {
+        return Ok(());
+    }
     literal(root, &[&["add", "--all", "--"][..], &paths].concat())?;
     if literal(root, &[&["diff", "--cached", "--name-only", "HEAD", "--"][..], &paths].concat())?.is_empty() {
         return if named.committed { Ok(()) } else { Err(format!("no changes in {}", paths.join(" "))) };
@@ -353,8 +357,12 @@ fn literal(root: &Path, arguments: &[&str]) -> Result<String, String> {
 
 fn in_lane(root: &Path, relative: &str, committed: &[String]) -> bool {
     let under = format!("{}/", relative.trim_end_matches('/'));
+    committed.iter().any(|change| change == relative || change.starts_with(&under)) || tracked(root, relative)
+}
+
+fn tracked(root: &Path, relative: &str) -> bool {
     let known = |arguments: &[&str]| literal(root, &[arguments, &["--", relative]].concat()).is_ok_and(|names| !names.is_empty());
-    committed.iter().any(|change| change == relative || change.starts_with(&under)) || known(&["ls-files", "--cached"]) || known(&["ls-tree", "-r", "--name-only", "HEAD"])
+    known(&["ls-files", "--cached"]) || known(&["ls-tree", "-r", "--name-only", "HEAD"])
 }
 
 fn lane_changes(root: &Path, destination: &str) -> Result<Vec<String>, String> {
@@ -456,7 +464,9 @@ fn would_be(root: &Path, message: &str, paths: &[String]) -> Option<String> {
     let staged = |arguments: &[&str], input: Option<&str>| piped(root, Some(&scratch), arguments, input);
     let made = (|| {
         staged(&["read-tree", "HEAD"], None)?;
-        staged(&[&["--literal-pathspecs", "add", "--all", "--"][..], &paths.iter().map(String::as_str).collect::<Vec<_>>()].concat(), None)?;
+        if !paths.is_empty() {
+            staged(&[&["--literal-pathspecs", "add", "--all", "--"][..], &paths.iter().map(String::as_str).collect::<Vec<_>>()].concat(), None)?;
+        }
         let tree = staged(&["write-tree"], None)?;
         let cleaned = staged(&["stripspace"], Some(message))?;
         staged(&["commit-tree", tree.trim(), "-p", "HEAD", "-F", "-"], Some(&cleaned))
