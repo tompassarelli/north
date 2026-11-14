@@ -68,7 +68,7 @@ fn a_dead_land_check_with_orphaned_children_releases_safe_push() {
 fn a_hung_land_check_times_out_and_fails_the_push() {
     let scratch = Scratch::new();
     let (_landing, lane) = lane_with_check(&scratch, "hung-check-timeout", "sleep 40");
-    let mut running = Run::new(&scratch, &lane, &["--dry-run", "--to", "main"]).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "1").start();
+    let mut running = Run::new(&scratch, &lane, &["--dry-run", "--to", "main"]).env("XDG_RUNTIME_DIR", scratch.path().join("runtime")).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "1").start();
     let status = running.exits_within(Duration::from_secs(20));
     let output = running.output();
     if status.is_none() {
