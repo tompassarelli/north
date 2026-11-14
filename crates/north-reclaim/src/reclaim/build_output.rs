@@ -27,7 +27,7 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
         let with_main = container.file_name().is_some_and(|name| name == MAIN_BUILT_CONTAINER);
         for checkout in checkouts(&container, with_main) {
             for path in rebuildable(&checkout) {
-                if let Some(removal) = idle_unheld(inputs, policy.dry_run, limit, held, path.clone(), |idle| format!("cargo target {} idle {}h, held by no process; the next build restores it", path.display(), hours(idle))) {
+                if let Some(removal) = idle_unheld(inputs, policy.dry_run, limit, held, path.clone(), |idle| format!("build output {} idle {}h, held by no process; the next build restores it", path.display(), hours(idle))) {
                     removals.push(removal);
                 }
             }
@@ -76,7 +76,9 @@ fn checkouts(container: &Path, with_main: bool) -> Vec<PathBuf> {
 
 fn rebuildable(checkout: &Path) -> Vec<PathBuf> {
     let crates = fs::read_dir(checkout).into_iter().flatten().flatten().filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).map(|entry| entry.path());
-    std::iter::once(checkout.to_path_buf()).chain(crates).map(|root| root.join("target")).filter(|target| fs::symlink_metadata(target).is_ok_and(|metadata| metadata.is_dir()) && target.join("CACHEDIR.TAG").is_file()).collect()
+    let targets = std::iter::once(checkout.to_path_buf()).chain(crates).map(|root| root.join("target")).filter(|target| fs::symlink_metadata(target).is_ok_and(|metadata| metadata.is_dir()) && target.join("CACHEDIR.TAG").is_file());
+    let buck = Some(checkout.join("buck-out")).filter(|buck| fs::symlink_metadata(buck).is_ok_and(|metadata| metadata.is_dir()));
+    targets.chain(buck).collect()
 }
 
 fn private_targets(cache: &Path) -> Vec<PathBuf> {

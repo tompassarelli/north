@@ -225,7 +225,7 @@ fn a_scratch_root_no_session_record_names_is_left_in_place() {
 }
 
 #[test]
-fn a_cargo_target_of_a_crate_below_an_idle_lane_is_reclaimed_like_the_lane_s_own() {
+fn an_idle_lane_loses_the_cargo_target_of_a_crate_below_it_and_its_buck_out() {
     let machine = Machine::new();
     let lane = machine.dir("code/wisp/worktrees/perf-ticks", 3 * DAY);
     let nested = machine.dir("code/wisp/worktrees/perf-ticks/window/target", 3 * DAY);
@@ -233,6 +233,8 @@ fn a_cargo_target_of_a_crate_below_an_idle_lane_is_reclaimed_like_the_lane_s_own
     touch(&nested.join("CACHEDIR.TAG"), machine.now - 3 * DAY);
     touch(&nested, machine.now - 3 * DAY);
 
-    assert_eq!(machine.reclaim(false), vec![nested.clone()]);
-    assert!(lane.exists() && !nested.exists());
+    let buck = machine.dir("code/wisp/worktrees/perf-ticks/buck-out", 3 * DAY);
+
+    assert_eq!(machine.reclaim(false), vec![nested.clone(), buck.clone()]);
+    assert!(lane.exists() && !nested.exists() && !buck.exists());
 }
