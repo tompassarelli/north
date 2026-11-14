@@ -295,7 +295,7 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_a_windowed
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let first = "the claims replay in `crates/north-fleet/src/fleet/claims.rs` passes";
-    let body = format!("- [ ] {first}\n- [ ] holds in crates/north-dispatch/src/dispatch/hotspots.rs\n- [ ] harness/skills/workers/SKILL.md says so\n- [ ] the ready list in `crates/north-dispatch/src/dispatch` names each box\n- [ ] Over 3 h no launch is refused (not before 2099-01-01T00:00Z)");
+    let body = format!("- [ ] {first}\n- [ ] holds in crates/north-dispatch/src/dispatch/hotspots.rs\n- [ ] the tip merges into origin/main\n- [ ] the tag sits on origin/main\n- [ ] harness/skills/workers/SKILL.md says so\n- [ ] the ready list in `crates/north-dispatch/src/dispatch` names each box\n- [ ] Over 3 h no launch is refused (not before 2099-01-01T00:00Z)");
     let surveyed = |tried: &[&str]| {
         let mut survey = survey(vec![issue("north", 835, &body, &[])], hosts.clone(), accounts.clone());
         survey.box_tries.insert(super::issues::IssueRef::new("north", 835), tried.iter().filter_map(|text| Some((crate::threads::claims::box_slug(text)?, "tried twice".to_owned()))).collect());
@@ -303,18 +303,18 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_a_windowed
     };
     let boxes = |outcome: &super::Outcome| outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect::<Vec<_>>();
     let outcome = surveyed(&[]);
-    assert_eq!(boxes(&outcome), [first, "holds in crates/north-dispatch/src/dispatch/hotspots.rs", "harness/skills/workers/SKILL.md says so"], "the box stamped with a later date waits for it");
+    assert_eq!(boxes(&outcome), [first, "holds in crates/north-dispatch/src/dispatch/hotspots.rs", "the tip merges into origin/main", "the tag sits on origin/main", "harness/skills/workers/SKILL.md says so"], "the box stamped with a later date waits for it, and boxes that both name the ref origin/main launch side by side");
     let held: Vec<&String> = outcome.skipped.iter().map(|(_, why)| why).collect();
     assert!(held.len() == 1 && held[0].contains("box `the ready list") && held[0].contains("both name crates/north-dispatch/src/dispatch"), "{held:?}");
     let tried = surveyed(&[first]);
-    assert_eq!(boxes(&tried).len(), 2, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
+    assert_eq!(boxes(&tried).len(), 4, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
     let predicting = |body: &str| {
         let mut survey = survey(vec![issue("north", 835, body, &[])], hosts.clone(), accounts.clone());
         survey.predicted.insert("fleet session north-900-x on nexus".into(), vec!["crates/north-fleet/src/fleet/claims.rs".into()]);
         decide(&survey, "test")
     };
     let predicted = predicting(&body);
-    assert_eq!(boxes(&predicted).len(), 2, "a box naming a running session's predicted write waits while the others launch: {:?}", predicted.skipped);
+    assert_eq!(boxes(&predicted).len(), 4, "a box naming a running session's predicted write waits while the others launch: {:?}", predicted.skipped);
     assert!(predicted.skipped.iter().any(|(_, why)| why.contains("held for fleet session north-900-x on nexus: predicted write set names crates/north-fleet/src/fleet/claims.rs")), "{:?}", predicted.skipped);
     let alone = predicting(&format!("- [ ] {first}"));
     assert_eq!(boxes(&alone), [first], "a box held only by a predicted write launches when nothing else is ready: {:?}", alone.skipped);
