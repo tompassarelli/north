@@ -48,7 +48,7 @@ fn shared_fixture(root: &Path) {
     executable(&root.join("bin/gh"), "exit 1\n");
     executable(
         &root.join("bin/systemd-run"),
-        "case \" $* \" in *' --scope '*) ;; *)\n  for a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\n  while [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\n  shift\n  setsid \"$@\" < /dev/null > /dev/null 2>&1 &\n  echo $! > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\n  exit 0;;\nesac\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n",
+        "case \" $* \" in *' --scope '*) ;; *)\n  for a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\n  while [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\n  shift\n  setsid \"$@\" < /dev/null > /dev/null 2>&1 &\n  echo $! > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\n  exit 0;;\nesac\nwhile [ $# -gt 0 ]; do case $1 in --) shift; break;; --unit) unit=$2; shift;; -*) ;; *) break;; esac; shift; done\n[ -z \"$unit\" ] || echo $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n",
     );
     executable(
         &root.join("bin/systemctl"),
@@ -142,6 +142,46 @@ fn finished_within_30_s(root: &Path, mut launches: Vec<(&str, std::process::Chil
     launches.into_iter().map(|(_, mut child, stdout, stderr)| Output { status: child.wait().unwrap(), stdout: fs::read(stdout).unwrap(), stderr: fs::read(stderr).unwrap() }).collect()
 }
 
+fn far_ledger(root: &Path, ssh_before: &str) {
+    fs::create_dir_all(root.join(".config/threads")).unwrap();
+    fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
+    fs::create_dir_all(root.join(".local/state/threads")).unwrap();
+    fs::copy(root.join("threads.db"), root.join(".local/state/threads/snapshot.db")).unwrap();
+    executable(&root.join("bin/north"), &format!("exec {} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_north")));
+    executable(&root.join("bin/ssh"), &format!("for word; do command=$word; done\n{ssh_before}THREADS_DB={db} exec sh -c \"$command\"\n", db = root.join("threads.db").display()));
+}
+
+fn launched_at_once(root: &Path, names: &[&str]) -> Vec<Output> {
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let brief = brief.display().to_string();
+    let launches = names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let (stdout, stderr) = (root.join(format!("launch-{index}.out")), root.join(format!("launch-{index}.err")));
+            let task = format!("makgora#{}", index + 4);
+            let mut command = environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here");
+            command.env_remove("THREADS_DB").args(["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "reader", "--local", "launch order test", "--task", &task, "--system-prompt", &brief, "start the box"]);
+            command.stdout(fs::File::create(&stdout).unwrap()).stderr(fs::File::create(&stderr).unwrap());
+            (*name, command.spawn().unwrap(), stdout, stderr)
+        })
+        .collect();
+    finished_within_30_s(root, launches)
+}
+
+fn answered_then_forgotten(root: &Path, names: &[&str]) -> (bool, Vec<String>) {
+    let mut shown = Vec::new();
+    let answered = north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+        shown = names.iter().map(|name| text(&north(root, &["fleet", "show", name]).stdout)).collect();
+        shown.iter().all(|show| show.contains("OK"))
+    });
+    for name in names {
+        north(root, &["fleet", "forget", name]);
+    }
+    (answered, shown)
+}
+
 #[test]
 fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_directory_and_the_same_name_launches_and_answers() {
     let scratch = tempfile::tempdir().unwrap();
@@ -176,56 +216,39 @@ fn two_launches_at_once_one_with_a_120_character_name_record_their_hosts_live_be
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "idle-interrupt");
-    let brief = root.join("box.md");
-    fs::write(&brief, BRIEF).unwrap();
-    let brief = brief.display().to_string();
     let long: String = format!("north-1042-d0432-{}", "the-machine-refusal-detector-reads-the-refused-machine-".repeat(3)).chars().take(120).collect();
     assert_eq!(long.len(), 120);
     let names = [long.as_str(), "narrow"];
     let traces: Vec<String> = names.iter().map(|name| root.join(".local/state/north/fleet").join(name).join("hops.jsonl").display().to_string()).collect();
     let live = traces.iter().map(|trace| format!("grep -q session-host {trace} 2>/dev/null")).collect::<Vec<_>>().join(" && ");
     let saw = root.join("claims-saw");
-    fs::create_dir_all(root.join(".config/threads")).unwrap();
-    fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
-    fs::create_dir_all(root.join(".local/state/threads")).unwrap();
-    fs::copy(root.join("threads.db"), root.join(".local/state/threads/snapshot.db")).unwrap();
-    executable(&root.join("bin/north"), &format!("exec {} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_north")));
-    executable(
-        &root.join("bin/ssh"),
-        &format!(
-            "for word; do command=$word; done\ncase $command in *' claim '*)\n  i=0; while [ $i -lt 30 ] && ! {{ {live}; }}; do sleep 0.05; i=$((i+1)); done\n  if {live}; then echo live >> {saw}; else echo absent >> {saw}; fi;;\nesac\nTHREADS_DB={db} exec sh -c \"$command\"\n",
-            saw = saw.display(),
-            db = root.join("threads.db").display()
-        ),
-    );
+    far_ledger(root, &format!("case $command in *' claim '*)\n  i=0; while [ $i -lt 30 ] && ! {{ {live}; }}; do sleep 0.05; i=$((i+1)); done\n  if {live}; then echo live >> {saw}; else echo absent >> {saw}; fi;;\nesac\n", saw = saw.display()));
 
-    let launches: Vec<_> = names
-        .iter()
-        .zip(["makgora#4", "makgora#5"])
-        .enumerate()
-        .map(|(index, (name, task))| {
-            let (stdout, stderr) = (root.join(format!("launch-{index}.out")), root.join(format!("launch-{index}.err")));
-            let mut command = environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here");
-            command.env_remove("THREADS_DB").args(["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "reader", "--local", "launch order test", "--task", task, "--system-prompt", &brief, "start the box"]);
-            command.stdout(fs::File::create(&stdout).unwrap()).stderr(fs::File::create(&stderr).unwrap());
-            (*name, command.spawn().unwrap(), stdout, stderr)
-        })
-        .collect();
-    let launched = finished_within_30_s(root, launches);
-    let mut shown = Vec::new();
-    let answered = north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
-        shown = names.iter().map(|name| text(&north(root, &["fleet", "show", name]).stdout)).collect();
-        shown.iter().all(|show| show.contains("OK"))
-    });
+    let launched = launched_at_once(root, &names);
     let claims = fs::read_to_string(&saw).unwrap_or_default();
-    for name in names {
-        north(root, &["fleet", "forget", name]);
-    }
+    let (answered, shown) = answered_then_forgotten(root, &names);
 
     for output in &launched {
         assert!(output.status.success(), "{}", text(&output.stderr));
     }
     assert!(!claims.is_empty() && claims.lines().all(|line| line == "live"), "a claim ran before both session hosts were recorded live: {claims:?}");
+    assert!(answered, "a session never answered its first turn: {shown:?}");
+}
+
+/// On 2026-11-14 the two-launch test failed on main several times with the worker ledger's 'database is locked': launches that found no worker ledger yet each switched the new file to WAL, which SQLite does without its busy handler.
+#[test]
+fn five_launches_at_once_never_fail_on_the_ledger_lock() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    far_ledger(root, "");
+
+    let launched = launched_at_once(root, &["first", "second", "third", "fourth", "fifth"]);
+    let (answered, shown) = answered_then_forgotten(root, &["first", "second", "third", "fourth", "fifth"]);
+
+    for output in &launched {
+        assert!(output.status.success(), "{}", text(&output.stderr));
+    }
     assert!(answered, "a session never answered its first turn: {shown:?}");
 }
 

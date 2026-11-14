@@ -232,10 +232,13 @@ impl Ledger {
         let conn = Connection::open(path).map_err(sql)?;
         conn.busy_timeout(lock_wait).map_err(sql)?;
         conn.pragma_update(None, "synchronous", "NORMAL").map_err(sql)?;
-        let migrating = !conn.is_readonly(rusqlite::MAIN_DB).map_err(sql)? && schema_version(&conn).map_err(sql)? < SCHEMA_VERSION;
-        if migrating {
-            migrate(&conn).map_err(sql)?;
-            gates::adopt(path, &conn)?;
+        if !conn.is_readonly(rusqlite::MAIN_DB).map_err(sql)? && schema_version(&conn).map_err(sql)? < SCHEMA_VERSION {
+            let migration = std::fs::File::create(migration_lock(path))?;
+            migration.lock()?;
+            if schema_version(&conn).map_err(sql)? < SCHEMA_VERSION {
+                migrate(&conn).map_err(sql)?;
+                gates::adopt(path, &conn)?;
+            }
         }
         Ok(Self { conn: Mutex::new(conn), checkpointed: Mutex::new(None), written: AtomicU64::new(0), path: path.to_owned() })
     }
@@ -437,6 +440,13 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
 
 fn sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Held while a ledger migrates: SQLite switches a file to WAL without its busy handler, so a second process switching the same new file at once fails with "database is locked".
+fn migration_lock(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push("-migrate.lock");
+    PathBuf::from(name)
 }
 
 fn schema_version(conn: &Connection) -> rusqlite::Result<i64> {
