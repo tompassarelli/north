@@ -490,3 +490,42 @@ fn a_gate_closed_by_two_sweeps_at_once_is_a_lost_race_and_not_an_illegal_move() 
     assert!(moves.iter().all(|logged| !logged.refused), "{moves:?}");
     assert_eq!(book.gate(id).unwrap().unwrap().phase, GatePhase::Orphaned);
 }
+
+#[test]
+fn one_repository_failing_on_github_leaves_the_other_reports_recorded_and_fails_the_unit_on_the_third_run() {
+    use super::closed_source::{ClosedIssue, Inputs, Listing, report_between};
+    use super::recorded::{Held, listed, settle};
+    use std::collections::BTreeSet;
+    use std::sync::Mutex;
+
+    let directory = tempfile::tempdir().unwrap();
+    let runs = || vec![worker_run("north-worker", "north#5", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true), worker_run("makgora-worker", "makgora#7", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true)];
+    let issue = |item: &str| ClosedIssue { item: item.into(), at: "2026-11-08T11:30:00Z".into(), closed: super::Closed::of_body(LEAF) };
+    let prices = crate::router::pricing::PriceTable::load().unwrap();
+    let record = |makgora_reads: bool| {
+        let unread = Mutex::new(BTreeSet::new());
+        let sources = Inputs { runs: runs(), native: Default::default(), closed: Default::default(), corroborated: None, catalog: &crate::threads::catalog::CATALOG };
+        let github = |repo: &str, since: &str, end: &str| {
+            let fetch = || match repo {
+                "makgora" if !makgora_reads => Err(crate::error::NorthError::Configuration("gh issue list tompassarelli/makgora: Post https://api.github.com/graphql: EOF".into())),
+                _ => Ok(Held { issues: vec![issue(&format!("{repo}#{}", if repo == "north" { 5 } else { 7 }))], open: Default::default() }),
+            };
+            let Held { issues, open } = listed(repo, fetch, &directory.path().join(format!("{repo}.json")), &unread);
+            Ok(Listing { closed: super::closed_source::within(&issues, since, end), open })
+        };
+        let report = report_between(&sources, "2026-11-01T00:00:00Z", "2026-11-09T00:00:00Z", github, &prices).unwrap();
+        (report.closed, unread.into_inner().unwrap().into_iter().collect::<Vec<_>>())
+    };
+    assert_eq!(record(true), (2, Vec::new()));
+    assert_eq!(record(false), (2, vec!["makgora".to_owned()]), "the failed repository keeps its last good rows and is named");
+    std::fs::remove_file(directory.path().join("makgora.json")).unwrap();
+    assert_eq!(record(false), (1, vec!["makgora".to_owned()]), "with no last good rows the other repositories' report is still recorded");
+
+    let counter = directory.path().join("unread-runs");
+    let unread = || vec!["makgora".to_owned()];
+    assert_eq!(settle(&counter, unread()).unwrap(), unread());
+    assert_eq!(settle(&counter, unread()).unwrap(), unread());
+    assert!(settle(&counter, unread()).unwrap_err().user_message().contains("makgora in 3 runs in a row"));
+    assert!(settle(&counter, Vec::new()).unwrap().is_empty());
+    assert_eq!(settle(&counter, unread()).unwrap(), unread(), "a read that succeeds restarts the count");
+}

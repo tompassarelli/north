@@ -120,11 +120,11 @@ fn native_closed(database: &std::path::Path, since: &str, until: &str) -> NorthR
     Ok(sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?.iter().map(|row| (text(row, "item"), Closed::of_body(text(row, "body")))).collect())
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub(super) struct ClosedIssue {
-    item: String,
-    at: String,
-    closed: Closed,
+    pub(super) item: String,
+    pub(super) at: String,
+    pub(super) closed: Closed,
 }
 
 pub(super) fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<Vec<ClosedIssue>> {

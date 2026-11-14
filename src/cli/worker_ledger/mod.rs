@@ -156,9 +156,13 @@ fn record(options: &Options) -> u8 {
             label_runs();
         }
         recalibrate::run();
-        if let Err(error) = crate::dispatch::record_closed_reports() {
-            eprintln!("north ledger worker: closed-box reports unrecorded, so launches draw arms at equal shares and brief no budget once the last ones age out: {}", error.user_message());
-            return 1;
+        match crate::dispatch::record_closed_reports() {
+            Ok(unread) if unread.is_empty() => {}
+            Ok(unread) => eprintln!("north ledger worker: closed-box reports recorded; GitHub failed for {}, whose last good rows stand in until the next run", unread.join(", ")),
+            Err(error) => {
+                eprintln!("north ledger worker: closed-box reports unrecorded, so launches draw arms at equal shares and brief no budget once the last ones age out: {}", error.user_message());
+                return 1;
+            }
         }
     }
     if missed || (ingested == 0 && unread) { 1 } else { ingested }

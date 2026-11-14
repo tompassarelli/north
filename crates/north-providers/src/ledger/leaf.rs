@@ -13,7 +13,7 @@ const AFTER_RUN_S: i64 = 600;
 
 /// A closed issue as the report reads it: its body, the issue it is a child of, when it was created, and the Done-when
 /// command the lander's closing comment names as the check that closed it.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Closed {
     pub body: String,
     pub parent: Option<String>,

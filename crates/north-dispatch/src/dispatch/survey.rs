@@ -376,7 +376,7 @@ pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String
     evidence
 }
 
-pub fn record_closed_reports() -> NorthResult<()> {
+pub fn record_closed_reports() -> NorthResult<Vec<String>> {
     crate::ledger::record_closed_reports(&[tier::ARM_WINDOW, super::grounds::WINDOW])
 }
 
