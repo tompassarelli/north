@@ -14,7 +14,7 @@ Read from `~/.config/systemd/user` on 2026-11-15 (home-manager links into the Ni
 
 ### Control plane: moves to the control-plane holder (gex45 by default)
 
-- `north-land@{north,south,wisp,makgora,makgora-client,battlecraft,clause,glide,nixos-config,padbridge,slippi-launcher}.service` and `north-land-rest.service`, the landers (`north land serve`).
+- One `north-land@REPO.service` for each of eleven served repositories and `north-land-rest.service`, the landers (`north land serve`).
   - Reads: `~/code/<repo>/main` and its lander worktrees, `~/.local/state/north/land-queue/<key>/` (tickets, the outbox of each remote host over ssh, holds), the offload slots on gex45 and cpx62b over ssh, and the lander's push identity.
   - Writes: origin main (one push per candidate), `land-queue/<key>/{done,logs}` with `logs/spans.jsonl`, `pushes.tsv`, `stages.tsv`, fleet messages to each lane's author, and `north land promote` of the live runtime.
 - `north-land-shadow.timer`, every 2 minutes: the lander doctor, then a check of the next queued candidate on a host with room. Reads the land queue. Writes the shadow verdicts the lander reads.
@@ -34,19 +34,14 @@ Read from `~/.config/systemd/user` on 2026-11-15 (home-manager links into the Ni
 
 ### The laptop keeps
 
-- The screen and input: `niri` with `quickshell`, `swaybg`, `swayidle`, `seat-idle-hint`, `wl-clip-persist`, `wl-gammarelay`, `activity-daemon`, `wm-facts-daemon`, `dictation`, `firn-mic-ensure`, `emacs`, `app-com.mitchellh.ghostty` and `padbridge`.
-- Tom's own sessions: the proxy (`north fleet interactive proxy`) and any session he opens himself, with `agent-runtime-update` and `codex-runtime-gcroots` for their runtimes.
-- What those sessions need to reach the fleet:
-  - `ssh-master-{gex45,cpx62,cpx62b,nexus}` and `ssh-master-probe`.
-  - `fleet-tick`, which flushes this host's spool and publishes its sessions.
-  - `north-dispatch-mirror`, which pushes claims and reports to Nexus.
-  - `north-gh-broker`, for the gh calls of Tom's own sessions.
-  - A runtime follower that fetches the built closure from the binary cache and never builds (step 5).
-  - `lane-gc`, `git-maintenance-nightly` and `convo-retain`, over the laptop's own worktrees, checkouts and transcripts.
-  - `worker-ledger`, `incident-retro`, `tool-mine`, `skill-prune` and `proxy-terminal-watch`. These read the laptop's transcripts and terminals. Each follows the sessions it reads, so it stays only while sessions run here.
-- The machine itself: `machine-update`, `crash-watch`, `capacity-watchdog`, `laptop-auto`, `laptop-runner`, and `capacity-taker`, which takes offload runs only while the laptop is away under its existing away fill.
-- Tom's personal mail and data: `proton-bridge`, `proton-github-bot`, `proton-log-watchdog`, `proton-spam-autopurge`, `nexus-pull` and `nexus-restore-test`. The backups land on the laptop so that one copy is off the servers.
-- Mak'gora on Tom's own machine: `makgora-tom-build` and `makgora-green-builds`, which install builds he plays, `makgora-goals-perf`, `makgora-retain` (archives into the laptop's `~/archive`) and `makgora-store-sync`.
+- The screen and input: the compositor, its shell, idle and clipboard helpers, dictation, the editor, the terminal and the game controller bridge.
+- Tom's own sessions, such as the proxy and any session he opens himself, and the runtimes they run on.
+- What those sessions need to reach the fleet: the shared ssh connections the laptop opens to each host, the fleet spool flush that publishes its sessions, the mirror that pushes claims and reports to Nexus, the gh broker for Tom's own calls, and a runtime follower that fetches the built closure from the binary cache and never builds (step 5).
+- Housekeeping over the laptop's own worktrees, checkouts, transcripts and terminals. Each piece follows the sessions it reads, so it stays only while sessions run here.
+- The machine itself: its OS update, hardware and load watchers, and the capacity units that take offload runs only while the laptop is away.
+- Tom's personal mail, backups and game installs. These are his own data and use, not fleet work.
+
+The kept units are listed by name in south `agents/decisions/harness/laptop-kept-units-2026-11-15.md`.
 
 ## Design
 
