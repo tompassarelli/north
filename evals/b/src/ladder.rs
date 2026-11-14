@@ -12,7 +12,7 @@ use crate::scratch;
 pub const PINNED_MODEL: &str = "claude-opus-5-5";
 pub const PINNED_EFFORT: &str = "medium";
 pub const NUDGE: &str = "Continue with your best judgment; the task text is complete.";
-const LIMIT_S: f64 = 2700.0;
+pub const LIMIT_S: f64 = 2700.0;
 const SETTLED_S: f64 = 45.0;
 const POLL_S: u64 = 5;
 const ROOM_LIMIT_S: f64 = 300.0;
@@ -33,6 +33,8 @@ pub struct Plan {
     pub issue: Option<String>,
     pub arm: String,
     pub checks_on: Option<String>,
+    pub project: &'static str,
+    pub limit_s: f64,
 }
 
 pub struct Run {
@@ -77,7 +79,7 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
 }
 
 fn launch_words(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str) -> Vec<String> {
-    let cwd = format!("{}:{}", plan.hosts[0], scratch::worktree(branch));
+    let cwd = format!("{}:{}", plan.hosts[0], scratch::worktree(plan.project, branch));
     let text = header(&plan.hosts[0], &model_line(plan)) + &prompt(task);
     let tier_reason = plan.route.as_ref().map_or_else(|| format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort), |route| format!("Eval B routes {route} for the whole ladder"));
     let pick: Vec<&str> = plan.route.as_ref().map_or_else(|| vec!["--model", &plan.model, "--effort", &plan.effort], |route| vec!["--route", route]);
@@ -107,7 +109,7 @@ fn names(plan: &Plan, task: &Value, stamp: &str) -> (String, String) {
     (format!("{id}-l{}", plan.level), format!("evalb-l{}-{id}-{stamp}", plan.level))
 }
 
-fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str, (launch_start, queued_at_launch, room_wait_s): (f64, Option<u32>, f64)) -> Run {
+pub fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str, (launch_start, queued_at_launch, room_wait_s): (f64, Option<u32>, f64)) -> Run {
     let words = launch_words(plan, task, account, branch, name);
     let args: Vec<&str> = ["fleet", "launch"].into_iter().chain(words.iter().map(String::as_str)).collect();
     let mut ran = run("north", &args, None);
@@ -138,12 +140,12 @@ pub fn second_attempt(name: &str) -> String {
     format!("{name}-r2")
 }
 
-fn statuses(names: &[&str]) -> BTreeMap<String, String> {
+pub fn statuses(names: &[&str]) -> BTreeMap<String, String> {
     let listed: Value = serde_json::from_str(&run("north", &["fleet", "list", "--json", "--all"], None).out).unwrap_or(Value::Null);
     listed.as_array().into_iter().flatten().filter(|s| names.contains(&s["name"].as_str().unwrap_or_default())).map(|s| (s["name"].as_str().unwrap_or_default().to_owned(), s["status"].as_str().unwrap_or_default().to_owned())).collect()
 }
 
-fn landed_branches(queue: Option<&Path>) -> BTreeMap<String, f64> {
+pub fn landed_branches(queue: Option<&Path>) -> BTreeMap<String, f64> {
     let Some(text) = queue.and_then(|q| fs::read_to_string(q.join("logs/spans.jsonl")).ok()) else { return BTreeMap::new() };
     text.lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -152,12 +154,12 @@ fn landed_branches(queue: Option<&Path>) -> BTreeMap<String, f64> {
         .collect()
 }
 
-fn step(run: &mut Run, (current, status): (&str, Option<&String>), landed: Option<f64>, at: f64) {
+pub fn step(run: &mut Run, limit_s: f64, (current, status): (&str, Option<&String>), landed: Option<f64>, at: f64) {
     if let Some(end) = landed {
         run.resolved = Some((end, "landed".to_owned()));
         return;
     }
-    if at - run.launch_start > LIMIT_S {
+    if at - run.launch_start > limit_s {
         run.resolved = Some((at, "time-limit".to_owned()));
         return;
     }
@@ -234,12 +236,12 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
         let second: Vec<String> = active.iter().map(|r| second_attempt(&r.name)).collect();
         let names: Vec<&str> = active.iter().map(|r| r.name.as_str()).chain(second.iter().map(String::as_str)).collect();
         let status = statuses(&names);
-        let landed = landed_branches(scratch::queue_dir().as_deref());
+        let landed = landed_branches(scratch::queue_dir(plan.project).as_deref());
         let at = now();
         for run in active.iter_mut().filter(|r| r.resolved.is_none()) {
             let escalated = second_attempt(&run.name);
             let current = if status.contains_key(&escalated) { escalated } else { run.name.clone() };
-            step(run, (&current, status.get(&current)), landed.get(&run.branch).copied().filter(|end| *end >= run.launch_start), at);
+            step(run, plan.limit_s, (&current, status.get(&current)), landed.get(&run.branch).copied().filter(|end| *end >= run.launch_start), at);
         }
         let (resolved, still): (Vec<Run>, Vec<Run>) = active.into_iter().partition(|r| r.resolved.is_some());
         active = still;
@@ -270,7 +272,7 @@ mod tests {
     use super::*;
 
     fn plan(route: Option<&str>) -> Plan {
-        Plan { level: 1, tasks: Vec::new(), accounts: vec!["d".to_owned()], parent: "p".to_owned(), hosts: vec!["h".to_owned()], work: PathBuf::new(), burst: None, model: PINNED_MODEL.to_owned(), effort: PINNED_EFFORT.to_owned(), provider: "claude".to_owned(), route: route.map(str::to_owned), issue: route.map(|_| "tompassarelli/north#1509".to_owned()), arm: "north".to_owned(), checks_on: None }
+        Plan { level: 1, tasks: Vec::new(), accounts: vec!["d".to_owned()], parent: "p".to_owned(), hosts: vec!["h".to_owned()], work: PathBuf::new(), burst: None, model: PINNED_MODEL.to_owned(), effort: PINNED_EFFORT.to_owned(), provider: "claude".to_owned(), route: route.map(str::to_owned), issue: route.map(|_| "tompassarelli/north#1509".to_owned()), arm: "north".to_owned(), checks_on: None, project: crate::scratch::LADDER, limit_s: LIMIT_S }
     }
 
     #[test]

@@ -7,15 +7,18 @@ use crate::ladder::{Plan, Run};
 use crate::proc::{git, local_time, run, sh, ssh};
 use crate::scratch;
 
+pub fn working_sessions() -> Option<usize> {
+    let listed: Value = serde_json::from_str(&run("north", &["fleet", "list", "--json"], None).out).unwrap_or(Value::Null);
+    listed.as_array().map(|a| a.iter().filter(|s| s["status"] == "working" || s["status"] == "starting").count())
+}
+
 pub fn conditions(plan: &Plan, base: &str, seed: u64) -> Value {
     let harness: serde_json::Map<String, Value> = plan.hosts.iter().map(|h| (h.clone(), json!(ssh(h, "cut -c1-12 ~/.local/state/north/current/built-from").out.trim()))).collect();
-    let listed: Value = serde_json::from_str(&run("north", &["fleet", "list", "--json"], None).out).unwrap_or(Value::Null);
-    let working = listed.as_array().map(|a| a.iter().filter(|s| s["status"] == "working" || s["status"] == "starting").count());
     json!({
         "level": plan.level, "tasks_in_level": plan.tasks.len(),
         "shared_file_share": plan.tasks.iter().filter(|t| t["shared"] == true).count() as f64 / plan.tasks.len().max(1) as f64,
         "orchestrator": sh("hostname -s").out.trim(), "laptop_load_at_start": sh("cut -d' ' -f1-3 /proc/loadavg").out.trim(),
-        "host_load_at_start": crate::proc::host_loads(&plan.hosts), "laptop_north_built_from": sh("cut -c1-12 ~/.local/state/north/current/built-from").out.trim(), "other_fleet_sessions_working": working,
+        "host_load_at_start": crate::proc::host_loads(&plan.hosts), "laptop_north_built_from": sh("cut -c1-12 ~/.local/state/north/current/built-from").out.trim(), "other_fleet_sessions_working": working_sessions(),
         "provider": plan.provider, "model": plan.model, "effort_requested": plan.effort, "context_arm": "context-500k, pinned in every brief so the spare fill before the first wave and the launches draw the same compaction window", "account": plan.accounts.join(","), "harness_north_built_from": harness,
         "repo": format!("eval-b synthetic workload, seed {seed}"), "base": base,
         "caches": "cold lanes: fresh worktrees on every host; the workload has no dependencies to warm",
@@ -27,7 +30,7 @@ pub fn conditions(plan: &Plan, base: &str, seed: u64) -> Value {
 pub fn verify(work: &Path, checks_on: Option<&str>) -> Result<(), String> {
     let verify = work.join("verify");
     let _ = sh(&format!("rm -rf '{}'", verify.display()));
-    crate::proc::must(git(work, &["clone", "-q", &scratch::origin().to_string_lossy(), "verify"]), "clone landed main")?;
+    crate::proc::must(git(work, &["clone", "-q", &scratch::origin(scratch::LADDER).to_string_lossy(), "verify"]), "clone landed main")?;
     if let Some(host) = checks_on {
         let remote = scratch::host_verify();
         crate::proc::must(ssh(host, &format!("rm -rf {remote} {remote}.git && git init -q --bare {remote}.git")), &format!("make {host}'s verify origin"))?;
@@ -68,7 +71,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     let dir = plan.work.join(&run.name);
     let session: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap_or_default()).unwrap_or(Value::Null);
     let transcript = collect::transcript(&dir);
-    let attempts = collect::spans(scratch::queue_dir().as_deref(), &run.branch, run.launch_start);
+    let attempts = collect::spans(scratch::queue_dir(plan.project).as_deref(), &run.branch, run.launch_start);
     let second = dir.join(crate::ladder::second_attempt(&run.name));
     let escalated = second.join("session.json").exists();
     let (cost, total) = if escalated { merged_spend(collect::cost(&dir, &transcript), collect::cost(&second, &collect::transcript(&second))) } else { collect::cost(&dir, &transcript) };

@@ -1,6 +1,7 @@
 mod collect;
 mod handins;
 mod ladder;
+mod large;
 mod proc;
 mod rows;
 mod scratch;
@@ -20,6 +21,7 @@ use serde_json::{Value, json};
 const USAGE: &str = "usage:
   eval-b workload --seed S --count N --lander-host HOST --out DIR
   eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A[,A...]] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--provider P] [--model M --effort E] [--route ROUTE --arm NAME --task ISSUE] [--arm NAME] [--checks-on HOST] --work DIR --results FILE
+  eval-b large --tasks TASKS_TOML --task ID --workers 1|3|9 --plan PLAN_TOML --hosts HOST --account A [--parent SESSION] [--repo DIR] --work DIR --results FILE [--dry]
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
   eval-b summary --results FILE
@@ -85,19 +87,23 @@ fn hosts(flags: &BTreeMap<String, String>) -> Vec<String> {
     flags.get("hosts").map_or("cpx62,gex45,cpx62b", String::as_str).split(',').map(str::to_owned).collect()
 }
 
+fn parent(flags: &BTreeMap<String, String>) -> Result<String, String> {
+    flags.get("parent").cloned().or_else(|| std::env::var("NORTH_FLEET_SESSION").ok().filter(|s| !s.is_empty())).ok_or_else(|| format!("name the live fleet session that reads the workers' reports with --parent NAME\n{USAGE}"))
+}
+
 fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let dir = PathBuf::from(need(flags, "workload")?);
     let manifest = read_json(&dir.join("tasks.json"))?;
     let level: usize = need(flags, "level")?.parse().map_err(|_| "--level takes a number".to_owned())?;
     let first: usize = flags.get("first").map_or(Ok(1), |v| v.parse()).map_err(|_| "--first takes a number".to_owned())?;
     let count: usize = flags.get("count").map_or(Ok(level), |v| v.parse()).map_err(|_| "--count takes a number".to_owned())?;
-    let parent = flags.get("parent").cloned().or_else(|| std::env::var("NORTH_FLEET_SESSION").ok().filter(|s| !s.is_empty())).ok_or_else(|| format!("name the live fleet session that reads the workers' reports with --parent NAME\n{USAGE}"))?;
+    let parent = parent(flags)?;
     let hosts = hosts(flags);
     let stamp = proc::sh("date +%m%d-%H%M%S").out.trim().to_owned();
     let work = PathBuf::from(need(flags, "work")?).join(format!("l{level}-{stamp}"));
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).map(|task| ladder::unseen(task, &format!("{stamp}-l{level}"))).collect();
-    let plan = ladder::Plan { level, tasks, accounts: flags.get("account").map_or_else(|| vec!["d".to_owned()], |list| list.split(',').map(str::to_owned).collect()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()), effort: flags.get("effort").cloned().unwrap_or_else(|| ladder::PINNED_EFFORT.to_owned()), provider: flags.get("provider").cloned().unwrap_or_else(|| "claude".to_owned()), route: flags.get("route").cloned(), issue: issue(flags)?, arm: arm(flags)?, checks_on: flags.get("checks-on").cloned() };
+    let plan = ladder::Plan { level, tasks, accounts: flags.get("account").map_or_else(|| vec!["d".to_owned()], |list| list.split(',').map(str::to_owned).collect()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()), effort: flags.get("effort").cloned().unwrap_or_else(|| ladder::PINNED_EFFORT.to_owned()), provider: flags.get("provider").cloned().unwrap_or_else(|| "claude".to_owned()), route: flags.get("route").cloned(), issue: issue(flags)?, arm: arm(flags)?, checks_on: flags.get("checks-on").cloned(), project: scratch::LADDER, limit_s: ladder::LIMIT_S };
     let kill = pair(flags, "kill-lander")?;
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
     scratch::prepare_laptop(&dir.join("repo"), &branches)?;
@@ -106,7 +112,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
         handles.into_iter().try_for_each(|h| h.join().unwrap_or_else(|_| Err("a host setup panicked".to_owned())))
     })?;
     ladder::fill(&plan, &stamp);
-    let mut lander = scratch::Lander::start(&plan.work.join("lander.log"))?;
+    let mut lander = scratch::Lander::start(scratch::LADDER, &plan.work.join("lander.log"))?;
     std::thread::sleep(std::time::Duration::from_secs(3));
     if !lander.alive() {
         scratch::teardown(&plan.hosts);
@@ -135,13 +141,59 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let expect = dir.join("expect");
     let command = format!("{argv} (rows in {})", plan.work.display());
     let built: Vec<Value> = runs.iter().map(|r| rows::row(&plan, r, &expect, &conditions, &command)).collect();
-    if let Some(queue) = scratch::queue_dir() {
+    if let Some(queue) = scratch::queue_dir(scratch::LADDER) {
         let _ = proc::sh(&format!("cp -r '{}/logs' '{}/lander-logs'", queue.display(), plan.work.display()));
     }
     drop(lander);
     scratch::teardown(&plan.hosts);
     append(Path::new(need(flags, "results")?), &built)?;
     summary::print(&built);
+    Ok(())
+}
+
+fn large(flags: &BTreeMap<String, String>, argv: &str, dry: bool) -> Result<(), String> {
+    let workers = need(flags, "workers")?.parse().ok().filter(|n| large::WORKERS.contains(n)).ok_or_else(|| "--workers takes 1, 3 or 9".to_owned())?;
+    let task = large::task(Path::new(need(flags, "tasks")?), need(flags, "task")?)?;
+    let split = large::split(Path::new(need(flags, "plan")?))?;
+    let hosts: Vec<String> = need(flags, "hosts")?.split(',').map(str::to_owned).collect();
+    let here = proc::sh("hostname -s").out.trim().to_owned();
+    if hosts[0] != here {
+        return Err(format!("eval-b large lays out its scratch project, lander and lanes on the host it runs on, so run it on {} or name {here} first in --hosts", hosts[0]));
+    }
+    let parent = if dry { flags.get("parent").cloned().unwrap_or_default() } else { parent(flags)? };
+    let stamp = proc::sh("date +%m%d-%H%M%S").out.trim().to_owned();
+    let work = PathBuf::from(need(flags, "work")?).join(format!("large-{}-w{workers}-{stamp}", task.id));
+    fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    let repo = PathBuf::from(flags.get("repo").map_or("/home/tom/code/north/main", String::as_str));
+    let plan = ladder::Plan { level: workers, tasks: Vec::new(), accounts: vec![need(flags, "account")?.to_owned()], parent, hosts, work, burst: None, model: ladder::PINNED_MODEL.to_owned(), effort: ladder::PINNED_EFFORT.to_owned(), provider: "claude".to_owned(), route: None, issue: None, arm: format!("north-split-w{workers}"), checks_on: None, project: scratch::LARGE, limit_s: large::LIMIT_S };
+    let results = PathBuf::from(need(flags, "results")?);
+    let run = large::Large { task, split, workers, stamp, plan, repo: &repo };
+    run.lay_out()?;
+    if dry {
+        let rows = run.dry_rows();
+        for row in &rows {
+            println!("eval-b large dry: {} {} ({}): lane {}, session {}, files {}", row["launch_order"], row["box"], row["wave"].as_str().unwrap_or_default(), row["lane"].as_str().unwrap_or_default(), row["session"].as_str().unwrap_or_default(), row["files"]);
+        }
+        append(&results, &rows)?;
+        println!("eval-b large dry: {} box rows appended to {}; scratch project laid out at {}", rows.len(), results.display(), scratch::root(scratch::LARGE));
+        return Ok(());
+    }
+    let mut lander = scratch::Lander::start(scratch::LARGE, &run.plan.work.join("lander.log"))?;
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    if !lander.alive() {
+        return Err(format!("the scratch lander did not stay up; see {}", run.plan.work.join("lander.log").display()));
+    }
+    let conditions = large::conditions(&run);
+    let (began, done) = run.drive();
+    let command = format!("{argv} (rows in {})", run.plan.work.display());
+    let built = run.rows(began, &done, &conditions, &command)?;
+    if let Some(queue) = scratch::queue_dir(scratch::LARGE) {
+        let _ = proc::sh(&format!("cp -r '{}/logs' '{}/lander-logs'", queue.display(), run.plan.work.display()));
+    }
+    drop(lander);
+    let _ = proc::sh(&scratch::reset(&scratch::root(scratch::LARGE)));
+    append(&results, &built)?;
+    println!("{}", built[0]);
     Ok(())
 }
 
@@ -181,10 +233,13 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(64);
     };
-    let flags = flags(rest);
+    let dry = rest.iter().any(|arg| arg == "--dry");
+    let rest: Vec<String> = rest.iter().filter(|arg| *arg != "--dry").cloned().collect();
+    let flags = flags(&rest);
     let outcome = match verb.as_str() {
         "workload" => workload(&flags),
         "ladder" => ladder(&flags, &argv),
+        "large" => large(&flags, &argv, dry),
         "t3-tasks" => need(&flags, "workload").and_then(|w| t3::tasks(Path::new(w), need(&flags, "count")?.parse().map_err(|_| "--count takes a number".to_owned())?, Path::new(need(&flags, "out")?))),
         "t3-rows" => t3_rows(&flags),
         "recount" => recount(&flags),

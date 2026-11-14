@@ -68,6 +68,39 @@ fields of every north row from the transcript in its raw directory.
 `eval-b t3-tasks` writes the same tasks in Eval A's task format, and Eval A's own runner drives plain T3 Code one task
 at a time (`run --arms t3-vanilla`); `eval-b t3-rows` turns those rows into Eval B rows.
 
+## Split arms on the large tasks
+
+`eval-b large --tasks TASKS_TOML --task ID --workers N --plan PLAN --hosts HOST --account A --work DIR --results FILE [--dry]`
+runs north's split arms of EVALS section 3a on one build host, N being 1, 3 or 9. The plain competitor is the
+one-worker cell's T3 Code rows, which Eval A runs; this mode runs only north.
+
+- It runs on HOST itself, the first of `--hosts`, because the lander's land checks and the replay below are Cargo runs
+  that belong on a build host. Its scratch project is `~/code/eval-b-large`, beside the ladder's: a bare origin whose
+  only ref is the task's base commit, fetched from `--repo` (default `/home/tom/code/north/main`), with every earlier
+  run's refs, reflogs and objects pruned so no earlier attempt is reachable; the lander's checkout `main`; and one lane
+  per box, made from the origin's main just before that box launches.
+- `TASKS_TOML` is the frozen `eval-large/tasks.toml`; its directory is `EVAL_LARGE` in each check, and the runner
+  refuses a directory that holds `answers.toml`. TOML is read with `Bun.TOML.parse`, as Eval A's `tasks-json` does.
+- `PLAN` is what `north work split` writes: an optional `split_s` (the split step's seconds, added to the clock),
+  `[interface]` with `text` and `files`, then `[[part]]` entries with an optional `name`, `text` and `files`, the parts'
+  files pairwise disjoint. With no part the task runs as one session on the acceptance command.
+- The interface box launches first and lands alone; then the parts launch, at most N in flight, until every box has
+  landed or the 4-hour stop. Each launch is the ladder's: claude-opus-5-5 at medium, `--pin` to HOST, `--gates-aside`,
+  the `Commit message:` line `Do large task ID BOX (Run: STAMP-ID-wN-BOX)`, and the same two scripted nudges.
+- The scratch lander (`north land serve`) lands on `.safe-push` committed to the scratch main. With no part its check is
+  the acceptance command. With parts it is the acceptance command without its first step, which copies the task's spec
+  tests over the tree: those tests name what every box adds, so no box but the last could pass them, and section 3a
+  counts a main that is red between two landings.
+- The clock runs from the split's start to the last box's landing span end, and counts only when the final main passes
+  the acceptance command, run after the run. `main_red` is measured then too, off the clock, by replaying each landing
+  commit through the land check it landed on, because a Cargo check of 25 to 30 minutes run during the run would load
+  the host it times.
+- It appends one `row: "run"` row (`time_to_all_landed_and_correct_s`, null on a failed run, `conflicts`, `reworks`,
+  `handins`, tokens, API-equivalent `cost_usd`, `main_red` with `main_replays`) and one `row: "box"` row per box (files,
+  `launch_order`, `landing_span`, `landed_commit`, the same counts), each session's transcript in its `raw` directory.
+- `--dry` lays out the scratch project, prints the launch plan and appends one dry row per box, with its files, launch
+  order, lane, session and brief, launching nothing.
+
 ## Rerun
 
 ```
