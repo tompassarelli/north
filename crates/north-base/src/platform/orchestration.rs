@@ -122,9 +122,15 @@ pub fn builds_ahead(cfg: &DocumentMut, host: &str) -> bool {
     switch(cfg, host, "build_ahead")
 }
 
-/// Whether `HOST` compiles a fleet session's Rust build that no build host took; `[hosts.HOST] session_builds = false` refuses it there.
+/// Whether `HOST` compiles a fleet session's Rust build that no build host took; `[hosts.HOST] session_builds = false` refuses it there, and so does `offload_builds = false` on a host that declares runners, a build host closed for an eval.
 pub fn builds_for_sessions(cfg: &DocumentMut, host: &str) -> bool {
-    switch(cfg, host, "session_builds")
+    let closed = runners(cfg, host) > 0 && cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("offload_builds")?.as_bool()) == Some(false);
+    switch(cfg, host, "session_builds") && !closed
+}
+
+/// The remote-execution runners `[hosts.HOST] runners` declares, its build-mesh workerConcurrency.
+pub fn runners(cfg: &DocumentMut, host: &str) -> u64 {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)?.get("runners")?.as_integer()).and_then(|count| u64::try_from(count).ok()).unwrap_or(0)
 }
 
 fn switch(cfg: &DocumentMut, host: &str, key: &str) -> bool {

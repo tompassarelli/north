@@ -57,11 +57,6 @@ fn a_host_with_offload_builds_false_is_left_out_of_the_survey_at_every_standing_
         assert!(!takes_land_checks(&cfg, standing, "quiet"), "{standing:?}");
         assert!(takes_land_checks(&cfg, standing, "busy"), "{standing:?}");
     }
-}
-
-#[test]
-fn a_host_with_offload_builds_false_warms_no_slot() {
-    let cfg: DocumentMut = "[hosts.quiet]\noffload_builds = false\n\n[hosts.busy]\noffload_builds = true\n".parse().unwrap();
     assert!(!warms_slots(&cfg, "quiet"));
     assert!(warms_slots(&cfg, "busy"));
 }

@@ -182,12 +182,12 @@ fn no_build_host(missing: &Declined, create: &Create) -> Obj {
     Obj::new().put("decision", "REFUSED").put("reason", NO_BUILD_HOST).put("detail", format!("{}: {}", missing.reason(), missing.detail())).put("owner", create.owner.as_str())
 }
 
-/// The refusal a fleet session's Rust compile gets on a host whose operator entry sets `session_builds = false`: once no build host took it, whatever this host's room or lease.
+/// The refusal a fleet session's Rust compile gets on a host whose operator entry sets `session_builds = false`, or closes a build host with `offload_builds = false`: once no build host took it, whatever this host's room or lease.
 pub(super) fn session_builds_off(host: &Host, command: &[String], create: &Create) -> Option<Obj> {
     if (host.session_builds)() || !crate::capacity::gate::compiles_rust(command) {
         return None;
     }
-    let key = format!("[hosts.{}] session_builds = false", crate::platform::host::name());
+    let key = format!("[hosts.{}] session_builds = false, or offload_builds = false on a host that declares runners,", crate::platform::host::name());
     Some(Obj::new().put("decision", "REFUSED").put("reason", SESSION_BUILDS_OFF).put("detail", key).put("owner", create.owner.as_str()))
 }
 

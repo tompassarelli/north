@@ -31,6 +31,12 @@ pub(super) fn credential_values(source: &str) -> Result<(), String> {
     north_ops::ops::credentials::declared::parse(source).map(drop)
 }
 
+pub(super) fn runner_closures(source: &str) -> Result<(), String> {
+    let cfg: toml_edit::DocumentMut = source.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
+    let refused = north_offload::land_offload::runners::refused_closures(&cfg);
+    if refused.is_empty() { Ok(()) } else { Err(refused.join("; ")) }
+}
+
 pub(super) const SCHEMAS: &[Schema] = &[
     Schema {
         name: "costs",
@@ -154,11 +160,11 @@ pub(super) const SCHEMAS: &[Schema] = &[
     Schema {
         name: "orchestration",
         file: "agents/orchestration.toml",
-        values: None,
+        values: Some(runner_closures),
         tables: &[
             Table { path: "", keys: &[("mode", Text), ("dispatch_providers", List), ("dispatch_hosts_excluded", List), ("hosts", Nested), ("dispatch", Nested), ("placement", Nested), ("projects", Nested), ("accounts", Any), ("tiers", Any), ("on_request", Any)], required: &[] },
             Table { path: "hosts", keys: &[("*", Nested)], required: &[] },
-            Table { path: "hosts.*", keys: &[("resident_cap", Number), ("deploy_ssh", Text), ("builds_runtime", Flag), ("publishes_host_facts", Flag), ("fleet_reports", Flag), ("pulls_spool", Flag), ("warcraft_clients", Number), ("lease_builds", Flag), ("session_builds", Flag), ("offload_builds", Flag), ("runs_no_checks", Flag), ("disk_keep", Flag), ("build_ahead", Flag), ("runtime_source", Flag), ("ssh", Text), ("agent_ssh", Text), ("launches", Flag), ("serves", List), ("disk_free_gib", Number), ("buck2_lint", Flag), ("buck2_red_reverts", Flag), ("buck2_test_crates", List), ("buck2_caseless_crates", List), ("pushes", List), ("reaches", List), ("settles_fleet", Flag), ("buck2_host_cases", Flag), ("buck2_tree_build", Flag), ("buck2_after_run", Flag), ("build_system", Text), ("buck2_tests", Flag), ("disk_budget_gib", Nested)], required: &[] },
+            Table { path: "hosts.*", keys: &[("resident_cap", Number), ("deploy_ssh", Text), ("builds_runtime", Flag), ("publishes_host_facts", Flag), ("fleet_reports", Flag), ("pulls_spool", Flag), ("warcraft_clients", Number), ("lease_builds", Flag), ("session_builds", Flag), ("offload_builds", Flag), ("runners", Number), ("runs_no_checks", Flag), ("disk_keep", Flag), ("build_ahead", Flag), ("runtime_source", Flag), ("ssh", Text), ("agent_ssh", Text), ("launches", Flag), ("serves", List), ("disk_free_gib", Number), ("buck2_lint", Flag), ("buck2_red_reverts", Flag), ("buck2_test_crates", List), ("buck2_caseless_crates", List), ("pushes", List), ("reaches", List), ("settles_fleet", Flag), ("buck2_host_cases", Flag), ("buck2_tree_build", Flag), ("buck2_after_run", Flag), ("build_system", Text), ("buck2_tests", Flag), ("disk_budget_gib", Nested)], required: &[] },
             Table { path: "hosts.*.disk_budget_gib", keys: &[("*", Number)], required: &[] },
             Table { path: "dispatch", keys: &[("triage_lead", Text)], required: &[] },
             Table { path: "placement", keys: &[("order", List), ("cloud_credit", Text), ("cloud_host", Text), ("dispatch_host", Text), ("codex_cloud", Flag), ("claude_session_target", Number), ("claude_session_ceiling", Number), ("private_repos", List)], required: &[] },

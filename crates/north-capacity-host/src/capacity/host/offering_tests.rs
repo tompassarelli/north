@@ -74,7 +74,7 @@ async fn a_session_build_no_build_host_took_on_the_laptop_is_refused_naming_each
     let off = Host { session_builds: || false, ..laptop() };
     let refused = session_builds_off(&off, &cargo, &create).expect("session_builds = false refuses the compile here");
     assert_eq!(refused.get("reason").and_then(serde_json::Value::as_str), Some(SESSION_BUILDS_OFF));
-    let key = format!("[hosts.{}] session_builds = false", crate::platform::host::name());
+    let key = format!("[hosts.{}] session_builds = false, or offload_builds = false on a host that declares runners,", crate::platform::host::name());
     assert_eq!(refused.get("detail").and_then(serde_json::Value::as_str), Some(key.as_str()));
     assert!(session_builds_off(&laptop(), &cargo, &create).is_none(), "key absent or true: the compile runs here");
 }

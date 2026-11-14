@@ -93,7 +93,7 @@ pub(super) fn pinned_by_settler(cfg: &DocumentMut, here: &str) -> bool {
     settler && reached
 }
 
-pub(super) fn opts_out_of_builds(cfg: &DocumentMut, host: &str) -> bool {
+pub(crate) fn opts_out_of_builds(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(false)
 }
 
