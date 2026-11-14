@@ -69,12 +69,13 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
 }
 
 fn launch_words(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str) -> Vec<String> {
+    let cwd = format!("{}:{}", plan.hosts[0], scratch::worktree(branch));
     let text = header(&plan.hosts[0], &plan.model, &plan.effort) + &prompt(task);
     let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
     let pin = format!("Eval B runs every arm on {}", plan.hosts[0]);
     [
         "--provider", "claude", "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
-        "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &scratch::worktree(branch), "--gates-aside", "--no-wait", &text,
+        "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &cwd, "--gates-aside", "--no-wait", &text,
     ]
     .map(str::to_owned)
     .to_vec()
