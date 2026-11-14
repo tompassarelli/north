@@ -128,6 +128,14 @@ fn unreached(why: &str) -> u8 {
     NO_VERDICT
 }
 
+/// Whether a commit of the lane, from its base to its head, carries a `Live-fix:` trailer: a red-main fix, whose job
+/// takes the next free slot ahead of normal jobs as an urgent caller's does.
+fn live_fix(land: &Land) -> bool {
+    let range = land.base.as_ref().map_or_else(|| format!("{}^!", land.head.as_str()), |base| format!("{}..{}", base.as_str(), land.head.as_str()));
+    let output = Command::new(offload::git()).current_dir(land.checkout).args(["log", "--max-count=50", "--format=%(trailers:key=Live-fix,valueonly)", &range]).stderr(Stdio::null()).output();
+    output.is_ok_and(|output| output.status.success() && output.stdout.iter().any(|byte| !byte.is_ascii_whitespace()))
+}
+
 fn job_ref(head: &CommitId) -> String {
     static JOBS: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
@@ -224,7 +232,7 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
         _ => north_base::platform::session_scope::reserve_caller().unwrap_or_default(),
     };
     let lander_slot = std::env::var(LANDER_SLOT_ENV).unwrap_or_default();
-    let urgent = if north_capacity_host::capacity::host::urgency::caller_urgent() { "1" } else { "" };
+    let urgent = if north_capacity_host::capacity::host::urgency::caller_urgent() || live_fix(land) { "1" } else { "" };
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(&outputs::wrap(land.command, land.outputs), relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
