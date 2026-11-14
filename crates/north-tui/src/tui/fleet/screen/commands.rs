@@ -15,7 +15,10 @@ impl Screen {
                 self.pending.push(PendingMessage { session: name.clone(), text: text.clone(), echoes_before: echoes(transcript, text) + waiting });
                 return;
             }
-            Command::Launch(request) => format!("launching {}…", request.name),
+            Command::Launch(request) => {
+                self.launching.insert(request.name.clone(), self.selected.clone());
+                format!("launching {}…", request.name)
+            }
             Command::Revive(name) => format!("resuming {name}…"),
             Command::Relaunch { name, .. } => format!("restarting {name} on the same conversation…"),
             Command::Interrupt(name) => format!("interrupting {name}…"),
@@ -36,12 +39,9 @@ impl Screen {
 
     pub fn settle(&mut self, command: Command, outcome: NorthResult<()>) {
         self.release(command.session());
+        let origin = if let Command::Launch(request) = &command { self.launching.remove(&request.name) } else { None };
         match (command, outcome) {
-            (Command::Launch(request), Ok(())) => {
-                self.notice = Some(Notice::Info(format!("launched {}", request.name)));
-                self.select(Some(request.name));
-                self.focus = Focus::Composer;
-            }
+            (Command::Launch(request), Ok(())) => self.launched(request.name, origin),
             (Command::Send { name, text, .. }, Err(error)) => self.send_failed(&name, &text, &error),
             (Command::Send { .. }, Ok(())) => {}
             (Command::Decide { .. }, Err(error @ NorthError::GateAnswered { .. })) => {
@@ -58,6 +58,16 @@ impl Screen {
             (Command::Stop(name), Ok(())) => self.notice = Some(Notice::Info(format!("stopped {name}"))),
             (Command::Forget(name), Ok(())) => self.forgotten(name),
             (_, Err(error)) => self.fail(&error),
+        }
+    }
+
+    fn launched(&mut self, name: String, origin: Option<Option<String>>) {
+        if origin.as_ref() == Some(&self.selected) && self.composer.is_empty() {
+            self.notice = Some(Notice::Info(format!("launched {name}")));
+            self.select(Some(name));
+            self.focus = Focus::Composer;
+        } else {
+            self.notice = Some(Notice::Info(format!("launched {name}; Tab to the session list and select it to write to it")));
         }
     }
 

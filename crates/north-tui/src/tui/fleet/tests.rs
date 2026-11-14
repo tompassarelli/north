@@ -277,6 +277,40 @@ fn one_enter_sends_a_slash_command_while_its_suggestions_are_open() {
     assert!(screen.composer.is_empty());
 }
 
+#[test]
+fn a_launch_settling_keeps_the_session_selected_while_typing() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    key(&mut desk, &mut screen, control('n'));
+    let Some(Dialog::Launch(form)) = &mut screen.dialog else { panic!("Ctrl+N opened no launch form") };
+    form.field = Field::Prompt;
+    screen.paste("do the work");
+    let launch = apply_event(&mut screen, Event::Key(press(KeyCode::Enter))).expect("the launch form did not submit");
+    screen.begin(&launch, None);
+    desk.actions.record(launch.clone()).unwrap();
+    screen.sync(desk.sessions());
+    screen.focus = Focus::List;
+    key(&mut desk, &mut screen, press(KeyCode::Down));
+    let typed_to = screen.selected.clone().unwrap();
+    assert_ne!(typed_to, launch.session());
+    type_text(&mut desk, &mut screen, "hello");
+    screen.settle(launch.clone(), Ok(()));
+    assert_eq!(screen.selected.as_deref(), Some(typed_to.as_str()));
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert_eq!(desk.performed().last(), Some(&Command::Send { name: typed_to, text: "hello".into(), delivery: Delivery::Queued, deepen: false }));
+    screen.begin(&launch, None);
+    screen.settle(launch.clone(), Ok(()));
+    assert_eq!(screen.selected.as_deref(), Some(launch.session()));
+    assert_eq!(screen.focus, Focus::Composer);
+    type_text(&mut desk, &mut screen, "x");
+    screen.focus = Focus::List;
+    screen.begin(&launch, None);
+    screen.settle(launch.clone(), Ok(()));
+    assert_eq!(screen.selected.as_deref(), Some(launch.session()));
+    assert_eq!(screen.focus, Focus::List);
+    assert_eq!(screen.composer.lines().concat(), "x");
+}
+
 fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
     let request = GateRequest {
         verification: false,
