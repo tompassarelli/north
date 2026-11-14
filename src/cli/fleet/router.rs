@@ -6,7 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::platform::attribution::{self, Cause, Harness};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
 use crate::fleet::hops;
-use crate::fleet::model::{Delivery, ProviderName, SessionRecord};
+use crate::fleet::model::{Delivery, ProviderName};
 use crate::fleet::route::Route;
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
@@ -211,6 +211,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 }
 
 fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    let entered_ms = now_ms();
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
@@ -224,7 +225,7 @@ fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         eprintln!("fleet launch: {why}");
         (parts.request.urgent, parts.priority) = (false, Priority::Normal);
     }
-    let result = launch_prepared(fleet, parts, caller, queued.as_deref());
+    let result = launch_prepared(fleet, parts, caller, queued.as_deref(), entered_ms);
     if let (Err(error), Some((name, parent))) = (&result, second) {
         second_rung_refused(fleet, &name, parent.as_deref(), &error.user_message());
     }
@@ -241,7 +242,7 @@ fn second_rung_refused(fleet: &Fleet, name: &str, parent: Option<&str>, why: &st
     }
 }
 
-fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>) -> NorthResult<()> {
+fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>, entered_ms: u64) -> NorthResult<()> {
     let LaunchParts { mut request, mut overrides, wait, take_over, priority, words } = parts;
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     super::claude_only::admit(&request)?;
@@ -282,22 +283,14 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     if let Some(prompt) = super::agent_root::for_machine(&request.prompt, request.machine.as_ref()) {
         request.prompt = prompt;
     }
+    let launching_ms = now_ms();
     let record = if take_over { fleet.take_over(&request) } else { fleet.launch(&request) }.inspect_err(|error| failed_to_start(&request.name, error))?;
     tier::recorded(started, &request, &record.name);
-    trace_launch(fleet, &record, placing_ms, placed_ms);
+    if let Ok(dir) = fleet.session_dir(&record.name) {
+        hops::record_command(&hops::trace_in(&dir), &record.name, record.created_ms, [entered_ms, placing_ms, placed_ms, launching_ms]);
+    }
     println!("{}", record.name);
     Ok(())
-}
-
-/// Writes the launch command's own hops to the session's trace: from this process's start to registration, and its placement within that.
-fn trace_launch(fleet: &Fleet, record: &SessionRecord, placing_ms: u64, placed_ms: u64) {
-    let Ok(dir) = fleet.session_dir(&record.name) else { return };
-    let trace = hops::trace_in(&dir);
-    let span = |hop, start_ms, end_ms| hops::Span { session: record.name.clone(), hop, start_ms, end_ms };
-    if let Some(asked_ms) = hops::process_started_ms() {
-        hops::record(&trace, &span(hops::Hop::Launch, asked_ms, record.created_ms));
-    }
-    hops::record(&trace, &span(hops::Hop::Placement, placing_ms, placed_ms));
 }
 
 /// Records a launch placement let through that failed before its session started, the loss the runtime watch judges a new runtime by; a refusal, a queue or a usage error is a decision, not a failure.

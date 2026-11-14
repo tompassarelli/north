@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::hops::{Launch, launches, trace_in};
+use crate::fleet::hops::{COMMAND, Hop, Launch, launches, trace_in};
 use crate::fleet::registry::Fleet;
 use crate::foundation::clock::Timestamp;
 
@@ -51,13 +51,30 @@ fn traced(fleet: &Fleet, name: &str) -> NorthResult<Vec<Launch>> {
 
 fn line(starts: &[Launch]) -> String {
     let asked = median(starts, |launch| launch.asked_ms.map(|asked| launch.registered_ms.saturating_sub(asked)));
-    let placement = median(starts, |launch| launch.placement_ms).map_or_else(|| "-".to_owned(), |ms| format!("{ms} ms"));
-    let mut parts = vec![asked.map_or_else(|| "launch command -".to_owned(), |ms| format!("launch command {ms} ms before (placement {placement})"))];
+    let command: Vec<String> = COMMAND
+        .iter()
+        .map(|&hop| {
+            let ms = median(starts, |launch| launch.command.iter().find(|(seen, _)| *seen == hop).map(|&(_, ms)| ms));
+            format!("{} {}", label(hop), ms.map_or_else(|| "-".to_owned(), |ms| format!("{ms} ms")))
+        })
+        .collect();
+    let mut parts = vec![asked.map_or_else(|| "launch command -".to_owned(), |ms| format!("launch command {ms} ms before ({})", command.join(", ")))];
     parts.extend(ENDS.iter().map(|(label, end)| {
         let after = median(starts, |launch| end(launch).map(|end| end.saturating_sub(launch.registered_ms)));
         after.map_or_else(|| format!("{label} -"), |ms| format!("{label} +{ms} ms"))
     }));
     parts.join(", ")
+}
+
+fn label(hop: Hop) -> &'static str {
+    match hop {
+        Hop::Startup => "startup",
+        Hop::Admission => "admission",
+        Hop::Placement => "placement",
+        Hop::Gating => "gating",
+        Hop::Prelude => "prelude",
+        Hop::Launch | Hop::SessionHost | Hop::RemoteUnit | Hop::Client | Hop::Prompt | Hop::Response => "",
+    }
 }
 
 fn median(starts: &[Launch], measure: impl Fn(&Launch) -> Option<u64>) -> Option<u64> {

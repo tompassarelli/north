@@ -231,7 +231,7 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
 
     let worker = LaunchRequest { verification: false, gates_aside: false, urgent: false, container_shell: false, container_dir: None, name: "box-one".into(), provider: ProviderName::new("claude"), account: "a".into(), cwd: lane.to_path_buf(), model: None, effort: None, prompt: "Item: north#1 brief".into(), system_prompt: Some("/tmp/box-one-prompt.md".into()), foreground_cap_secs: None, prompt_mode: PromptMode::North, idle_exit_minutes: None, parent: Some("lead".into()), task_ref: Some("north#1".into()), claim_box: Some("the box".into()), placement: None, machine: Some(far.clone()), capacity_need: Some("4".into()), role: Some(Role::Worker), resume: None, compact_window: Some(200_000), dispatched: false, surface: Default::default(), route: None };
     let template = spares::template(worker.clone(), "spare-two".into());
-    assert_eq!(template, LaunchRequest { name: "spare-two".into(), prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, capacity_need: None, compact_window: None, ..worker }, "a fill's template carries no task, box, brief or prompt file of the worker it was modelled on");
+    assert_eq!(template, LaunchRequest { name: "spare-two".into(), prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, capacity_need: None, ..worker }, "a fill's template carries no task, box, brief or prompt file of the worker it was modelled on, and keeps its compaction window, which the client reads at start");
 }
 
 #[test]

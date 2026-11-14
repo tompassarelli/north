@@ -42,7 +42,7 @@ impl Fleet {
             return Ok(format!("a fill for {} is already running", machine.name));
         }
         let pool = spares::survey(&place).ok_or_else(|| NorthError::State(format!("{} did not answer the spare survey", machine.name)))?;
-        let kind = spares::kind(&account.recorded_label(), template.model.as_deref(), record.effort.map(Effort::label), &template.cwd);
+        let kind = spares::kind(&account.recorded_label(), template.model.as_deref(), record.effort.map(Effort::label), template.window(), &template.cwd);
         let fingerprint = spares::fingerprint(&self.worker_spec(&template, &account, runtime.as_ref(), record.effort, &new_uuid()?)?, spares::current_runtime().as_deref());
         let (stale, start) = spares::wanted(&pool, &kind, &fingerprint);
         spares::retire(&place, &stale);

@@ -74,9 +74,9 @@ pub fn fingerprint(spec: &HostSpec, runtime: Option<&Path>) -> String {
     digest(&serde_json::json!([argv, env, removed, spec.cwd, runtime]).to_string())
 }
 
-/// The kind a spare fills for: the account, model, effort and directory of the launches it may serve.
-pub fn kind(account: &str, model: Option<&str>, effort: Option<&str>, cwd: &Path) -> String {
-    digest(&serde_json::json!([account, model, effort, cwd]).to_string())
+/// The kind a spare fills for: the account, model, effort, compaction window and directory of the launches it may serve.
+pub fn kind(account: &str, model: Option<&str>, effort: Option<&str>, window: Option<u64>, cwd: &Path) -> String {
+    digest(&serde_json::json!([account, model, effort, window, cwd]).to_string())
 }
 
 /// A fresh spare's name, the session name its environment carries until a take binds it.
@@ -90,9 +90,9 @@ pub fn current_runtime() -> Option<PathBuf> {
     std::fs::canonicalize(Path::new(&home).join(".local/state/north/current")).ok()
 }
 
-/// The launch a fill starts spares like `worker` from, under the spare's `name`: `worker` without its task, box, brief, prompt file, parent, placement, capacity need or compaction window, so a spare holds nothing of the worker it was modelled on and fits a fresh launch of that account, model, effort and directory.
+/// The launch a fill starts spares like `worker` from, under the spare's `name`: `worker` without its task, box, brief, prompt file, parent, placement or capacity need, so a spare holds nothing of the worker it was modelled on and fits a fresh launch of that account, model, effort, compaction window and directory.
 pub fn template(worker: LaunchRequest, name: String) -> LaunchRequest {
-    LaunchRequest { name, prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, placement: None, capacity_need: None, role: Some(Role::Worker), resume: None, compact_window: None, ..worker }
+    LaunchRequest { name, prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, placement: None, capacity_need: None, role: Some(Role::Worker), resume: None, ..worker }
 }
 
 /// The spare's spec: `spec` staged in the place's login home, with the binding variable naming the file a take seals in its held directory.
