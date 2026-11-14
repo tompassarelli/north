@@ -151,8 +151,8 @@ const DISK_RELIEF_MIB: u64 = 50;
 pub fn set_agent_disk_relief(settings: &Settings, relieve: bool) -> Result<(), String> {
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let write = if relieve { DISK_RELIEF_MIB } else { super::defaults::default_mib("agent_slice_write_cap_mib") as u64 };
-    let read = if relieve { format!("IOReadBandwidthMax={home} {}", DISK_RELIEF_MIB << 20) } else { "IOReadBandwidthMax=".to_owned() };
-    systemctl(settings, &["set-property".to_owned(), "--runtime".to_owned(), AGENT_SLICE.to_owned(), read, format!("IOWriteBandwidthMax={home} {}", write << 20)])
+    let read = if relieve { DISK_RELIEF_MIB } else { super::defaults::default_mib("agent_slice_read_cap_mib") as u64 };
+    systemctl(settings, &["set-property".to_owned(), "--runtime".to_owned(), AGENT_SLICE.to_owned(), format!("IOReadBandwidthMax={home} {}", read << 20), format!("IOWriteBandwidthMax={home} {}", write << 20)])
 }
 
 fn open_to_game(settings: &Settings, game_cpus: &str) -> Vec<String> {

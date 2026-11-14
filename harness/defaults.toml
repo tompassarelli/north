@@ -2030,6 +2030,15 @@ source = "north#1492, coordinator ruling 2026-11-14: a Live-fix lane lands on on
 fallback = "a missing list leaves every Live-fix lane in trust_boundary_paths at one accept and every other lane there at two"
 consumers = ["crates/north-base/src/platform/trust_boundary.rs", "crates/north-land-scans/src/review_accept.rs"]
 
+[agent_slice_read_cap_mib]
+value = 200
+allowed = { min = 20, max = 100000 }
+unit = "MiB per second of reads from the home filesystem that agent.slice keeps, as IOReadBandwidthMax, when the seat's disk relief ends; a bare reset would override the same cap agent.slice's unit config sets from boot"
+source = "guess: on 2026-11-14 at 11:02 PM control.slice read 646 MB/s and agent.slice 67 MB/s while app.slice sat at 79% full IO stall (north#1553)"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose full IO pressure can be compared at this read cap against the same reads uncapped" }
+fallback = "none: relief ending restores this read cap"
+consumers = ["crates/north-capacity/src/capacity/game_reserve.rs"]
+
 [agent_slice_write_cap_mib]
 value = 200
 allowed = { min = 20, max = 100000 }

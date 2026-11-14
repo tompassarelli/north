@@ -52,7 +52,7 @@ fn agent_slice_quota_is_the_12_cpu_bound_at_the_desk_and_22_only_while_away() {
     let relief = format!("systemctl --user set-property --runtime agent.slice IOReadBandwidthMax={home} 52428800 IOWriteBandwidthMax={home} 52428800");
     assert_eq!(limits_touched(tick(root.path(), Some(true), 1_150)), [relief], "app.slice disk pressure over the seat limit caps agent disk and leaves the CPU quota alone");
     pressure(0.0);
-    assert_eq!(limits_touched(tick(root.path(), Some(true), 1_180)), [format!("systemctl --user set-property --runtime agent.slice IOReadBandwidthMax= IOWriteBandwidthMax={home} 209715200")]);
+    assert_eq!(limits_touched(tick(root.path(), Some(true), 1_180)), [format!("systemctl --user set-property --runtime agent.slice IOReadBandwidthMax={home} 209715200 IOWriteBandwidthMax={home} 209715200")], "ending relief restores the standing read cap, since a bare reset overrides the read cap agent.slice carries from boot");
 }
 
 #[test]
