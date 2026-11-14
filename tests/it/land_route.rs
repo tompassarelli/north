@@ -56,7 +56,7 @@ impl Fixture {
     }
 
     fn write_config(&self, name: &str, landing: &str) {
-        let text = format!("[init]\n\tdefaultBranch = main\n[user]\n\tname = safe-push-test\n\temail = safe-push-test@example.invalid\n{landing}");
+        let text = format!("[init]\n\tdefaultBranch = main\n[user]\n\tname = safe-push-test\n\temail = safe-push-test@example.invalid\n[safe-push]\n\tallowEmail = safe-push-test@example.invalid\n{landing}");
         fs::write(self.top().join(name), text).unwrap();
     }
 

@@ -94,7 +94,7 @@ pub(super) struct Repository {
 impl World {
     pub(super) fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("gitconfig"), "[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n").unwrap();
+        std::fs::write(root.path().join("gitconfig"), "[user]\n\tname = t\n\temail = t@example.com\n[safe-push]\n\tallowEmail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n").unwrap();
         let bin = root.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("checker"), GREEN).unwrap();

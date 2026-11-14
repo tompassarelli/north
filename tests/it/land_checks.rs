@@ -200,6 +200,7 @@ fn land_publish() {
     for (leaks, status) in [("0", 0), ("1", 1)] {
         let fixture = Fixture::new(&[("land.publish", "farm/"), ("land.check", "file.txt :: touch ../ran")]);
         git(&fixture.repo, &["config", "user.email", "t@example.invalid"]);
+        git(&fixture.repo, &["config", "safe-push.allowEmail", "t@example.invalid"]);
         let link = fixture.path("link/safe-push");
         fs::create_dir_all(fixture.path("link")).unwrap();
         std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &link).unwrap();

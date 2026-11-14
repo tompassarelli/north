@@ -42,7 +42,7 @@ impl Fixture {
         let root = tempfile::tempdir().unwrap();
         let top = root.path().to_path_buf();
         let top = top.as_path();
-        fs::write(top.join("gitconfig"), "[init]\n\tdefaultBranch = main\n[user]\n\tname = safe-push-test\n\temail = safe-push-test@example.invalid\n").unwrap();
+        fs::write(top.join("gitconfig"), "[init]\n\tdefaultBranch = main\n[user]\n\tname = safe-push-test\n\temail = safe-push-test@example.invalid\n[safe-push]\n\tallowEmail = safe-push-test@example.invalid\n").unwrap();
         let fixture = Self { root, destination_oid: String::new(), base_oid: String::new() };
         let repo = fixture.repo();
         fixture.git_at(top, &["init", "-q", "--bare", "remote.git"]);

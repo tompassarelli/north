@@ -82,6 +82,7 @@ fn root_commit_lands_on_an_empty_origin() {
     git_in(scratch.path(), &["init", "-q", "-b", "main", main.to_str().unwrap()]);
     git_in(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
     git_in(&main, &["config", "user.email", "fixture@example.invalid"]);
+    git_in(&main, &["config", "safe-push.allowEmail", "fixture@example.invalid"]);
     git_in(&main, &["worktree", "add", "-q", "--orphan", "-b", "init", lane.to_str().unwrap()]);
     std::fs::write(lane.join("README.md"), "a new project\n").unwrap();
     git_in(&lane, &["add", "-A"]);

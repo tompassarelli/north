@@ -49,6 +49,7 @@ impl Gex45 {
         git(&repo, &["init", "-q", "-b", "main"]);
         git(&repo, &["config", "user.name", "Remote land scenario"]);
         git(&repo, &["config", "user.email", "land@example.invalid"]);
+        git(&repo, &["config", "safe-push.allowEmail", "land@example.invalid"]);
         git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
         if autoland {
             fs::create_dir_all(repo.join(".github/workflows")).unwrap();

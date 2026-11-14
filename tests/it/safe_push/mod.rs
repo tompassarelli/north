@@ -96,6 +96,7 @@ pub fn remote_state(remote: &Path) -> String {
 pub fn identify(repo: &Path) {
     git(repo, &["config", "user.name", "safe-push-test"]);
     git(repo, &["config", "user.email", "safe-push-test@example.invalid"]);
+    git(repo, &["config", "safe-push.allowEmail", "safe-push-test@example.invalid"]);
 }
 
 pub fn write(path: &Path, content: &str) {

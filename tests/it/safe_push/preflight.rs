@@ -57,6 +57,7 @@ fn a_landing_that_undoes_recent_main_names_its_would_be_refusal_and_passes_with_
     git(&fixture.root, &["clone", "-q", &fixture.remote.to_string_lossy(), "mover"]);
     git(&mover, &["config", "user.name", "safe-push-test"]);
     git(&mover, &["config", "user.email", "safe-push-test@example.invalid"]);
+    git(&mover, &["config", "safe-push.allowEmail", "safe-push-test@example.invalid"]);
     fs::write(mover.join("content.txt"), "moved\n").unwrap();
     git(&mover, &["commit", "-qam", "main moves content.txt"]);
     git(&mover, &["push", "-q", "origin", "main"]);

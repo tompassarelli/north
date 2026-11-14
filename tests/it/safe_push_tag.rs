@@ -44,6 +44,7 @@ static TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
         }
         git(&repo, &["config", "user.name", "safe-push-test"]);
         git(&repo, &["config", "user.email", "safe-push-test@example.invalid"]);
+        git(&repo, &["config", "safe-push.allowEmail", "safe-push-test@example.invalid"]);
         commit(&repo, "content.txt", "initial\n", "initial");
         git(&repo, &["remote", "add", "origin", &remote.to_string_lossy()]);
         git(&remote, &["fetch", "-q", &repo.to_string_lossy(), "main:main", "main:other"]);

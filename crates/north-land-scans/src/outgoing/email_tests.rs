@@ -36,6 +36,7 @@ fn repository() -> Repository {
     git(&dir, &["init", "-q", "-b", "main"], &[]);
     git(&dir, &["config", "user.name", "safe-push-test"], &[]);
     git(&dir, &["config", "user.email", PUSHER], &[]);
+    git(&dir, &["config", "safe-push.allowEmail", PUSHER], &[]);
     std::fs::write(dir.join("content.txt"), "initial\n").unwrap();
     git(&dir, &["add", "content.txt"], &[]);
     git(&dir, &["commit", "-qm", "initial"], &[]);
@@ -43,21 +44,16 @@ fn repository() -> Repository {
     Repository { _scratch: scratch, dir, base }
 }
 
-fn rust_scan(repository: &Repository, pushing: &[(&str, &str)]) -> (i32, String) {
+fn rust_scan(repository: &Repository) -> (i32, String) {
     let range = format!("{}..HEAD", repository.base);
-    let emails: Vec<String> = pushing.iter().map(|(_, email)| (*email).to_owned()).collect();
-    match outgoing_email_refusal(&repository.dir, &[range], &emails) {
+    match outgoing_email_refusal(&repository.dir, &[range]) {
         Some(message) => (1, format!("{message}\n")),
         None => (0, String::new()),
     }
 }
 
-fn same_verdict(_case: &str, repository: &Repository, pushing: &[(&str, &str)]) -> (i32, String) {
-    rust_scan(repository, pushing)
-}
-
-fn refused(case: &str, repository: &Repository, pushing: &[(&str, &str)], role: &str, commit: &str) {
-    let (status, stdout) = same_verdict(case, repository, pushing);
+fn refused(case: &str, repository: &Repository, role: &str, commit: &str) {
+    let (status, stdout) = rust_scan(repository);
     let short = git(&repository.dir, &["rev-parse", "--short", commit], &[]);
     assert_eq!(status, 1, "{case}: {stdout}");
     assert!(stdout.starts_with(&format!("safe-push: commit {short} {role} email {PRIVATE} is not {PUSHER}")), "{case}: {stdout}");
@@ -68,11 +64,11 @@ fn safe_push_email_scan_refuses_private_authors_and_committers() {
     let author = repository();
     empty_commit(&author.dir, "private author", &[("GIT_AUTHOR_EMAIL", PRIVATE)]);
     empty_commit(&author.dir, "later clean commit", &[]);
-    refused("author", &author, &[], "author", "HEAD~1");
+    refused("author", &author, "author", "HEAD~1");
 
     let committer = repository();
     empty_commit(&committer.dir, "private committer", &[("GIT_COMMITTER_EMAIL", PRIVATE)]);
-    refused("committer", &committer, &[], "committer", "HEAD");
+    refused("committer", &committer, "committer", "HEAD");
 
     let applied = repository();
     std::fs::write(applied.dir.join("content.txt"), "cloud work\n").unwrap();
@@ -82,15 +78,22 @@ fn safe_push_email_scan_refuses_private_authors_and_committers() {
     git(&applied.dir, &["reset", "-q", "--hard", "HEAD~1"], &[]);
     let patch = std::fs::read_dir(&patches).unwrap().next().unwrap().unwrap().path();
     git(&applied.dir, &["am", "-q", &patch.to_string_lossy()], &[]);
-    refused("git am", &applied, &[], "author", "HEAD");
+    refused("git am", &applied, "author", "HEAD");
 
-    let other_identity = repository();
-    empty_commit(&other_identity.dir, "env identity", &[("GIT_AUTHOR_EMAIL", PRIVATE), ("GIT_COMMITTER_EMAIL", PRIVATE)]);
-    refused("another pusher's identity", &other_identity, &[], "author", "HEAD");
+    let own_identity = repository();
+    git(&own_identity.dir, &["config", "user.email", PRIVATE], &[]);
+    empty_commit(&own_identity.dir, "env identity", &[("GIT_AUTHOR_EMAIL", PRIVATE), ("GIT_COMMITTER_EMAIL", PRIVATE)]);
+    refused("the pusher's own identity, off the list", &own_identity, "author", "HEAD");
 
-    let unset = repository();
-    git(&unset.dir, &["config", "user.email", ""], &[]);
-    let (status, stdout) = same_verdict("unset user.email", &unset, &[]);
+    let unlisted = repository();
+    git(&unlisted.dir, &["config", "--unset-all", "safe-push.allowEmail"], &[]);
+    let noreply = "42+bot@users.noreply.github.com";
+    empty_commit(&unlisted.dir, "bot", &[("GIT_AUTHOR_EMAIL", noreply), ("GIT_COMMITTER_EMAIL", noreply)]);
+    assert_eq!(rust_scan(&unlisted).0, 0);
+    empty_commit(&unlisted.dir, "private", &[("GIT_AUTHOR_EMAIL", PRIVATE)]);
+    let (status, stdout) = rust_scan(&unlisted);
     assert_eq!(status, 1);
-    assert!(stdout.starts_with("safe-push: ✗ git config user.email is empty"), "{stdout}");
+    assert!(stdout.contains(&format!("email {PRIVATE} is not *@users.noreply.github.com")), "{stdout}");
+    empty_commit(&unlisted.dir, "lookalike", &[("GIT_AUTHOR_EMAIL", "x@evil-users.noreply.github.com")]);
+    assert_eq!(rust_scan(&unlisted).0, 1);
 }

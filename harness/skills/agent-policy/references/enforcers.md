@@ -66,7 +66,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | No secrets in pushed commits | betterleaks secret scan |
 | Private identity values never reach a public repository | `denylist_scan` |
 | Tom-specific facts in a public skill live behind a `south:` pointer | `denylist_scan` (south `privacy/public-denylist.toml` host, account, billing and ID rules; a missing deny-list refuses a public push where south exists) |
-| Author and committer emails match the configured identity | `commit_email_scan` |
+| Author and committer emails are on the list `.commit-emails` or `safe-push.allowEmail` names | `commit_email_scan` |
 | Branch names and commit messages never name a native threads item | `native_ref_scan` |
 | Core tools stay; other tool removals need `Removes-tool:` | `tool_removal_scan` |
 | No added test skip or focus without a `Test-change:` trailer, and no added `MUTANT:` marker | `test_integrity_scan` |
