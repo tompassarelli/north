@@ -294,7 +294,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     if !unnamed_deletions.is_empty() {
         return Err(format!("the lane's commits also delete {}, which the hand-in did not name", unnamed_deletions.join(" ")));
     }
-    let named = stageable(&root, named, &relative);
+    let named = stageable(&root, named, &relative, &targets);
     Ok(Named { lane: Lane { root, destination, message }, paths: named, targets, committed: !committed.is_empty(), added: unnamed })
 }
 

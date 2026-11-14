@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::super::enqueue::git;
 
@@ -7,8 +7,8 @@ pub(super) fn in_lane(root: &Path, relative: &str, committed: &[String]) -> bool
     committed.iter().any(|change| change == relative || change.starts_with(&under)) || tracked(root, relative)
 }
 
-pub(super) fn stageable(root: &Path, named: Vec<String>, relative: &[String]) -> Vec<String> {
-    named.into_iter().zip(relative).filter(|(path, name)| Path::new(path).exists() || tracked(root, name)).map(|(path, _)| path).collect()
+pub(super) fn stageable(root: &Path, named: Vec<String>, relative: &[String], targets: &[PathBuf]) -> Vec<String> {
+    named.into_iter().zip(relative).filter(|(path, name)| Path::new(path).exists() || targets.iter().any(|target| target == Path::new(path)) || tracked(root, name)).map(|(path, _)| path).collect()
 }
 
 fn tracked(root: &Path, relative: &str) -> bool {
