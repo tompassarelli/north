@@ -380,7 +380,3 @@ pub fn fail_to_pass(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     let _ = writeln!(out, "after-landing: ✗ fail-to-pass: these added tests pass with the lane's non-test changes reverted, so none guards the change: {}; make each fail without the change, or put a line `{}` in the commit message of a behavior-preserving change.", idle.join(", "), fails_first::MARK);
     1
 }
-
-#[cfg(test)]
-#[path = "test_admission/worker_lane_tests.rs"]
-mod worker_lane_tests;

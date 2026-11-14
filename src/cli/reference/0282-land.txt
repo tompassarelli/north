@@ -1,2 +1,3 @@
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land fails-first-runs RUNS NAME...            Build this tree's tests with the build system this host runs, then run the named tests RUNS times and print a verdict per name
+  land mutant-runs                              Build each tree's tests with the build system this host runs, then run the named tests in each and record pass or fail per test in its .mutant-results (names and trees from MUTANT_TESTS and MUTANT_TREES)

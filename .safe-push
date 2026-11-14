@@ -9,7 +9,7 @@
 	warm = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --workspace --locked --offline -- -D warnings && CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --workspace --locked --offline --no-run"
 [mutant]
 	class = heavy
-	run = ./bin/head-north --code crates/north-capacity/src/capacity/dev_shell.rs,src/cli/ capacity dev-shell run -- bash harness/scripts/mutant-tests.sh
+	run = CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-landing-gates/src/landing/,crates/north-build-system/src/,src/cli/ land mutant-runs
 	source = ":(glob)src/**/*.rs"
 	source = ":(glob)crates/*/src/**/*.rs"
 	source = ":(exclude,glob)**/*tests*.rs"

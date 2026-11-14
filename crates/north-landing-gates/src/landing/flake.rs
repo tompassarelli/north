@@ -31,7 +31,7 @@ struct Finished {
     output: String,
 }
 
-enum Verdict {
+pub enum Verdict {
     Pass,
     Flaky(usize),
     Unlisted,
@@ -114,27 +114,53 @@ fn unverified(out: &mut dyn Write, reason: &str) -> Result<(), Stop> {
     Ok(())
 }
 
-/// The verdict line of each added test the build line runs: `pass NAME`, `flaky NAME FAILED_RUNS`, or `unlisted NAME` when no built executable lists it. Progress and the output of a failing run go to `log`.
-pub fn verdicts(cwd: &Path, executables: &[PathBuf], names: &BTreeSet<String>, runs: usize, log: &mut dyn Write, out: &mut dyn Write) -> io::Result<()> {
+pub fn executables(cwd: &Path, log: &mut dyn Write) -> Result<Vec<PathBuf>, Option<String>> {
+    let side = north_build_system::here();
+    let invocation = side.test_build(cwd).map_err(Some)?;
+    let _lock = side.test_lock(cwd).map_err(Some)?;
+    let output = invocation.command().stdin(Stdio::null()).output().map_err(|error| Some(error.to_string()))?;
+    let text = String::from_utf8_lossy(&output.stderr).into_owned();
+    log.write_all(text.as_bytes()).map_err(|error| Some(error.to_string()))?;
+    if !output.status.success() {
+        return Err(if side.broken(output.status.code(), &text) { None } else { Some(format!("the build exited {}", output.status)) });
+    }
+    let found = side.test_executables(cwd, &String::from_utf8_lossy(&output.stdout)).map_err(Some)?;
+    Ok(found.iter().map(|executable| cwd.join(executable)).collect())
+}
+
+pub fn verdicts(cwd: &Path, executables: &[PathBuf], names: &BTreeSet<String>, runs: usize, log: &mut dyn Write) -> io::Result<BTreeMap<String, Verdict>> {
     let batches = batches(executables, names);
     let cases: Vec<(&str, usize, &str)> = batches.iter().enumerate().flat_map(|(index, batch)| batch.tests.iter().map(move |path| (name_of(path), index, path.as_str()))).collect();
     let known = names.iter().filter(|name| cases.iter().any(|(case, ..)| case == name)).count();
     writeln!(log, "fails-first: running {known} changed test(s) {runs} times concurrently on the lane head")?;
     let finished = run(cwd, &batches, runs);
+    let mut judged = BTreeMap::new();
     for name in names {
         let found: Vec<(usize, &str)> = cases.iter().filter(|(case, ..)| case == name).map(|(_, index, path)| (*index, *path)).collect();
         if found.is_empty() {
-            writeln!(out, "unlisted {name}")?;
+            judged.insert(name.clone(), Verdict::Unlisted);
             continue;
         }
         let failures: Vec<&Finished> = found.iter().flat_map(|(index, path)| finished[*index].iter().filter(|run| failed(run, path))).collect();
-        match failures.first() {
-            None => writeln!(out, "pass {name}")?,
+        let verdict = match failures.first() {
+            None => Verdict::Pass,
             Some(first) => {
                 let lines: Vec<&str> = first.output.lines().collect();
                 writeln!(log, "fails-first: output of a failing {name} run ends:\n{}", lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n"))?;
-                writeln!(out, "flaky {name} {}", failures.len())?;
+                Verdict::Flaky(failures.len())
             }
+        };
+        judged.insert(name.clone(), verdict);
+    }
+    Ok(judged)
+}
+
+pub fn print(verdicts: &BTreeMap<String, Verdict>, out: &mut dyn Write) -> io::Result<()> {
+    for (name, verdict) in verdicts {
+        match verdict {
+            Verdict::Pass => writeln!(out, "pass {name}")?,
+            Verdict::Flaky(count) => writeln!(out, "flaky {name} {count}")?,
+            Verdict::Unlisted => writeln!(out, "unlisted {name}")?,
         }
     }
     Ok(())
@@ -183,7 +209,7 @@ fn batches(executables: &[PathBuf], names: &BTreeSet<String>) -> Vec<Batch> {
 
 fn run(cwd: &Path, batches: &[Batch], runs: usize) -> Vec<Vec<Finished>> {
     let idle = AtomicBool::new(false);
-    let load = 2 * thread::available_parallelism().map_or(1, usize::from);
+    let load = if runs > 1 { 2 * thread::available_parallelism().map_or(1, usize::from) } else { 0 };
     thread::scope(|scope| {
         for _ in 0..load {
             scope.spawn(|| {
