@@ -249,7 +249,7 @@ impl Shared {
             under_capacity(capacity, shell_deadline(&environment.north, timeout + OFFLOAD_GRACE, &offload))
         } else {
             let observed = self.wrapped(&unit_reuse::quote(&environment.north), command);
-            let local = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
+            let local = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), environment.north.clone(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(&environment.north, timeout, &local))
         };

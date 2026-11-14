@@ -26,6 +26,10 @@ pub const LAND_STORE_VIEW: &str = "SAFE_PUSH_LAND_STORE_VIEW";
 pub const CHECK_ENDS: &str = "SAFE_PUSH_LAND_CHECK_ENDS";
 /// The seconds of its one line deadline a placed check has left, which a build host takes as the most its slot line may keep the check, so a check placed again after a refusal can only wait less in all.
 pub const LINE_WITHIN: &str = "SAFE_PUSH_LINE_WITHIN";
+/// The environment a land check started with, which `north depbox check` records for the capacity gate.
+pub const CHECK_START: &str = "DEPBOX_CHECK_START";
+/// The variables a check set that the capacity gate asks depbox to carry in; the worker broker strips it with [`CHECK_START`] from every request, so only a check the lander starts carries anything.
+pub const CHECK_CARRY: &str = "DEPBOX_CARRY";
 
 const CARRY: &[(&str, Reach)] = &[
     (LANDING, Reach::Landing),

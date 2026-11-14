@@ -38,6 +38,7 @@ rust_library(
         "//third-party:serde",
         "//third-party:serde_json",
         "//third-party:sha2",
+        "//third-party:tempfile",
         "//third-party:tokio",
         "//third-party:toml_edit",
     ],

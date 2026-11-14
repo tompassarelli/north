@@ -23,13 +23,13 @@ rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
 north-capacity = { path = "../north-capacity", features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
-tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

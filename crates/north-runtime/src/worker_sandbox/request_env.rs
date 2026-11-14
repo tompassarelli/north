@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use north_base::platform::session_scope::REMOVAL_ROOTS;
 use north_base::platform::{git_credential, session_scope};
-use north_base::foundation::offload;
+use north_base::foundation::{carry, offload};
 use north_base::verdict_cache;
 use north_providers::providers::{opencode, pi};
 
@@ -27,7 +27,7 @@ fn builds(name: &str) -> bool {
 }
 
 fn unsafe_name(name: &str) -> bool {
-    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name == lane_grant::PROVED_ENV || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name) || [opencode::KEY_ENV, pi::KEY_ENV].contains(&name)
+    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name == lane_grant::PROVED_ENV || name == carry::CHECK_START || name == carry::CHECK_CARRY || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name) || [opencode::KEY_ENV, pi::KEY_ENV].contains(&name)
 }
 
 /// The programs a brokered safe-push runs, `None` for every other request: the `PATH` in `own`, the broker's environment, behind `home`'s gh shims, `north`, the broker's own build, as every north it starts, and the compiler, wrapper, flags, cache and test runner `own` sets, since the programs its checks before queueing run, the north whose `verdict hit` decides which of them run, how they build and where they run decide the verdict a ticket carries.

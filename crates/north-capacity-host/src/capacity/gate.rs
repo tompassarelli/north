@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use super::effects::Host;
 use super::build_offload;
 use super::build_host_command;
+use super::depbox_check;
 use super::depbox_mode::Mode;
 use crate::nix_command::{self, Inner};
 use crate::shell;
@@ -360,10 +361,15 @@ fn landed(script: &Path) -> bool {
     real.starts_with("/nix/store") || runtimes.is_some_and(|runtimes| real.starts_with(runtimes))
 }
 
-/// Runs the shim's `program` again inside depbox, where the gate finds the real program and leases it as before.
+/// Runs the shim's `program` again inside depbox, where the gate finds the real program and leases it as before; inside a land check, the program keeps the variables the check set for it and the check's scratch directory.
 fn enter_depbox(mode: Mode, program: &str, rest: &[String]) -> u8 {
     let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
-    let error = std::process::Command::new(&north).args(["depbox", mode.name(), "--", program]).args(rest).exec();
+    let mut depbox = std::process::Command::new(&north);
+    depbox.args(["depbox", mode.name(), "--", program]).args(rest);
+    if let Ok(start) = std::env::var(depbox_check::START) {
+        depbox.env(depbox_check::CARRY, depbox_check::carried(std::env::vars_os(), &start).join("\n"));
+    }
+    let error = depbox.exec();
     eprintln!("north capacity gate: {}: {error}", north.display());
     126
 }

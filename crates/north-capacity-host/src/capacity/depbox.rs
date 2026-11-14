@@ -1,6 +1,7 @@
 //! `north depbox fetch|run -- COMMAND...`: runs the code a dependency brings (build scripts, proc macros, test binaries, install scripts) in a bubblewrap namespace with an empty home, runtime directory and secrets directory, where the checkout and the package caches are the only writable paths and the toolchain directories of home are read-only; `run` has no network, `fetch` shares it for installs and fetches. A call already inside a sandbox of the same mode runs its command directly, so a shim or land check nested in depbox enters no second sandbox.
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,12 +12,13 @@ use sha2::{Digest, Sha256};
 
 use super::carry::{self, Boundary};
 use super::depbox_broker;
+use super::depbox_check;
 use super::depbox_mode::Mode;
 use super::dev_shell;
 use super::effects::Host;
 use super::gate::{self, LEASED};
 
-const USAGE: &str = "usage: north depbox fetch|run -- <command> [args...]\n  fetch  network shared, for installs and fetches\n  run    no network, for builds and tests";
+const USAGE: &str = "usage: north depbox fetch|run|check -- <command> [args...]\n  fetch  network shared, for installs and fetches\n  run    no network, for builds and tests\n  check  a land check's command, whose programs keep in depbox the variables it sets and its own scratch directory";
 pub const MARK: &str = "DEPBOX";
 const ADMITTED: &str = "DEPBOX_ADMITTED";
 const ROOTED: &str = "DEPBOX_ROOTED";
@@ -33,6 +35,12 @@ const READS: [&str; 14] = [
 ];
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {
+    if let [word, marker, command @ ..] = arguments
+        && word == "check"
+        && marker == "--"
+    {
+        return depbox_check::run(command);
+    }
     if let Some(inside) = std::env::var(MARK).ok().filter(|value| !value.is_empty()) {
         let (mode, top) = inside.split_once(':').unwrap_or((&inside, ""));
         if let [word, marker, command @ ..] = arguments
@@ -108,6 +116,9 @@ struct Sandbox {
     arguments: Vec<OsString>,
     binds: Vec<PathBuf>,
     hand_off: Option<Vec<PathBuf>>,
+    carried: Vec<String>,
+    scratch: Option<PathBuf>,
+    held: Option<OwnedFd>,
 }
 
 impl Sandbox {
@@ -121,7 +132,7 @@ impl Sandbox {
         let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).and_then(|common| std::fs::canonicalize(common).ok()).ok_or((2, "the checkout has no git directory".to_owned()))?;
         let sandbox = home.join("code").join(project(&home.join("code"), &common)).join("sandbox");
         let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
-        let mut box_ = Self { mode, top: top.clone(), sandbox: sandbox.clone(), home: home.clone(), named_home: named_home.clone(), runtime: runtime.clone(), arguments: Vec::new(), binds: vec![top, sandbox, common], hand_off: std::env::var(REMOVAL_ROOTS).ok().and_then(|roots| serde_json::from_str(&roots).ok()) };
+        let mut box_ = Self { mode, top: top.clone(), sandbox: sandbox.clone(), home: home.clone(), named_home: named_home.clone(), runtime: runtime.clone(), arguments: Vec::new(), binds: vec![top, sandbox, common], hand_off: std::env::var(REMOVAL_ROOTS).ok().and_then(|roots| serde_json::from_str(&roots).ok()), carried: Vec::new(), scratch: None, held: None };
         box_.add(&["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs"]);
         box_.arguments.push(runtime.into());
         box_.add(&["--tmpfs"]);
@@ -137,6 +148,7 @@ impl Sandbox {
             box_.add(&["--tmpfs"]);
             box_.arguments.push(alias.into());
         }
+        box_.take_check();
         let builds: &[&str] = if mode == Mode::Run { &BUILD_CACHES } else { &[] };
         for directory in CACHES.iter().chain(builds).map(|directory| home.join(directory)) {
             std::fs::create_dir_all(&directory).map_err(|error| (1, format!("{}: {error}", directory.display())))?;
@@ -159,6 +171,19 @@ impl Sandbox {
             box_.binds.push(live);
         }
         Ok(box_)
+    }
+
+    /// Takes from the gate the variables a land check set for this program, past depbox's own control variables, and binds the check's scratch directory through the descriptor that checked it, so no link swapped in between is followed.
+    fn take_check(&mut self) {
+        let carried = std::env::var(depbox_check::CARRY).unwrap_or_default();
+        let scratch = std::env::var_os(depbox_check::SCRATCH).map(PathBuf::from).filter(|_| carried.lines().any(|name| name == depbox_check::SCRATCH)).and_then(|path| depbox_check::scratch(&path).map(|directory| (path, directory)));
+        if let Some((path, directory)) = scratch {
+            self.arguments.extend([OsString::from("--bind-fd"), OsString::from(directory.as_raw_fd().to_string()), path.clone().into()]);
+            self.binds.push(path.clone());
+            self.scratch = Some(path);
+            self.held = Some(directory);
+        }
+        self.carried = carried.lines().filter(|name| *name != depbox_check::SCRATCH && depbox_check::carryable(name)).map(str::to_owned).collect();
     }
 
     /// Binds `path` read-only at its own place and, when a link leads elsewhere, at its resolved place too, so a program whose path resolves through the link is still there.
@@ -184,7 +209,8 @@ impl Sandbox {
         self.binds.iter().any(|bind| path.starts_with(bind)) || ![Path::new("/tmp"), &self.runtime, &self.home, &self.named_home, Path::new("/run/secrets.d")].iter().any(|hidden| path.starts_with(hidden)) && !depbox_broker::hides(path)
     }
 
-    fn enter(self, command: &[String]) -> u8 {
+    fn enter(mut self, command: &[String]) -> u8 {
+        let _held = self.held.take();
         let Some(bwrap) = on_path("bwrap") else {
             eprintln!("depbox: bwrap not found on PATH");
             return 1;
@@ -250,6 +276,7 @@ impl Sandbox {
             self.add(&["--unshare-net"]);
         }
         self.add(&["--die-with-parent", "--new-session", "--clearenv"]);
+        self.set_check();
         self.set(MARK, OsString::from(format!("{}:{}", self.mode.name(), top.display())));
         if std::env::var_os(ADMITTED).is_some() || gate::in_lease() {
             self.set(LEASED, OsString::from("1"));
@@ -282,6 +309,17 @@ impl Sandbox {
         }
         bubblewrap.args(command);
         bubblewrap
+    }
+
+    fn set_check(&mut self) {
+        for name in std::mem::take(&mut self.carried) {
+            if let Some(value) = std::env::var_os(&name) {
+                self.set(&name, value);
+            }
+        }
+        if let Some(scratch) = self.scratch.take() {
+            self.set(depbox_check::SCRATCH, scratch.into());
+        }
     }
 
     fn set(&mut self, name: &str, value: OsString) {
