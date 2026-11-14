@@ -89,6 +89,9 @@ fn admit(strand: &Strand, inputs: &Inputs, capacity: &Capacity, pools: &mut Pool
     if session.resumed {
         return Err("the fleet already woke it for this report".into());
     }
+    if session.stop == Stop::Decision {
+        return Err("its report ended on Stop: decision, so it waits on a gate a revive cannot answer".into());
+    }
     if session.stop == Stop::Capacity && session.machine.is_none() {
         return Err("its capacity stop is the fleet resume pass's to wake, when the capacity host admits its queued run".into());
     }

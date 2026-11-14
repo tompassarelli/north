@@ -48,3 +48,9 @@ kind = "hint"
 file = "crates/north-providers/src/providers/claude/runs/stop.rs"
 lines = 1
 kind = "hint"
+
+# Dispatch does not revive a session whose last report's closing Stop: line says decision: the line only withholds a revive turn from a session parked on a gate (north#1054), and moves no bar, class or score.
+[[read]]
+file = "crates/north-fleet/src/fleet/stranded.rs"
+lines = 1
+kind = "verdict"
