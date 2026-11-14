@@ -197,7 +197,7 @@ fn a_lane_under_the_agent_users_home_is_read_fetched_and_settled_through_the_age
 
     assert!(pull.repository.queue.join(&operator).is_file() && pull.outbox().join("taken").join(&operator).is_file(), "the operator's lane was not taken and settled through the operator login:\n{transcript}");
     assert!(pull.repository.queue.join(&agent).is_file() && agent_outbox.join("taken").join(&agent).is_file(), "the agent's lane was not taken and settled through the agent login:\n{transcript}");
-    assert_eq!(git(&pull.repository.checkout, &["rev-parse", "refs/land-remote/agent@gex45/agent-lane"]), head, "{transcript}");
+    assert_eq!(git(&pull.repository.checkout.parent().unwrap().join("trusted/repo.git"), &["rev-parse", "refs/land-remote/agent@gex45/agent-lane"]), head, "{transcript}");
     assert!(!pull.repository.queue.join(&astray).exists() && agent_outbox.join(queue::WITHDRAWN).join(&astray).is_file() && pull.logins().iter().all(|login| login.ends_with("@gex45")), "a ticket in gex45's agent outbox naming another host was taken or reached that host: {:?}\n{transcript}", pull.logins());
     assert!(pull.remote.join("north/land-queue").join(&pull.key).join(queue::LANDER_LEDGER).is_file() && !pull.agent_state().join("north/land-queue").join(&pull.key).join(queue::LANDER_LEDGER).exists(), "the lander's ledger was mirrored into the agent user's home:\n{transcript}");
     assert!(!pull.repository.queue.join(&borrowed).exists() && agent_outbox.join(queue::WITHDRAWN).join(&borrowed).is_file(), "a ticket in the agent's outbox naming the operator's lane was taken:\n{transcript}");
@@ -272,7 +272,7 @@ fn a_lane_is_taken_as_the_objects_of_its_bundle_whatever_its_repository_configur
     let transcript = pull.pull();
 
     assert!(pull.repository.queue.join(&whole_ticket).is_file(), "the lane its bundle holds was not taken:\n{transcript}");
-    assert_eq!(git(&pull.repository.checkout, &["rev-parse", "refs/land-remote/gex45/whole"]), whole, "{transcript}");
+    assert_eq!(git(&pull.repository.checkout.parent().unwrap().join("trusted/repo.git"), &["rev-parse", "refs/land-remote/gex45/whole"]), whole, "{transcript}");
     assert!(transcript.contains("north land: took whole from gex45's bundle"), "{transcript}");
     assert!(!pull.repository.queue.join(&stale_ticket).exists() && outbox.join(&stale_ticket).is_file(), "a ticket whose head no fetched object holds was queued:\n{transcript}");
     assert!(!pull.repository.queue.join(&borrowed_ticket).exists() && outbox.join(&borrowed_ticket).is_file(), "a ticket naming another lane's commit was queued:\n{transcript}");

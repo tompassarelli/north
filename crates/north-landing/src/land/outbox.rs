@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use base64::Engine as _;
+use north_trusted_mirror::Mirror;
 
 use super::after::route::{self, Outbox, SSH_OPTIONS};
 use super::candidate::git;
@@ -36,6 +37,17 @@ fn lane_ref(outbox: &Outbox, branch: &str) -> String {
     format!("refs/land-remote/{}/{}", outbox.name(), queue::slug(branch))
 }
 
+fn fetch_lane_once(store: &Path, outbox: &Outbox, ticket: &Ticket) -> Result<(), String> {
+    let url = format!("ssh://{}{}", outbox.login, ticket.root.display());
+    let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(outbox, &ticket.branch));
+    let ssh_command = std::iter::once("ssh").chain(SSH_OPTIONS.iter().copied()).collect::<Vec<_>>().join(" ");
+    let output = north_trusted_mirror::command(store).args(["fetch", "-q", "--no-tags", &url, &target]).env("GIT_SSH_COMMAND", ssh_command).output().map_err(|error| format!("git fetch {url}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("git fetch {url} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(())
+}
+
 enum Refusal {
     Unreachable(String),
     Moved(String),
@@ -43,18 +55,12 @@ enum Refusal {
 
 impl Lander {
     fn fetch_lane(&self, outbox: &Outbox, ticket: &Ticket) -> Result<(), String> {
-        north_git_locks::retry_after_clearing(&self.repo, || self.fetch_lane_once(outbox, ticket))
+        let store = self.lane_store()?;
+        north_git_locks::retry_after_clearing(&store, || fetch_lane_once(&store, outbox, ticket))
     }
 
-    fn fetch_lane_once(&self, outbox: &Outbox, ticket: &Ticket) -> Result<(), String> {
-        let url = format!("ssh://{}{}", outbox.login, ticket.root.display());
-        let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(outbox, &ticket.branch));
-        let ssh_command = std::iter::once("ssh").chain(SSH_OPTIONS.iter().copied()).collect::<Vec<_>>().join(" ");
-        let output = Command::new("git").arg("-C").arg(&self.repo).args(["fetch", "-q", "--no-tags", &url, &target]).env("GIT_SSH_COMMAND", ssh_command).output().map_err(|error| format!("git fetch {url}: {error}"))?;
-        if !output.status.success() {
-            return Err(format!("git fetch {url} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
-        }
-        Ok(())
+    fn lane_store(&self) -> Result<std::path::PathBuf, String> {
+        Ok(Mirror::open(&super::repositories::checkout(&self.repo)?)?.git_dir().to_owned())
     }
 
     fn remote_queue(&self) -> Result<String, String> {
@@ -194,7 +200,7 @@ impl Lander {
 
     fn holds(&self, outbox: &Outbox, ticket: &Ticket) -> bool {
         let head = &ticket.head;
-        !head.is_empty() && head.chars().all(|digit| digit.is_ascii_hexdigit()) && git(&self.repo, &["merge-base", "--is-ancestor", head, &lane_ref(outbox, &ticket.branch)]).is_ok()
+        !head.is_empty() && head.chars().all(|digit| digit.is_ascii_hexdigit()) && self.lane_store().is_ok_and(|store| git(&store, &["merge-base", "--is-ancestor", head, &lane_ref(outbox, &ticket.branch)]).is_ok())
     }
 
     fn unbundle(&self, outbox: &Outbox, ticket: &Ticket, encoded: &str) -> Result<(), String> {
@@ -206,7 +212,8 @@ impl Lander {
         file.write_all(&bytes).map_err(|error| format!("cannot hold the bundle: {error}"))?;
         let path = file.path().to_str().ok_or("the bundle's path is not UTF-8")?.to_owned();
         let target = format!("+refs/heads/{}:{}", ticket.branch, lane_ref(outbox, &ticket.branch));
-        north_git_locks::retry_after_clearing(&self.repo, || git(&self.repo, &["fetch", "-q", "--no-tags", &path, &target]).map(drop))
+        let store = self.lane_store()?;
+        north_git_locks::retry_after_clearing(&store, || git(&store, &["fetch", "-q", "--no-tags", &path, &target]).map(drop))
     }
 
     fn withdraw(&self, outbox: &Outbox, dir: &str, withdrawn: Vec<(String, Ticket, String)>) -> Result<(), String> {
