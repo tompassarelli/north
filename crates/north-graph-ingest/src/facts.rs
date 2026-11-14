@@ -1,4 +1,4 @@
-use north_graph::{Telling, Term, Told};
+use north_graph::{Held, Telling, Term, Told};
 
 pub struct Facts {
     telling: Telling,
@@ -18,11 +18,20 @@ impl From<Telling> for Sourced {
 
 impl Facts {
     pub fn new(replaces: &[&str]) -> Self {
-        Self { telling: Telling { facts: Vec::new(), replaces: replaces.iter().map(|name| Term::keyword(*name)).collect() }, notes: Vec::new() }
+        Self { telling: Telling { facts: Vec::new(), replaces: replaces.iter().map(|name| Term::keyword(*name)).collect(), ..Telling::default() }, notes: Vec::new() }
     }
 
     pub fn tell(&mut self, writer: &str, subject: impl Into<Term>, predicate: &str, object: impl Into<Term>) {
         self.telling.facts.push(Told::new(writer, subject, Term::keyword(predicate), object));
+    }
+
+    pub fn holding(mut self, writer: &str, predicates: &[&str]) -> Self {
+        self.telling.held = Held { writer: writer.to_owned(), subjects: Vec::new(), predicates: predicates.iter().map(|name| Term::keyword(*name)).collect() };
+        self
+    }
+
+    pub fn hold(&mut self, subject: impl Into<Term>) {
+        self.telling.held.subjects.push(subject.into());
     }
 
     pub fn note(&mut self, line: String) {

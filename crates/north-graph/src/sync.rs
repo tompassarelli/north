@@ -8,6 +8,14 @@ use crate::term::Term;
 pub struct Telling {
     pub facts: Vec<Told>,
     pub replaces: Vec<Term>,
+    pub held: Held,
+}
+
+#[derive(Debug, Default)]
+pub struct Held {
+    pub writer: String,
+    pub subjects: Vec<Term>,
+    pub predicates: Vec<Term>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -24,6 +32,12 @@ impl Graph {
         let claimed: HashSet<(&str, &Term)> = wanted.iter().map(|told| (told.writer.as_str(), &told.triple.t2)).collect();
         let live = self.told_within(&claimed, &replaced)?;
         let have: HashSet<&Told> = live.iter().collect();
+        let holds: HashSet<&Term> = sync.held.predicates.iter().collect();
+        let held_by = |told: &Told, subjects: &HashSet<&Term>| told.writer == sync.held.writer && holds.contains(&told.triple.t2) && subjects.contains(&told.triple.t1);
+        let mut held: HashSet<&Term> = sync.held.subjects.iter().collect();
+        let reached: Vec<&Term> = live.iter().filter(|told| held_by(told, &held)).map(|told| &told.triple.t3).collect();
+        held.extend(reached);
+        let kept = |told: &Told| held_by(told, &held);
         let mut batches: HashMap<&str, Vec<Action>> = HashMap::new();
         let mut synced = Synced::default();
         for fact in &wanted {
@@ -34,7 +48,7 @@ impl Graph {
                 synced.asserted += 1;
             }
         }
-        for stale in live.iter().filter(|told| replaced.contains(&told.triple.t2) && !wanted.contains(told)) {
+        for stale in live.iter().filter(|told| replaced.contains(&told.triple.t2) && !wanted.contains(told) && !kept(told)) {
             batches.entry(&stale.writer).or_default().push(Action::retract(stale.triple.clone()));
             synced.retracted += 1;
         }

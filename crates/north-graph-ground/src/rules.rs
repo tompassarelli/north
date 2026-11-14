@@ -33,7 +33,7 @@ fn first_stratum() -> Vec<Value> {
     let mut rules = vec![
         rule(("live", &["?issue", "?box", "?text"]), vec![fact("?issue", "state", ":open"), fact("?issue", "has-box", "?box"), fact("?box", "ticked", "false"), fact("?box", "text", "?text")]),
         rule(("live", &["?issue", "?issue", "?text"]), vec![fact("?issue", "state", ":open"), fact("?issue", "leaf", "true"), fact("?issue", "title", "?text")]),
-        rule(("pending", &["?target", "?text"]), vec![fact("?target", "ticked", "false"), fact("?target", "text", "?text")]),
+        rule(("pending", &["?target", "?text"]), vec![fact("?issue", "has-box", "?target"), fact("?issue", "state", ":open"), fact("?target", "ticked", "false"), fact("?target", "text", "?text")]),
         rule(("pending", &["?target", "?text"]), vec![fact("?target", "state", ":open"), fact("?target", "title", "?text")]),
         rule(("ranked", &["?issue"]), vec![fact("?issue", "rank", "?rank")]),
     ];

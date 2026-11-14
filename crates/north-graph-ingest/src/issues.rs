@@ -14,6 +14,7 @@ use crate::waits::{self, Wait};
 pub(crate) const WRITER: &str = "mirror";
 pub(crate) const RUNS: &str = "ledger";
 const REPLACED: [&str; 15] = ["title", "state", "label", "blocked-by", "follows", "has-box", "text", "ticked", "owner", "claims", "waits-on", "unparsed-wait", "parent", "leaf", "done-when"];
+const HELD: [&str; 4] = ["has-box", "text", "ticked", "done-when"];
 
 fn open_issues(places: &Places, repo: &str) -> Option<Vec<Value>> {
     places.mirror.read(&key(repo, OPEN_ISSUES)).and_then(|copy| copy.body.as_array().cloned())
@@ -32,24 +33,27 @@ pub fn bodies(places: &Places) -> BTreeMap<String, String> {
 }
 
 pub fn read(places: &Places, shas: &Shas) -> Result<Sourced, String> {
-    let mut facts = Facts::new(&REPLACED);
+    let mut facts = Facts::new(&REPLACED).holding(WRITER, &HELD);
+    let mut box_ids = BTreeMap::new();
     let mut seen = false;
     for repo in REPOS {
         let Some(open) = open_issues(places, repo) else { continue };
         seen = true;
         for issue in &open {
-            tell_issue(&mut facts, shas, repo, issue);
+            tell_issue(&mut facts, &mut box_ids, shas, repo, issue);
         }
         let closed = places.mirror.read(&key(repo, CLOSED_ISSUES)).map(|copy| copy.body["numbers"].clone());
         for number in closed.iter().filter_map(Value::as_array).flatten().filter_map(Value::as_u64) {
-            facts.tell(WRITER, text(format!("{repo}#{number}")), "state", keyword("closed"));
+            let name = format!("{repo}#{number}");
+            facts.tell(WRITER, text(&name), "state", keyword("closed"));
+            facts.hold(text(name));
         }
     }
-    run_claims(&mut facts, places, shas);
+    run_claims(&mut facts, &box_ids, places, shas);
     if seen { Ok(facts.finish_noted()) } else { Err(format!("the mirror {} holds no open issues", places.mirror.path().display())) }
 }
 
-fn tell_issue(facts: &mut Facts, shas: &Shas, repo: &str, issue: &Value) {
+fn tell_issue(facts: &mut Facts, box_ids: &mut BTreeMap<String, Vec<String>>, shas: &Shas, repo: &str, issue: &Value) {
     let Some(number) = issue["number"].as_u64() else { return };
     let name = format!("{repo}#{number}");
     facts.tell(WRITER, text(&name), "state", keyword("open"));
@@ -77,6 +81,7 @@ fn tell_issue(facts: &mut Facts, shas: &Shas, repo: &str, issue: &Value) {
         facts.tell(WRITER, text(&name), "parent", text(format!("{parent_repo}#{other}")));
     }
     let items = boxes::parse(body);
+    box_ids.insert(name.clone(), items.iter().map(|item| item.id(&name)).collect());
     for item in &items {
         tell_box(facts, shas, &name, item, &items);
     }
@@ -130,13 +135,13 @@ fn tell_box(facts: &mut Facts, shas: &Shas, issue: &str, item: &Item, siblings: 
     }
 }
 
-fn run_claims(facts: &mut Facts, places: &Places, shas: &Shas) {
-    if let Err(why) = told_runs(facts, places, shas) {
+fn run_claims(facts: &mut Facts, box_ids: &BTreeMap<String, Vec<String>>, places: &Places, shas: &Shas) {
+    if let Err(why) = told_runs(facts, box_ids, places, shas) {
         facts.note(format!("no run claims from {}: {why}", places.threads.display()));
     }
 }
 
-fn told_runs(facts: &mut Facts, places: &Places, shas: &Shas) -> rusqlite::Result<()> {
+fn told_runs(facts: &mut Facts, box_ids: &BTreeMap<String, Vec<String>>, places: &Places, shas: &Shas) -> rusqlite::Result<()> {
     if !places.threads.is_file() {
         return Ok(());
     }
@@ -146,7 +151,8 @@ fn told_runs(facts: &mut Facts, places: &Places, shas: &Shas) -> rusqlite::Resul
     let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?)))?;
     for row in rows {
         let (agent, item, box_text, landed) = row?;
-        let Some(node) = issue_ref(&item).and_then(|issue| north_threads::threads::claims::box_node(&issue, &box_text)) else { continue };
+        let Some((issue, node)) = issue_ref(&item).and_then(|issue| north_threads::threads::claims::box_node(&issue, &box_text).map(|node| (issue, node))) else { continue };
+        let node = whole_box(box_ids.get(&issue).map(Vec::as_slice).unwrap_or_default(), node);
         if let Some(command) = boxes::done_when(&box_text) {
             facts.tell(RUNS, text(&node), "done-when", text(command));
         }
@@ -154,4 +160,12 @@ fn told_runs(facts: &mut Facts, places: &Places, shas: &Shas) -> rusqlite::Resul
         facts.tell(&agent, text(&agent), "claims", Term::triple(text(&node), keyword("done-at"), commit));
     }
     Ok(())
+}
+
+fn whole_box(ids: &[String], node: String) -> String {
+    let mut wider = ids.iter().filter(|id| id.strip_prefix(node.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with('-')));
+    match (wider.next(), wider.next()) {
+        (Some(id), None) => id.clone(),
+        _ => node,
+    }
 }

@@ -29,7 +29,7 @@ pub use error::{GraphError, QueryError};
 pub use json::{term_from_json, term_to_json};
 pub use query::{Answer, Budget, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, Query, STEP_BUDGET, parse_query};
 pub use store::{Action, ActionKind, Field, Graph, Live, Receipt, Report, Retained, Retention, TextHit, TextSearch, Told, default_path};
-pub use sync::{Synced, Telling};
+pub use sync::{Held, Synced, Telling};
 pub use term::{Atom, Float, Instant, Term, TermError, Triple};
 pub use text::parse_arg;
 

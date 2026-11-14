@@ -95,7 +95,7 @@ fn a_sync_reads_only_replaced_predicates_and_its_own_writers_facts() {
     let mut scoped = graph.told_within(&HashSet::from([("ledger", &at)]), &HashSet::from([&title])).unwrap();
     scoped.sort_by_key(|told| told.triple.t1.to_string());
     assert_eq!(scoped, [told("mirror", "a", "title", "x"), told("other", "c", "title", "z"), told("ledger", "d", "at", "1")]);
-    let synced = graph.sync(&Telling { facts: vec![told("mirror", "a", "title", "x"), told("ledger", "d", "at", "1")], replaces: vec![title] }).unwrap();
+    let synced = graph.sync(&Telling { facts: vec![told("mirror", "a", "title", "x"), told("ledger", "d", "at", "1")], replaces: vec![title], ..Telling::default() }).unwrap();
     assert_eq!(synced, Synced { asserted: 0, retracted: 1, unchanged: 2 });
     let mut left: Vec<String> = graph.told().unwrap().iter().map(|told| told.triple.t1.to_string()).collect();
     left.sort();

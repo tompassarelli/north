@@ -9,11 +9,12 @@ use crate::{Places, Source, ingest};
 
 const FULL: &str = "59ff4fb9c2d24f619e93afe867761c1146740b3d";
 const OTHER: &str = "0aa2d15297f1a6a2be5ba41e5bbf4c8a9d3a2f10";
+const HUNG: &str = "box:north#634:a-hung-slot-job-is-killed-done-when-cargo-test-p";
 
 fn body(first_ticked: bool) -> String {
     let mark = if first_ticked { "x" } else { " " };
     format!(
-        "- [{mark}] A hung slot job is killed (owner: n634-hung-slots; landed 59ff4fb9c)\n- [x] The gate stops waiting (owner: n634-no-laptop-cargo; landed 0aa2d1529)\n- [x] Nobody ran this one (owner: n634-ghost)\n- [ ] Open work (owner: unassigned)\n"
+        "- [{mark}] A hung slot job is killed. Done when: `cargo test -p slots` exits 0 (owner: n634-hung-slots; landed 59ff4fb9c)\n- [x] The gate stops waiting (owner: n634-no-laptop-cargo; landed 0aa2d1529)\n- [x] Nobody ran this one (owner: n634-ghost)\n- [ ] Open work (owner: unassigned)\n"
     )
 }
 
@@ -123,7 +124,8 @@ fn a_run_claims_its_box_of_a_closed_issue_and_the_lander_observes_the_landing(pl
         .unwrap()
         .execute_batch(&format!(
             "CREATE TABLE runs(agent TEXT, item TEXT, box TEXT, landed_sha TEXT, outcome TEXT, role TEXT, category TEXT, brief_text TEXT, minutes REAL);
-             INSERT INTO runs VALUES ('run-7', 'north#7', 'Ship the closed box. Done when: `cargo test -p x` exits 0', '{FULL}', 'done', 'worker', 'feature', '', 30);"
+             INSERT INTO runs VALUES ('run-7', 'north#7', 'Ship the closed box. Done when: `cargo test -p x` exits 0', '{FULL}', 'done', 'worker', 'feature', '', 30);
+             INSERT INTO runs VALUES ('run-634', 'north#634', 'A hung slot job is killed', '{FULL}', 'done', 'worker', 'feature', '', 30);"
         ))
         .unwrap();
     let report = ingest(graph, places, &[Source::Mirror, Source::Observations]);
@@ -135,6 +137,21 @@ fn a_run_claims_its_box_of_a_closed_issue_and_the_lander_observes_the_landing(pl
     assert!(told.contains(&north_graph::Told::new("lander", FULL, Term::keyword("landed-on"), Term::string("main"))), "{:?}", report.lines);
     let again = ingest(graph, places, &[Source::Observations]);
     assert!(again.lines.iter().any(|line| line.starts_with("observations: 0 asserted")), "{:?}", again.lines);
+    let hung = Term::string(HUNG);
+    assert!(told.contains(&north_graph::Told::new("run-634", "run-634", Term::keyword("claims"), Term::triple(hung.clone(), Term::keyword("done-at"), Term::string(FULL)))), "a claim under the first words of a box is told on the whole box");
+    places.mirror.write("north/issues/open", &json!([]), None, 2.0).unwrap();
+    places.mirror.write("north/issues/closed", &json!({"numbers": [7, 634]}), None, 2.0).unwrap();
+    let gone = north_graph::Told::new("mirror", "box:north#9:gone", Term::keyword("ticked"), Term::boolean(false));
+    let intruder = north_graph::Told::new("session-9", "north#634", Term::keyword("has-box"), Term::string("box:north#9:gone"));
+    for fact in [&gone, &intruder] {
+        graph.tell(&fact.writer, fact.triple.clone()).unwrap();
+    }
+    let closed = ingest(graph, places, &[Source::Mirror]);
+    let told = graph.told().unwrap();
+    assert!(!told.contains(&gone) && !told.contains(&intruder), "only the mirror's own facts of a closed issue are held, so another writer's has-box neither stays nor keeps a stale mirror fact of its object");
+    for (subject, predicate, object) in [("north#634", "has-box", hung), (HUNG, "done-when", Term::string("cargo test -p slots")), ("north#634", "state", Term::keyword("closed"))] {
+        assert!(told.contains(&north_graph::Told::new("mirror", subject, Term::keyword(predicate), object)), "a closed issue keeps the box facts it had while open: {subject} {predicate} {:?}", closed.lines);
+    }
 }
 
 fn a_rerun_adds_nothing_and_a_changed_source_is_followed() {
