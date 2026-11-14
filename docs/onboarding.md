@@ -153,7 +153,7 @@ instead, so every north command and every scheduled job share one commit.
    north's [structure/](../structure/) tree (the lander writes `structure.toml` from it), so moving the
    guard file edits that `path` and nothing in the operator repository.
 
-To try only the `north` app, follow the [README](../README.md#try-it); it needs neither the operator
+To try only the `north` app, follow the [README](../README.md#quickstart); it needs neither the operator
 repository nor the machine configuration. Once the check above passes, [briefing.md](briefing.md) and
 [landing.md](landing.md) show how work moves.
 

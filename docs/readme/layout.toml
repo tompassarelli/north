@@ -1,0 +1,73 @@
+# The README's map of the tree: one line per top-level directory and per crate layer.
+
+[dirs]
+src = "the `north` command: argument parsing, the composition root and the command reference and help, one file per command"
+crates = "the libraries behind it, one crate per responsibility, in the layers listed below"
+harness = "what north installs into each agent: hooks, skills, policy owners, tuned defaults and the model catalog"
+docs = "the concept pages, one record per feature, the rationale for each choice and the outside sources"
+bin = "toolchain shims and the few tools that run before north is built"
+tests = "the `north` command's integration tests and their fixtures"
+evals = "the evaluation runners that measure north against other harnesses, each its own Cargo project"
+examples = "a working operator repository with synthetic values, kept equal to what `north config operator init` writes"
+structure = "the module boundaries, crate layers and code-health limits, one file per table, joined into structure.toml"
+build = "Buck2 rules for the workspace's tests"
+toolchains = "the Buck2 toolchains the build uses"
+third-party = "the Buck2 targets of every outside crate, written from Cargo.lock"
+lib = "the browser-automation tool, the one part written in TypeScript"
+lint = "the Buck2 script that runs Clippy across the workspace"
+mode = "the Buck2 build modes"
+north-data = "the expectations the fleet tick judges and the private-check list a landing reads"
+
+[[family]]
+layer = 1
+name = "platform"
+purpose = "touches the outside world (git, GitHub, processes, SQLite, ssh, Nix) and holds base values"
+
+[[family]]
+layer = 2
+name = "records"
+purpose = "remembers: one crate per durable store, with its schema, its one writer and its typed readers"
+
+[[family]]
+layer = 3
+name = "rules"
+purpose = "decides: a verdict from records, a diff, a tree or a tool call, with no effect beyond reading"
+
+[[family]]
+layer = 4
+family = "sessions"
+name = "sessions"
+purpose = "runs agent sessions on each provider's command-line client"
+
+[[family]]
+layer = 4
+family = "workspace"
+name = "workspace"
+purpose = "makes and reaps the worktree each change is written in"
+
+[[family]]
+layer = 4
+family = "landing"
+name = "landing"
+purpose = "checks a handed-in change and lands it on main, or refuses it with the reason"
+
+[[family]]
+layer = 4
+family = "capacity"
+name = "capacity"
+purpose = "leases machine room to builds and sessions"
+
+[[family]]
+layer = 5
+name = "orchestration"
+purpose = "chooses what runs next, where, and on which build"
+
+[[family]]
+layer = 6
+name = "operations"
+purpose = "watches, measures, tunes, reports and repairs; nothing below depends on it"
+
+[[family]]
+layer = 7
+name = "command"
+purpose = "the terminal screens"

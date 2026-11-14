@@ -1,6 +1,6 @@
 # Architecture
 
-north is one command line over 65 packages in seven layers. Each layer has one responsibility, and a crate depends only on layers below it. This page is the map, the life of a task and the rules. The reasons, the measured figures and the open work to reach the target are in [docs/rationale/architecture-layers.md](docs/rationale/architecture-layers.md).
+north is one command line over a set of crates in seven layers. Each layer has one responsibility, and a crate depends only on layers below it. This page is the map, the life of a task and the rules. The reasons, the measured figures and the open work to reach the target are in [docs/rationale/architecture-layers.md](docs/rationale/architecture-layers.md).
 
 ## The layers
 
@@ -72,7 +72,8 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 4 capacity | north-capacity-host | Host leases, the dependency box, the watchdog and the PATH gate. |
 | 5 orchestration | north-pacing | Placement of work on hosts and accounts, laptop state and the resident cap. |
 | 5 orchestration | north-dispatch | The dispatch decision: which box runs next, on which tier, with which brief. |
-| 5 orchestration | north-runtime | Runtime update, canary, order and pin, and the worker sandbox, the offload. |
+| 5 orchestration | north-runtime | Runtime update, canary, order and pin, and the worker sandbox. |
+| 5 orchestration | north-offload | Running a land check, a session's build and the compiler cache on another host: which host has room, the slot a run holds and the script that ships and starts it. |
 | 6 operations | north-timers | The timers and watches, the outside, job and usage-web readers, and the privacy judge. |
 | 6 operations | north-tune | Tuned values and the learning-loop checks. |
 | 6 operations | north-replay | Strategy replay: logged decision cases decided again by the linked code. |

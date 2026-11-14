@@ -1,6 +1,6 @@
 # North docs
 
-The reading order for a newcomer is the numbered list in the [README](../README.md). This page is the last step of it, the reference: where to look a fact up once you know what north is. Nothing here is needed before the first landed change.
+This page is the reading order after the [README](../README.md)'s quickstart: where to look a fact up once you know what north is. Nothing here is needed before the first landed change.
 
 1. [Terms](terms.md): the four layer terms.
 2. [Architecture](../ARCHITECTURE.md): the seven layers, every crate, the life of a task and the rules.

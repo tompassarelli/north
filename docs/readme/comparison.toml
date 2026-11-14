@@ -1,0 +1,78 @@
+# The rows the README's comparison table is computed from.
+title = "Small tasks against T3 Code"
+date = "2026-11-14"
+model = "claude-opus-5-5 at medium effort in every arm"
+competitor = "T3 Code v0.1.8"
+rival = "T3 Code"
+tasks = "the load ladder's small tasks t01 to t05: one source edit and its acceptance check each"
+host = "both arms on one build host, its one-minute load below 2 at each start"
+clock = "from the launch command to the change on main"
+price = "list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens"
+void = [
+  "runs 2 and 3 of the small one-worker cell, void under the protocol's load rule and not counted",
+]
+reading = "undecided until T3 Code's noise band is measured"
+open = [
+  "large tasks (the cells a general claim needs): not yet run",
+  "tasks of one to ten minutes",
+  "ten and twenty at once",
+  "an outside benchmark",
+  "T3 Code's noise band, without which no cell is read as ahead or behind",
+]
+
+rows = [
+  { run = 1, level = 1, arm = "north", task = "t01", landed = true, seconds = 15, tokens = 16235, cost_usd = 0.0463 },
+  { run = 1, level = 1, arm = "north", task = "t02", landed = true, seconds = 15, tokens = 16179, cost_usd = 0.0456 },
+  { run = 1, level = 1, arm = "north", task = "t03", landed = true, seconds = 16, tokens = 16612, cost_usd = 0.0511 },
+  { run = 1, level = 1, arm = "north", task = "t04", landed = true, seconds = 14, tokens = 16210, cost_usd = 0.0456 },
+  { run = 1, level = 1, arm = "north", task = "t05", landed = true, seconds = 12, tokens = 16213, cost_usd = 0.059 },
+  { run = 1, level = 5, arm = "north", task = "t01", landed = true, seconds = 13, tokens = 16220, cost_usd = 0.0613 },
+  { run = 1, level = 5, arm = "north", task = "t02", landed = true, seconds = 13, tokens = 32800, cost_usd = 0.0585 },
+  { run = 1, level = 5, arm = "north", task = "t03", landed = true, seconds = 14, tokens = 16597, cost_usd = 0.0508 },
+  { run = 1, level = 5, arm = "north", task = "t04", landed = true, seconds = 13, tokens = 32880, cost_usd = 0.0586 },
+  { run = 1, level = 5, arm = "north", task = "t05", landed = true, seconds = 13, tokens = 16219, cost_usd = 0.0458 },
+  { run = 1, level = 1, arm = "t3-plain", task = "t01", landed = true, seconds = 29, tokens = 272338, cost_usd = 0.202 },
+  { run = 1, level = 1, arm = "t3-plain", task = "t02", landed = true, seconds = 19, tokens = 233954, cost_usd = 0.168 },
+  { run = 1, level = 1, arm = "t3-plain", task = "t03", landed = true, seconds = 20, tokens = 196024, cost_usd = 0.1591 },
+  { run = 1, level = 1, arm = "t3-plain", task = "t04", landed = true, seconds = 23, tokens = 234503, cost_usd = 0.161 },
+  { run = 1, level = 1, arm = "t3-plain", task = "t05", landed = true, seconds = 20, tokens = 235016, cost_usd = 0.1651 },
+  { run = 1, level = 1, arm = "t3-files", task = "t01", landed = true, seconds = 19, tokens = 233832, cost_usd = 0.1904 },
+  { run = 1, level = 1, arm = "t3-files", task = "t02", landed = true, seconds = 18, tokens = 195243, cost_usd = 0.1605 },
+  { run = 1, level = 1, arm = "t3-files", task = "t03", landed = true, seconds = 25, tokens = 357331, cost_usd = 0.2203 },
+  { run = 1, level = 1, arm = "t3-files", task = "t04", landed = true, seconds = 14, tokens = 195287, cost_usd = 0.1532 },
+  { run = 1, level = 1, arm = "t3-files", task = "t05", landed = true, seconds = 17, tokens = 155939, cost_usd = 0.1366 },
+  { run = 1, level = 5, arm = "t3-plain", task = "t05", landed = true, seconds = 15, tokens = 154451, cost_usd = 0.1635 },
+  { run = 1, level = 5, arm = "t3-plain", task = "t02", landed = true, seconds = 19, tokens = 233139, cost_usd = 0.1964 },
+  { run = 1, level = 5, arm = "t3-plain", task = "t01", landed = true, seconds = 20, tokens = 233750, cost_usd = 0.1862 },
+  { run = 1, level = 5, arm = "t3-plain", task = "t04", landed = true, seconds = 23, tokens = 272641, cost_usd = 0.1991 },
+  { run = 1, level = 5, arm = "t3-plain", task = "t03", landed = true, seconds = 24, tokens = 274044, cost_usd = 0.2079 },
+  { run = 1, level = 5, arm = "t3-files", task = "t01", landed = true, seconds = 19, tokens = 195800, cost_usd = 0.194 },
+  { run = 1, level = 5, arm = "t3-files", task = "t05", landed = true, seconds = 19, tokens = 195000, cost_usd = 0.1758 },
+  { run = 1, level = 5, arm = "t3-files", task = "t02", landed = true, seconds = 21, tokens = 195036, cost_usd = 0.1905 },
+  { run = 1, level = 5, arm = "t3-files", task = "t04", landed = true, seconds = 21, tokens = 195202, cost_usd = 0.1889 },
+  { run = 1, level = 5, arm = "t3-files", task = "t03", landed = true, seconds = 23, tokens = 235715, cost_usd = 0.1982 },
+  { run = 2, level = 5, arm = "north", task = "t01", landed = true, seconds = 14, tokens = 16234, cost_usd = 0.0463 },
+  { run = 2, level = 5, arm = "north", task = "t02", landed = true, seconds = 14, tokens = 16135, cost_usd = 0.0448 },
+  { run = 2, level = 5, arm = "north", task = "t04", landed = true, seconds = 12, tokens = 32847, cost_usd = 0.0581 },
+  { run = 2, level = 5, arm = "north", task = "t05", landed = true, seconds = 14, tokens = 16215, cost_usd = 0.0458 },
+  { run = 2, level = 5, arm = "north", task = "t03", landed = true, seconds = 16, tokens = 33696, cost_usd = 0.0661 },
+  { run = 2, level = 5, arm = "t3-plain", task = "t01", landed = true, seconds = 20, tokens = 193836, cost_usd = 0.1754 },
+  { run = 2, level = 5, arm = "t3-plain", task = "t04", landed = true, seconds = 22, tokens = 232963, cost_usd = 0.1825 },
+  { run = 2, level = 5, arm = "t3-plain", task = "t02", landed = true, seconds = 23, tokens = 271694, cost_usd = 0.1974 },
+  { run = 2, level = 5, arm = "t3-plain", task = "t05", landed = true, seconds = 24, tokens = 272045, cost_usd = 0.198 },
+  { run = 2, level = 5, arm = "t3-plain", task = "t03", landed = true, seconds = 25, tokens = 273908, cost_usd = 0.205 },
+  { run = 2, level = 5, arm = "t3-files", task = "t03", landed = true, seconds = 20, tokens = 196773, cost_usd = 0.1965 },
+  { run = 2, level = 5, arm = "t3-files", task = "t04", landed = true, seconds = 21, tokens = 233761, cost_usd = 0.1894 },
+  { run = 2, level = 5, arm = "t3-files", task = "t02", landed = true, seconds = 21, tokens = 233413, cost_usd = 0.189 },
+  { run = 2, level = 5, arm = "t3-files", task = "t05", landed = true, seconds = 23, tokens = 234446, cost_usd = 0.1963 },
+  { run = 2, level = 5, arm = "t3-files", task = "t01", landed = true, seconds = 24, tokens = 233994, cost_usd = 0.1913 },
+]
+
+[cells]
+1 = "small one-worker cell"
+5 = "small five-at-once cell"
+
+[arms]
+north = "north"
+t3-plain = "plain"
+t3-files = "given the file text"

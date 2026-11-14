@@ -1,91 +1,135 @@
 <p align="center"><img src="docs/assets/north-logo.jpeg" alt="North" width="720"></p>
 
-North is an autonomous software factory. It takes issues that carry runnable Done-when checks and
-turns model budget into verified changes landed on main: it staffs and routes workers across
-machines and accounts, lands each change through a checked tree and reverts what breaks main.
-The agents it staffs run on provider CLIs (Claude Code, Codex, OpenCode and Pi, chosen with `north fleet launch --provider`); North
-adds the staffing, the routing and the landing path, plus hooks that guard each tool call, shared
-skills and the policy checks that keep them honest. It also ships `north`, a terminal fleet screen
-for directing sessions and decisions.
+North turns an issue with a runnable check into a change landed on main, with no person in the loop.
+You write what you want and the command that proves it is done; north writes a brief, staffs a coding
+agent on a model and account that has room, guards each of its tool calls, checks the change it hands
+in, lands it on main, and reverts it if main breaks. It drives the command-line clients you already
+use (Claude Code, Codex, OpenCode and Pi), so it adds the staffing, the guards and the landing, not
+another model. You direct the fleet from `north`, one terminal screen for talking to the coordinator,
+starting work, answering decisions and seeing what landed.
 
-North is also meant to improve itself from its own records, and that is part of its purpose, not an
-extra. Today its loops tune numbers from outcomes a machine graded; the plan for turning judgments its
-models repeat into machinery it proves is in
-[docs/rationale/self-improvement-loop.md](docs/rationale/self-improvement-loop.md).
+## Measured result
 
-It is built for an operator who directs a fleet of coding agents. Anyone who does can try the `north`
-app, install the factory on their own machines with [docs/onboarding.md](docs/onboarding.md), or borrow a
-command, hook or skill. The factory reads the operator's private policy from a separate repository, which
-[docs/operator-repository.md](docs/operator-repository.md) describes.
+North against T3 Code, a plain runner around the same Claude Code agent, on the same tasks with the
+same model, in the two small-task cells measured so far. Each result holds for the cell it names, and every cell stays undecided until T3 Code's noise band is measured; large tasks, which a general claim needs, have not run. The numbers are computed from the committed rows in [docs/readme/comparison.toml](docs/readme/comparison.toml); the method and every row are on
+[the comparison page](docs/rationale/plain-runner-comparison.md). The results north did not meet are on the same page.
+
+<!-- north docs readme: comparison -->
+Measured 2026-11-14 against T3 Code v0.1.8 on the load ladder's small tasks t01 to t05: one source edit and its acceptance check each, with claude-opus-5-5 at medium effort in every arm; both arms on one build host, its one-minute load below 2 at each start. Time runs from the launch command to the change on main. Only valid runs are counted.
+
+| Cell | Valid runs x tasks | Landed: north / plain / given the file text | north, median | Faster T3 Code arm, median | Time ratio, each run | Time ratio, all valid runs | Cost ratio | Tokens | Reading |
+|---|---|---|---|---|---|---|---|---|---|
+| small one-worker cell | 1 x 5 | 5 of 5 / 5 of 5 / 5 of 5 | 15 s | given the file text, 18 s | 0.79 | 0.79 | 0.29 | 14x fewer | undecided until T3 Code's noise band is measured |
+| small five-at-once cell | 2 x 5 | 10 of 10 / 10 of 10 / 10 of 10 | 13.5 s | given the file text, 21 s | 0.65, 0.61 | 0.64 | 0.28 | 9x fewer | undecided until T3 Code's noise band is measured |
+
+Time ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. Cost ratio: north's cost per task over the faster arm's, at the list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens.
+
+Not counted:
+
+- runs 2 and 3 of the small one-worker cell, void under the protocol's load rule and not counted
+
+Not measured yet:
+
+- large tasks (the cells a general claim needs): not yet run
+- tasks of one to ten minutes
+- ten and twenty at once
+- an outside benchmark
+- T3 Code's noise band, without which no cell is read as ahead or behind
+<!-- end comparison -->
+
+## Quickstart
+
+You need Linux or macOS with Nix and flakes, `git`, and Claude Code installed and signed in. These are
+the commands of [the onboarding page](docs/onboarding.md), which says what each one does; the last one
+has one agent land one change on a scratch repository and exits 0 when it is on main.
+
+<!-- north docs readme: quickstart -->
+```sh
+mkdir -p ~/code/north
+git clone https://github.com/tompassarelli/north ~/code/north/main
+cd ~/code/north/main
+nix develop -c cargo build --locked --bin north --bin verify-north
+profile="$HOME/.local/state/north/profiles/claude-main"
+mkdir -p "$profile"
+ln -sfn "$HOME/.claude/.credentials.json" "$profile/.credentials.json"
+cp "$HOME/.claude.json" "$profile/.claude.json"
+printf '{}\n' > "$profile/settings.json"
+time target/debug/verify-north --north "$PWD/target/debug/north" --claude-account main
+```
+<!-- end quickstart -->
+
+Then run `target/debug/north` to open the fleet screen. To run north on your own repositories, keep its
+policy in an operator repository: `north config operator init DIR` writes a working one with
+placeholder values, and [docs/operator-repository.md](docs/operator-repository.md) says what each
+file holds.
+
+## How a change lands
+
+1. **Brief.** An issue's box carries a `Done when:` line with a command. North writes the brief and
+   picks the tier, the account and the machine from the live usage of each ([docs/briefing.md](docs/briefing.md)).
+2. **Work.** A worker session runs in its own worktree. Every tool call passes north's guards first, which
+   keep it out of the main checkout, other lanes and secrets.
+3. **Hand-in.** The worker calls the finish tool. North runs the box's check, commits only the paths
+   named and queues the lane.
+4. **Landing.** The lander rebases the lane on main, runs the checks the change touches and pushes it,
+   then runs the full suite once per batch and reverts a lane that breaks main ([docs/landing.md](docs/landing.md)).
+5. **Record.** Each run's tokens, time and verdict go to a ledger, and north tunes its estimates and
+   routing from it ([docs/feedback-loop.md](docs/feedback-loop.md)).
 
 The words follow [docs/terms.md](docs/terms.md): a **model** is the weights, the **harness** turns a
-model into an **agent**, and a **fleet** is many agents with roles, staffing and policy. A
-model is never called an agent.
-
-## Try it
-
-You need Nix with flakes to build North. Install and sign in to a provider CLI to launch sessions
-for that provider.
-
-```sh
-git clone https://github.com/tompassarelli/north && cd north
-nix develop -c cargo build --locked
-target/debug/north
-```
-
-Then follow the numbered path, one page per step:
-
-1. What north is: this page and [docs/terms.md](docs/terms.md).
-2. Install north and land your first change: [docs/onboarding.md](docs/onboarding.md); `verify-north` walks a brief, a worker, a landed commit and a ledger row on a scratch repository and is the check that it works.
-3. Brief a worker: [docs/briefing.md](docs/briefing.md).
-4. Land a change: [docs/landing.md](docs/landing.md).
-5. Know where policy lives: [docs/operator-repository.md](docs/operator-repository.md).
-6. Look a command up: `north --help`, then [docs/features/](docs/features/).
-
-## Finding a fact
-
-Read in three rings and stop at the first one that answers:
-
-- **First:** this file for people, [AGENTS.md](AGENTS.md) for agents. AGENTS.md holds the rules for
-  working here and names the document to read before touching each area.
-- **When you touch an area:** the concept document for it, below. Concept documents explain how
-  the parts fit and link to the owner of each detail; they do not restate flags or numbers.
-- **For the exact fact:** its owner. `north --help` and each command's own `--help` for commands
-  and flags, [harness/defaults.toml](harness/defaults.toml) for every tuned number with its unit and
-  source, [.safe-push](.safe-push) for the checks a landing runs,
-  [structure.toml](structure.toml) for module boundaries, a skill's SKILL.md for a procedure, and
-  [docs/rationale/](docs/rationale/) for why a choice was made.
+model into an **agent**, and a **fleet** is many agents with roles, staffing and policy.
 
 ## Where things live
 
-- [src/](src/) and [crates/](crates/): the `north` fleet runtime, terminal screen, landing gates and
-  authorized host effects; [ARCHITECTURE.md](ARCHITECTURE.md) maps the crates and their owning boundaries.
-- [bin/](bin/): toolchain shims and a few helper tools; every harness command is a `north` verb, and
-  `north --help` lists them. [docs/features/](docs/features/) says what each one is for.
-- [harness/](harness/): hooks, skills, defaults and policy owners;
-  [docs/briefing.md](docs/briefing.md), [docs/landing.md](docs/landing.md) and
-  [docs/operator-repository.md](docs/operator-repository.md) follow them, and
-  [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md) says how skills are laid out.
-- [docs/README.md](docs/README.md): the reference index: the concept documents, the feature entries and [docs/rationale/](docs/rationale/), the notes on why.
+<!-- north docs readme: layout -->
+- [src/](src/): the `north` command: argument parsing, the composition root and the command reference and help, one file per command
+- [crates/](crates/): the libraries behind it, one crate per responsibility, in the layers listed below
+- [harness/](harness/): what north installs into each agent: hooks, skills, policy owners, tuned defaults and the model catalog
+- [docs/](docs/): the concept pages, one record per feature, the rationale for each choice and the outside sources
+- [bin/](bin/): toolchain shims and the few tools that run before north is built
+- [tests/](tests/): the `north` command's integration tests and their fixtures
+- [evals/](evals/): the evaluation runners that measure north against other harnesses, each its own Cargo project
+- [examples/](examples/): a working operator repository with synthetic values, kept equal to what `north config operator init` writes
+- [structure/](structure/): the module boundaries, crate layers and code-health limits, one file per table, joined into structure.toml
+- [build/](build/): Buck2 rules for the workspace's tests
+- [toolchains/](toolchains/): the Buck2 toolchains the build uses
+- [third-party/](third-party/): the Buck2 targets of every outside crate, written from Cargo.lock
+- [lib/](lib/): the browser-automation tool, the one part written in TypeScript
+- [lint/](lint/): the Buck2 script that runs Clippy across the workspace
+- [mode/](mode/): the Buck2 build modes
+- [north-data/](north-data/): the expectations the fleet tick judges and the private-check list a landing reads
 
-## Concept documents
+The crates under [crates/](crates/), by the layer each sits in; a crate depends only on layers below it, and [ARCHITECTURE.md](ARCHITECTURE.md) gives each crate's purpose:
 
-- [docs/onboarding.md](docs/onboarding.md): installing north and landing one change on a scratch repository.
-- [docs/briefing.md](docs/briefing.md): staffing a worker and messaging fleet sessions.
-- [docs/landing.md](docs/landing.md): how a change reaches main.
-- [docs/operator-repository.md](docs/operator-repository.md): where policy lives.
-- [docs/terms.md](docs/terms.md): the four layer terms.
-- [ARCHITECTURE.md](ARCHITECTURE.md): the crates and the `north` app's owning boundaries.
-- [docs/features/](docs/features/): one short record per command, what it is for.
-- [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
-- [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
-- [docs/graph.md](docs/graph.md): the fact graph behind `north graph`: terms, occurrences, the ask query and its timing.
-- [harness/skills/verification/SKILL.md](harness/skills/verification/SKILL.md): how tests are kept and run.
+- **1 platform**, touches the outside world (git, GitHub, processes, SQLite, ssh, Nix) and holds base values: [north-agent-starts](crates/north-agent-starts/), [north-base](crates/north-base/), [north-broker](crates/north-broker/), [north-buck](crates/north-buck/), [north-build-system](crates/north-build-system/), [north-cli-reference](crates/north-cli-reference/), [north-foundation](crates/north-foundation/), [north-git-locks](crates/north-git-locks/), [north-machine-model](crates/north-machine-model/), [north-publish](crates/north-publish/), [north-registries](crates/north-registries/), [north-runtime-follow](crates/north-runtime-follow/), [north-shared-config](crates/north-shared-config/), [north-ssh-spare](crates/north-ssh-spare/), [north-strategy-types](crates/north-strategy-types/), [north-test-cases](crates/north-test-cases/)
+- **2 records**, remembers: one crate per durable store, with its schema, its one writer and its typed readers: [north-coverage](crates/north-coverage/), [north-fleet-store](crates/north-fleet-store/), [north-github-mirror](crates/north-github-mirror/), [north-graph](crates/north-graph/), [north-graph-change](crates/north-graph-change/), [north-graph-ground](crates/north-graph-ground/), [north-graph-loops](crates/north-graph-loops/), [north-threads](crates/north-threads/)
+- **3 rules**, decides: a verdict from records, a diff, a tree or a tool call, with no effect beyond reading: [north-calibration](crates/north-calibration/), [north-capacity](crates/north-capacity/), [north-check-environment](crates/north-check-environment/), [north-code-health](crates/north-code-health/), [north-concerns](crates/north-concerns/), [north-context-pack](crates/north-context-pack/), [north-diff-gates](crates/north-diff-gates/), [north-guard](crates/north-guard/), [north-implicit-state](crates/north-implicit-state/), [north-land-scans](crates/north-land-scans/), [north-landing-gates](crates/north-landing-gates/), [north-mutants](crates/north-mutants/), [north-pace](crates/north-pace/)
+- **4 sessions**, runs agent sessions on each provider's command-line client: [north-claude-stream](crates/north-claude-stream/), [north-fleet](crates/north-fleet/), [north-fleet-supervisor](crates/north-fleet-supervisor/), [north-providers](crates/north-providers/), [north-resume](crates/north-resume/), [north-session-host](crates/north-session-host/)
+- **4 workspace**, makes and reaps the worktree each change is written in: [north-lanes](crates/north-lanes/)
+- **4 landing**, checks a handed-in change and lands it on main, or refuses it with the reason: [north-land-checks](crates/north-land-checks/), [north-land-sandbox](crates/north-land-sandbox/), [north-lander](crates/north-lander/), [north-landing](crates/north-landing/), [north-safe-push](crates/north-safe-push/)
+- **4 capacity**, leases machine room to builds and sessions: [north-capacity-host](crates/north-capacity-host/)
+- **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/)
+- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-convo](crates/north-convo/), [north-core](crates/north-core/), [north-docs](crates/north-docs/), [north-flow](crates/north-flow/), [north-graph-ingest](crates/north-graph-ingest/), [north-health](crates/north-health/), [north-land-watch](crates/north-land-watch/), [north-lander-doctor](crates/north-lander-doctor/), [north-ops](crates/north-ops/), [north-replay](crates/north-replay/), [north-timers](crates/north-timers/), [north-tune](crates/north-tune/)
+- **7 command**, the terminal screens: [north-monitor](crates/north-tui/monitor/), [north-tui](crates/north-tui/)
+<!-- end layout -->
 
-## Keeping the docs true
+## Finding a fact
 
-Each fact lives in one place and the docs link to it. `north check citations` refuses a landing whose
-docs, skills or hooks name a `north` subcommand the CLI does not define, a repository path that no
-longer exists or a relative link that does not resolve. Rationale notes are dated records and keep
-the paths of their day. The layout and the work still open are in
-[docs/rationale/docs-architecture.md](docs/rationale/docs-architecture.md).
+- **Working in this repository:** [AGENTS.md](AGENTS.md) holds the rules and names the page to read
+  before touching each area.
+- **A command or flag:** `north --help`, then `north COMMAND --help`; [docs/features/](docs/features/)
+  says what each command is for.
+- **A tuned number:** [harness/defaults.toml](harness/defaults.toml), each with its unit and source.
+- **What a landing checks:** [.safe-push](.safe-push).
+- **What north records and who reads it:** [docs/feedback-loop.md](docs/feedback-loop.md); the fact graph behind `north graph`: [docs/graph.md](docs/graph.md).
+- **Why it is built this way:** [docs/rationale/](docs/rationale/), dated notes.
+- **The outside sources north draws on:** [docs/references.md](docs/references.md).
+- **Everything else, in reading order:** [docs/README.md](docs/README.md).
+
+Every page links to the one place that owns a fact instead of restating it, and the landing refuses a
+page that names a command the binary does not have, a path that does not exist or a link that does
+not resolve.
+
+## License
+
+MIT or Apache-2.0, at your choice: [LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE).
