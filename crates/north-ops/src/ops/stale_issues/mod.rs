@@ -75,7 +75,7 @@ pub struct Outcome {
 }
 
 fn rewrite_request(reference: &str) -> String {
-    format!("{reference} closed at 24 h: file a finishable successor for its open boxes and re-point lanes that name it")
+    format!("{reference} closed at 24 h: file a finishable successor for its open boxes, comment `rewritten as REPO#N` on it so its holder's launches follow, and re-point lanes that name it")
 }
 
 /// Closes each issue of `repository` created more than 24 hours before `now`, messaging its owner first and once.

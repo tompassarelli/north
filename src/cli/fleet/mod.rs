@@ -1,4 +1,5 @@
 mod admission;
+mod closed_issues;
 mod agent_root;
 mod forget_flags;
 mod ask;
