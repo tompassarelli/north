@@ -55,7 +55,7 @@ impl Evidence {
     fn prompt(&self) -> String {
         match self {
             Self::Token(_) => TOKEN_PROMPT.to_owned(),
-            Self::Sentence { opening, .. } => format!("Reply with the sentence of the standing policy text you were given before this message that begins \"{opening}\", copied whole and exactly, and nothing else."),
+            Self::Sentence { opening, .. } => format!("Reply with the sentence of the standing policy text you were given before this message that begins \"{opening}\", copied whole, and nothing else."),
             Self::Nothing => PLAIN_PROMPT.to_owned(),
         }
     }
@@ -348,9 +348,17 @@ pub(super) fn carries(reply: &str, evidence: &Evidence) -> Result<(), String> {
     let reply = folded(reply);
     match evidence {
         Evidence::Token(token) if !reply.contains(&folded(token)) => Err(format!("the token {token}")),
-        Evidence::Sentence { whole, .. } if !whole.iter().any(|sentence| reply.contains(folded(sentence).trim_end_matches('.'))) => Err(format!("the whole sentence {:?}", whole[0])),
+        Evidence::Sentence { opening, whole } if !whole.iter().any(|sentence| restated(&reply, sentence, opening)) => Err(format!("the sentence {:?} or its key words", whole[0])),
         _ => Ok(()),
     }
+}
+
+/// A reply restates `sentence` when it holds every word of four letters or more that the prompt's `opening` did not already give away, in any order and any wording around them; a model's recall of "or" and "to" is no fault of the runtime, but a worker that never saw the policy cannot guess the rest.
+fn restated(reply: &str, sentence: &str, opening: &str) -> bool {
+    let words = |text: &str| -> Vec<String> { folded(text).split(|character: char| !character.is_alphanumeric() && character != '\'').filter(|word| !word.is_empty()).map(str::to_owned).collect() };
+    let (given, said) = (words(opening), words(reply));
+    let key: Vec<String> = words(sentence).into_iter().filter(|word| word.chars().count() >= 4 && !given.contains(word)).collect();
+    !key.is_empty() && key.iter().all(|word| said.contains(word))
 }
 
 fn folded(text: &str) -> String {

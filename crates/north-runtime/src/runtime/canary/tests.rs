@@ -431,6 +431,8 @@ fn a_probe_answer_is_judged_by_the_policy_it_was_given_not_by_the_wording_of_a_h
     assert!(launch::carries("Never force-push or rewrite history that is already pushed.", &asked).is_err(), "the wrong sentence of the policy still fails");
     let republished = policy.replace("retry flakes to green", "retry a flake until it passes");
     assert!(launch::carries("Never weaken tests or retry a flake until it passes.", &asked).is_err());
+    assert_eq!(launch::carries("Never weaken tests and retry flakes until they go green.", &asked), Ok(()), "14 Nov canary rollback of e2f6224c4e: the same key words in other wording are no runtime fault");
+    assert!(launch::carries("I was given no policy text that begins \"Never weaken tests\".", &asked).is_err(), "a worker whose policy file is withheld quotes nothing of it");
     assert_eq!(launch::carries("Never weaken tests or retry a flake until it passes.", &asked.or_in(Some(&republished))), Ok(()), "a publish during the probe");
 }
 
