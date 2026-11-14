@@ -1,6 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::thread::ScopedJoinHandle;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::file_prediction;
@@ -63,6 +64,14 @@ impl Fleet {
     fn launch_into(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path) -> NorthResult<SessionRecord> {
         let _reads = remote::ProfileReads::hold();
         let verification = self.admitted(request, claim)?;
+        std::thread::scope(|prompting| {
+            let shown = prompting.spawn(|| first_prompt(request, verification));
+            self.launch_prompted(request, claim, session_dir, verification, shown)
+        })
+    }
+
+    /// Launches `request` while `shown` builds its first prompt from the launch's own directory, which a spare's lane at the same commit reads alike; a lane a spare took over is removed once that prompt is built.
+    fn launch_prompted(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path, verification: bool, shown: ScopedJoinHandle<'_, (String, Option<Predicted>)>) -> NorthResult<SessionRecord> {
         let account = self.account(request)?;
         let caller = north_base::platform::session_scope::reserve_caller();
         reserve::refusal(&reserve::declared(&self.policy), &account, request.role(), request.parent.as_deref(), caller.as_deref()).map_or(Ok(()), |line| Err(NorthError::Refused(line)))?;
@@ -80,6 +89,8 @@ impl Fleet {
         let tasks = crate::fleet::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
         let spare = (claim == Claim::Fresh).then(|| self.take_spare(request, &account, runtime.as_ref(), effort)).flatten();
         let conversation = spare.as_ref().map_or(conversation, |taken| Some(taken.conversation.clone()));
+        let left = spare.as_ref().filter(|taken| taken.cwd != request.cwd).and(request.machine.clone()).map(|machine| (machine, request.cwd.clone()));
+        let built = super::spares::built_then_left(shown, left);
         let request = &*super::spares::served(request, spare.as_ref());
         let mut record = request.record(effort, conversation.clone(), verification, now_ms());
         record.overlay = runtime.overlay(&request.name);
@@ -88,14 +99,13 @@ impl Fleet {
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         let unrecorded = record.clone();
         std::thread::scope(|scope| {
-            let shown = scope.spawn(|| first_prompt(request, verification));
             let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             let registered = self.register_beside(scope, &row, claim)?;
             let launched = self.succeed(&request.name, claim, |seat| {
                 let (tasks, claimed_first) = self.claim_for(seat, request, &mut record, &tasks, verification)?;
                 if held_in_window(&record) && seat.held().is_some() && request.resume.is_none() {
-                    self.take_over_in_window(seat, &mut record, &account, fresh_opening(request, conversation.as_deref()), &shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)).0, hooks)?;
+                    self.take_over_in_window(seat, &mut record, &account, fresh_opening(request, conversation.as_deref()), &built().0, hooks)?;
                     return self.settled(&record, Ok(()), registered).map(|()| record);
                 }
                 let predecessor = seat.hand_to(&mut record)?;
@@ -103,7 +113,7 @@ impl Fleet {
                     let claiming = beside.spawn(|| if claimed_first { Ok(()) } else { self.claim_before_start(request, &tasks, verification) });
                     let claimed = || claiming.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
                     let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
-                    Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))))
+                    Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), built)))
                 })?;
                 match self.settled(&record, brought, registered) {
                     Ok(()) => Ok(self.launched(request, record)),

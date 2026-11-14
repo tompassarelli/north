@@ -133,7 +133,7 @@ pub fn spare_spec(spec: HostSpec, place: &Place, spare: &str) -> HostSpec {
     spec
 }
 
-/// Takes a spare of `fingerprint` for the session `name` launching in `cwd` and writes `binding` before returning it, or None when none fits or the host does not answer, and the launch starts its client as before. For a launch into a lane, the spare's lane takes the lane's branch and the lane is removed; a spare whose lane does not fit stays in the pool. Every git the take runs reads its repository from the project's main checkout, never from a lane's `.git`, which a confined worker may write. Run twice for one name, it returns the spare the first run took.
+/// Takes a spare of `fingerprint` for the session `name` launching in `cwd` and writes `binding` before returning it, or None when none fits or the host does not answer, and the launch starts its client as before. For a launch into a lane, the spare's lane takes the lane's branch, and [`remove_left_lane`] removes the lane once the launch's first prompt is built from it; a spare whose lane does not fit stays in the pool. Every git the take runs reads its repository from the project's main checkout, never from a lane's `.git`, which a confined worker may write. Run twice for one name, it returns the spare the first run took.
 pub fn take(place: &Place, fingerprint: &str, name: &str, cwd: &Path, binding: &str) -> Option<Taken> {
     let staged = |path: &Path| place.machine.session_path(path, place.home).to_string_lossy().into_owned();
     let (lane, common) = lane_root(cwd).map_or_else(Default::default, |main| (staged(cwd), staged(&main.join(".git"))));
@@ -157,7 +157,6 @@ for e in "$pool"/*-"$fp"-*; do
   fits "$cwd" || {{ mv "$t" "$e"; continue; }}
   rm -f "$t"
   if {{ [ ! -d "$spools/$spare" ] || {{ mv -T "$spools/$spare" "$spools/$name" && find "$spools/$name" -mindepth 1 -delete; }}; }} && mkdir -m 700 "$dir/bound" && printf %s "$cwd" > "$dir/bound/cwd" && printf %s "$bound" > "$dir/bound/.binding" && chmod 400 "$dir/bound/.binding" "$dir/bound/cwd" && mv "$dir/bound/.binding" "$dir/bound/binding" && chmod 500 "$dir/bound" && echo {} > "$dir/limit"; then
-    [ -z "$lane" ] || GIT_DIR="$common" git $hardened worktree remove --force -- "$lane" 2>/dev/null
     echo "$unit $dir $nonce $conv $cwd"; exit 0
   fi
   systemctl --user stop --no-block "$unit" 2>/dev/null
@@ -180,6 +179,13 @@ exit 1"#,
         (0, Some(unit), Some(dir), Some(nonce), Some(conversation), Some(cwd)) => Some(Taken { running: Running { unit, dir, nonce }, conversation, cwd: PathBuf::from(cwd) }),
         _ => None,
     }
+}
+
+/// Removes the lane `cwd` a launch that took a spare launched into, once its first prompt is built from it, reading the repository from the project's main checkout as the take does; the session runs in the spare's lane from the take on.
+pub fn remove_left_lane(place: &Place, cwd: &Path) {
+    let Some(main) = lane_root(cwd) else { return };
+    let staged = |path: &Path| place.machine.session_path(path, place.home).to_string_lossy().into_owned();
+    let _ = run(place, &format!("GIT_DIR={} git {HARDENED} worktree remove --force -- {} 2>/dev/null", quote(&staged(&main.join(".git"))), quote(&staged(cwd))));
 }
 
 /// Stops a spare a launch took and then could not use; it never held task text.

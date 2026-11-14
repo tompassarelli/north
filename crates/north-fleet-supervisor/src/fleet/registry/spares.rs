@@ -1,8 +1,9 @@
 use std::fs::OpenOptions;
 use std::path::PathBuf;
+use std::thread::ScopedJoinHandle;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Role, SessionRecord};
+use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Predicted, Role, SessionRecord};
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid};
 use crate::fleet::spares::{self, Place, Taken};
 
@@ -110,5 +111,19 @@ pub(super) fn served<'a>(request: &'a LaunchRequest, spare: Option<&Taken>) -> s
     match spare.filter(|taken| taken.cwd != request.cwd) {
         Some(taken) => std::borrow::Cow::Owned(LaunchRequest { cwd: taken.cwd.clone(), ..request.clone() }),
         None => std::borrow::Cow::Borrowed(request),
+    }
+}
+
+/// Joins the first prompt `shown` builds, then removes in the background the lane `left` names, which a spare's lane took over, so its removal never delays the prompt.
+pub(super) fn built_then_left<'s>(shown: ScopedJoinHandle<'s, (String, Option<Predicted>)>, left: Option<(Machine, PathBuf)>) -> impl FnOnce() -> (String, Option<Predicted>) + 's {
+    move || {
+        let built = shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        if let Some((machine, lane)) = left {
+            std::thread::spawn(move || {
+                let (ssh, Some(home)) = (binary("ssh"), home()) else { return };
+                spares::remove_left_lane(&Place { ssh: &ssh, machine: &machine, home: &home }, &lane);
+            });
+        }
+        built
     }
 }

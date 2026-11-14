@@ -411,7 +411,7 @@ fn ask_early(named: &Named, head: String, facts: Facts) {
 fn judge_message(session: &str) -> u8 {
     let message = io::read_to_string(io::stdin()).unwrap_or_default();
     let Some(root) = std::env::current_dir().ok().and_then(|directory| checkout(&directory)) else { return 1 };
-    let Some(kept) = proposal_path(&root) else { return 1 };
+    let Some(kept) = proposal_path(&root, session) else { return 1 };
     let _ = fs::remove_file(&kept);
     let destination = default_branch(&root);
     if message.trim().is_empty() || session.trim().is_empty() || session.contains('\n') || !git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).is_ok_and(|branch| branch != destination) {
@@ -435,8 +435,8 @@ fn judge_message(session: &str) -> u8 {
     u8::from(verdict.stand != Stand::Pass)
 }
 
-fn proposal_path(root: &Path) -> Option<PathBuf> {
-    kept::path(root, PROPOSAL_FILE)
+fn proposal_path(root: &Path, session: &str) -> Option<PathBuf> {
+    kept::path(root, PROPOSAL_FILE, session)
 }
 
 fn proposed_message(root: &Path) -> Option<String> {

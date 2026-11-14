@@ -286,7 +286,9 @@ fn takes_lane_spares(shims: &Path, far: &Machine, home: &Path) {
     assert_eq!(spares::take(&place, "fp-lane", "rogue-run", &rogue, &spares::binding("rogue-run", None)), None, "a lane whose .git names another repository is no fit");
     assert!(!ran.exists(), "no program the other repository's configuration names ran");
     let taken = spares::take(&place, "fp-lane", "task-l1-run", &task, &spares::binding("task-l1-run", None)).expect("a launch into a fresh lane takes the spare whose lane was made ahead at the same commit");
-    assert_eq!((taken.cwd.as_path(), git(&ahead, &["symbolic-ref", "--short", "HEAD"]).as_str(), task.exists()), (ahead.as_path(), "task-l1", false), "the session runs in the lane made ahead, on the launch's branch, and the launch's own lane is gone");
+    assert_eq!((taken.cwd.as_path(), git(&ahead, &["symbolic-ref", "--short", "HEAD"]).as_str(), task.exists()), (ahead.as_path(), "task-l1", true), "the session runs in the lane made ahead, on the launch's branch, and the launch's own lane stays for its first prompt to be built from");
+    spares::remove_left_lane(&place, &task);
+    assert!(!task.exists(), "the launch's own lane is gone once its first prompt is built");
     assert!(!sub_ran.exists(), "no program the configuration of a gitlinked repository in the lane names ran");
     spares::release(&place, &taken);
 
