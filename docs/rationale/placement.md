@@ -145,7 +145,7 @@ asks. It becomes the session's or the run's own lease when the work arrives and 
 when it does not. A host that already took someone else's reservation and is now full refuses, and the
 decider takes its next choice. Within one dispatch run or one drain of the launch queue the decider adds each
 placement to its own copy of the board first, which needs no ssh. Staleness is therefore safe: a decider may
-rank on a reading up to 30 s old, but the host it picks checks its live ledger.
+rank on a reading up to 30 s old, but the host it picks checks its live ledger. A launch lists its own host's sessions in its own process, never through a `north fleet list --json` child whose start grows with the host's load (north#1531).
 
 **One budget per host.** The host's ledger holds every charge against it: live sessions, running leases,
 queued tickets, reservations. Placement reads the ledger; admission enforces the same pressure target on it.
