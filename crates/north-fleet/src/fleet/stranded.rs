@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 
 use super::model::Machine;
 
-static STOP_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*stop\s*:[^\n]*").expect("stop pattern"));
 static DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*Done:").expect("done pattern"));
 
 /// Why the session stopped short of landing.
@@ -21,8 +20,6 @@ pub enum Stop {
     Capacity,
     /// Its reply ended on a wait, with no final report (`wait::ended_on_a_wait`).
     Wait,
-    /// Its report ended on `Stop: decision`, waiting on a gate that a revive cannot answer.
-    Decision,
 }
 
 impl Stop {
@@ -30,7 +27,6 @@ impl Stop {
         match self {
             Stop::Capacity => "Stop: capacity",
             Stop::Wait => "a pending wait",
-            Stop::Decision => "Stop: decision",
         }
     }
 }
@@ -46,17 +42,10 @@ pub fn stop(report: &str, capacity: bool) -> Option<Stop> {
     if reported_done(report) {
         return None;
     }
-    if ended_on_decision(report) {
-        return Some(Stop::Decision);
-    }
     if capacity {
         return Some(Stop::Capacity);
     }
     super::wait::ended_on_a_wait(report).then_some(Stop::Wait)
-}
-
-fn ended_on_decision(report: &str) -> bool {
-    STOP_LINE.find_iter(report).last().is_some_and(|line| line.as_str().to_ascii_lowercase().split_once(':').is_some_and(|(_, kind)| kind.trim().trim_end_matches('.') == "decision"))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
