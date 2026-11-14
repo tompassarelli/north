@@ -298,7 +298,7 @@ fn client_command(run: &Path, display: &str, wayland: &str, client: &[String]) -
     command
         .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--unit"])
         .arg(format!("private-desktop-client-{}", std::process::id()));
-    crate::platform::session_scope::bind(&mut command);
+    north_base::platform::session_scope::bind(&mut command);
     for (name, value) in [
         ("DISPLAY", display.to_owned()),
         ("WAYLAND_DISPLAY", wayland.to_owned()),

@@ -213,12 +213,12 @@ fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
 }
 
 fn await_aperture() -> io::Result<Option<u8>> {
-    use crate::capacity::desktop_aperture::DesktopAperture;
-    let margin = crate::pacing::placement::local_bar1_margin_mib();
+    use north_capacity_host::capacity::desktop_aperture::DesktopAperture;
+    let margin = north_dispatch::pacing::placement::local_bar1_margin_mib();
     let deadline = Instant::now() + ADMISSION_WAIT;
     let mut said = String::new();
     loop {
-        let mut line = match crate::capacity::desktop_aperture::desktop_aperture(margin) {
+        let mut line = match north_capacity_host::capacity::desktop_aperture::desktop_aperture(margin) {
             DesktopAperture::Fits => return Ok(None),
             DesktopAperture::Short { free_mib, need_mib } => serde_json::json!({ "reason": "DEFER_GPU_APERTURE", "bar1FreeMiB": free_mib, "bar1NeedMiB": need_mib }),
             DesktopAperture::TimedOut => serde_json::json!({ "reason": "DEFER_GPU_APERTURE_TIMEOUT" }),

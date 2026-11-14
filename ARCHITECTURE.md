@@ -79,6 +79,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-replay | Strategy replay: logged decision cases decided again by the linked code. |
 | 6 operations | north-flow | The flow report, and agents, detectors, experiments, tempo and tool mining. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
+| 6 operations | north-desktop | The desktops agents drive: an isolated private desktop, screenshots off the owner's screen, and the game client a playtest opens. |
 | 6 operations | north-ops | Thirty unrelated operations verb families, from agent capture to desktop upkeep. |
 | 6 operations | north-issue-boxes | An issue's checkboxes as work: converted into child issues, and ticked when their check passes. |
 | 6 operations | north-claims | Claims a written text makes about the tree, checked against it: cited commands, flags, paths and keys, and a design review's facts. |

@@ -106,7 +106,7 @@ impl Desktop for Real {
     }
 
     fn type_text(&self, run: &Path, text: &str) -> Result<(), Failure> {
-        crate::ops::private_desktop::type_into(&run.to_string_lossy(), text).map(|_| ()).map_err(|error| Failure(format!("private-desktop: {error}"), 1))
+        crate::private_desktop::type_into(&run.to_string_lossy(), text).map(|_| ()).map_err(|error| Failure(format!("private-desktop: {error}"), 1))
     }
 }
 

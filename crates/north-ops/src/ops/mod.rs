@@ -1,9 +1,5 @@
 pub mod credentials;
 pub mod private_check;
-pub mod private_desktop;
 pub mod remote_serve;
-pub mod agent_capture;
-pub mod warcraft_close;
-pub mod wc3_login_field;
 pub mod ci_watch;
 pub mod gh_broker;

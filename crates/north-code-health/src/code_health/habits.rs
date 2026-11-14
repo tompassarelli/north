@@ -4,7 +4,7 @@ use super::fix::{self, Suggestion};
 use super::rust_text::RustFile;
 use north_base::rust_files;
 use regex::Regex;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -288,6 +288,12 @@ struct Allowances {
     implicit: usize,
 }
 
+fn moved_from(root: &Path, rev: &str) -> HashMap<String, String> {
+    let output = Command::new("git").arg("-C").arg(root).args(["diff", "-M", "--name-status", "--diff-filter=R", rev, "HEAD"]).output();
+    let listing = output.ok().map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default();
+    listing.lines().filter_map(|line| match line.split('\t').collect::<Vec<_>>().as_slice() { [_, old, new] => Some(((*new).to_owned(), (*old).to_owned())), _ => None }).collect()
+}
+
 fn allowances(config: &str) -> Result<Allowances, String> {
     let document = config.parse::<DocumentMut>().map_err(|error| format!("structure.toml: {error}"))?;
     let count = |table: &str| document.get(table).and_then(|table| table.get("allow")).and_then(Item::as_array_of_tables).map_or(0, toml_edit::ArrayOfTables::len);
@@ -309,11 +315,12 @@ pub fn grown(root: &Path, rev: &str) -> Result<Vec<String>, String> {
     let Some(mut habits) = Habits::parse(&config)? else {
         return Ok(out);
     };
+    let moved = moved_from(root, rev);
     habits.read_ambient(|allowlist| std::fs::read_to_string(root.join(allowlist)).map_err(|error| format!("{allowlist}: {error}")))?;
     for ambient in &habits.ambient {
         let before = ambient::counts(&ambient.allowlist, &at_rev(root, rev, &ambient.allowlist)?)?;
         for (path, count) in &ambient.allowed {
-            let was = before.get(path).copied().unwrap_or(0);
+            let was = before.get(moved.get(path).unwrap_or(path)).copied().unwrap_or(0);
             if *count > was {
                 out.push(format!("{} lists {count} ambient test reads in {path}, up from {was} at {rev} — the list only shrinks", ambient.allowlist));
             }

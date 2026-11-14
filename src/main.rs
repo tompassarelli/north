@@ -19,6 +19,7 @@ use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint,
 use north_github_mirror as github_mirror;
 use north_tui::tui;
 use north_ops::ops;
+use north_desktop::{agent_capture, private_desktop, warcraft_close, wc3_login_field};
 use north_runtime::{agent_contain, laptop_runner, runtime, worker_sandbox};
 use north_dispatch::{dispatch, laptop, pacing, resident_cap, spend};
 use north_tune::{loops, tune};
@@ -55,7 +56,7 @@ fn main() -> std::process::ExitCode {
         arguments
             .first()
             .filter(|argument| *argument == "desktop" && arguments.get(1).is_some_and(|verb| verb == "private") && !cli::answers_help(&arguments))
-            .map_or_else(cli::main, |_| ops::private_desktop::run(&arguments[2..]))
+            .map_or_else(cli::main, |_| private_desktop::run(&arguments[2..]))
     })
 }
 

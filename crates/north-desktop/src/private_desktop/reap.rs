@@ -30,7 +30,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
     };
     let proc_root = Path::new("/proc");
     let live = live_sessions(proc_root);
-    let recorded = crate::fleet::registry::recorded_here().map_err(io::Error::other)?;
+    let recorded = north_fleet_supervisor::fleet::registry::recorded_here().map_err(io::Error::other)?;
     for desktop in orphans(desktops(&runtime_root()?, proc_root)?, &live, &recorded) {
         let verb = if dry_run {
             "would stop"

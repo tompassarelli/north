@@ -205,7 +205,7 @@ fixes in each machine's code from history.
     stolen after 10 minutes from a run that still holds it (`crates/north-core/src/grounding/distill.rs:799`).
     Shapes: mtime-read, presence-flag.
 31. **Private desktop run** (none counted). A launcher killed with SIGKILL leaves its compositor running and only the
-    next start archives the directory (`crates/north-ops/src/ops/private_desktop/{session,run_state,reap}.rs`).
+    next start archives the directory (`crates/north-desktop/src/private_desktop/{session,run_state,reap}.rs`).
     Shapes: presence-flag, pid-liveness.
 32. **Experiments and deferred checks** (none counted). An extension is lost when the process dies between the body
     edit and the key file (`crates/north-flow/src/experiments/file.rs:127`); a deferred check written to an unlanded

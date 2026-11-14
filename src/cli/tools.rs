@@ -275,10 +275,10 @@ fn work(arguments: &[String]) -> u8 {
 
 fn desktop(arguments: &[String]) -> u8 {
     match arguments.split_first() {
-        Some((verb, rest)) if verb == "capture" => crate::ops::agent_capture::run(rest),
+        Some((verb, rest)) if verb == "capture" => crate::agent_capture::run(rest),
         Some((verb, rest)) if verb == "warcraft" => match rest.split_first() {
-            Some((action, tail)) if action == "close" => crate::ops::warcraft_close::run(tail),
-            Some((action, tail)) if action == "login-field" => crate::ops::wc3_login_field::run(tail),
+            Some((action, tail)) if action == "close" => crate::warcraft_close::run(tail),
+            Some((action, tail)) if action == "login-field" => crate::wc3_login_field::run(tail),
             _ => {
                 eprintln!("usage: north desktop warcraft (close|login-field) ...");
                 2

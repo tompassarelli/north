@@ -963,6 +963,7 @@ dependencies = [
  "north-convo",
  "north-core",
  "north-coverage",
+ "north-desktop",
  "north-dispatch",
  "north-docs",
  "north-expectations",
@@ -1267,6 +1268,21 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "north-desktop"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-capacity-host",
+ "north-dispatch",
+ "north-fleet-supervisor",
+ "rustix 0.38.44",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
