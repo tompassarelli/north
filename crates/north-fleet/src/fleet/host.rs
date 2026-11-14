@@ -193,7 +193,7 @@ impl Host {
             }
             return await_exit(pid);
         }
-        let Some(pid) = pid else { return Ok(()) };
+        let Some(pid) = pid.filter(|pid| *pid != std::process::id()) else { return Ok(()) };
         let Some(group) = i32::try_from(pid).ok().and_then(Pid::from_raw) else { return Ok(()) };
         let _ = kill_process_group(group, Signal::Term);
         let deadline = Instant::now() + TERM_GRACE;
