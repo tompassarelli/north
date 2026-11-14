@@ -293,6 +293,32 @@ mod launch_tests {
         assert_eq!(claims.holders(Rows::Items(&tasks)).unwrap(), Vec::<(String, String)>::new());
         assert!(claims.0.lock().unwrap().iter().any(|(kind, _, _)| *kind == "hold"), "the launch took its claim before the host failed: {error}");
     }
+
+    struct HeldElsewhere;
+
+    impl crate::fleet::store::Registrar for HeldElsewhere {
+        fn register(&self, row: &crate::fleet::store::SessionRow, _: crate::fleet::store::Claim) -> NorthResult<()> {
+            Err(NorthError::Refused(format!("the session name {} is held fleet-wide by a working session on cpx62b", row.name)))
+        }
+
+        fn retire_unplaced(&self) -> NorthResult<Vec<String>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// On 2026-11-14 a fresh launch began to register beside its claims, and a launch the ledger refused because a live session on another host held its name released that session's claims.
+    #[test]
+    fn a_launch_the_ledger_refuses_for_a_name_live_elsewhere_keeps_that_names_claims() {
+        let home = tempfile::tempdir().unwrap();
+        let claims = Arc::new(Held::default());
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap().registering(Arc::new(HeldElsewhere));
+        claims.hold("north#1042", "north-1042-d0525", &BTreeSet::new()).unwrap();
+
+        let launched = fleet.launch(&request(&home.path().join("no-such-directory")));
+
+        let error = launched.unwrap_err().user_message();
+        assert!(claims.0.lock().unwrap().iter().all(|(kind, _, _)| *kind != "release"), "the refused launch released the claims of the session holding its name: {error}");
+    }
 }
 
 #[cfg(test)]

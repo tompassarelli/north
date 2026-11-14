@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::file_prediction;
-use crate::fleet::{brief_files, brief_grounding, claims, proposal};
+use crate::fleet::{brief_files, brief_grounding, proposal};
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
@@ -99,15 +99,13 @@ impl Fleet {
                     let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
                     Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))))
                 })?;
-                let brought = brought.and_then(|()| registered().inspect_err(|_| self.halt_unregistered(&record.name)));
-                let Err(error) = brought else {
+                let Err(error) = self.settled(&record, brought, registered) else {
                     if let Err(error) = self.inherit_workers(request, &record) {
                         eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
                     }
                     super::spares::fill_after(&record);
                     return Ok(record);
                 };
-                claims::release_for(self.claims.as_ref(), &record);
                 Err(match self.discard_failed_launch(session_dir) {
                     Ok(()) => error,
                     Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
