@@ -19,7 +19,7 @@ use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, Role, Status
 use crate::fleet::registry::Choices;
 
 use super::attach::Attachments;
-use super::clipboard::Wayland;
+use super::clipboard::Clipboard;
 use super::desk::SessionSummary;
 use super::digest::{DigestPane, SessionFacts};
 use super::form::LaunchForm;
@@ -89,7 +89,8 @@ pub struct Screen {
     pub help: HelpPanel,
     held_answer: Option<(i64, String)>,
     attachments: Attachments,
-    clipboard: Wayland,
+    clipboard: Clipboard,
+    terminal_output: String,
     bell: bool,
     scroll_limit: u16,
     page: u16,
@@ -119,7 +120,8 @@ impl Screen {
             help: HelpPanel::default(),
             held_answer: None,
             attachments: Attachments::system(),
-            clipboard: Wayland,
+            clipboard: Clipboard::system(),
+            terminal_output: String::new(),
             bell: false,
             scroll_limit: u16::MAX,
             page: 10,
@@ -159,6 +161,17 @@ impl Screen {
             let home = self.sessions.iter().find(|session| session.record.role() == Role::Proxy).or(self.sessions.first()).map(|session| session.record.name.clone());
             self.select(home);
         }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_clipboard(mut self, clipboard: Clipboard) -> Self {
+        self.clipboard = clipboard;
+        self
+    }
+
+    pub fn take_terminal_output(&mut self) -> String {
+        std::mem::take(&mut self.terminal_output)
     }
 
     pub fn take_bell(&mut self) -> bool {

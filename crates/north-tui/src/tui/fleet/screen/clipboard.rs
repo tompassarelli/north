@@ -1,5 +1,6 @@
 //! Paste and clipboard: text or an image goes into the composer, and the selected session's last reply goes out.
 
+use super::super::clipboard::osc52_copy;
 use super::{Dialog, Focus, Notice, Screen};
 
 impl Screen {
@@ -39,9 +40,13 @@ impl Screen {
             self.notice = Some(Notice::Error(format!("{name} has no finished reply to copy")));
             return;
         };
-        match self.clipboard.put_text(&reply) {
-            Ok(()) => self.notice = Some(Notice::Info(format!("copied {name}'s last reply ({} words)", reply.split_whitespace().count()))),
-            Err(error) => self.fail(&error),
-        }
+        let route = match self.clipboard.put_text(&reply) {
+            Ok(()) => "to the desktop clipboard",
+            Err(_) => {
+                self.terminal_output.push_str(&osc52_copy(&reply));
+                "through the terminal"
+            }
+        };
+        self.notice = Some(Notice::Info(format!("copied {name}'s last reply ({} words) {route}", reply.split_whitespace().count())));
     }
 }

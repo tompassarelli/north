@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
+base64.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 sha2.workspace = true

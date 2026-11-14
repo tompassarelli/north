@@ -116,6 +116,7 @@ where
         if dirty {
             terminal.draw(|frame| view::draw(frame, screen, screen_transcript(desk, screen), &mut painter, now)).map_err(|error| NorthError::Io(io::Error::other(error)))?;
             ring_bell(screen);
+            send_to_terminal(screen);
             dirty = false;
         }
         if let Some(event) = events(next_poll.saturating_duration_since(Instant::now()))? {
@@ -184,6 +185,14 @@ fn ring_bell(screen: &mut Screen) {
     if screen.take_bell() {
         let mut stdout = io::stdout();
         let _ = stdout.write_all(b"\x07").and_then(|()| stdout.flush());
+    }
+}
+
+fn send_to_terminal(screen: &mut Screen) {
+    let output = screen.take_terminal_output();
+    if !output.is_empty() {
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(output.as_bytes()).and_then(|()| stdout.flush());
     }
 }
 

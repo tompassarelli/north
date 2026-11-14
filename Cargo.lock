@@ -2017,6 +2017,7 @@ dependencies = [
 name = "north-tui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "crossterm 0.28.1",
  "north-base",
  "north-fleet-supervisor",

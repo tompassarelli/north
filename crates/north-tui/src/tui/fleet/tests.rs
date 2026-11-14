@@ -13,6 +13,7 @@ use crate::fleet::books::Digest;
 use crate::fleet::gates::{Decision, Gate, GateRequest};
 use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionPhase, Status, Transcript};
 
+use super::clipboard::Clipboard;
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
 use super::form::{Field, FormOutcome, LaunchForm};
@@ -422,3 +423,17 @@ fn a_worded_gate_answer_waits_for_confirmation() {
     assert_eq!(desk.performed().last(), Some(&decided(Decision::Option(2))));
 }
 
+
+#[test]
+fn a_copy_reaches_the_terminal_clipboard_without_wl_copy() {
+    let desk = desk();
+    let mut screen = screen(&desk).with_clipboard(Clipboard::with_tools("north-test-absent-wl-copy", "north-test-absent-wl-paste"));
+    let facts = SessionFacts { reply: Some("two words".into()), ..SessionFacts::default() };
+    screen.observe(Digest::default(), BTreeMap::from([("parser".to_owned(), facts)]));
+    screen.selected = Some("parser".into());
+    apply_event(&mut screen, Event::Key(control('y')));
+    assert_eq!(screen.take_terminal_output(), "\x1b]52;c;dHdvIHdvcmRz\x07");
+    assert!(matches!(&screen.notice, Some(Notice::Info(text)) if text.contains("through the terminal")));
+    apply_event(&mut screen, Event::Key(control('v')));
+    assert!(matches!(&screen.notice, Some(Notice::Error(text)) if text.contains("needs north-test-absent-wl-paste") && text.contains("not installed")));
+}
