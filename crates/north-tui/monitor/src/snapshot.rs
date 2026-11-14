@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use north_base::platform::host_load::HostState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -119,22 +120,6 @@ pub struct Lander {
 pub struct Host {
     pub name: String,
     pub state: Reading<HostState>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct HostState {
-    pub runtime: Option<String>,
-    pub follow: Option<String>,
-    pub stable: Option<String>,
-    pub load1: Option<f64>,
-    pub cores: Option<u32>,
-}
-
-impl HostState {
-    pub fn load_per_core(&self) -> Option<f64> {
-        Some(self.load1? / f64::from(self.cores?.max(1)))
-    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

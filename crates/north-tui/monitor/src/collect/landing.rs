@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+use north_base::platform::land_queue::{self, queued_seconds, repo_name, tickets_in};
 use serde::Deserialize;
 
 use crate::snapshot::{Decided, Lander, Landing};
@@ -34,32 +35,10 @@ pub struct Cache {
     done: HashMap<PathBuf, Option<Done>>,
 }
 
-fn queued_secs(name: &str) -> Option<u64> {
-    name.split('-').next()?.parse::<u64>().ok().map(|micros| micros / 1_000_000)
-}
-
-fn repo_name(origin: &str) -> String {
-    let mut parts = origin.trim_end_matches('/').rsplit(['/', ':']).map(|part| part.trim_end_matches(".git"));
-    let last = parts.next().unwrap_or(origin);
-    if last == "origin" { parts.next().unwrap_or(last).to_owned() } else { last.to_owned() }
-}
-
-fn tickets(directory: &Path) -> Vec<(PathBuf, String)> {
-    fs::read_dir(directory)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().into_string().ok()?;
-            name.ends_with(".json").then(|| (entry.path(), name))
-        })
-        .collect()
-}
-
 fn decided(path: &Path, name: &str) -> Option<Done> {
     let decided = fs::metadata(path).ok()?.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs();
     let ticket: Ticket = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
-    Some(Done { repo: repo_name(&ticket.origin), branch: ticket.branch, verdict: ticket.verdict.unwrap_or_default(), queued: queued_secs(name)?, decided })
+    Some(Done { repo: repo_name(&ticket.origin), branch: ticket.branch, verdict: ticket.verdict.unwrap_or_default(), queued: queued_seconds(name)?, decided })
 }
 
 fn percentile(sorted: &[u64], fraction: f64) -> Option<u64> {
@@ -69,12 +48,11 @@ fn percentile(sorted: &[u64], fraction: f64) -> Option<u64> {
 
 pub fn read(queue: &Path, at: u64, cache: &mut Cache) -> Result<Landing, String> {
     let repos = fs::read_dir(queue).map_err(|error| format!("{}: {error}", queue.display()))?;
-    let mut pending: Vec<u64> = Vec::new();
+    let pending: Vec<u64> = land_queue::waiting(queue, at as f64).iter().map(|ticket| ticket.queued).collect();
     let mut done: Vec<Done> = Vec::new();
     for repo in repos.flatten().filter(|entry| entry.path().is_dir()) {
-        pending.extend(tickets(&repo.path()).iter().filter_map(|(_, name)| queued_secs(name)));
-        for (path, name) in tickets(&repo.path().join("done")) {
-            let Some(queued) = queued_secs(&name) else { continue };
+        for (path, name) in tickets_in(&repo.path().join("done")) {
+            let Some(queued) = queued_seconds(&name) else { continue };
             if queued + WINDOW_S < at {
                 continue;
             }

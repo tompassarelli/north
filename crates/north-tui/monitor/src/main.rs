@@ -85,12 +85,12 @@ fn budgets(options: &Options) -> Budgets {
     }
 }
 
-fn configured_hosts() -> Vec<collect::HostTarget> {
+fn configured_hosts() -> Vec<north_base::platform::host_load::HostTarget> {
     let variable = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let path = north_shared_config::orchestration(&home, variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref());
     let orchestration = std::fs::read_to_string(path).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
-    collect::hosts_in(&orchestration)
+    north_base::platform::host_load::targets(&orchestration, collect::fleet::LOCAL)
 }
 
 fn main() -> ExitCode {

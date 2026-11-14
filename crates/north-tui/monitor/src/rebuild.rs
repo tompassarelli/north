@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use crate::collect::{HostTarget, fleet, health, hosts, landing, rollout};
-use crate::snapshot::{Host, HostState, Ladder, Reading, Snapshot, Trends};
+use crate::collect::{fleet, health, hosts, landing, rollout};
+use north_base::platform::host_load::{HostState, HostTarget};
+use crate::snapshot::{Host, Ladder, Reading, Snapshot, Trends};
 
 const NOT_KEPT: &str = "not kept in history";
 

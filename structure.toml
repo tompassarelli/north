@@ -619,6 +619,12 @@ responsibility = "The git adapter and the repository tools run over a tree: refs
 may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
 
 [[module]]
+name = "platform.host_load"
+paths = ["crates/north-base/src/platform/host_load.rs"]
+responsibility = "The host load reader: one ssh or local probe per configured host, parsed into its runtime, follow state, stable flag and load average, read by the monitor and the dash board."
+may_use = ["platform.process"]
+
+[[module]]
 name = "platform.harness"
 paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/verification_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
 responsibility = "The harness tables other repos read (defaults, orchestration, disk budget, frozen topics, repo names) and the rules read from them."
@@ -1271,12 +1277,12 @@ may_use = []
 name = "north-monitor"
 layer = 7
 paths = ["crates/north-tui/monitor/src/**"]
-may_use = ["north-shared-config"]
+may_use = ["north-shared-config", "north-base"]
 [[module]]
 name = "monitor"
 paths = ["crates/north-tui/monitor/src/**"]
 responsibility = "Render one live terminal screen of fleet, landing queue, runtime versions per host, health and ladder level from the cheapest direct source of each number, each read off the render thread with a timeout, so a broken north still shows what is broken."
-may_use = ["crate-roots"]
+may_use = ["crate-roots", "platform", "platform.records", "platform.host_load"]
 [[module]]
 name = "evals"
 paths = ["evals/**"]

@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
 
+use north_base::platform::host_load::short;
 use serde::Deserialize;
 
-use super::hosts::short;
 use crate::snapshot::Rollout;
 
 #[derive(Deserialize)]

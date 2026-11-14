@@ -3,51 +3,13 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use north_base::platform::host_load::short;
 use serde::Deserialize;
 
-use super::{HostTarget, run};
-use crate::snapshot::HostState;
-
-const PROBE: &str = "echo \"runtime $(readlink \"${XDG_STATE_HOME:-$HOME/.local/state}/north/current\")\"; \
-echo \"load $(cut -d' ' -f1 /proc/loadavg)\"; echo \"cores $(nproc)\"; \
-echo \"follow $(systemctl --user is-active north-runtime-follow.timer 2>/dev/null)\"; \
-echo \"stable $(cut -c1-10 \"${XDG_STATE_HOME:-$HOME/.local/state}/north/channel/stable\" 2>/dev/null)\"";
-
-pub fn short(sha: &str) -> String {
-    sha.rsplit('/').next().unwrap_or(sha).chars().take(7).collect()
-}
+use super::run;
 
 pub fn host_name(name: &str) -> &str {
     name.rsplit('@').next().unwrap_or(name)
-}
-
-fn parse(text: &str) -> HostState {
-    let mut state = HostState::default();
-    for line in text.lines() {
-        let Some((key, value)) = line.split_once(' ') else { continue };
-        let value = value.trim();
-        match key {
-            "runtime" if !value.is_empty() => state.runtime = Some(short(value)),
-            "load" => state.load1 = value.parse().ok(),
-            "cores" => state.cores = value.parse().ok(),
-            "follow" if !value.is_empty() => state.follow = Some(value.to_owned()),
-            "stable" if !value.is_empty() => state.stable = Some(value.to_owned()),
-            _ => {}
-        }
-    }
-    state
-}
-
-pub fn read(host: &HostTarget) -> Result<HostState, String> {
-    let text = match &host.ssh {
-        Some(destination) => run("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, PROBE], Duration::from_secs(12))?,
-        None => run("sh", &["-c", PROBE], Duration::from_secs(4))?,
-    };
-    let state = parse(&text);
-    if state.runtime.is_none() && state.load1.is_none() {
-        return Err(format!("{}: probe printed nothing", host.name));
-    }
-    Ok(state)
 }
 
 #[derive(Deserialize)]

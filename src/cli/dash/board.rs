@@ -1,10 +1,11 @@
-//! The board's facts, read once per snapshot: Work from the fleet store and books, Accounts from the usage table and
+//! The board's facts, read once per snapshot: Work from the fleet store, books and landing queue, Accounts from the usage table and
 //! the one credit producer, Infra from `north infra`'s read, and Health from the readiness bars and the habit hook.
 use crate::cli::infra::report::{self, Price};
 use crate::fleet::board::{Board, Panel, money};
 use crate::fleet::books::Landing;
 use crate::fleet::gates::Gate;
 use crate::fleet::registry::Fleet;
+use crate::platform::host_load::HostReading;
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::{self, Runway};
 
@@ -65,13 +66,14 @@ pub(super) fn of(screen: &Screen) -> Board {
 
 fn work_panel(screen: &Screen, window: &str) -> Panel {
     let mut panel = Panel::new("Work", "the fleet store could not be read");
+    waiting_lines(screen, &mut panel);
     let Ok(work) = &screen.work else {
         panel.unread.push(screen.work.as_ref().err().cloned().unwrap_or_default());
         return panel;
     };
     let count = |status: &str| work.sessions.iter().filter(|session| session.status == status).count();
     let landings = work.landed.len();
-    panel.headline = format!("{} working, {} idle, {} open gates, {} held, {landings} landings in the last {window}", count("working"), count("idle"), work.gates.len(), work.held);
+    panel.headline = format!("{} working, {} idle, {} open gates, {} held, {landings} landings in the last {window}, {} waiting to land", count("working"), count("idle"), work.gates.len(), work.held, screen.waiting.len());
     for gate in work.gates.iter().take(DETAIL_ROWS) {
         let recommended = gate.request.recommend.checked_sub(1).and_then(|index| gate.request.options.get(index)).cloned().unwrap_or_else(|| "none".to_owned());
         let when = gate.default_at_ms().map_or_else(|| "waits for Tom".to_owned(), |at| format!("default {}", Timestamp::from_unix_millis(i64::try_from(at).unwrap_or(0)).local_twelve_hour()));
@@ -161,6 +163,7 @@ fn accounts_panel(screen: &Screen, window: &str) -> Panel {
 
 fn infra_panel(screen: &Screen) -> Panel {
     let mut panel = Panel::new("Infra", "the infrastructure could not be read");
+    host_lines(screen, &mut panel);
     let (resources, unread) = match &screen.infra {
         Ok((resources, unread)) => (resources, unread),
         Err(why) => {
@@ -221,6 +224,33 @@ fn health_panel(screen: &Screen, window: &str) -> Panel {
         Err(why) => panel.unread.push(format!("habits unread: {why}")),
     }
     panel
+}
+
+fn waiting_lines(screen: &Screen, panel: &mut Panel) {
+    for ticket in screen.waiting.iter().take(DETAIL_ROWS) {
+        let waited = ticket.waited_s.map_or_else(|| "wait unread".to_owned(), |seconds| format!("waited {}", span_minutes(seconds / 60.0)));
+        panel.lines.push(format!("waiting {} {} {waited}", ticket.repo, ticket.branch));
+    }
+    if screen.waiting.len() > DETAIL_ROWS {
+        panel.lines.push(format!("and {} more waiting", screen.waiting.len() - DETAIL_ROWS));
+    }
+}
+
+fn host_lines(screen: &Screen, panel: &mut Panel) {
+    match &screen.hosts {
+        Ok(hosts) => {
+            for HostReading { name, state } in hosts {
+                match state {
+                    Ok(state) => match (state.load1, state.cores, state.load_per_core()) {
+                        (Some(load), Some(cores), Some(per_core)) => panel.lines.push(format!("host {name} load {load:.2} on {cores} cores ({per_core:.2} per core)")),
+                        _ => panel.unread.push(format!("{name} load unread")),
+                    },
+                    Err(why) => panel.unread.push(why.clone()),
+                }
+            }
+        }
+        Err(why) => panel.unread.push(format!("hosts unread: {why}")),
+    }
 }
 
 fn runway(runway: Runway) -> String {

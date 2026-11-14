@@ -1,0 +1,6 @@
+[[module]]
+name = "platform.host_load"
+paths = ["crates/north-base/src/platform/host_load.rs"]
+responsibility = "The host load reader: one ssh or local probe per configured host, parsed into its runtime, follow state, stable flag and load average, read by the monitor and the dash board."
+may_use = ["platform.process"]
+

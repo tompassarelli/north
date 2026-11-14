@@ -12,6 +12,7 @@ use crate::fleet::registry::Fleet;
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, Handovers, Ledger, WindowRun};
 use crate::usage::outlook::{AccountOutlook, Runway};
+use crate::platform::{host_load::{self, HostReading}, land_queue, records_mirror};
 
 pub(crate) use crate::cli::infra::manifest as billing;
 mod board;
@@ -48,6 +49,10 @@ pub struct Screen {
     pub credit: Vec<north_core::credit::Standing>,
     /// The fleet store's sessions, gates, landings and held messages, the Work part of the snapshot.
     pub work: Result<board::Work, String>,
+    /// The tickets waiting in the landing queue, read from the queue directory the lander reads.
+    pub waiting: Vec<land_queue::Waiting>,
+    /// Each configured host with its load, probed as the monitor probes it; a host that does not answer is its own unread line.
+    pub hosts: Result<Vec<HostReading>, String>,
 }
 
 /// The live infra total the money line prints, from `north infra`'s read model; a read with no priced
@@ -129,7 +134,7 @@ pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Scr
     let since = ledger::window_start_ms(window).map_err(|error| error.user_message())? / 1_000;
     let span = now - since;
     let since_ms = u64::try_from(since.saturating_mul(1_000)).unwrap_or(0);
-    let (bars, accounts, runs, attempts, habits, week_runs, handovers, work, infra) = std::thread::scope(|scope| {
+    let (bars, accounts, runs, attempts, habits, week_runs, handovers, work, waiting, hosts, infra) = std::thread::scope(|scope| {
         let bars = scope.spawn(|| ready::lines(now, span));
         let accounts = scope.spawn(accounts);
         let runs = scope.spawn(|| ledger::inside(window).map_err(|error| error.user_message()));
@@ -141,19 +146,21 @@ pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Scr
             Some(fleet) => board::work(fleet, since_ms),
             None => Err("the fleet store is unreadable".to_owned()),
         });
+        let waiting = scope.spawn(|| land_queue::waiting(&land_queue::queues(&records_mirror::state_home()), now as f64));
+        let hosts = scope.spawn(|| crate::platform::orchestration::read().map(|policy| host_load::read_all(&host_load::targets(&policy, &land_queue::local_host()))));
         let infra = scope.spawn(|| {
             let read = crate::cli::infra::read_with_billing();
             (read.billing, read.resources, read.unread)
         });
         let joined = |name: &str| format!("{name} reader panicked");
-        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))), handovers.join().unwrap_or_else(|_| Err(joined("handovers"))), work.join().unwrap_or_else(|_| Err(joined("work"))), infra.join().unwrap_or_else(|_| (Err(joined("infra")), Vec::new(), Vec::new())))
+        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))), handovers.join().unwrap_or_else(|_| Err(joined("handovers"))), work.join().unwrap_or_else(|_| Err(joined("work"))), waiting.join().unwrap_or_default(), hosts.join().unwrap_or_else(|_| Err(joined("hosts"))), infra.join().unwrap_or_else(|_| (Err(joined("infra")), Vec::new(), Vec::new())))
     });
     let (billing, resources, unread) = infra;
     let (runs, graded) = match runs {
         Ok((runs, spent, every)) => (Ok((runs, spent)), Ok(every)),
         Err(why) => (Err(why.clone()), Err(why)),
     };
-    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, graded, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work })
+    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, graded, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work, waiting, hosts })
 }
 
 /// The Board the fleet screen reads: the same snapshot `north dash` prints, over the board's day window.

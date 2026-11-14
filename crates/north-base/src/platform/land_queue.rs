@@ -126,6 +126,57 @@ pub fn ticket_age(ticket: &Path, now: f64) -> Option<f64> {
     Some((now - at).max(0.0))
 }
 
+/// A ticket still in a repository's queue: the repository and branch it names, its id's queued time in seconds, and how long it has waited.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Waiting {
+    pub repo: String,
+    pub branch: String,
+    pub queued: u64,
+    pub waited_s: Option<f64>,
+}
+
+/// The tickets waiting in each repository's queue under `queues`: the ticket files directly inside a repository's directory, minus any its `withdrawn/` names.
+pub fn waiting(queues: &Path, now: f64) -> Vec<Waiting> {
+    let mut waiting = Vec::new();
+    for repo in fs::read_dir(queues).into_iter().flatten().flatten().filter(|entry| entry.path().is_dir()) {
+        let directory = repo.path();
+        for (ticket, name) in tickets_in(&directory) {
+            let Some(queued) = queued_seconds(&name) else { continue };
+            if directory.join("withdrawn").join(&name).is_file() {
+                continue;
+            }
+            let text = fs::read_to_string(&ticket).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok()).unwrap_or_default();
+            waiting.push(Waiting { repo: repo_name(text["origin"].as_str().unwrap_or_default()), branch: text["branch"].as_str().unwrap_or_default().to_owned(), queued, waited_s: ticket_age(&ticket, now) });
+        }
+    }
+    waiting
+}
+
+/// The `.json` tickets directly inside `directory`, each with its file name.
+pub fn tickets_in(directory: &Path) -> Vec<(PathBuf, String)> {
+    fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            name.ends_with(".json").then(|| (entry.path(), name))
+        })
+        .collect()
+}
+
+/// The queued time a ticket's file name leads with, in seconds: its id is the queued microseconds before the first dash.
+pub fn queued_seconds(name: &str) -> Option<u64> {
+    name.split('-').next()?.parse::<u64>().ok().map(|micros| micros / 1_000_000)
+}
+
+/// The repository a ticket's origin names, by its last path segment, or the one before it when that is `origin`.
+pub fn repo_name(origin: &str) -> String {
+    let mut parts = origin.trim_end_matches('/').rsplit(['/', ':']).map(|part| part.trim_end_matches(".git"));
+    let last = parts.next().unwrap_or(origin);
+    if last == "origin" { parts.next().unwrap_or(last).to_owned() } else { last.to_owned() }
+}
+
 pub fn rfc3339_seconds(text: &str) -> Option<f64> {
     let (date, clock) = text.strip_suffix('Z')?.split_once('T')?;
     let mut day = date.splitn(3, '-').map(str::parse::<i32>);

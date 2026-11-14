@@ -1711,6 +1711,7 @@ name = "north-monitor"
 version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
+ "north-base",
  "north-shared-config",
  "ratatui",
  "serde",

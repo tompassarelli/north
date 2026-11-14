@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 crossterm.workspace = true
+north-base = { path = "../../north-base" }
 north-shared-config = { path = "../../north-shared-config" }
 ratatui.workspace = true
 serde.workspace = true

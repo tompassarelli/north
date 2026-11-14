@@ -12,7 +12,8 @@ use ratatui::backend::{CrosstermBackend, TestBackend};
 
 use crate::Options;
 use crate::budget::Budgets;
-use crate::collect::{self, HostTarget, Update, fleet::LOCAL};
+use crate::collect::{self, Update, fleet::LOCAL};
+use north_base::platform::host_load::HostTarget;
 use crate::frame::{View, draw};
 use crate::snapshot::Snapshot;
 

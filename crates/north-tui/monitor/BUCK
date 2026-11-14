@@ -23,6 +23,7 @@ rust_binary(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//crates/north-base:north-base",
         "//crates/north-shared-config:north-shared-config",
         "//third-party:crossterm",
         "//third-party:ratatui",
@@ -42,6 +43,7 @@ north_rust_test(
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     deps = [
+        "//crates/north-base:north-base",
         "//crates/north-shared-config:north-shared-config",
         "//third-party:crossterm",
         "//third-party:ratatui",

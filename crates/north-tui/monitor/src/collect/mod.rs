@@ -12,9 +12,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use toml_edit::{DocumentMut, Item};
+use north_base::platform::host_load::{self, HostState, HostTarget};
 
-use crate::snapshot::{Builds, Fleet, Health, Holds, Host, HostState, Ladder, Lander, Landing, Reading, Rollout, Snapshot};
+use crate::snapshot::{Builds, Fleet, Health, Holds, Host, Ladder, Lander, Landing, Reading, Rollout, Snapshot};
 
 pub enum Update {
     Fleet(Result<Fleet, String>),
@@ -27,16 +27,6 @@ pub enum Update {
     Builds(Result<Builds, String>),
     Ladder(Result<Ladder, String>),
     Holds(Result<Holds, String>),
-}
-
-pub struct HostTarget {
-    pub name: String,
-    pub ssh: Option<String>,
-}
-
-pub fn hosts_in(orchestration: &DocumentMut) -> Vec<HostTarget> {
-    let configured = orchestration.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter()).filter_map(|(name, host)| Some(HostTarget { name: name.to_owned(), ssh: Some(host.get("ssh")?.as_str()?.to_owned()) }));
-    std::iter::once(HostTarget { name: fleet::LOCAL.into(), ssh: None }).chain(configured).collect()
 }
 
 pub fn now() -> u64 {
@@ -118,7 +108,7 @@ pub fn spawn(hosts: Vec<HostTarget>) -> Receiver<Update> {
     every(Duration::from_secs(4), updates.clone(), move || Update::Landers(landing::landers(&queue, now())));
     for host in hosts {
         let period = Duration::from_secs(if host.ssh.is_some() { 30 } else { 5 });
-        every(period, updates.clone(), move || Update::Host(host.name.clone(), hosts::read(&host)));
+        every(period, updates.clone(), move || Update::Host(host.name.clone(), host_load::read(&host)));
     }
     every(Duration::from_secs(30), updates.clone(), || Update::Lag(hosts::lag()));
     let pins = state.clone();

@@ -2,6 +2,7 @@ use super::billing;
 use super::render;
 use super::Screen;
 use crate::foundation::clock::Timestamp;
+use crate::platform::host_load::{HostReading, HostState};
 use crate::usage::outlook::{AccountOutlook, Runway};
 
 const MANIFEST: &str = r#"
@@ -61,7 +62,7 @@ fn the_screen_names_each_plan_and_machine_within_fifty_lines_of_120_characters_a
         billing: billing.clone(),
         infra: infra(billing.as_ref().unwrap()),
         credit: Vec::new(),
-        work: work(),
+        work: work(), waiting: Vec::new(), hosts: Ok(Vec::new()),
     };
     let text = render::screen(&screen, false);
     let lines: Vec<&str> = text.lines().collect();
@@ -168,7 +169,7 @@ fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework
         billing: Err(String::new()),
         infra: Err(String::new()),
         credit: Vec::new(),
-        work: work(),
+        work: work(), waiting: Vec::new(), hosts: Ok(Vec::new()),
     };
     let mixes = super::dispatch::Mixes::of(&screen).unwrap();
     let sonnet = mixes.rows.iter().find(|row| row.mix == "claude-sonnet-5-5 high").expect("the sonnet feature row");
@@ -187,7 +188,7 @@ fn a_class_uses_the_share_of_a_week_its_dollars_are_of_the_week_sized_from_the_s
     let week_runs = vec![run("claude-c", ("opus", "high"), &in_week, 40.0), run("claude-b", ("opus", "high"), &in_week, 100.0), run("claude-b", ("opus", "high"), "2000-01-01T00:00:00Z", 900.0)];
     let window_runs = vec![run("claude-b", ("opus", "high"), &in_week, 10.0), run("claude-api", ("sonnet", "high"), &in_week, 7.0)];
     let account = |letter: &str, used: f64| AccountOutlook { account: letter.to_owned(), week_used: Some(used), week_resets: Some(resets), five_hour_used: None, five_hour_resets: None, burn_per_hour: None, runway: Runway::Lasts };
-    let screen = Screen { window: "24h".to_owned(), now: 0, since: -86_400, bars: Err(String::new()), accounts: Ok(vec![account("b", 50.0), account("c", 99.0)]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), graded: Err(String::new()), attempts: Err(String::new()), launches: Vec::new(), habits: Err(String::new()), week_runs: Ok(week_runs), handovers: Ok(Default::default()), billing: Err(String::new()), infra: Err(String::new()), credit: Vec::new(), work: work() };
+    let screen = Screen { window: "24h".to_owned(), now: 0, since: -86_400, bars: Err(String::new()), accounts: Ok(vec![account("b", 50.0), account("c", 99.0)]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), graded: Err(String::new()), attempts: Err(String::new()), launches: Vec::new(), habits: Err(String::new()), week_runs: Ok(week_runs), handovers: Ok(Default::default()), billing: Err(String::new()), infra: Err(String::new()), credit: Vec::new(), work: work(), waiting: Vec::new(), hosts: Ok(Vec::new()) };
     let spent = super::spend::Spend::of(&screen).unwrap();
     assert_eq!(spent.classes.len(), 1);
     assert!((spent.classes[0].week_pct["b"] - 5.0).abs() < 1e-9, "{:?}", spent.classes[0]);
@@ -239,7 +240,7 @@ fn the_habit_section_counts_each_rules_rewrites_and_warnings_inside_the_window()
         billing: Err(String::new()),
         infra: Err(String::new()),
         credit: Vec::new(),
-        work: work(),
+        work: work(), waiting: Vec::new(), hosts: Ok(Vec::new()),
     };
     let text = render::screen(&screen, false);
     assert!(text.contains("2 rewrites and 1 warning on 2 rules"), "{text}");
@@ -258,7 +259,7 @@ fn the_three_sections_keep_a_worker_row_when_every_bar_fails_and_the_habit_table
         super::habits::Row { rule: "shared-mutability".to_owned(), rewrites: 1, warnings: 0 },
         super::habits::Row { rule: "single-impl-trait".to_owned(), rewrites: 0, warnings: 3 },
     ];
-    let screen = Screen { window: "24h".to_owned(), now: 1_793_990_000, since: 1_793_903_600, bars: Ok((0..15).map(|_| bar()).collect()), accounts: Ok(accounts), runs: Ok((runs, crate::ledger::ClosedReport::default())), graded: Err(String::new()), attempts: Ok(Vec::new()), launches: Vec::new(), habits: Ok(habits), week_runs: Ok(Vec::new()), handovers: Ok(Default::default()), billing: billing::parse(MANIFEST), infra: Err(String::new()), credit: Vec::new(), work: work() };
+    let screen = Screen { window: "24h".to_owned(), now: 1_793_990_000, since: 1_793_903_600, bars: Ok((0..15).map(|_| bar()).collect()), accounts: Ok(accounts), runs: Ok((runs, crate::ledger::ClosedReport::default())), graded: Err(String::new()), attempts: Ok(Vec::new()), launches: Vec::new(), habits: Ok(habits), week_runs: Ok(Vec::new()), handovers: Ok(Default::default()), billing: billing::parse(MANIFEST), infra: Err(String::new()), credit: Vec::new(), work: work(), waiting: Vec::new(), hosts: Ok(Vec::new()) };
     let text = render::screen(&screen, false);
     let lines: Vec<&str> = text.lines().collect();
     assert!(lines.len() <= 50, "{text}");
@@ -267,4 +268,38 @@ fn the_three_sections_keep_a_worker_row_when_every_bar_fails_and_the_habit_table
         assert!(lines.contains(&title), "{title} missing:\n{text}");
     }
     assert!(lines.iter().any(|line| line.contains("all runs")), "the accounts table has no row:\n{text}");
+}
+
+#[test]
+fn the_board_names_each_waiting_ticket_and_each_hosts_load() {
+    let billing = billing::parse(MANIFEST);
+    let screen = Screen {
+        window: "24h".to_owned(),
+        now: 1_793_990_000,
+        since: 1_793_903_600,
+        bars: Err("unread".to_owned()),
+        accounts: Err("unread".to_owned()),
+        runs: Err("unread".to_owned()),
+        graded: Err(String::new()),
+        attempts: Err("unread".to_owned()),
+        launches: Vec::new(),
+        habits: Err("unread".to_owned()),
+        week_runs: Err("unread".to_owned()),
+        handovers: Ok(Default::default()),
+        billing: billing.clone(),
+        infra: infra(billing.as_ref().unwrap()),
+        credit: Vec::new(),
+        work: work(),
+        waiting: vec![crate::platform::land_queue::Waiting { repo: "north".to_owned(), branch: "feature/board".to_owned(), queued: 1_793_989_000, waited_s: Some(720.0) }],
+        hosts: Ok(vec![
+            HostReading { name: "whiterabbit".to_owned(), state: Ok(HostState { load1: Some(0.4), cores: Some(8), ..HostState::default() }) },
+            HostReading { name: "nexus".to_owned(), state: Err("nexus: ssh timed out".to_owned()) },
+        ]),
+    };
+    let board = super::board::of(&screen);
+    let work = board.panel("Work").expect("a work panel");
+    assert!(work.lines.iter().any(|line| line == "waiting north feature/board waited 12 min"), "{:?}", work.lines);
+    let infra = board.panel("Infra").expect("an infra panel");
+    assert!(infra.lines.iter().any(|line| line == "host whiterabbit load 0.40 on 8 cores (0.05 per core)"), "{:?}", infra.lines);
+    assert!(infra.unread.iter().any(|why| why == "nexus: ssh timed out"), "{:?}", infra.unread);
 }

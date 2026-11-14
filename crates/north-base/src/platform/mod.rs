@@ -45,6 +45,7 @@ pub mod hook_commands;
 pub mod home_paths;
 pub mod lane_layout;
 pub mod host;
+pub mod host_load;
 pub mod north_binary;
 pub mod private_text;
 pub mod rolling_issue;
