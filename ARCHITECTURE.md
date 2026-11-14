@@ -2,6 +2,42 @@
 
 north is one command line over a set of crates in seven layers. Each layer has one responsibility, and a crate depends only on layers below it. This page is the map, the life of a task and the rules. The reasons, the measured figures and the open work to reach the target are in [docs/rationale/architecture-layers.md](docs/rationale/architecture-layers.md).
 
+## The tree
+
+Every top-level directory and every crate, by layer; `north docs readme` renders this block from [docs/readme/layout.toml](docs/readme/layout.toml) and `structure/`, and the landing refuses it when the tree has a directory or crate it does not name.
+
+<!-- north docs readme: layout -->
+- [src/](src/): the `north` command: argument parsing, the composition root and the command reference and help, one file per command
+- [crates/](crates/): the libraries behind it, one crate per responsibility, in the layers listed below
+- [harness/](harness/): what north installs into each agent: hooks, skills, policy owners, tuned defaults and the model catalog
+- [docs/](docs/): the concept pages, one record per feature, the rationale for each choice and the outside sources
+- [bin/](bin/): toolchain shims and the few tools that run before north is built
+- [tests/](tests/): the `north` command's integration tests and their fixtures
+- [evals/](evals/): the evaluation runners that measure north against other harnesses, each its own Cargo project
+- [examples/](examples/): a working operator repository with synthetic values, kept equal to what `north config operator init` writes
+- [structure/](structure/): the module boundaries, crate layers and code-health limits, one file per table, joined into structure.toml
+- [build/](build/): Buck2 rules for the workspace's tests
+- [toolchains/](toolchains/): the Buck2 toolchains the build uses
+- [third-party/](third-party/): the Buck2 targets of every outside crate, written from Cargo.lock
+- [lib/](lib/): the browser-automation tool, the one part written in TypeScript
+- [lint/](lint/): the Buck2 script that runs Clippy across the workspace
+- [mode/](mode/): the Buck2 build modes
+- [north-data/](north-data/): the expectations the fleet tick judges and the private-check list a landing reads
+
+The crates under [crates/](crates/), by the layer each sits in; a crate depends only on layers below it, and [the crates table](#the-crates) gives each crate's purpose:
+
+- **1 platform**, touches the outside world (git, GitHub, processes, SQLite, ssh, Nix) and holds base values: [north-agent-starts](crates/north-agent-starts/), [north-base](crates/north-base/), [north-broker](crates/north-broker/), [north-buck](crates/north-buck/), [north-build-system](crates/north-build-system/), [north-cli-reference](crates/north-cli-reference/), [north-foundation](crates/north-foundation/), [north-git-locks](crates/north-git-locks/), [north-github-broker](crates/north-github-broker/), [north-machine-model](crates/north-machine-model/), [north-publish](crates/north-publish/), [north-registries](crates/north-registries/), [north-runtime-follow](crates/north-runtime-follow/), [north-shared-config](crates/north-shared-config/), [north-ssh-spare](crates/north-ssh-spare/), [north-strategy-types](crates/north-strategy-types/), [north-test-cases](crates/north-test-cases/), [north-trusted-mirror](crates/north-trusted-mirror/)
+- **2 records**, remembers: one crate per durable store, with its schema, its one writer and its typed readers: [north-coverage](crates/north-coverage/), [north-fleet-store](crates/north-fleet-store/), [north-github-mirror](crates/north-github-mirror/), [north-graph](crates/north-graph/), [north-graph-change](crates/north-graph-change/), [north-graph-ground](crates/north-graph-ground/), [north-graph-loops](crates/north-graph-loops/), [north-threads](crates/north-threads/)
+- **3 rules**, decides: a verdict from records, a diff, a tree or a tool call, with no effect beyond reading: [north-calibration](crates/north-calibration/), [north-capacity](crates/north-capacity/), [north-check-environment](crates/north-check-environment/), [north-code-health](crates/north-code-health/), [north-concerns](crates/north-concerns/), [north-context-pack](crates/north-context-pack/), [north-diff-gates](crates/north-diff-gates/), [north-guard](crates/north-guard/), [north-implicit-state](crates/north-implicit-state/), [north-land-scans](crates/north-land-scans/), [north-landing-gates](crates/north-landing-gates/), [north-mutants](crates/north-mutants/), [north-pace](crates/north-pace/)
+- **4 sessions**, runs agent sessions on each provider's command-line client: [north-claude-stream](crates/north-claude-stream/), [north-fleet](crates/north-fleet/), [north-fleet-supervisor](crates/north-fleet-supervisor/), [north-providers](crates/north-providers/), [north-resume](crates/north-resume/), [north-session-host](crates/north-session-host/)
+- **4 workspace**, makes and reaps the worktree each change is written in: [north-lanes](crates/north-lanes/)
+- **4 landing**, checks a handed-in change and lands it on main, or refuses it with the reason: [north-land-checks](crates/north-land-checks/), [north-land-sandbox](crates/north-land-sandbox/), [north-lander](crates/north-lander/), [north-landing](crates/north-landing/), [north-safe-push](crates/north-safe-push/)
+- **4 capacity**, leases machine room to builds and sessions: [north-capacity-host](crates/north-capacity-host/)
+- **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/)
+- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-claims](crates/north-claims/), [north-convo](crates/north-convo/), [north-core](crates/north-core/), [north-desktop](crates/north-desktop/), [north-docs](crates/north-docs/), [north-expectations](crates/north-expectations/), [north-flow](crates/north-flow/), [north-graph-ingest](crates/north-graph-ingest/), [north-health](crates/north-health/), [north-issue-boxes](crates/north-issue-boxes/), [north-land-watch](crates/north-land-watch/), [north-lander-doctor](crates/north-lander-doctor/), [north-ops](crates/north-ops/), [north-reclaim](crates/north-reclaim/), [north-replay](crates/north-replay/), [north-timers](crates/north-timers/), [north-tune](crates/north-tune/)
+- **7 command**, the terminal screens: [north-monitor](crates/north-tui/monitor/), [north-tui](crates/north-tui/)
+<!-- end layout -->
+
 ## The layers
 
 | Layer | It does one thing | The layer above may call |

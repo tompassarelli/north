@@ -33,6 +33,40 @@ Written on north#1281 before the release runs; a kind that fails is fixed at its
 
 T3 Code's figures in the small-task rows are those of its stronger arm for that measure. R is defined under the method below.
 
+## The registered small-task cells
+
+`north docs readme` renders this block from [docs/readme/comparison.toml](../readme/comparison.toml), and the landing refuses it when it disagrees with those rows.
+
+<!-- north docs readme: comparison -->
+Measured 2026-11-14 against T3 Code v0.1.8 on the load ladder's small tasks t01 to t05: one source edit and its acceptance check each, with claude-opus-5-5 at medium effort in every arm; both arms on one build host, its one-minute load below 2 at each start. Time runs from the launch command to the change on main. Only valid runs are counted.
+
+| Cell | Valid runs x tasks | Landed: north / plain / given the file text | north, median | Faster T3 Code arm, median | Time ratio, each run | Time ratio, all valid runs | Cost ratio | Tokens | Reading |
+|---|---|---|---|---|---|---|---|---|---|
+| small one-worker cell | 1 x 5 | 5 of 5 / 5 of 5 / 5 of 5 | 15 s | given the file text, 18 s | 0.79 | 0.79 | 0.29 | 14x fewer | undecided until T3 Code's noise band is measured |
+| small five-at-once cell | 2 x 5 | 10 of 10 / 10 of 10 / 10 of 10 | 13.5 s | given the file text, 21 s | 0.65, 0.61 | 0.64 | 0.28 | 9x fewer | undecided until T3 Code's noise band is measured |
+| small one-worker cell on the later release runtime, cold start (the registered three-run set) | 3 x 5 | 15 of 15 / 15 of 15 / 15 of 15 | 14 s | given the file text, 22 s | 0.95, 0.86, 0.57 | 0.78 | 0.34 | 10x fewer | undecided until T3 Code's noise band is measured |
+| small five-at-once cell on the later release runtime, cold start (the registered three-run set) | 3 x 5 | 15 of 15 / 15 of 15 / 15 of 15 | 16 s | given the file text, 25 s | 0.48, 0.93, 0.54 | 0.66 | 0.27 | 10x fewer | undecided until T3 Code's noise band is measured |
+| small one-worker cell, block w4 on account c against T3 Code given the file text, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 12 s | given the file text, 15 s | 0.76, 0.79, 0.86 | 0.75 | 0.33 | 10x fewer | undecided until T3 Code's noise band is measured |
+| small five-at-once cell, block w4 on account c against T3 Code given the file text, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 14 s | given the file text, 20 s | 0.60, 0.84, 0.70 | 0.68 | 0.30 | 8x fewer | undecided until T3 Code's noise band is measured |
+| small one-worker cell, block w5 on account c against T3 Code given the file text, on the pinned release runtime with warm spares, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 12 s | given the file text, 16 s | 0.68, 0.80, 0.77 | 0.78 | 0.30 | 11x fewer | undecided until T3 Code's noise band is measured |
+| small five-at-once cell, block w5 on account c against T3 Code given the file text, on the pinned release runtime with warm spares, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 13 s | given the file text, 21 s | 0.63, 0.85, 0.59 | 0.70 | 0.29 | 9x fewer | undecided until T3 Code's noise band is measured |
+
+Time ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. Cost ratio: north's cost per task over the faster arm's, at the list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens.
+
+Not counted:
+
+- runs 2 and 3 of the small one-worker cell, void under the protocol's load rule and not counted
+- run 2 of cell 25 (block w4, five at once), void under the load rule: an admission check held the host during it; rerun as run 4
+
+Not measured yet:
+
+- large tasks (the cells a general claim needs): not yet run
+- tasks of one to ten minutes
+- ten and twenty at once
+- an outside benchmark
+- T3 Code's noise band, without which no cell is read as ahead or behind
+<!-- end comparison -->
+
 ## Small tasks
 
 ### Method
@@ -72,7 +106,7 @@ Two runs of an earlier runtime failed the bar, and one before that read 0.96 at 
 
 Valid runs on 2026-11-14 on the runtime that carries the fix to the hand-in stage described in the next section: one run of the small one-worker cell (runs 2 and 3 of that cell are void under the protocol's load rule and are not counted) and two runs of the small five-at-once cell. Every session of all three arms ran on one build host whose one-minute load was under 2 at each start; north's land checks ran on the operator's own machine, as in a normal fleet. Tasks t01 to t05 of the ladder, the same task text in every arm, claude-opus-5-5 at medium effort in north and T3 Code 0.1.8's default in its arms. Every counted row landed and north's hidden check passed on every task.
 
-The counted rows are committed as [docs/readme/comparison.toml](../readme/comparison.toml), one line per task, arm and run with its seconds, tokens and list-price cost, so every figure below can be recomputed.
+The counted rows are committed as [docs/readme/comparison.toml](../readme/comparison.toml), one line per task, arm and run with its seconds, tokens and list-price cost, so every figure below can be recomputed; the README's table is rendered from the same file by `north docs readme`.
 
 | Cell | Arm | Landed | Median | Cost per task | Tokens per task |
 |---|---|---|---|---|---|
