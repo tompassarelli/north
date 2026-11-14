@@ -2,9 +2,9 @@ use std::path::Path;
 
 use super::candidate::git;
 
+/// A `landing` key of the committed `.safe-push` at `remote_ref`, else of this machine's git config; a key the committed file sets, even to nothing, is that repository's own answer and is never filled in from the machine's.
 pub fn landing(repo: &Path, remote_ref: &str, key: &str) -> String {
-    let committed = git(repo, &["config", "--blob", &format!("{remote_ref}:.safe-push"), "--get", key]).unwrap_or_default();
-    if committed.is_empty() { git(repo, &["config", "--get", key]).unwrap_or_default() } else { committed }
+    git(repo, &["config", "--blob", &format!("{remote_ref}:.safe-push"), "--get", key]).or_else(|_| git(repo, &["config", "--get", key])).unwrap_or_default()
 }
 
 /// The hosts whose outbox the lander pulls and whose lanes safe-push therefore queues: the fleet's ssh hosts in orchestration.toml, unless a test fixture root is declared and the file lies outside it, then any `landing.remote-hosts` a repository or this machine adds.
@@ -27,3 +27,7 @@ pub fn stale_fleet() -> Option<String> {
     }
     shared_config::fresh(&home, shared_config::now()).err()
 }
+
+#[cfg(test)]
+#[path = "setting_tests.rs"]
+mod tests;
