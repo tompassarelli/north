@@ -47,10 +47,6 @@ impl State {
         self.root.join("north/gates/code-health-churn").join(self.repo_name(repo))
     }
 
-    pub(super) fn baseline(&self, repo: &Path) -> Option<serde_json::Value> {
-        std::fs::read_to_string(self.directory(repo).join("baseline.json")).ok().and_then(|text| serde_json::from_str(&text).ok())
-    }
-
     pub(super) fn marker(&self, repo: &Path) -> Result<Option<Marker>, String> {
         let path = self.directory(repo).join("review.json");
         let Ok(text) = std::fs::read_to_string(&path) else { return Ok(None) };

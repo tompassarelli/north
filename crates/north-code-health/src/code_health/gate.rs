@@ -223,20 +223,19 @@ pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_
     }
     let rising: Vec<&Change> = based.iter().copied().filter(|c| complexity(head_of(c)).unwrap_or(0) > complexity(base_of(c)).unwrap_or(0)).collect();
     if !rising.is_empty() {
-        let baseline = state.baseline(repo);
-        let files = baseline.as_ref().and_then(|b| b.get("files")).filter(|files| files.is_object());
+        let churn = churn_at(state, repo, base)?;
         let measured_base: HashMap<&str, usize> = changed.iter().filter_map(|c| c.base.as_deref().map(|b| (b, complexity(base_of(c)).unwrap_or(0)))).collect();
         let base_hand: HashMap<String, Kind> = inventory(&bs, &base_config).into_iter().collect();
+        let unmeasured: Vec<String> = churn.iter().map(|(path, _)| path.clone()).filter(|path| base_hand.get(path) == Some(&Kind::Hand) && !measured_base.contains_key(path.as_str())).collect();
+        let unmeasured_files = super::report::texts(&mut bs, &unmeasured)?;
+        let measured_rest = measure(&[("r", &unmeasured_files)])?;
         let of = |p: &str| {
             if base_hand.get(p) != Some(&Kind::Hand) {
                 return None;
             }
-            match files {
-                Some(files) => measured_base.get(p).copied().or_else(|| files.get(p).and_then(|row| row.get("complexity")).and_then(serde_json::Value::as_u64).map(|n| n as usize)),
-                None => Some(1),
-            }
+            measured_base.get(p).copied().or_else(|| complexity(measured_rest.get(&format!("r/{p}"))))
         };
-        let ranked = hotspots_of(&churn_at(state, repo, base)?, of);
+        let ranked = hotspots_of(&churn, of);
         for c in rising {
             let limit = config.thresholds_of(&c.path).hotspot_top;
             if !ranked.iter().take(limit as usize).any(|h| Some(&h.path) == c.base.as_ref()) {

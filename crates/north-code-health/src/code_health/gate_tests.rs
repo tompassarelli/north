@@ -96,3 +96,24 @@ fn churn_is_computed_when_the_state_directory_refuses_the_cache_write() {
     let cached = std::fs::read_dir(state.churn_directory(&repo.repo)).map(|entries| entries.count()).unwrap_or_default();
     assert_eq!(cached, 1, "the churn cache is written under the gates state a confined session may write");
 }
+
+#[test]
+fn the_hotspot_ranking_is_the_same_whatever_baseline_file_a_host_holds() {
+    let repo = Repo::new();
+    let quiet = "pub fn f(x: bool) -> u8 {\n    if x { 1 } else { 0 }\n}\n";
+    let busy = "pub fn g(x: bool, y: bool) -> u8 {\n    if x {\n        if y { 1 } else { 2 }\n    } else {\n        if y { 3 } else { 4 }\n    }\n}\n";
+    repo.commit(&[("structure.toml", "[thresholds]\nhotspot_top = 1\nfunction_complexity = 100\n".to_owned()), ("src/a.rs", quiet.to_owned()), ("src/b.rs", busy.to_owned())]);
+    let base = repo.commit(&[("src/a.rs", format!("{quiet}\n")), ("src/b.rs", format!("{busy}\n"))]);
+    let head = repo.commit(&[("src/a.rs", "pub fn f(x: bool, y: bool) -> u8 {\n    if x { 1 } else if y { 2 } else { 0 }\n}\n".to_owned())]);
+    let verdict = |baseline: &str| {
+        let state = State { root: repo.state.join(baseline.len().to_string()), home: repo.state.join("home"), graph: repo.state.join("graph.db") };
+        let directory = state.directory(&repo.repo);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("baseline.json"), baseline).unwrap();
+        gate(&state, &repo.repo, &base, &head, None).unwrap().violations.iter().map(|violation| violation.shown()).collect::<Vec<_>>()
+    };
+    let without_b = verdict(r#"{"files":{}}"#);
+    let with_b = verdict(r#"{"files":{"src/b.rs":{"complexity":9}}}"#);
+    assert_eq!(without_b, with_b);
+    assert!(without_b.is_empty(), "{without_b:?}");
+}
