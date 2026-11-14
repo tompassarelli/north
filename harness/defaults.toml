@@ -2054,3 +2054,19 @@ unit = "directories under the home directory whose git-tracked, unchanged execut
 source = "north#1439 (2026-11-14): evaluation blocks stalled about 50 minutes because every start needed the coordinator's window; the owner asked for the route fixed so a sandboxed lead starts a registered block itself"
 fallback = "an empty or missing list starts no script"
 consumers = ["crates/north-runtime/src/worker_sandbox/eval_start.rs"]
+
+[host_op_units]
+value = ["north-worker-outside.service", "north-gh-broker.service", "north-runtime-follow.service", "north-land-rest.service", "north-pace.service", "north-fleet-held.service", "north-watch.service"]
+allowed = { min_len = 0 }
+unit = "north user units whose state the outside broker reads and which it restarts on a host for a lead session or the coordinator (crates/north-runtime/src/worker_sandbox/host_op_request.rs)"
+source = "north#1485 (2026-11-14): a confined lead can no longer ssh, so it could not read a host's unit and load state or restart a north unit; the list is the north user units the hosts run"
+fallback = "an empty or missing list reads and restarts no unit"
+consumers = ["crates/north-runtime/src/worker_sandbox/host_op_request.rs"]
+
+[host_copies]
+value = [{ name = "eval-a", host = "cpx62", from = "code/south/main/agents/decisions/harness/overhaul-2026-11-11/evals/a", to = "eval-a/evals/a", exclude = ["checks/"] }]
+allowed = { min_len = 0 }
+unit = "copies the outside broker refreshes with rsync for a lead session or the coordinator: each a name, the host it lives on, its source directory under the broker's home and its target directory under the operator's home on that host, and the entries left out (crates/north-runtime/src/worker_sandbox/host_op_request.rs)"
+source = "north#1485 (2026-11-14): a confined lead could not refresh cpx62's eval-a copy from south main once its ssh was hidden; the entry copies what evals/a/host-place in south copies there"
+fallback = "an empty or missing list refreshes no copy"
+consumers = ["crates/north-runtime/src/worker_sandbox/host_op_request.rs"]

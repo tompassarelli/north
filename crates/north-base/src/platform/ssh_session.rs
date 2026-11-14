@@ -19,7 +19,7 @@ const UNSCOPED: &[u8] = b"NOsGV";
 const PROTOCOLS: [&str; 4] = ["north", "threads", "nix-store", "nix-daemon"];
 const HOSTS_HIDDEN: &str = super::session_scope::HOSTS_HIDDEN;
 const REFUSED: u8 = 126;
-const REFUSAL: &str = "north ssh-session: a worker command reaches no other host over ssh, scp or rsync: its sandbox reads no ssh key and hides the agent and master sockets. Run a command on a build host with `north capacity offload run --host HOST --base BASE --head HEAD --timeout SECONDS -- 'COMMAND'` (`north capacity offload hosts` lists the hosts), land with `north finish` or `safe-push`, and reach the ledger with `north threads`.";
+const REFUSAL: &str = "north ssh-session: a worker command reaches no other host over ssh, scp or rsync: its sandbox reads no ssh key and hides the agent and master sockets. Run a command on a build host with `north capacity offload run --host HOST --base BASE --head HEAD --timeout SECONDS -- 'COMMAND'` (`north capacity offload hosts` lists the hosts), read or restart a north unit or refresh a listed copy on a host with `north runtime host-op`, land with `north finish` or `safe-push`, and reach the ledger with `north threads`.";
 
 pub fn run(arguments: &[String]) -> u8 {
     if matches!(arguments, [word] if word == "-h" || word == "--help") {

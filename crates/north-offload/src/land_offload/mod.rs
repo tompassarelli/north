@@ -498,6 +498,11 @@ pub fn reached_destination(host: &str) -> Result<String, String> {
     destinations::reached_destination(&config()?, &north_base::platform::host::name(), host)
 }
 
+/// The operator's ssh destination of `host` when this host reaches it over its `reaches` list, for the host operations the outside broker runs as the operator (north#1485), else why it is refused.
+pub fn operator_destination(host: &str) -> Result<String, String> {
+    destinations::reached_destinations(&config()?, &north_base::platform::host::name()).into_iter().find(|(name, _)| name == host).map(|(_, ssh)| ssh).ok_or_else(|| format!("{host} is not a host this one reaches over ssh, so no host operation is run there"))
+}
+
 pub(crate) fn reaches(host: &str) -> bool {
     reached_destination(host).is_ok()
 }
