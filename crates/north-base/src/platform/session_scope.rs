@@ -112,7 +112,7 @@ pub fn session_unit(provider: &str, id: &str) -> String {
 
 /// Whether the process whose `/proc/PID/cgroup` reads `cgroup` runs in a lane-only session's scope.
 pub fn lane_only_cgroup(cgroup: &str) -> bool {
-    cgroup.lines().filter_map(|line| line.rsplit('/').next()).any(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
+    cgroup.lines().flat_map(|line| line.split('/')).any(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
 }
 
 /// The unit name, and the start of every other name, of the outside broker's service, which starts what a sandboxed worker asks for.

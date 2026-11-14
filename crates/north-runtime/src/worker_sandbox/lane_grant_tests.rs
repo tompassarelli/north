@@ -302,3 +302,12 @@ fn a_shell_descended_from_an_adopted_window_resolves_to_its_record_and_an_app_sc
     let unrelated = Peer::with_pids(Some(APP_CGROUP), &[SHELL]);
     assert_eq!(super::own_session(&unrelated, &fixture.host, "absent").unwrap_err(), "absent");
 }
+
+#[test]
+fn a_lane_only_request_from_a_nested_scope_is_served_as_the_sessions_own() {
+    let fixture = Fixture::new();
+    let nested = format!("0::/user.slice/user-1000.slice/user@1000.service/app.slice/{UNIT}/app-tool-1.scope\n");
+    let asked = fixture.ask_from(&nested, &["task", "comment", "--body", "landed"], &fixture.lane);
+    assert_eq!(asked.code, 0, "{}", asked.stderr);
+    assert_eq!(fixture.ran().last().unwrap(), &format!("{}|task comment {TASK} --body landed|{NAME}", fixture.lane.display()));
+}

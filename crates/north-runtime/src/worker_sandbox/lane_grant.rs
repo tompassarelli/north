@@ -67,7 +67,7 @@ pub(super) fn granted(arguments: &[String], peer: &Peer) -> bool {
 pub(super) fn session(peer: &Peer, fleet: &Path) -> Result<Session, String> {
     let unit = peer.cgroup().unwrap_or_default()
         .lines()
-        .filter_map(|line| line.rsplit('/').next())
+        .flat_map(|line| line.split('/'))
         .find(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
         .ok_or("only a lane-only session asks the broker to land or write its issue; any other session holds its own token")?;
     let (directory, record) = recorded(unit, fleet)?;
