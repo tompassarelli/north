@@ -209,10 +209,18 @@ struct Chosen {
     ahead: Option<String>,
 }
 
+/// The host `commands` run on: this one (the empty name) when every one is marked local-only, so a set that needs no build host, such as the after-landing run of the canary's scratch project, never waits for one; else the host `runner_host` places them on.
+async fn placed_host(environment: &Environment, config: &Config, avoid: &[String], commands: &[String]) -> Option<String> {
+    if !commands.is_empty() && commands.iter().all(|command| config.local_reason(command).is_some()) {
+        return Some(String::new());
+    }
+    runner_host(&environment.north, environment, config.runner.as_deref(), avoid).await
+}
+
 async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&Environment, &Config), avoid: &[String], commands: Vec<String>) -> Result<Chosen, i32> {
     let recorded = arguments.after.then(|| selection_record::load(&arguments.head)).flatten();
     let lists = !arguments.leased && verdict_key::reads_it(&commands) && recorded.as_ref().is_none_or(|recorded| recorded.it.is_none());
-    let ahead = if lists { Some(runner_host(&environment.north, environment, config.runner.as_deref(), avoid).await.ok_or_else(no_build_host)?) } else { None };
+    let ahead = if lists { Some(placed_host(environment, config, avoid, &commands).await.ok_or_else(no_build_host)?) } else { None };
     let listing = ahead.as_deref().or(environment.runner.as_deref()).unwrap_or_default();
     let Selections { scope, it, no_test } = selections(root, arguments, &commands, recorded.as_ref(), (listing, &environment.north));
     let commands = unless_no_test(commands, no_test.as_deref());
@@ -278,7 +286,7 @@ async fn run_set_on(root: PathBuf, arguments: Arguments, config: Config, environ
     }
     let host = match ahead {
         Some(host) => host,
-        None => match runner_host(&shared.environment.north, &shared.environment, shared.config.runner.as_deref(), avoid).await {
+        None => match placed_host(&shared.environment, &shared.config, avoid, &commands).await {
             Some(host) => host,
             None => return (no_build_host(), String::new()),
         },
