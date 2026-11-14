@@ -7,30 +7,43 @@ use std::path::{Path, PathBuf};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{SessionRecord, Transcript};
 use crate::fleet::runtime::Runtime;
-use crate::fleet::transcript::{current_session_stream_index, ensure_session_streams, read_window, session_stream_path};
+use crate::fleet::transcript::{current_session_stream_index, ensure_session_streams, private_session_stream, read_window, session_stream_path};
 
 use super::status;
 use super::Fleet;
 
+/// A session's indexed stream: its path, how far into the host's stream it reaches, and, for an index only this process holds, the file the path names, which lives as long as this value.
+pub(super) struct IndexedStream {
+    pub path: PathBuf,
+    pub indexed_to: u64,
+    _held: Option<File>,
+}
+
+impl IndexedStream {
+    fn shared(record: &SessionRecord, indexed_to: u64) -> Self {
+        Self { path: session_stream_path(&record.host_dir, &record.name), indexed_to, _held: None }
+    }
+}
+
 impl Fleet {
     pub(super) fn recent(&self, runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcript> {
-        let (path, _) = self.stream_index(record)?;
+        let indexed = self.stream_index(record)?;
+        let path = &indexed.path;
         let mut transcript = seeded(record);
-        for frame in read_frames(&path)? {
+        for frame in read_frames(path)? {
             runtime.observe(&frame, &mut transcript);
         }
-        if let Some(status) = status::latest_turn_status(&path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame))? {
+        if let Some(status) = status::latest_turn_status(path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame))? {
             transcript.status = status;
         }
         Ok(transcript)
     }
 
     pub(super) fn recent_frames(&self, record: &SessionRecord) -> NorthResult<Vec<serde_json::Value>> {
-        let (path, _) = self.stream_index(record)?;
-        read_frames(&path)
+        read_frames(&self.stream_index(record)?.path)
     }
 
-    pub(super) fn stream_index(&self, record: &SessionRecord) -> NorthResult<(PathBuf, u64)> {
+    pub(super) fn stream_index(&self, record: &SessionRecord) -> NorthResult<IndexedStream> {
         self.stream_index_among(record, || {
             if record.host_dir == self.root.join(&record.name) {
                 return Ok(vec![record.clone()]);
@@ -39,17 +52,25 @@ impl Fleet {
         })
     }
 
-    pub(super) fn stream_index_among(&self, record: &SessionRecord, siblings: impl FnOnce() -> NorthResult<Vec<SessionRecord>>) -> NorthResult<(PathBuf, u64)> {
+    pub(super) fn stream_index_among(&self, record: &SessionRecord, siblings: impl FnOnce() -> NorthResult<Vec<SessionRecord>>) -> NorthResult<IndexedStream> {
         if record.host_dir.as_os_str().is_empty() {
             return Err(NorthError::State(format!("{} has no host stream", record.name)));
         }
         if let Some(indexed_to) = current_session_stream_index(&record.host_dir, &record.name) {
-            return Ok((session_stream_path(&record.host_dir, &record.name), indexed_to));
+            return Ok(IndexedStream::shared(record, indexed_to));
         }
         let records = siblings()?;
         let runtime = self.runtime(record)?;
-        let indexed_to = ensure_session_streams(&record.host_dir, &records, |frame| runtime.frame_conversation(frame).map(str::to_owned))?;
-        Ok((session_stream_path(&record.host_dir, &record.name), indexed_to))
+        let conversation = |frame: &serde_json::Value| runtime.frame_conversation(frame).map(str::to_owned);
+        match ensure_session_streams(&record.host_dir, &records, conversation) {
+            Ok(indexed_to) => Ok(IndexedStream::shared(record, indexed_to)),
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                let (file, indexed_to) = private_session_stream(&record.host_dir, record, conversation)?;
+                let path = PathBuf::from(format!("/proc/self/fd/{}", std::os::fd::AsRawFd::as_raw_fd(&file)));
+                Ok(IndexedStream { path, indexed_to, _held: Some(file) })
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 

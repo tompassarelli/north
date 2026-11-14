@@ -141,6 +141,17 @@ pub fn ensure_session_streams(
     Ok(indexed_to)
 }
 
+/// The frames of `record` in its host's stream, indexed into an anonymous file only this process holds, for a reader that may not write the host directory's shared index: no file another process can write enters the read.
+pub fn private_session_stream(host_dir: &Path, record: &SessionRecord, conversation: impl Fn(&Value) -> Option<String>) -> io::Result<(File, u64)> {
+    let file = File::from(rustix::fs::memfd_create("north-session-stream", rustix::fs::MemfdFlags::CLOEXEC)?);
+    let source = stream_path(host_dir);
+    let source_len = fs::metadata(&source).map_or(0, |metadata| metadata.len());
+    let mut streams = HashMap::from([(record.name.as_str(), BufWriter::new(file.try_clone()?))]);
+    let indexed_to = index_frames(&source, record.stream_offset.min(source_len), source_len, &[record], &mut streams, &conversation)?;
+    flush_session_streams(&mut streams)?;
+    Ok((file, indexed_to))
+}
+
 fn stream_records<'a>(host_dir: &Path, records: &'a [SessionRecord]) -> Vec<&'a SessionRecord> {
     records.iter().filter(|record| record.host_dir == host_dir && record.conversation.is_some()).collect()
 }

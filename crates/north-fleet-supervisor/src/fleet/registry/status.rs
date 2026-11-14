@@ -17,8 +17,8 @@ use super::{Fleet, session_running};
 impl Fleet {
     /// What the stream's last turn boundary says, whether or not the host still runs.
     pub(super) fn observed_status(&self, record: &SessionRecord) -> NorthResult<Status> {
-        let (path, _) = self.stream_index(record)?;
-        let observed = self.runtime(record).and_then(|runtime| latest_turn_status(&path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame)))?;
+        let indexed = self.stream_index(record)?;
+        let observed = self.runtime(record).and_then(|runtime| latest_turn_status(&indexed.path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame)))?;
         Ok(observed.unwrap_or(Status::Starting))
     }
 

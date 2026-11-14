@@ -177,8 +177,8 @@ impl Fleet {
         if record.host_dir == self.root.join(name) {
             record.host_dir = dir.clone();
         }
-        let (path, indexed_to) = self.stream_index_among(&record, || Ok(vec![record.clone()]))?;
-        Follower::open(self.runtime(&record)?, record, dir, path, indexed_to, true)
+        let indexed = self.stream_index_among(&record, || Ok(vec![record.clone()]))?;
+        Follower::open(self.runtime(&record)?, record, dir, indexed.path.clone(), indexed.indexed_to, true)
     }
 
     pub fn follow_recent(&self, name: &str) -> NorthResult<Follower> {
@@ -193,8 +193,8 @@ impl Fleet {
             let status = self.window_status(&record);
             return Follower::window(runtime, record, self.root.join(name), status, accounts, full_history);
         }
-        let (path, indexed_to) = self.stream_index(&record)?;
-        Follower::open(self.runtime(&record)?, record, self.root.join(name), path, indexed_to, full_history)
+        let indexed = self.stream_index(&record)?;
+        Follower::open(self.runtime(&record)?, record, self.root.join(name), indexed.path.clone(), indexed.indexed_to, full_history)
     }
 }
 

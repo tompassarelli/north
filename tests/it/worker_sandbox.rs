@@ -267,6 +267,31 @@ fn a_worker_send_to_a_session_on_its_host_or_another_exits_0_with_no_error_and_l
 }
 
 #[test]
+fn a_confined_seat_shows_another_sessions_transcript_and_sends_it_a_row_with_the_ledger_a_schema_behind_north_1485() {
+    let worker = Worker::new();
+    let fleet = worker.fleet();
+    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
+    let listed = Command::new(north).args(["fleet", "list"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", worker.root()).env("XDG_RUNTIME_DIR", worker.runtime.path()).output().unwrap();
+    assert!(listed.status.success(), "the fleet outside the sandbox did not list: {}", String::from_utf8_lossy(&listed.stderr));
+    let ledger = rusqlite::Connection::open(worker.root().join(".local/state/north/ledger.db")).unwrap();
+    let version: i64 = ledger.query_row("pragma user_version", [], |row| row.get(0)).unwrap();
+    ledger.pragma_update(None, "user_version", version - 1).unwrap();
+    drop(ledger);
+    let session = fleet.join("child");
+    std::fs::create_dir_all(session.join("g1")).unwrap();
+    let record = serde_json::json!({"name": "child", "provider": "claude", "account": "a", "cwd": worker.root(), "model": null, "created_ms": 1, "host_pid": null, "conversation": "c-child", "host_dir": session, "role": "worker", "stopped": false});
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let frame = serde_json::json!({"type": "assistant", "session_id": "c-child", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": "child-reply"}]}});
+    std::fs::write(session.join("g1/stream.jsonl"), format!("{frame}\n")).unwrap();
+    let (stdout, stderr) = worker.run(&format!("{north} fleet show child --json; echo show=$?; {north} fleet send child ready to land; echo send=$?"));
+    assert!(stdout.contains("show=0") && stdout.contains("child-reply"), "a confined seat could not read another session's transcript: {stdout}{stderr}");
+    assert!(!session.join("g1/session-streams").exists(), "a confined seat wrote another session's stream index: {stderr}");
+    assert!(stdout.contains("send=0"), "a confined worker's send failed: {stdout}{stderr}");
+    let spooled = north_core::fleet::store::Spool::at(&fleet).pending().unwrap();
+    assert!(spooled.iter().any(|row| row.to == "child" && row.text == "ready to land"), "the send left no row for the fleet tick: {spooled:?} {stderr}");
+}
+
+#[test]
 fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_name_south_86() {
     let scratch = tempfile::Builder::new().prefix("s86").tempdir_in("/tmp").unwrap();
     let runtime = scratch.path().canonicalize().unwrap();
