@@ -11,7 +11,8 @@ use crate::platform::gh_broker_route::Place;
 const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 
 pub(super) fn watch(place: &Place, watched: Arc<server::Activity>, resident: bool) {
-    watch_runtime(place, watched, resident, north_runtime_follow::Follow::current());
+    let runtime = if resident { north_runtime_follow::Follow::current() } else { north_runtime_follow::Follow::service() };
+    watch_runtime(place, watched, resident, runtime);
 }
 
 pub(super) fn watch_runtime(place: &Place, watched: Arc<server::Activity>, resident: bool, mut runtime: north_runtime_follow::Follow) {

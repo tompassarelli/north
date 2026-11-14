@@ -238,7 +238,7 @@ pub(super) fn serve(served: Vec<OsString>, answer: Answer) -> std::process::Exit
     let own = inode(&path);
     let running = std::sync::Arc::new(AtomicUsize::new(0));
     let mut handed_over = false;
-    let mut follow = north_runtime_follow::Follow::current();
+    let mut follow = north_runtime_follow::Follow::service();
     loop {
         let idle = running.load(Ordering::SeqCst) == 0;
         if inode(&path) != own {

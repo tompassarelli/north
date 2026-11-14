@@ -12,7 +12,7 @@ const POLL: Duration = Duration::from_secs(5);
 /// Exits once no request is in flight and the broker has been idle past `limit` or its runtime was replaced.
 pub fn when_idle(broker: &Arc<Broker>, socket: PathBuf, limit: Duration) {
     let watched = Arc::clone(broker);
-    let mut runtime = north_runtime_follow::Follow::of(followed(north_runtime_follow::link()), std::env::current_exe().ok());
+    let mut runtime = north_runtime_follow::Follow::service();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(POLL);
@@ -23,12 +23,4 @@ pub fn when_idle(broker: &Arc<Broker>, socket: PathBuf, limit: Duration) {
             }
         }
     });
-}
-
-/// The link the broker follows when its starter followed `link`: that one, unless it is named for the runtime it
-/// points at, as the link a canary judges a runtime through is. Such a link never moves, so a broker a canary's
-/// probe started served that runtime long after the host promoted past it; it follows the host's `current` instead.
-fn followed(link: PathBuf) -> PathBuf {
-    let fixed = link.file_name().and_then(|name| name.to_str()).is_some_and(|name| north_runtime_follow::named(&link).as_deref() == Some(name));
-    if fixed { north_runtime_follow::host_link() } else { link }
 }
