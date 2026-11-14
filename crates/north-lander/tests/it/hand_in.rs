@@ -279,6 +279,9 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(stale.status.code(), Some(1), "another session's finish call committed the proposal kept for an earlier one: {}", report(&stale));
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "another session's empty-message finish call queued: {}", report(&stale));
     fs::write(lane.join("named.txt"), "the finished change, checked\n").unwrap();
+    let unproved = finishing(&world, "proposer", "echo the unproved check ran; exit 3", "", &lane.join("named.txt")).env_remove("NORTH_FLEET_SESSION_PROVED").output().unwrap();
+    let unproved_text = report(&unproved);
+    assert!(unproved_text.contains("the unproved check ran") && !unproved_text.contains("the brief proposed none"), "a finish process no broker proved did not read the proposal kept for its session: {unproved_text}");
     let ran = world.path().join("check-ran");
     hold_check_for(&world, "Add the proposed note", 2);
     let passed = finish(&world, "proposer", &format!("test -e named.txt && touch {}", ran.display()), "", &lane.join("named.txt"));
