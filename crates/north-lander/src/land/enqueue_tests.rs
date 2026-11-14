@@ -281,7 +281,7 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
 }
 
 #[test]
-fn a_north_lane_off_the_trust_boundary_queues_with_no_build_host_check_and_a_trust_boundary_lane_keeps_them_before_its_ticket() {
+fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_before_its_ticket_is_written() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path();
     run(repo, &["init", "-q", "-b", "main"]);
@@ -293,18 +293,16 @@ fn a_north_lane_off_the_trust_boundary_queues_with_no_build_host_check_and_a_tru
     }
     commit(repo, "n882-context: pack context from graph-ground");
     let queued = crate::land::slots::runner::queue_commands(repo, &base, "HEAD").unwrap();
-    assert!(queued.is_empty(), "a north lane runs no build-host check before queueing: {queued:#?}");
+    for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits"] {
+        assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
+    }
+    assert!(queued.iter().all(|command| !command.contains("cargo nextest run")), "a lane outside the trust boundary leaves its test line to the run after landing: {queued:#?}");
     fs::create_dir_all(repo.join("crates/north-runtime/src/worker_sandbox")).unwrap();
     fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
     let bounded = commit(repo, "widen a worker sandbox grant");
     let kept = crate::land::slots::runner::queue_commands(repo, &base, &bounded).unwrap();
-    for gate in ["cargo clippy --all-targets", "cargo nextest run"] {
-        assert!(kept.iter().any(|command| command.contains(gate)), "a trust-boundary lane with no review accept runs {gate} before queueing: {kept:#?}");
-    }
-    fs::write(repo.join("docs/rationale/notes.md"), "a note\n").unwrap();
-    let docs = commit(repo, "a docs-only change");
-    let documented = crate::land::slots::runner::queue_commands(repo, &bounded, &docs).unwrap();
-    assert!(documented.is_empty(), "a docs-only lane queues at once with no build-host check: {documented:#?}");
+    assert!(kept.iter().any(|command| command.contains("cargo nextest run")), "a lane that changes a trust-boundary path keeps its test line before queueing: {kept:#?}");
+    assert!(queued.iter().all(|command| !command.contains("--shadow")), "a shadow line gates nothing and runs after landing, so none is run before queueing: {queued:#?}");
     let (store, entry) = ("~/.local/share/makgora-build-inputs/store", "14fbf7845b5d9c9705d0f0b4b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
     fs::create_dir_all(repo.join("build-inputs")).unwrap();
     fs::write(repo.join("build-inputs/impact-assets"), format!("{entry}\n")).unwrap();
