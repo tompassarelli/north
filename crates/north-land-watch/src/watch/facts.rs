@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use north_base::foundation::main_run_verdict::{judge, kept};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -142,6 +143,9 @@ fn output(program: &str, directory: Option<&Path>, arguments: &[&str]) -> Result
 
 pub use north_land_scans::slug::slug_of;
 
+const BUCK2_WORKFLOW: &str = "buck2.yml";
+const FAILED: [&str; 3] = ["failure", "timed_out", "startup_failure"];
+
 fn repo_facts(name: &str, state: &Path) -> Option<RepoFacts> {
     let checkout = home().join("code").join(name).join("main");
     let slug = slug_of(&output("git", Some(&checkout), &["remote", "get-url", "origin"]).ok()?)?;
@@ -166,18 +170,22 @@ fn repo_facts(name: &str, state: &Path) -> Option<RepoFacts> {
 
 fn mark_environment_failures(runs: &mut [Run], slug: &str) {
     let mut newest: BTreeMap<String, usize> = BTreeMap::new();
-    for (index, run) in runs.iter().enumerate().filter(|(_, run)| run.head_branch == "main" && run.event == "push" && run.status == "completed" && run.conclusion.as_deref() == Some("failure")) {
+    for (index, run) in runs.iter().enumerate().filter(|(_, run)| run.head_branch == "main" && run.event == "push" && run.status == "completed" && run.conclusion.as_deref().is_some_and(|conclusion| FAILED.contains(&conclusion))) {
         if newest.get(&run.name).is_none_or(|seen| runs[*seen].created_at < run.created_at) {
             newest.insert(run.name.clone(), index);
         }
     }
     let timings = crate::landing::check_timings::Timings::standard();
     for index in newest.into_values() {
-        runs[index].unjudged = timings.buck2_unjudged(&runs[index].head_sha, runs[index].id);
+        runs[index].unjudged = timings.buck2_unjudged(&runs[index].head_sha, runs[index].id) || buck2_not_judged(&runs[index], slug);
         let jobs = output("gh", None, &["api", &format!("repos/{slug}/actions/runs/{}/jobs?per_page=100", runs[index].id)]);
         runs[index].started_no_job = jobs.as_deref().is_ok_and(started_no_job);
         runs[index].environment_only = jobs.is_ok_and(|text| failed_only_in_environment_steps(&text));
     }
+}
+
+fn buck2_not_judged(run: &Run, slug: &str) -> bool {
+    run.path.ends_with(BUCK2_WORKFLOW) && judge(true, || kept(slug, &run.id.to_string())).is_ok_and(|verdict| !verdict.pages())
 }
 
 pub fn started_no_job(jobs: &str) -> bool {

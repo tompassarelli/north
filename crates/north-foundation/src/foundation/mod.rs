@@ -8,6 +8,7 @@ pub mod convo_index;
 pub mod exit;
 pub mod hook_deadline;
 pub mod limit_clock;
+pub mod main_run_verdict;
 pub mod offload;
 pub mod pair;
 pub mod redact;

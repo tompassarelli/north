@@ -305,7 +305,7 @@ impl Screen {
         Ok(None)
     }
 
-    /// Whether red `run` gives no verdict (main_runs::not_judged), recorded once with the proxy told; a run already tripped or cleared keeps its verdict, and a read of the run that fails is an error that records nothing, so the head is refused as not screened and the next screen reads it again.
+    /// Whether red `run` gives no verdict (main_runs::judge), recorded once with the proxy told; a run already tripped or cleared keeps its verdict, and a read of the run that fails is an error that records nothing, so the head is refused as not screened and the next screen reads it again.
     fn unjudged(&self, run: &MainRun) -> Result<bool, String> {
         if !run.red || self.trips.cleared(&run.head)? || self.trips.read(&run.head)?.is_some() {
             return Ok(false);
@@ -313,7 +313,7 @@ impl Screen {
         if self.trips.unjudged(&run.head)? {
             return Ok(true);
         }
-        let Some(why) = main_runs::not_judged(&(self.runs.kept)(&run.id)?) else { return Ok(false) };
+        let main_runs::Verdict::NotJudged(why) = main_runs::judge(run.red, || (self.runs.kept)(&run.id))? else { return Ok(false) };
         self.trips.write_unjudged(&run.head, &run.id, &why)?;
         (self.runs.alert)(&format!("north runtime: the hosted Buck2 run {} on {} is not judged and trips nothing: {why}", run.id, run.head));
         Ok(true)

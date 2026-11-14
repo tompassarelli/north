@@ -1,0 +1,46 @@
+# Every alarm service of north (north#1576). One [[alarm]] per `service:UNIT` sender that raises an alarm: `action` is what the alarm asks its recipient to do, `owner` the session or role that takes it. An alarm that asks for nothing has no row because it is deleted. `north land scan alarm-definitions` refuses a lane whose row lacks a source, action or owner, whose fold.rs alarm unit has no row, or that adds a new `service:UNIT` sender with no row.
+
+[[alarm]]
+source = "north-health"
+action = "restart the failed harness unit and fix the first error line the page quotes, or revert the commit that broke it"
+owner = "proxy"
+
+[[alarm]]
+source = "north-land-watch"
+action = "revert or fix the main commit a red-main page names, restart the lander unit a not-live page names, or restore the remote-execution grid or hand-ins a lost-verdicts page names"
+owner = "land-lead"
+
+[[alarm]]
+source = "north-ops-flow"
+action = "revert or fix the main commit a red-main page names, fix the security finding it quotes, or free the disk it names"
+owner = "proxy"
+
+[[alarm]]
+source = "north-capacity-watchdog"
+action = "free disk on the host the page names by reclaiming caches and closed lanes"
+owner = "proxy"
+
+[[alarm]]
+source = "north-lease-reaper"
+action = "free disk on the build host the page names by closing the leases it lists or evicting the largest cache"
+owner = "proxy"
+
+[[alarm]]
+source = "north-runtime"
+action = "read the failing probe the rollback page names and fix or revert the commit that broke it before the next promotion"
+owner = "proxy"
+
+[[alarm]]
+source = "north-runtime-lag"
+action = "restart the process the page names on the host it names, so it runs the runtime its host's link names"
+owner = "proxy"
+
+[[alarm]]
+source = "north-runtime-update"
+action = "read the update failure the page quotes and rerun the host's runtime update once its cause is fixed"
+owner = "proxy"
+
+[[alarm]]
+source = "north-land"
+action = "apply the remedy a lander watchdog or lander doctor page names, or restart the lander unit it names"
+owner = "land-lead"

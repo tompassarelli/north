@@ -3,6 +3,7 @@ pub use north_diff_gates::{build_cache_gate, dep_gate, language_gate};
 use north_diff_gates::language_gate::EMPTY_TREE;
 pub use north_landing_gates::landing;
 
+pub mod alarm_definitions;
 pub mod doc_links;
 mod doc_paths;
 pub mod docs_owners;
@@ -51,6 +52,7 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan doc-links BASE..HEAD
        north land scan gate-shadow BASE..HEAD
        north land scan generated-registry BASE..HEAD
+       north land scan alarm-definitions BASE..HEAD
        north land scan holdlist-guards-resolve BASE..HEAD
        north land scan host-evaluate BASE..HEAD
        north land scan review-accept BASE..HEAD
@@ -132,6 +134,7 @@ fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "test-admission" => test_admission::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "policy-sweep" => policy::sweep(directory, range, &mut out),
         "leftovers" => leftovers::scan(directory, range, &mut out),
+        "alarm-definitions" => alarm_definitions::scan(directory, range, &mut out),
         "strategy-replay" => strategy_replay::scan(directory, range, &mut out),
         "shell-hook" => shell_hook::scan(directory, range, &mut out),
         "generated-rewrite" => generated::scan(directory, range, &mut std::io::stderr()),
