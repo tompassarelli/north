@@ -370,6 +370,7 @@ mod launch_tests {
         let left: Vec<_> = std::fs::read_dir(&target).unwrap_or_else(|_| panic!("the launch never placed its host: {error}")).flatten().map(|entry| entry.file_name()).collect();
         assert!(left.is_empty(), "the refused launch left held units {left:?} on its target: {error}");
         let pids = std::fs::read_to_string(fleet.root.join("pids")).unwrap();
+        north_base::platform::wait::until(std::time::Duration::from_secs(20), || !pids.lines().any(alive));
         let running: Vec<_> = pids.lines().filter(|pid| alive(pid)).collect();
         assert!(running.is_empty(), "the refused launch left processes {running:?} running: {error}");
     }
