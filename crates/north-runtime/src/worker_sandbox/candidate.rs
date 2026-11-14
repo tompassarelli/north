@@ -36,7 +36,8 @@ impl Candidate {
         let mut words = Words::default();
         words.add(&["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--proc", "/proc", "--die-with-parent", "--new-session"]);
         let named = std::env::var_os("HOME").map(PathBuf::from).filter(|named| named.is_absolute() && *named != self.home);
-        let secrets = SECRETS.iter().map(PathBuf::from).filter(|directory| std::fs::symlink_metadata(directory).is_ok_and(|metadata| metadata.is_dir()));
+        let brokers = [north_base::platform::broker_client::SYSTEM_SOCKET, north_base::platform::broker_client::AGENT_SOCKET].into_iter().filter_map(|socket| Path::new(socket).parent());
+        let secrets = SECRETS.iter().map(PathBuf::from).chain(brokers.map(Path::to_path_buf)).filter(|directory| std::fs::symlink_metadata(directory).is_ok_and(|metadata| metadata.is_dir()));
         for hidden in std::iter::once(self.home.clone()).chain(named).chain(depbox::aliases(&self.home)).chain(secrets).chain(Some(self.runtime.clone()).filter(|directory| directory.is_dir())) {
             words.add(&["--tmpfs"]);
             words.0.push(hidden.into());
