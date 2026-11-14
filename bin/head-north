@@ -59,8 +59,8 @@ from_tree() {
 }
 lease() {
   local file=$(dirname "$1")/lease
-  (: >>"$file") 2>/dev/null || return 1
-  exec 8>>"$file" || return 1
+  [ -f "$file" ] || (: >>"$file") 2>/dev/null || return 1
+  exec 8<"$file" || return 1
   flock -s 8 && [ -x "$1" ] && return 0
   exec 8>&-
   return 1

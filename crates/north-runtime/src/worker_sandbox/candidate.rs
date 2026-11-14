@@ -58,7 +58,7 @@ impl Candidate {
         }
         let beside = std::env::var_os(BESIDE).map(PathBuf::from).filter(|beside| beside.is_absolute() && beside.is_dir());
         let besides: Vec<PathBuf> = beside.iter().flat_map(|beside| std::fs::read_dir(beside).into_iter().flatten().flatten().map(|entry| entry.path())).collect();
-        for read in beside.iter().cloned().chain(besides.iter().filter_map(|entry| git_dirs(entry)).flat_map(|(git_dir, common)| [common, git_dir])) {
+        for read in beside.iter().cloned().chain(besides.iter().filter_map(|entry| self.main_git_dirs(entry)).flat_map(|(git_dir, common)| [common, git_dir])) {
             words.bind("--ro-bind", &read, &read);
         }
         if let Some((git_dir, common)) = git_dirs(&self.checkout) {
@@ -67,6 +67,15 @@ impl Candidate {
             }
         }
         words.0
+    }
+
+    /// The git directories of the beside checkout `entry`, only when they lie in the repository of `~/code/PROJECT/main` its name names, which the slot script made it a worktree of: the beside directory is one a worker writes, so a `.git` it planted pointing anywhere else binds nothing.
+    fn main_git_dirs(&self, entry: &Path) -> Option<(PathBuf, PathBuf)> {
+        let project = entry.file_name()?.to_str().filter(|name| !name.is_empty() && !name.starts_with('.'))?;
+        let repository = self.home.join("code").join(project).join("main/.git").canonicalize().ok()?;
+        let (git_dir, common) = git_dirs(entry)?;
+        let (git_dir, common) = (git_dir.canonicalize().ok()?, common.canonicalize().ok()?);
+        (common == repository && git_dir.starts_with(&repository)).then_some((git_dir, common))
     }
 }
 #[derive(Default)]
