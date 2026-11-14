@@ -49,7 +49,7 @@ fn red_main(context: &WatchContext, repo: &RepoFacts) -> Vec<Alert> {
     let lanes = distinct_lanes(recent_land_check_failures(context, &repo.name));
     let mut alerts = Vec::new();
     for (workflow, run) in latest.into_iter().filter(|(_, run)| run.conclusion.as_deref().is_some_and(|conclusion| FAILED.contains(&conclusion))) {
-        if run.started_no_job {
+        if run.started_no_job || run.unjudged {
             continue;
         }
         if run.environment_only {

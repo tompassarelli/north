@@ -37,4 +37,11 @@ fn a_main_run_that_failed_only_in_its_environment_steps_warns_and_does_not_page_
     assert!(!super::super::facts::started_no_job(jobs));
     let jobless = WatchContext { now: NOW, repos: vec![RepoFacts { name: "north".into(), runs: vec![Run { started_no_job: true, ..run(false) }], ..RepoFacts::default() }], ..WatchContext::default() };
     assert!(red_main(&jobless, &jobless.repos[0]).is_empty());
+    let unjudged = WatchContext { now: NOW, repos: vec![RepoFacts { name: "north".into(), runs: vec![Run { unjudged: true, ..run(false) }], ..RepoFacts::default() }], ..WatchContext::default() };
+    assert!(red_main(&unjudged, &unjudged.repos[0]).is_empty(), "a red run the runtime recorded as not judged, such as hosted run 43637764867 whose cases only timed out, does not page main red");
+    let records = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(records.path().join("buck2-after-landing")).unwrap();
+    std::fs::write(records.path().join("buck2-after-landing/e619fbd6fa.unjudged"), "run\t43637764867\nwhy\tits cases and targets only timed out, none failed\n").unwrap();
+    let timings = crate::landing::check_timings::Timings::at(records.path().to_owned());
+    assert!(timings.buck2_unjudged("e619fbd6fa", 43637764867) && !timings.buck2_unjudged("e619fbd6fa", 1) && !timings.buck2_unjudged("other", 43637764867));
 }

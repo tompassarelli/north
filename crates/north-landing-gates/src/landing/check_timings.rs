@@ -96,6 +96,9 @@ pub enum Base {
     Untimed,
 }
 
+/// The directory under the check-timings root where the Buck2 run after a landing and the runtime's Buck2 trips keep their records.
+pub const BUCK2_RECORDS: &str = "buck2-after-landing";
+
 pub struct Timings {
     root: PathBuf,
     graph: PathBuf,
@@ -114,6 +117,13 @@ impl Timings {
     pub fn default_root() -> PathBuf {
         let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
         state.join("safe-push/check-timings")
+    }
+
+    /// Whether the runtime recorded red Buck2 run `run` on main commit `head` as giving no verdict (its cases only timed out, or its
+    /// job was cut off), so nothing reads it as main red; a record of a failed log read counts as absent, as the runtime reads it.
+    pub fn buck2_unjudged(&self, head: &str, run: u64) -> bool {
+        let record = fs::read_to_string(self.root.join(BUCK2_RECORDS).join(format!("{head}.unjudged"))).unwrap_or_default();
+        record.lines().any(|line| line == format!("run\t{run}")) && !record.lines().any(|line| line.starts_with("why\tits log cannot be read"))
     }
 
     fn key(command: &str, class: &str) -> String {

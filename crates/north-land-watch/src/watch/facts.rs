@@ -58,6 +58,8 @@ pub struct Run {
     pub environment_only: bool,
     #[serde(skip)]
     pub started_no_job: bool,
+    #[serde(skip)]
+    pub unjudged: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -169,7 +171,9 @@ fn mark_environment_failures(runs: &mut [Run], slug: &str) {
             newest.insert(run.name.clone(), index);
         }
     }
+    let timings = crate::landing::check_timings::Timings::standard();
     for index in newest.into_values() {
+        runs[index].unjudged = timings.buck2_unjudged(&runs[index].head_sha, runs[index].id);
         let jobs = output("gh", None, &["api", &format!("repos/{slug}/actions/runs/{}/jobs?per_page=100", runs[index].id)]);
         runs[index].started_no_job = jobs.as_deref().is_ok_and(started_no_job);
         runs[index].environment_only = jobs.is_ok_and(|text| failed_only_in_environment_steps(&text));

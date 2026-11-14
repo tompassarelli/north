@@ -21,10 +21,9 @@ use north_base::platform::harness::{DEFAULTS, document};
 use super::after::follow;
 use super::slots::listed_crates::{AFTER_LANDING, NO_VERDICT, PASSED};
 use super::wake::{Task, Wake};
-use crate::landing::check_timings::Timings;
+use crate::landing::check_timings::{BUCK2_RECORDS as RECORD, Timings};
 
 const SWITCH: &str = "buck2_after_landing";
-const RECORD: &str = "buck2-after-landing";
 const RED_REVERTS_SWITCH: &str = "buck2_red_reverts";
 const GREEN: i32 = 0;
 const RED: i32 = 1;
