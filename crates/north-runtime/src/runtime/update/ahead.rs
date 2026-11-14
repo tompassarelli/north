@@ -14,6 +14,7 @@ use super::super::build_host;
 use super::super::failure::{Failure, failed};
 use super::super::layout::{self, BUILT_FROM, BUILT_ON, HELD_ON, Layout, PROGRAMS};
 use super::super::pin::{self, Event};
+use super::super::pull;
 use super::super::remote;
 use north_offload::land_offload::{self, BuildHost};
 use crate::platform::process;
@@ -160,6 +161,22 @@ fn pulled(artifact: &Path, stamp: &str, commit: &str, runtime: &Path, fetch: imp
     pulled.then_some(()).ok_or_else(|| format!("{} now holds another build of {}", host.trim(), layout::short(commit)))
 }
 
+/// `north runtime build-ahead --fetch --tree TREE`: prints the path of the north built ahead for `tree` that this host can run, first pulling it from the build host its artifact names when that host alone holds it, so a landing step that needs the merged tree's north runs on a lander with no build grid (north#1433).
+fn fetched_north(layout: &Layout, tree: &str) -> Result<(), Failure> {
+    let artifact = layout.artifacts().join(tree);
+    let north = artifact.join("north");
+    if !north.is_file() {
+        let stamp = fs::read_to_string(artifact.join(BUILT_FROM)).map_err(|error| failed(75, format!("no build-ahead artifact for tree {}: {error}", layout::short(tree))))?;
+        let commit = stamp.split_whitespace().next().unwrap_or_default().to_owned();
+        let staged = artifact.join(format!("pulled-{}.part", std::process::id()));
+        let fetched = pulled(&artifact, &stamp, &commit, &staged, |host, commit, into| pull::fetch(host, commit, into, &[BUILT_FROM])).and_then(|()| fs::rename(staged.join("north"), &north).map_err(|error| error.to_string()));
+        let _ = fs::remove_dir_all(&staged);
+        fetched.map_err(|why| failed(75, format!("the north built ahead for tree {} could not be pulled: {why}", layout::short(tree))))?;
+    }
+    println!("{}", north.display());
+    Ok(())
+}
+
 fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
     layout::stamp(runtime, target).is_ok() && fs::copy(artifact.join(BUILT_ON), runtime.join(BUILT_ON)).is_ok()
 }
@@ -167,6 +184,13 @@ fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
 /// `north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR]`: the lander's request for the release
 /// north a lane's candidate tree carries, kept where the promotion of that tree's landing finds it.
 pub(in crate::runtime) fn run(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
+    if let [fetch, tree_flag, tree] = flags
+        && fetch == "--fetch"
+        && tree_flag == "--tree"
+        && layout::is_sha(tree)
+    {
+        return fetched_north(layout, tree);
+    }
     let mut tree = None;
     let mut commit = None;
     let mut kind = Kind::Candidate;
