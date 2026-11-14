@@ -339,6 +339,7 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
         .env("PATH", stand_in_ssh(scratch.path()))
         .env("NORTH_BIN", &north)
         .env_remove("AGENT_CAPACITY_NORTH")
+        .env_remove("XDG_RUNTIME_DIR")
         .output()
         .unwrap();
     assert!(child.status.success(), "{}{}", String::from_utf8_lossy(&child.stdout), String::from_utf8_lossy(&child.stderr));
@@ -388,6 +389,7 @@ fn a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_execu
         .env("PATH", stand_in_ssh(scratch.path()))
         .env("NORTH_BIN", &north)
         .env_remove("AGENT_CAPACITY_NORTH")
+        .env_remove("XDG_RUNTIME_DIR")
         .output()
         .unwrap();
     assert!(child.status.success(), "{}{}", String::from_utf8_lossy(&child.stdout), String::from_utf8_lossy(&child.stderr));
