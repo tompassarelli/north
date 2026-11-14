@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use super::image::image;
-use super::pages::{Hash, MAX_PAGES, MAGIC, be32, hash_of, invalid, page_size, read_manifest};
+use super::pages::{Hash, MAX_PAGES, MAGIC, be32, hash_of, invalid, list_digest, page_size, read_manifest};
 use super::sidecar::suffixed;
 
 pub const REMOTE_COMMAND: &str = "north threads snapshot-pages";
@@ -66,7 +66,7 @@ fn served(database: &Path, withhold_native: bool, reuse: Duration) -> io::Result
     let mut head = (size as u32).to_be_bytes().to_vec();
     head.extend((hashes.len() as u32).to_be_bytes());
     hashes.iter().for_each(|hash| head.extend(hash));
-    head.extend(hash_of(&image));
+    head.extend(list_digest(&hashes));
     let tmp = suffixed(&path, &format!(".{}.tmp", std::process::id()));
     let written = File::create(&tmp).and_then(|mut file| file.write_all(&head).and_then(|()| file.write_all(&image)).and_then(|()| file.set_modified(stamp)));
     if let Err(error) = written.and_then(|()| fs::rename(&tmp, &path)) {

@@ -7,9 +7,9 @@ use std::os::unix::fs::FileExt;
 
 use sha2::{Digest, Sha256};
 
-pub const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
+pub const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 3\n";
 /// Opens a manifest that accepts an image built up to `REUSE_SECONDS` ago; `MAGIC` opens one that demands an image of the ledger as it is now, which an unchanged ledger's kept image is.
-const MAGIC_RECENT: &[u8] = b"NORTH-SNAPSHOT-PAGES 2\n";
+const MAGIC_RECENT: &[u8] = b"NORTH-SNAPSHOT-PAGES 4\n";
 const SQLITE_HEADER: &[u8] = b"SQLite format 3\0";
 pub(super) const MAX_PAGES: u32 = 1 << 24;
 
@@ -63,18 +63,9 @@ pub(super) fn hash_pages(file: &File) -> (usize, Vec<Hash>) {
     (size, hashes)
 }
 
-pub(super) fn hash_file(file: &File) -> io::Result<Hash> {
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0; 1 << 20];
-    let mut offset = 0;
-    loop {
-        let read = file.read_at(&mut buffer, offset)?;
-        if read == 0 {
-            return Ok(hasher.finalize().into());
-        }
-        hasher.update(&buffer[..read]);
-        offset += read as u64;
-    }
+/// The digest both sides compare: the SHA-256 of the image's page hashes in order, so a receiver proves its image from the hashes it already holds and the pages it wrote, without rereading the file.
+pub(super) fn list_digest(hashes: &[Hash]) -> Hash {
+    hashes.iter().fold(Sha256::new(), |hasher, hash| hasher.chain_update(hash)).finalize().into()
 }
 
 pub(super) fn page_size(header: &[u8]) -> Option<usize> {

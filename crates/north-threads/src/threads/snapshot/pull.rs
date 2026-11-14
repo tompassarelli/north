@@ -69,7 +69,7 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration, recent: bool) -> 
     });
     let stdout = child.stdout.take().ok_or_else(|| invalid("ssh has no stdout"))?;
     let keep = fresh.then(|| partial.clone());
-    let receiver = std::thread::spawn(move || receive(stdout, &directory, keep, old, size, hashes.len()));
+    let receiver = std::thread::spawn(move || receive(stdout, &directory, keep, old, size, hashes));
     let mut stderr = child.stderr.take().ok_or_else(|| invalid("ssh has no stderr"))?;
     let complaint = std::thread::spawn(move || {
         let mut text = String::new();

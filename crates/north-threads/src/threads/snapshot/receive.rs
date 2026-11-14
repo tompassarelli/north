@@ -8,10 +8,10 @@ use std::path::{Path, PathBuf};
 
 use rustix::fs::{AtFlags, Mode, OFlags, CWD};
 
-use super::pages::{MAX_PAGES, MAGIC, hash_file, invalid, read_u32};
+use super::pages::{Hash, MAX_PAGES, MAGIC, hash_of, invalid, list_digest, read_u32};
 use super::sidecar::suffixed;
 
-pub(super) fn receive(stdout: impl Read, directory: &Path, partial: Option<PathBuf>, old: Option<File>, old_size: usize, old_pages: usize) -> io::Result<File> {
+pub(super) fn receive(stdout: impl Read, directory: &Path, partial: Option<PathBuf>, old: Option<File>, old_size: usize, mut hashes: Vec<Hash>) -> io::Result<File> {
     let mut input = BufReader::with_capacity(1 << 16, stdout);
     let mut magic = [0; MAGIC.len()];
     input.read_exact(&mut magic)?;
@@ -24,10 +24,12 @@ pub(super) fn receive(stdout: impl Read, directory: &Path, partial: Option<PathB
         return Err(invalid("the page stream header is out of range"));
     }
     let file = File::from(rustix::fs::open(directory, OFlags::TMPFILE | OFlags::RDWR | OFlags::CLOEXEC, Mode::from_raw_mode(0o644))?);
-    if let Some(old) = old.filter(|_| old_size == size && old_pages > 0) {
-        clone_into(&old, &file)?;
+    match old.filter(|_| old_size == size && !hashes.is_empty()) {
+        Some(old) => clone_into(&old, &file)?,
+        None => hashes.clear(),
     }
-    let finished = receive_pages(&mut input, &file, size, count);
+    hashes.resize(count as usize, [0; 32]);
+    let finished = receive_pages(&mut input, &file, size, &mut hashes);
     if let (Err(_), Some(partial)) = (&finished, &partial) {
         let _ = keep_partial(&file, partial);
     }
@@ -43,26 +45,27 @@ fn keep_partial(file: &File, partial: &Path) -> io::Result<()> {
     fs::rename(&tmp, partial)
 }
 
-fn receive_pages(input: &mut impl Read, file: &File, size: usize, count: u32) -> io::Result<()> {
+fn receive_pages(input: &mut impl Read, file: &File, size: usize, hashes: &mut [Hash]) -> io::Result<()> {
     let mut page = vec![0; size];
     loop {
         let number = read_u32(input)?;
         if number == 0 {
             break;
         }
-        if number > count {
+        if number as usize > hashes.len() {
             return Err(invalid("the page stream names a page beyond the image"));
         }
         input.read_exact(&mut page)?;
         file.write_all_at(&page, u64::from(number - 1) * size as u64)?;
+        hashes[number as usize - 1] = hash_of(&page);
     }
     let mut digest = [0; 32];
     input.read_exact(&mut digest)?;
     if input.read(&mut [0])? != 0 {
         return Err(invalid("the page stream has trailing bytes"));
     }
-    file.set_len(u64::from(count) * size as u64)?;
-    if hash_file(file)? != digest {
+    file.set_len(hashes.len() as u64 * size as u64)?;
+    if list_digest(hashes) != digest {
         return Err(invalid("the rebuilt snapshot does not match the ledger host's digest"));
     }
     Ok(())
