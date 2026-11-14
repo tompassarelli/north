@@ -28,7 +28,7 @@ const HOSTS: &str = ".hosts";
 impl Fleet {
     pub(super) fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening, hooks: HooksCheck) -> NorthResult<()> {
         let opened = self.open_host(record, account, opening, None)?;
-        self.go_live(record, opening, hooks, opened)
+        self.go_live(record, opening, hooks, opened).map(drop)
     }
 
     /// Starts the session's host, and with it the provider CLI, or joins the shared host it runs in; the session is not yet recorded live, so a launch runs this beside its registration and sends nothing but the CLI's handshake until that is in. With `spare` taken on the session's machine, its link attaches to that client instead of starting one, and the spare is stopped when the host does not start.
@@ -64,13 +64,13 @@ impl Fleet {
         Ok(OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit })
     }
 
-    pub(super) fn go_live(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost) -> NorthResult<()> {
+    pub(super) fn go_live(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost) -> NorthResult<Settling> {
         let live = self.record_live(record, opened)?;
         self.open_conversation(record, opening, hooks, live)
     }
 
     /// [`Self::go_live`] for a fresh launch whose claims ran beside its host start: the host is recorded live first, and a refused claim ends it before the provider is sent anything.
-    pub(super) fn go_live_claimed(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost, claimed: impl FnOnce() -> NorthResult<()>) -> NorthResult<()> {
+    pub(super) fn go_live_claimed(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost, claimed: impl FnOnce() -> NorthResult<()>) -> NorthResult<Settling> {
         let live = self.record_live(record, opened)?;
         if let Err(error) = claimed() {
             self.refuse_live(record, live)?;
@@ -111,7 +111,7 @@ impl Fleet {
     }
 
     /// Takes the hooks verdict and then sends the provider the session's opening frames: the first turn waits here on what the host start ran beside.
-    fn open_conversation(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, live: LiveHost) -> NorthResult<()> {
+    fn open_conversation(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, live: LiveHost) -> NorthResult<Settling> {
         if let Some(reason) = hooks.verdict()? {
             self.refuse_live(record, live)?;
             return Err(NorthError::Refused(reason));
@@ -128,10 +128,18 @@ impl Fleet {
         if started {
             host.send(&Unaccepted::to_replay(&host_dir))?;
         }
-        remote::leave_record(record, &self.root.join(PLACED));
-        claims::hold_for(self.claims.as_ref(), record, &self.ancestors(record.parent.as_deref()));
+        let settling = self.settle_beside(record);
         self.show_proxy(record, &host)?;
-        Ok(())
+        Ok(settling)
+    }
+
+    /// Mirrors the record to the session's machine and holds its claims again on a thread of their own: an ssh round trip and two or three threads ledger calls of about 0.6 s each that the session's first request does not read, so the first prompt goes out while they run.
+    fn settle_beside(&self, record: &SessionRecord) -> Settling {
+        let (record, placed, claims, ancestors) = (record.clone(), self.root.join(PLACED), Arc::clone(&self.claims), self.ancestors(record.parent.as_deref()));
+        Settling(Some(std::thread::spawn(move || {
+            remote::leave_record(&record, &placed);
+            claims::hold_for(claims.as_ref(), &record, &ancestors);
+        })))
     }
 
     pub(super) fn instructions(&self, record: &SessionRecord) -> NorthResult<(String, String)> {
@@ -172,6 +180,20 @@ pub(super) struct OpenedHost {
 impl OpenedHost {
     pub(super) fn abandon(self) -> NorthResult<()> {
         if self.started { self.host.terminate() } else { Ok(()) }
+    }
+}
+
+/// The record mirror and claims hold a start left running beside the first prompt; dropping it waits for them, so a failed launch releases its claims only after they are held.
+#[derive(Default)]
+pub(super) struct Settling(Option<std::thread::JoinHandle<()>>);
+
+impl Drop for Settling {
+    fn drop(&mut self) {
+        if let Some(Err(panic)) = self.0.take().map(std::thread::JoinHandle::join)
+            && !std::thread::panicking()
+        {
+            std::panic::resume_unwind(panic);
+        }
     }
 }
 

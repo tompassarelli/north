@@ -15,6 +15,7 @@ use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::turns::TurnSignal;
 
 use super::Fleet;
+use super::starting::Settling;
 use super::stopping::Halt;
 
 const FIRST_TURN_WAIT: Duration = Duration::from_secs(120);
@@ -28,9 +29,9 @@ enum FirstTurn {
 }
 
 impl Fleet {
-    /// Delivers the launch prompt and waits for its turn to start; a session that does not start it is stopped, so it holds no claim.
-    pub(super) fn deliver_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str) -> NorthResult<()> {
-        let failed = self.answer_first_turn(record, account, prompt);
+    /// Delivers the launch prompt and waits for its turn to start, waiting on `settling` once the prompt is out; a session that does not start it is stopped, so it holds no claim.
+    pub(super) fn deliver_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str, settling: Settling) -> NorthResult<()> {
+        let failed = self.answer_first_turn(record, account, prompt, settling);
         if failed.is_err()
             && let Err(error) = self.halt(&record.name, Halt::FailedStart)
         {
@@ -39,8 +40,8 @@ impl Fleet {
         failed
     }
 
-    fn answer_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str) -> NorthResult<()> {
-        let FirstTurn::Failed(failure) = self.first_turn(record, prompt)? else { return Ok(()) };
+    fn answer_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str, settling: Settling) -> NorthResult<()> {
+        let FirstTurn::Failed(failure) = self.first_turn(record, prompt, settling)? else { return Ok(()) };
         self.note_credential_failure(record, &failure)?;
         if failure.failure != CredentialFailure::SignedOut || self.host_in_use(record)? {
             self.mark_refused(record, account, &failure);
@@ -51,7 +52,7 @@ impl Fleet {
         let conversation = record.conversation.clone();
         let hooks = HooksCheck::start(self.runtime(record)?, account, record.machine.as_ref());
         self.start(record, account, Opening::Fresh(conversation.as_deref()), hooks)?;
-        match self.first_turn(record, prompt)? {
+        match self.first_turn(record, prompt, Settling::default())? {
             FirstTurn::Answered => Ok(()),
             FirstTurn::Failed(failure) => {
                 self.note_credential_failure(record, &failure)?;
@@ -61,11 +62,12 @@ impl Fleet {
         }
     }
 
-    fn first_turn(&self, record: &SessionRecord, prompt: &str) -> NorthResult<FirstTurn> {
+    fn first_turn(&self, record: &SessionRecord, prompt: &str, settling: Settling) -> NorthResult<FirstTurn> {
         let runtime = self.runtime(record)?;
         let mut tail = StreamTail::open(stream_path(&record.host_dir), stream_len(&record.host_dir));
         self.send_text(record, &self.recent(runtime.as_ref(), record)?, &new_uuid()?, prompt)?;
         let sent_ms = now_ms();
+        drop(settling);
         let deadline = Instant::now() + FIRST_TURN_WAIT;
         let mut prompted = None;
         let mut failed = Vec::new();

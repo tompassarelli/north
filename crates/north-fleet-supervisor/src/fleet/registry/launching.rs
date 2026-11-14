@@ -18,7 +18,7 @@ use super::grounding;
 use super::reserve;
 use super::stopping::Halt;
 use super::takeover::Predecessor;
-use super::starting::OpenedHost;
+use super::starting::{OpenedHost, Settling};
 use super::{Fleet, efforts, session_running};
 
 impl Fleet {
@@ -168,13 +168,14 @@ impl Fleet {
             }
             _ => fresh_opening(request, conversation),
         };
-        match opened {
+        let settling = match opened {
             Some(opened) => self.go_live_claimed(record, opening, hooks, opened?, claimed)?,
             None => {
                 claimed()?;
                 self.start(record, account, opening, hooks)?;
+                Settling::default()
             }
-        }
+        };
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
@@ -183,7 +184,7 @@ impl Fleet {
             record.predicted = predicted;
             write_record(&self.session_dir(&request.name)?, record)?;
         }
-        self.deliver_first_turn(record, account, &prompt)
+        self.deliver_first_turn(record, account, &prompt, settling)
     }
 
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.

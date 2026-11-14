@@ -28,7 +28,7 @@ fn a_worker_whose_tool_server_failed_to_start_is_reported_to_its_parent() {
         }
     });
 
-    assert_eq!(fleet.first_turn(&record, "start the box").unwrap(), FirstTurn::Answered);
+    assert_eq!(fleet.first_turn(&record, "start the box", super::Settling::default()).unwrap(), FirstTurn::Answered);
     client.join().unwrap();
     let told = lead.frames.lock().unwrap();
     assert!(told.iter().any(|frame| frame.contains("[from worker] its tool server north did not start")), "the lead was not told its worker runs without north's tools: {told:?}");
