@@ -2,7 +2,7 @@ use crate::support;
 
 use north_core::foundation::shim;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const BRIEF: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
@@ -45,6 +45,7 @@ fn shared_fixture(root: &Path) {
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"windows": {"claude:a": windows}}}).to_string()).unwrap();
     let setsid = Command::new("sh").args(["-c", "command -v setsid"]).output().unwrap();
     executable(&root.join("bin/setsid"), &format!("exec {} \"$@\"\n", String::from_utf8_lossy(&setsid.stdout).trim()));
+    executable(&root.join("bin/gh"), "exit 1\n");
     executable(
         &root.join("bin/systemd-run"),
         "case \" $* \" in *' --scope '*) ;; *)\n  for a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\n  while [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\n  shift\n  setsid \"$@\" < /dev/null > /dev/null 2>&1 &\n  echo $! > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\n  exit 0;;\nesac\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n",
@@ -120,6 +121,27 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+fn finished_within_30_s(root: &Path, mut launches: Vec<(&str, std::process::Child, PathBuf, PathBuf)>) -> Vec<Output> {
+    let exited = north_core::platform::wait::until(std::time::Duration::from_secs(30), || launches.iter_mut().all(|(_, child, ..)| child.try_wait().unwrap().is_some()));
+    if !exited {
+        let tree = text(&Command::new("ps").args(["-ef", "--forest"]).output().map(|ps| ps.stdout).unwrap_or_default());
+        let mut stuck = String::new();
+        for (name, child, _, stderr) in &mut launches {
+            if child.try_wait().unwrap().is_some() {
+                continue;
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            let session = root.join(".local/state/north/fleet").join(*name);
+            let listing: Vec<_> = fs::read_dir(&session).map(|entries| entries.flatten().map(|entry| entry.file_name()).collect()).unwrap_or_default();
+            let hops = fs::read_to_string(session.join("hops.jsonl")).unwrap_or_default();
+            stuck += &format!("the launch of {name} was still running after 30 s and was killed\nstderr: {}\n{} holds {listing:?}\nhops.jsonl:\n{hops}\n", fs::read_to_string(&*stderr).unwrap_or_default(), session.display());
+        }
+        panic!("{stuck}ps tree:\n{tree}");
+    }
+    launches.into_iter().map(|(_, mut child, stdout, stderr)| Output { status: child.wait().unwrap(), stdout: fs::read(stdout).unwrap(), stderr: fs::read(stderr).unwrap() }).collect()
+}
+
 #[test]
 fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_directory_and_the_same_name_launches_and_answers() {
     let scratch = tempfile::tempdir().unwrap();
@@ -180,13 +202,16 @@ fn two_launches_at_once_one_with_a_120_character_name_record_their_hosts_live_be
     let launches: Vec<_> = names
         .iter()
         .zip(["makgora#4", "makgora#5"])
-        .map(|(name, task)| {
+        .enumerate()
+        .map(|(index, (name, task))| {
+            let (stdout, stderr) = (root.join(format!("launch-{index}.out")), root.join(format!("launch-{index}.err")));
             let mut command = environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here");
             command.env_remove("THREADS_DB").args(["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "reader", "--local", "launch order test", "--task", task, "--system-prompt", &brief, "start the box"]);
-            std::thread::spawn(move || command.output().unwrap())
+            command.stdout(fs::File::create(&stdout).unwrap()).stderr(fs::File::create(&stderr).unwrap());
+            (*name, command.spawn().unwrap(), stdout, stderr)
         })
         .collect();
-    let launched: Vec<Output> = launches.into_iter().map(|launch| launch.join().unwrap()).collect();
+    let launched = finished_within_30_s(root, launches);
     let mut shown = Vec::new();
     let answered = north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
         shown = names.iter().map(|name| text(&north(root, &["fleet", "show", name]).stdout)).collect();

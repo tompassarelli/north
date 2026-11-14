@@ -61,7 +61,7 @@ mod delivery_lifecycle {
     use crate::fleet::sender::Sender;
 
     #[test]
-    fn a_sandboxed_worker_send_to_a_same_host_session_is_prompted_at_once_and_the_tick_then_records_it_without_prompting_again() {
+    fn a_sandboxed_worker_send_waits_for_the_tick_while_a_launch_holds_the_start_lock_and_is_prompted_at_once_after_and_the_tick_then_records_it_without_prompting_again() {
         use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
         let home = tempfile::tempdir().unwrap();
@@ -73,14 +73,33 @@ mod delivery_lifecycle {
         std::fs::set_permissions(&ledger, std::fs::Permissions::from_mode(0o444)).unwrap();
         assert!(!fleet.journals_deliveries(), "the ledger stayed writable, as it does to root, so no sandbox was simulated");
 
+        let waiting = std::thread::scope(|scope| {
+            let ((held_tx, held_rx), (sent_tx, sent_rx)) = (std::sync::mpsc::channel(), std::sync::mpsc::channel::<()>());
+            let launching = &fleet;
+            let launch = scope.spawn(move || {
+                let _launching = launching.start_lock("lead").unwrap();
+                held_tx.send(()).unwrap();
+                sent_rx.recv().unwrap();
+                launching.prompt_live(&launching.record("lead").unwrap(), "first-turn", "start the box", Delivery::Queued).unwrap();
+            });
+            held_rx.recv().unwrap();
+            let waiting = fleet.send_message(&Sender::Session("w-sender".into()), "lead", "before the first turn", Delivery::Queued).unwrap();
+            sent_tx.send(()).unwrap();
+            launch.join().unwrap();
+            waiting
+        });
+        let Sent::Queued { id: waiting } = waiting else { panic!("a send during a launch was prompted before its first turn: {waiting:?}") };
+        assert_eq!(lead.frames.lock().unwrap().len(), 1, "a send during a launch reached the host before its first turn");
+        assert!(lead.frames.lock().unwrap()[0].contains("start the box"), "the brief is not the host's first frame");
+
         assert_eq!(fleet.send_message(&Sender::Session("w-sender".into()), "lead", "ready to land", Delivery::Queued).unwrap(), Sent::HandedIn);
 
-        let spooled = fleet.spool().pending().unwrap();
+        let spooled: Vec<_> = fleet.spool().pending().unwrap().into_iter().filter(|row| row.id != waiting).collect();
         assert_eq!(spooled.len(), 1, "{spooled:?}");
         {
             let frames = lead.frames.lock().unwrap();
-            assert_eq!(frames.len(), 1, "{frames:?}");
-            assert!(frames[0].contains("[from w-sender] ready to land") && frames[0].contains(&spooled[0].prompt_id()), "{}", frames[0]);
+            assert_eq!(frames.len(), 2, "{frames:?}");
+            assert!(frames[1].contains("[from w-sender] ready to land") && frames[1].contains(&spooled[0].prompt_id()), "{}", frames[1]);
         }
 
         let mut stream = std::fs::OpenOptions::new().append(true).open(crate::fleet::transcript::stream_path(&fleet.record("lead").unwrap().host_dir)).unwrap();
@@ -90,7 +109,7 @@ mod delivery_lifecycle {
         }
 
         assert_eq!(fleet.hand_in(&spooled[0]).unwrap(), HandedIn::Already);
-        assert_eq!(lead.frames.lock().unwrap().len(), 1, "the tick prompted a session that already held the row");
+        assert_eq!(lead.frames.lock().unwrap().len(), 2, "the tick prompted a session that already held the row");
         let store = fleet.deliveries().unwrap();
         assert_eq!(store.current::<RowDelivery>(&instance("lead", &spooled[0].id)).unwrap().unwrap().state, Phase::Delivered);
         assert_eq!(fleet.record("lead").unwrap().last_sender.unwrap().name, "w-sender");

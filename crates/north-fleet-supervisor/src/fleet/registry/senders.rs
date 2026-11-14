@@ -59,10 +59,10 @@ impl Fleet {
         })
     }
 
-    /// Spools the row, then prompts the live host of `record` on this host with the row's own prompt id and leaves the row in the spool, so the fleet tick, finding the host already holds the prompt, records the sender and the delivery instead of prompting again. A sandbox cannot write the delivery lock, so this direct prompt is best effort: it can race a tick's delivery of the same row. A proxy, an adopted window behind the terminal multiplexer's hidden sockets and a session with no live host are left to the tick alone.
+    /// Spools the row, then prompts the live host of `record` on this host with the row's own prompt id and leaves the row in the spool, so the fleet tick, finding the host already holds the prompt, records the sender and the delivery instead of prompting again. A sandbox cannot write the delivery lock, so this direct prompt is best effort: it can race a tick's delivery of the same row. A proxy, an adopted window behind the terminal multiplexer's hidden sockets, a session with no live host and one whose start lock another process holds, such as a launch until its first turn is delivered, are left to the tick, which waits on that lock.
     fn hand_over(&self, from: &Sender, record: &SessionRecord, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         let row = self.spool_message(from, &record.name, text, delivery)?;
-        if record.live() && !record.adopted() && record.role() != Role::Proxy {
+        if record.live() && !record.adopted() && record.role() != Role::Proxy && let Ok(Some(_free)) = self.try_start_lock(&record.name) {
             match self.prompt_live(record, &row.prompt_id(), &from.sign(text), delivery) {
                 Ok(()) => return Ok(Sent::HandedIn),
                 Err(error) => eprintln!("north fleet: {} did not take the message, so the fleet tick hands it in: {}", record.name, error.user_message()),
