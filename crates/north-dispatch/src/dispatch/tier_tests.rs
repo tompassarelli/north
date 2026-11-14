@@ -7,6 +7,16 @@ fn uncategorised(repo: &str, number: u64, body: &str, labels: &[&str]) -> super:
 
 
 #[test]
+fn a_brief_with_three_bad_facets_is_refused_once_naming_all_three() {
+    let brief = super::facets::launch_header(&["Item: north#1484\nCategory: install\nSpec: open\nScope: crate\nSurface: ts\nVerify: local-test\n\nDo the box."]);
+    let refused = crate::router::brief::facet_refusal(&brief).unwrap_or_default();
+    for (bad, allowed) in [("Category: install", "bug-known-cause"), ("Spec: open", "exact, measured, judged"), ("Scope: crate", "module")] {
+        assert!(refused.contains(bad) && refused.contains(allowed), "{bad} is named with its allowed values: {refused:?}");
+    }
+    assert_eq!(refused.matches("is not a facet value").count(), 3, "{refused:?}");
+}
+
+#[test]
 fn a_rolling_alarm_issue_is_not_ready_because_its_body_declares_no_category_while_the_same_body_with_one_launches() {
     let rise = crate::ledger::rises::Rise { tier: "sonnet".into(), category: "tooling".into(), before: (5.2, 3), after: (10.4, 3), boxes: Vec::new(), left_out: (0, 0) };
     let body = crate::ledger::rises::issue_body(&[rise]).unwrap();
@@ -256,8 +266,8 @@ fn a_hand_launched_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_la
 #[test]
 fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_runs_and_the_facets_its_brief_leaves_out() {
     use super::grounds::Grounds;
-    use super::manual::{Ask, start};
-    use super::tier::{History, Tier};
+    use super::manual::{Ask, start, untasked_window};
+    use super::tier::{CONTEXT_WINDOWS, History, Tier};
     use super::tuned::Figure;
     use std::collections::BTreeMap;
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
@@ -272,6 +282,9 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     let brief = "Item: north#706\nCategory: feature\nTier: sonnet-high\nSpec: measured\n\nDo the box.";
     let ask = Ask { item: "north#706", brief, prompt: brief, model: Some("claude-opus-5-5"), reason: Some("the proxy staffs this box on Opus"), worker: true, places: false };
     let launched = start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
+    assert_eq!(launched.prompt.lines().filter(|line| line.starts_with("Arm: ")).count(), 1, "{}", launched.prompt);
+    assert!(crate::fleet::compaction::window(&launched.prompt).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{}", launched.prompt);
+    assert!(untasked_window("the-proxy", "feature", &History::default(), &BTreeMap::new()).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)));
     assert!(launched.overridden.is_some() && launched.route.tier == Tier::Sonnet, "{:?}", launched.route);
     let head: Vec<&str> = launched.prompt.lines().take_while(|line| !line.is_empty()).collect();
     assert!(head.iter().any(|line| line.starts_with("ETA: 102 min (tune cell, 2026-11-08")), "{head:?}");
@@ -328,26 +341,4 @@ fn an_unknown_cause_bug_naming_a_repro_starts_on_sonnet_and_escalates_once_to_op
     let spanning = route(&plan("cross-module"), &History::default(), &unread).unwrap();
     assert!(spanning.why.contains("planning at Scope: cross-module spans modules, so worker at high effort"), "{}", spanning.why);
     assert!(module.cell.is_some_and(|cell| super::cells::allowed("planning").contains(&cell)) && spanning.cell.is_some_and(|cell| super::cells::allowed("planning").contains(&cell)));
-}
-
-#[test]
-fn a_hand_launch_with_a_model_draws_a_context_window() {
-    use super::grounds::Grounds;
-    use super::manual::{Ask, start, untasked_window};
-    use super::tier::{CONTEXT_WINDOWS, History};
-    use std::collections::BTreeMap;
-    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
-    let brief = "Item: north#636\nCategory: feature\nSpec: measured\n\nDo the box.";
-    let launch = |model: &str, worker: bool| {
-        let ask = Ask { item: "north#636", brief, prompt: brief, model: Some(model), reason: Some("the proxy staffs this box on that model"), worker, places: false };
-        start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_, _| Grounds::default()).unwrap()
-    };
-    for (model, worker) in [("claude-opus-5-5", true), ("claude-sonnet-5-5", true), ("claude-opus-5-5", false)] {
-        let launched = launch(model, worker);
-        let arms: Vec<&str> = launched.prompt.lines().filter(|line| line.starts_with("Arm: ")).collect();
-        assert_eq!(arms.len(), 1, "{model} worker={worker}: {}", launched.prompt);
-        assert!(crate::fleet::compaction::window(&launched.prompt).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{}", launched.prompt);
-    }
-    let window = untasked_window("the-proxy", "feature", &History::default(), &BTreeMap::new());
-    assert!(window.is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{window:?}");
 }

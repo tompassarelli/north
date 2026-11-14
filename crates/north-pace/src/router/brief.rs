@@ -286,15 +286,18 @@ pub fn class_refusal(text: &str) -> Option<String> {
 }
 
 /// A launch brief whose Category, Spec, Scope, Surface or Verify line opens with a word outside that facet's list, which the run
-/// ledger would drop.
+/// ledger would drop; every such line is named, so one refusal lists them all.
 pub fn facet_refusal(text: &str) -> Option<String> {
     let fields = brief_header(text);
     let facets = [("Category", &CATEGORIES[..])].into_iter().chain(FACETS.iter().copied());
-    facets.into_iter().find_map(|(name, values)| {
-        let declared = fields.get(&name.to_lowercase())?.trim().trim_matches('`').to_lowercase();
-        let word = TOKEN.find(&declared)?.as_str();
-        (!values.contains(&word)).then(|| format!("{name}: {word} is not a facet value; use one of {}, so the run ledger records it", values.join(", ")))
-    })
+    let bad: Vec<String> = facets
+        .filter_map(|(name, values)| {
+            let declared = fields.get(&name.to_lowercase())?.trim().trim_matches('`').to_lowercase();
+            let word = TOKEN.find(&declared)?.as_str();
+            (!values.contains(&word)).then(|| format!("{name}: {word} is not a facet value; use one of {}, so the run ledger records it", values.join(", ")))
+        })
+        .collect();
+    (!bad.is_empty()).then(|| bad.join("\n"))
 }
 
 /// Whether `value`, the text of a `name` line, opens with a word in that facet's list; a name with no list admits any value.
