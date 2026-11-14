@@ -733,3 +733,41 @@ fn a_command_the_kernel_cannot_confine_is_refused_unless_the_host_names_itself_w
         assert_eq!(output.status.code() == Some(126), !ran, "{declared:?}: {stdout}");
     }
 }
+
+const SERVE_PROBE: &str = "NORTH_RUNTIME_BROKER_SERVE_PROBE";
+
+#[test]
+fn a_broker_on_a_socket_of_its_own_follows_the_runtime_its_canary_judges_and_the_shared_one_follows_current() {
+    if std::env::var_os(SERVE_PROBE).is_some() {
+        let answer: super::broker::Answer = std::sync::Arc::new(|_: &Path, _: &std::os::unix::net::UnixStream, _: Option<&str>| -> Result<(), String> { Ok(()) });
+        assert_ne!(super::broker::serve(Vec::new(), answer), std::process::ExitCode::SUCCESS);
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let runtimes = root.path().join("runtimes");
+    let (current, judged) = ("a".repeat(40), "b".repeat(40));
+    for sha in [&current, &judged] {
+        std::fs::create_dir_all(runtimes.join(sha)).unwrap();
+    }
+    std::fs::write(runtimes.join(&judged).join("north"), "").unwrap();
+    let host = root.path().join("current");
+    std::os::unix::fs::symlink(runtimes.join(&current), &host).unwrap();
+    let starter = root.path().join("judged");
+    std::os::unix::fs::symlink(runtimes.join(&judged), &starter).unwrap();
+    let executable = runtimes.join(&judged).join("north");
+    let own = super::broker::follow_for(true, &starter, &host, Some(executable.clone())).replaced();
+    assert_eq!(own, None, "a broker on its own socket was replaced by the host's current runtime while it serves its canary's judged one");
+    let shared = super::broker::follow_for(false, &starter, &host, Some(executable)).replaced();
+    assert_eq!(shared.as_deref(), Some(current.as_str()), "the shared broker must follow the host's current runtime");
+    let blocked = root.path().join("blocked");
+    std::fs::write(&blocked, "").unwrap();
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::a_broker_on_a_socket_of_its_own_follows_the_runtime_its_canary_judges_and_the_shared_one_follows_current", "--nocapture"])
+        .env(SERVE_PROBE, "1")
+        .env(super::broker::SOCKET_ENV, blocked.join("broker.sock"))
+        .output()
+        .unwrap();
+    let seen = format!("{}{}", String::from_utf8_lossy(&child.stdout), String::from_utf8_lossy(&child.stderr));
+    assert!(child.status.success(), "a broker whose socket cannot be listened on must not exit as if it served: {seen}");
+    assert!(seen.contains("cannot listen"), "{seen}");
+}

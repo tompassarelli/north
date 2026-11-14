@@ -199,6 +199,10 @@ pub(super) fn ensure_listening(path: &Path, start: impl Fn(&str) -> bool) {
     }
 }
 
+pub(super) fn follow_for(own_socket: bool, starter: &Path, host: &Path, executable: Option<PathBuf>) -> north_runtime_follow::Follow {
+    north_runtime_follow::Follow::of(if own_socket { starter } else { host }.to_path_buf(), executable)
+}
+
 fn listening(path: &Path) -> bool {
     for _ in 0..40 {
         if UnixStream::connect(path).is_ok() {
@@ -238,7 +242,7 @@ pub(super) fn serve(served: Vec<OsString>, answer: Answer) -> std::process::Exit
     let own = inode(&path);
     let running = std::sync::Arc::new(AtomicUsize::new(0));
     let mut handed_over = false;
-    let mut follow = north_runtime_follow::Follow::service();
+    let mut follow = follow_for(std::env::var_os(SOCKET_ENV).is_some(), &north_runtime_follow::link(), &north_runtime_follow::host_link(), Some(north.clone()));
     loop {
         let idle = running.load(Ordering::SeqCst) == 0;
         if inode(&path) != own {
