@@ -45,6 +45,7 @@ pub struct Run {
     pub settled_since: Option<f64>,
     pub load_at_launch: Value,
     pub queued_at_launch: Option<u32>,
+    pub room_wait_s: f64,
     pub wave: &'static str,
 }
 
@@ -67,7 +68,7 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
     marked
 }
 
-fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str, (launch_start, queued_at_launch): (f64, Option<u32>)) -> Run {
+fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wave: &'static str, (launch_start, queued_at_launch, room_wait_s): (f64, Option<u32>, f64)) -> Run {
     let cwd = scratch::worktree(branch);
     let text = header(&plan.hosts[0], &plan.model, &plan.effort) + &prompt(task);
     let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
@@ -95,6 +96,7 @@ fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wa
         settled_since: None,
         load_at_launch: crate::proc::host_loads(&plan.hosts),
         queued_at_launch,
+        room_wait_s,
         wave,
     }
 }
@@ -166,8 +168,10 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
             (Some(_), None) => "burst",
         };
         let batch: Vec<&Value> = (0..free).filter_map(|_| pending.pop()).collect();
+        let room_asked = now();
+        let queued = if batch.is_empty() { None } else { wait_for_room(&plan.hosts[0]) };
         let wave_start = now();
-        let room = (wave_start, if batch.is_empty() { None } else { wait_for_room(&plan.hosts[0]) });
+        let room = (wave_start, queued, wave_start - room_asked);
         let launched: Vec<Run> = thread::scope(|scope| {
             let handles: Vec<_> = batch
                 .iter()

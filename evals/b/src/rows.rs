@@ -81,6 +81,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     conditions["host"] = json!(collect::machine(&session));
     conditions["host_load_at_launch"] = run.load_at_launch.clone();
     conditions["admission_queued_at_launch"] = json!(run.queued_at_launch);
+    conditions["admission_wait_s"] = json!((run.room_wait_s * 100.0).round() / 100.0);
     conditions["host_load_at_end"] = serde_json::from_str(&std::fs::read_to_string(dir.join("load-at-end.json")).unwrap_or_default()).unwrap_or(Value::Null);
     conditions["claude_code_observed"] = transcript["claude_code"].clone();
     conditions["models_observed"] = transcript["models"].clone();
