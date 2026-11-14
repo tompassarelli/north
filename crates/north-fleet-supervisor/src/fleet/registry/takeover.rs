@@ -73,7 +73,11 @@ pub(super) fn carry_into(held: &SessionRecord, record: &mut SessionRecord) -> Ve
 impl Fleet {
     /// Claims what a launch taking over `seat` needs before the seat is stopped, so a refused claim leaves the seat running; returns the keys the launch still has to claim and whether they were claimed here.
     pub(super) fn claim_for(&self, seat: &Seat<'_>, request: &LaunchRequest, record: &mut SessionRecord, tasks: &[String], verification: bool) -> NorthResult<(Vec<String>, bool)> {
-        let tasks = seat.held().filter(|held| carries_for(held, &request.tasks())).map_or_else(|| tasks.to_vec(), |held| self.left_to_claim(&request.name, &carry_into(held, record), request.role() == Role::Proxy));
+        let tasks = match seat.held() {
+            Some(held) if carries_for(held, &request.tasks()) => self.left_to_claim(&request.name, &carry_into(held, record), request.role() == Role::Proxy),
+            Some(_) => self.left_to_claim(&request.name, tasks, false),
+            None => tasks.to_vec(),
+        };
         let claimed_first = seat.held().is_some();
         if claimed_first {
             self.claim_before_start(request, &tasks, verification)?;
@@ -463,6 +467,12 @@ mod tests {
         assert_eq!(taken.tasks().collect::<Vec<_>>(), ["north#1054", "north#1397"]);
         assert_eq!(claims.holders(Rows::Items(&["north#1397".to_owned()])).unwrap(), [("north#1397".to_owned(), "broker".to_owned())]);
         assert_eq!(claims.holders(Rows::Items(&["north#1054".to_owned()])).unwrap(), [("north#1054".to_owned(), "slice".to_owned())], "the old seat's retire gave up the claim its successor carries");
+
+        claims.hold("north#1508", "broker", &BTreeSet::new()).unwrap();
+        let onto = LaunchRequest { prompt: "take north#1508".into(), task_ref: Some("north#1508".into()), resume: None, ..LaunchRequest::relaunching(&taken) };
+        let moved = fleet.take_over(&onto).unwrap_or_else(|error| panic!("the take-over onto its worker's issue was refused: {}", error.user_message()));
+        assert_eq!(moved.task_ref.as_deref(), Some("north#1508"));
+        assert_eq!(claims.holders(Rows::Items(&["north#1508".to_owned()])).unwrap(), [("north#1508".to_owned(), "broker".to_owned())]);
     }
 
     /// On 2026-11-14 the floor tick's take-over of the coordinator's window-held proxy was refused north#643, which a worker owned, after it had retired the old record.
