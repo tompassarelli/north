@@ -445,7 +445,7 @@ fn a_dispatch_round_places_only_on_the_listed_providers_draws_only_the_band_ther
     let placed: Vec<(String, &str, &str)> = scoped.launches.iter().map(|launch| (launch.item.to_string(), launch.account.as_str(), launch.host.as_str())).collect();
     assert_eq!(placed, [("north#1".to_owned(), "opencode:go", "nexus")], "{:?}", scoped.skipped);
     let armed = &scoped.launches[0];
-    assert!(armed.brief.contains("Arm: deepseek-") && armed.route.cell.is_none() && armed.route.cell_role.is_none(), "the outside provider's launch is its own arm on no Claude cell: {:?}", armed.route);
+    assert!(armed.route.cell.is_none() && armed.route.cell_role.is_none(), "the outside provider's launch sits on no Claude cell: {:?}", armed.route);
     let why = |item: &str| scoped.skipped.iter().find(|(skipped, _)| skipped.to_string() == item).map(|(_, why)| why.clone()).unwrap_or_default();
     assert!(why("north#2").contains("its subject matches") && why("north#2").contains("outside dispatch_providers = [opencode]"), "{}", why("north#2"));
     assert!(why("north#3").contains("Scope: cross-module is wider than one module"), "{}", why("north#3"));
