@@ -352,6 +352,7 @@ fn landings(lane: &str) -> Result<Vec<String>, String> {
 
 const NO_TRIPS: &str = "/nonexistent/north-test-trips";
 const HOSTED_LOG: &str = "test\tTest\t2026-11-13T19:24:41.7710459Z [2026-11-13T19:24:41.767+00:00]         FAIL [   0.526s] north::it golden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client";
+const TIMED_OUT_LOG: &str = "test\tTest\t2026-11-14T14:34:01.4024061Z [2026-11-14T14:34:01.347+00:00]      TIMEOUT [ 122.659s] north-landing land::queue::tests::two_threads_finishing_one_ticket_leave_it_whole\ntest\tTest\t2026-11-14T14:43:02.4961561Z [2026-11-14T14:43:02.494+00:00] ✉ Timeout: root//crates/north-lander:north-lander-test-it (10:00.0s)";
 
 fn screen_of(holds: Holds, contains: fn(&str, &str) -> Result<bool, String>, landed: fn(&str) -> Result<Vec<String>, String>) -> Screen {
     Screen { holds, contains: Box::new(move |commit, head| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(landed), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }
@@ -476,6 +477,13 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     assert_eq!(fs::read_to_string(hosted.join(format!("{SQUASHED}.trip"))).unwrap(), "run\t43491019011\nnorth\tgolden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client\n");
     Trips(hosted).clear(SQUASHED, "proxy", "the case passes on rerun", now()).unwrap();
     assert!(read.order(NEW, &["whiterabbit"], now()).is_ok(), "a cleared hosted trip no longer holds");
+    let timed_out = state.path().join("timed-out-trips");
+    for (run, log) in [("43604836319", Some(TIMED_OUT_LOG)), ("43607761294", None)] {
+        let runs = MainRuns { page: Box::new(move |number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: run.to_owned(), red: true }, MainRun { head: crate::runtime::main_runs::FIXTURE_ANCESTOR.to_owned(), id: "0".to_owned(), red: false }]))), log: Box::new(move |_| log.map(str::to_owned)), alert: Box::new(|_| {}) };
+        let unjudged = Screen { runs, trips: Trips(timed_out.join(run)), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+        assert!(unjudged.order(NEW, &["whiterabbit"], now()).is_ok(), "on 2026-11-14 hosted run {run} only timed out or hit its job limit, tripped promotion, and was cleared by hand: such a run trips nothing");
+        assert!(Trips(timed_out.join(run)).read(SQUASHED).unwrap().is_none() && Trips(timed_out.join(run)).unjudged(SQUASHED).unwrap(), "{run} is recorded as not judged, not as a trip");
+    }
     let superseded_trips = state.path().join("superseded-trips");
     let superseded_runs = || MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: NEW.to_owned(), id: "43493048821".to_owned(), red: false }, MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
     let superseded = superseded_runs();

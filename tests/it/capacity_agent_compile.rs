@@ -13,6 +13,7 @@ fn host() -> Host {
     let host = Host::checkout("agent-compile-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL), ("ssh", DARK_SSH)]);
     fs::write(host.path("orchestration.toml"), ORCHESTRATION).unwrap();
     fs::create_dir_all(host.path("real")).unwrap();
+    fs::create_dir_all(host.path("home")).unwrap();
     fs::write(host.path("self-cgroup"), "0::/user.slice/user-1000.slice/session-1.scope\n").unwrap();
     let marker = host.path("compiled-here");
     let real = format!("#!/bin/sh\necho \"$@\" >>{}\n", marker.display());
@@ -24,7 +25,7 @@ fn gate(host: &Host, session: Option<&str>, arguments: &[&str]) -> Output {
     let mut command = host.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
     command.env("RESIDENT_CAP_HOST", "laptop");
     command.args(["capacity", "gate", "cargo"]).args(arguments).env("PATH", format!("{}:{}:{}", host.path("real").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default()));
-    command.env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup"));
+    command.env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup")).env("HOME", host.path("home"));
     for key in ["NORTH_FLEET_SESSION", "NORTH_FLEET_SCOPE", "AGENT_CAPACITY_NEED"] {
         command.env_remove(key);
     }
@@ -78,11 +79,14 @@ fn a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here() {
     let host = host();
     let mut needy = host.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
     needy.env("RESIDENT_CAP_HOST", "laptop");
-    needy.env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup"));
+    needy.env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup")).env("HOME", host.path("home"));
     needy.args(["capacity", "gate", "cargo", "build"]).env("PATH", format!("{}:{}:{}", host.path("real").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default())).env("NORTH_FLEET_SESSION", "n634-x").env("AGENT_CAPACITY_NEED", "gpu");
-    assert_eq!(needy.output_exclusive().unwrap().status.code(), Some(0));
-    assert_eq!(gate(&host, Some("n634-x"), &["metadata"]).status.code(), Some(0));
-    assert_eq!(gate(&host, Some("n634-x"), &["fmt"]).status.code(), Some(0));
+    let needed = needy.output_exclusive().unwrap();
+    assert_eq!(needed.status.code(), Some(0), "{}", String::from_utf8_lossy(&needed.stderr));
+    for subcommand in ["metadata", "fmt"] {
+        let ran = gate(&host, Some("n634-x"), &[subcommand]);
+        assert_eq!(ran.status.code(), Some(0), "{subcommand}: {}", String::from_utf8_lossy(&ran.stderr));
+    }
     assert_eq!(compiled(&host), "build\nmetadata\nfmt\n");
 }
 
@@ -92,7 +96,7 @@ fn a_fleet_sessions_cargo_with_no_real_cargo_on_path_is_refused_not_run_in_the_d
     fs::write(host.path("pressure"), FULL).unwrap();
     let mut command = host.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
     command.env("RESIDENT_CAP_HOST", "laptop");
-    command.args(["capacity", "gate", "cargo", "test"]).env("PATH", host.path("bin")).env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup")).env("NORTH_FLEET_SESSION", "n634-x");
+    command.args(["capacity", "gate", "cargo", "test"]).env("PATH", host.path("bin")).env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup")).env("HOME", host.path("home")).env("NORTH_FLEET_SESSION", "n634-x");
     let refused = command.output_exclusive().unwrap();
     let stderr = String::from_utf8_lossy(&refused.stderr);
     assert_eq!(refused.status.code(), Some(75), "{stderr}");

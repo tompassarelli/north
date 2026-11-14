@@ -292,12 +292,12 @@ impl Screen {
         Ok(tripped == head || (!passed && (self.contains)(tripped, head)?))
     }
 
-    /// The newest completed run of main whose head is on `head`'s ancestry, the one that decides whether `head` is tripped; runs are read page by page until one is found or the list ends.
+    /// The newest completed run of main whose head is on `head`'s ancestry and that gives a verdict, the one that decides whether `head` is tripped; runs are read page by page until one is found or the list ends.
     fn newest_run(&self, head: &str) -> Result<Option<MainRun>, String> {
         let mut number = 1;
         while let Some(runs) = (self.runs.page)(number)? {
             for run in runs {
-                if (self.contains)(&run.head, head)? {
+                if (self.contains)(&run.head, head)? && !self.unjudged(&run)? {
                     return Ok(Some(run));
                 }
             }
@@ -306,7 +306,21 @@ impl Screen {
         Ok(None)
     }
 
-    /// Refuses `head` when the newest completed Buck2 run on its ancestry is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on it or an ancestor (trip.rs), and asks the sheriff to revert the commit a trip names once it has held REVERT_AFTER_SECONDS; a trip binds only its own commit once `head` `passed` its own after-landing run; a run list or git that cannot say refuses the head.
+    /// Whether red `run` gives no verdict (main_runs::not_judged), recorded once with the proxy told; a run already tripped or cleared keeps its verdict.
+    fn unjudged(&self, run: &MainRun) -> Result<bool, String> {
+        if !run.red || self.trips.cleared(&run.head)? || self.trips.read(&run.head)?.is_some() {
+            return Ok(false);
+        }
+        if self.trips.unjudged(&run.head)? {
+            return Ok(true);
+        }
+        let Some(why) = main_runs::not_judged((self.runs.log)(&run.id).as_deref()) else { return Ok(false) };
+        self.trips.write_unjudged(&run.head, &run.id, why)?;
+        (self.runs.alert)(&format!("north runtime: the hosted Buck2 run {} on {} is not judged and trips nothing: {why}", run.id, run.head));
+        Ok(true)
+    }
+
+    /// Refuses `head` when the newest completed Buck2 run on its ancestry that gives a verdict is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on it or an ancestor (trip.rs), and asks the sheriff to revert the commit a trip names once it has held REVERT_AFTER_SECONDS; a trip binds only its own commit once `head` `passed` its own after-landing run; a run list or git that cannot say refuses the head.
     fn tripped(&self, head: &str, passed: bool, now: u64) -> Result<(), String> {
         let unread = |why: String| unscreened(head, why);
         let newest = self.newest_run(head).map_err(unread)?.ok_or_else(|| unread("no completed run of main is on its ancestry".to_owned()))?;

@@ -1407,7 +1407,7 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
     };
     let alive = |pid: &Path| fs::read_to_string(pid).ok().and_then(|pid| pid.trim().parse::<i32>().ok()).and_then(rustix::process::Pid::from_raw).is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok());
     let (mut holder_client, mut holder, holder_pid, _) = start("holder", None);
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(3600), || holder_pid.exists()), "the first job never ran: {}", fs::read_to_string(home.path().join("holder.err")).unwrap_or_default());
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(3600), || alive(&holder_pid)), "the first job never ran: {}", fs::read_to_string(home.path().join("holder.err")).unwrap_or_default());
     let (mut waiter_client, mut waiter, waiter_pid, _) = start("waiter", None);
     let queue = root.join("queue");
     assert!(north_base::platform::wait::until(std::time::Duration::from_secs(3600), || fs::read_dir(&queue).map(|entries| entries.count()).unwrap_or(0) == 1), "the second job never queued: {}", fs::read_to_string(home.path().join("waiter.err")).unwrap_or_default());
@@ -1427,7 +1427,7 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
     assert!(freed, "after their clients were killed (holder exit, waiter exit, check alive, held locks, tickets): {left:?}");
     assert!(!waiter_pid.exists(), "the job that waited ran its check after its client was gone");
     let (mut dropped_client, mut dropped, dropped_pid, marker) = start("dropped", Some(&connection));
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(3600), || dropped_pid.exists()), "the third job never ran: {}", fs::read_to_string(home.path().join("dropped.err")).unwrap_or_default());
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(3600), || alive(&dropped_pid)), "the third job never ran: {}", fs::read_to_string(home.path().join("dropped.err")).unwrap_or_default());
     kill_group(&dropped);
     let _ = dropped.wait();
     let survived = !north_base::platform::wait::until(std::time::Duration::from_secs(8), || !alive(&dropped_pid));

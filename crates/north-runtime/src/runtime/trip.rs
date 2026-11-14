@@ -1,8 +1,9 @@
 //! A Buck2 trip (north#1115): the record of a red run of main's Buck2 workflow, written by the screen on the host that settles the
 //! fleet (main_runs.rs) when the newest completed run on a head's ancestry is red. The trip holds the promotion of that head, and of
 //! every later head whose own after-landing run has not passed (review_hold.rs `Screen`), until `north runtime trip clear COMMIT
-//! --why TEXT` clears it, the clear is kept with who cleared it and why, or a newer completed run on that ancestry is green. A
-//! record that names no run is the lander's (north-landing `trip`) and holds the same heads until cleared.
+//! --why TEXT` clears it, the clear is kept with who cleared it and why, or a newer completed run on that ancestry is green. A red
+//! run that only timed out, or whose log is gone because its job ended at its time limit, is recorded as not judged and trips
+//! nothing. A record that names no run is the lander's (north-landing `trip`) and holds the same heads until cleared.
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -15,6 +16,7 @@ const TRIP: &str = "trip";
 const CLEARED: &str = "cleared";
 const RUN: &str = "run";
 const REVERT_ASKED: &str = "revert-asked";
+const UNJUDGED: &str = "unjudged";
 const REQUESTS: &str = "refs/heads/claude/land-revert-";
 
 /// Seconds a trip holds before the sheriff is asked to revert the commit it names, unless a fix lands first and its run turns main green (north#1508).
@@ -102,6 +104,18 @@ impl Trips {
             text.push_str(&format!("{name}\t{case}\n"));
         }
         file.write_all(text.as_bytes()).map_err(|error| format!("{} cannot be written: {error}", path.display()))
+    }
+
+    /// Whether a red run on `head` was recorded as giving no verdict, which trips nothing.
+    pub(crate) fn unjudged(&self, head: &str) -> Result<bool, String> {
+        exists(&self.0.join(format!("{head}.{UNJUDGED}")))
+    }
+
+    /// Records that red run `run` on `head` gives no verdict, and why.
+    pub(crate) fn write_unjudged(&self, head: &str, run: &str, why: &str) -> Result<(), String> {
+        let path = self.0.join(format!("{head}.{UNJUDGED}"));
+        fs::create_dir_all(&self.0).map_err(|error| format!("{} cannot be created: {error}", self.0.display()))?;
+        fs::write(&path, format!("{RUN}\t{run}\nwhy\t{why}\n")).map_err(|error| format!("{} cannot be written: {error}", path.display()))
     }
 
     /// The open trips: a `HEAD.trip` record that no `HEAD.cleared` answers.

@@ -97,3 +97,10 @@ pub(crate) fn failed_cases(log: &str) -> Vec<(String, String)> {
     }
     cases.into_iter().collect()
 }
+
+/// Why a red run's `log` gives no verdict on its head, or None when it does: a run with no log (the job was ended at its time limit) or one that names no failed case beside cases and targets that timed out ran out of time rather than found a fault.
+pub(crate) fn not_judged(log: Option<&str>) -> Option<&'static str> {
+    let Some(log) = log else { return Some("its log cannot be read, as when the job ends at its time limit") };
+    let timed_out = log.lines().map(log_text).any(|text| text.contains("TIMEOUT [") || text.contains("Timeout: "));
+    (timed_out && failed_cases(log).is_empty()).then_some("its cases and targets only timed out, none failed")
+}
