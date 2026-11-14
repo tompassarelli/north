@@ -4,11 +4,14 @@ use std::process::{Command, Stdio};
 
 use super::Selected;
 
-/// The selected crates that do not move, each with its Buck2 package in `packages`, that name no test, each said in one
-/// line; a workspace selection leaves none out.
+/// The selected crates, or for a workspace selection every member in `packages`, that do not move and name no test, each
+/// said in one line.
 pub(super) fn case_free(root: &Path, base: &str, selected: &Selected, moved: &[String], packages: &BTreeMap<String, String>) -> BTreeSet<String> {
-    let Selected::Packages(selected) = selected else { return BTreeSet::new() };
-    let left = selected.iter().filter(|name| !moved.contains(name)).filter_map(|name| Some((name, packages.get(name)?.as_str()))).collect();
+    let candidates: Vec<&String> = match selected {
+        Selected::Packages(selected) => selected.iter().collect(),
+        Selected::Workspace => packages.keys().collect(),
+    };
+    let left = candidates.into_iter().filter(|name| !moved.contains(name)).filter_map(|name| Some((name, packages.get(name)?.as_str()))).collect();
     let free = untested(root, base, left);
     for name in &free {
         eprintln!("north land crate-tests: {name} names no test at the base or in this tree, so the declared line has no case of it to run and leaves it out");

@@ -334,10 +334,10 @@ impl CrateTests {
         host_runs(root, &self.shell, &self.daemon, target, &self.packages, cases)
     }
 
-    /// How many crates the declared line tests once Buck2 passed `passed`: the selected ones left, or the workspace's members but those.
+    /// How many crates the declared line tests once Buck2 passed `passed`: the selected ones left, or the workspace's members but those, less the case-free ones.
     pub fn declared_crates(&self, passed: &BTreeSet<String>) -> usize {
         match &self.selected {
-            Selected::Workspace => self.members.saturating_sub(passed.len()),
+            Selected::Workspace => self.members.saturating_sub(passed.union(&self.case_free).count()),
             Selected::Packages(names) => names.iter().filter(|name| stays(&self.case_free, name, passed)).count(),
         }
     }
@@ -345,7 +345,7 @@ impl CrateTests {
     /// The declared line's package selection for what stays on Cargo once Buck2 passed `passed`; `None` when nothing is left.
     pub fn left(&self, passed: &BTreeSet<String>) -> Option<String> {
         match &self.selected {
-            Selected::Workspace => (self.declared_crates(passed) > 0).then(|| passed.iter().fold("--workspace".to_owned(), |flags, name| format!("{flags} --exclude {name}"))),
+            Selected::Workspace => (self.declared_crates(passed) > 0).then(|| passed.iter().chain(&self.case_free).fold("--workspace".to_owned(), |flags, name| format!("{flags} --exclude {name}"))),
             Selected::Packages(names) => {
                 let left: Vec<String> = names.iter().filter(|name| stays(&self.case_free, name, passed)).map(|name| format!("-p {name}")).collect();
                 (!left.is_empty()).then(|| left.join(" "))

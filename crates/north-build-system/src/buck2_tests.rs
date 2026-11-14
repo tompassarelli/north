@@ -164,8 +164,8 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     std::fs::write(tree.path().join("crates/b/src/lib.rs"), "#[test]\nfn b() {}\n").unwrap();
     assert_eq!(
         split(NEXTEST, "--workspace"),
-        Some((on_buck2(&["a", "m", "north"], "//crates/a: //crates/x/m: //:"), flags("--workspace --exclude a"), flags("--workspace"))),
-        "a workspace run moves what is listed and has targets, the root package and one whose manifest sits deeper too, in one Buck2 run: not the crate with no BUCK file nor the one with no package (north#1299)"
+        Some((on_buck2(&["a", "m", "north"], "//crates/a: //crates/x/m: //:"), flags("--workspace --exclude a --exclude c --exclude d"), flags("--workspace --exclude c --exclude d"))),
+        "a workspace run moves what is listed and has targets, the root package and one whose manifest sits deeper too, in one Buck2 run: not the crate with no BUCK file nor the one with no package (north#1299); the declared line excludes each member left whose sources name no test, as a lane that left north-trusted-mirror alone on it failed with no tests to run"
     );
     assert_eq!(split(NEXTEST, "-p b -p c"), None, "a selection with nothing to move runs as declared");
     let guards = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=fail -p a -p b --lib -E '(binary_id(=a) & test(=t)) | (binary_id(=b) & test(=u))'";
