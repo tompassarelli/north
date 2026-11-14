@@ -115,6 +115,7 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     to_link.write_all(b"one\n").await.unwrap();
     let first = next(&mut lines).await;
     let cli_pid = first.strip_prefix("got one ").unwrap().to_owned();
+    assert_eq!(fs::read_to_string(root.path().join("shims/links")).unwrap().lines().count(), 1, "one ssh command started the held unit and attached to it");
     let (ssh, units) = (root.path().join("plain-ssh"), [north_session_host::held::unit("box one")]);
     crate::foundation::shim::write_script(&ssh, &format!("while [ \"$1\" != -- ]; do shift; done\nPATH='{}':$PATH exec sh -c \"$2\"", root.path().join("shims").display()));
     let work = || north_session_host::held::work(&ssh, "tom@far", &units).unwrap()[&units[0]];
@@ -145,7 +146,7 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_there_only_when_one_fits_and_under_an_agent_login_holds_under_that_users_home() {
+async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_standing_master_and_takes_a_spare_there_only_when_one_fits_and_under_an_agent_login_holds_under_that_users_home() {
     let root = tempfile::tempdir().unwrap();
     let lane = Path::new("/home/tom/code/north/worktrees/only-on-far");
     let spec = HostSpec { key: "box one".into(), shared: false, argv: vec!["opencode".into()], env: Vec::new(), env_remove: Vec::new(), cwd: lane.to_path_buf() };
@@ -184,6 +185,15 @@ async fn a_session_held_on_another_machine_links_from_here_and_takes_a_spare_the
     assert!(script.contains("/home/agent/.local/state/north/fleet/placed/conversation-one/"), "the record is not written under the agent's fleet root: {script}");
     assert!(script.contains("/home/agent/.local/state/north/held/north-fleet-agent-first-turn-"), "the bound conversation is not written in the agent's held unit: {script}");
     assert!(!script.contains("/home/tom"), "the agent login was sent a path under the operator's home: {script}");
+    let (runtime, said) = (root.path().join("runtime"), root.path().join("said"));
+    fs::create_dir_all(runtime.join("north-links")).unwrap();
+    let _standing = std::os::unix::net::UnixListener::bind(runtime.join("north-links/agent_far")).unwrap();
+    let master = standing_master_under(&runtime, &ssh, "agent@far");
+    assert_eq!(master, runtime.join("north-links/agent_far"), "a launch read names the master its link rides");
+    crate::foundation::shim::write_script(&ssh, &format!("printf '%s\\n' \"$@\" > '{}'\necho answered\n", said.display()));
+    assert!(matches!(super::super::remote::answer_through(&ssh, Some(&master), &agent, "true"), crate::fleet::runtime::Seen::Text(text) if text == "answered\n"));
+    let words = fs::read_to_string(&said).unwrap();
+    assert!(words.contains(&format!("ControlMaster=no\n-S\n{}\nagent@far\n", master.display())), "a launch read of a build host opened its own connection instead of a channel of the standing master (north#1054): {words}");
 
     let shims = machine(root.path());
     let (ssh, far, home) = (shims.join("ssh"), Machine { name: "far".into(), ssh: "far".into(), agent_ssh: None }, root.path());

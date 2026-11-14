@@ -24,7 +24,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::platform::process::try_run_command_within;
 use crate::platform::session_host_files::{BOUND_CONVERSATION, HELD};
 
-use super::link::{Link, quote};
+use super::link::{Link, channel, quote, standing_master};
 use super::model::{Account, Machine, SessionRecord};
 use super::records::record_file;
 use super::runtime::{HostSpec, Runtime, Seen, binary, new_uuid};
@@ -68,9 +68,15 @@ pub fn read_on(machine: &Machine, path: &Path) -> Seen {
     answer_on(machine, &format!("[ -e {quoted} ] || exit {ABSENT}; cat -- {quoted}"))
 }
 
+/// What `script` prints on `machine` as its session login, sent as a channel of the standing link master to that login, which the session's own link rides next: each launch read of a build host before its session host starts was a fresh handshake.
 pub fn answer_on(machine: &Machine, script: &str) -> Seen {
-    let mut ssh = Command::new(binary("ssh"));
-    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", script]);
+    let ssh = binary("ssh");
+    answer_through(&ssh, standing_master(&ssh, machine.session_login()).as_deref(), machine, script)
+}
+
+pub(super) fn answer_through(ssh: &Path, master: Option<&Path>, machine: &Machine, script: &str) -> Seen {
+    let mut ssh = Command::new(ssh);
+    ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]).args(channel(master)).args([machine.session_login(), "--", script]);
     match try_run_command_within(ssh, None, SSH_WAIT).ok().flatten() {
         Some(output) if output.status.success() => Seen::Text(String::from_utf8_lossy(&output.stdout).into_owned()),
         Some(output) if output.status.code() == Some(ABSENT) => Seen::Absent,

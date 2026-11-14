@@ -4,8 +4,9 @@
 //! where this side stopped, so a stalled or dropped link loses neither frames nor the CLI's
 //! background work: the link reconnects until the CLI ends, this side's input closes or the host
 //! stops it, and only the last two stop the service.
+use std::ffi::OsString;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::time::Duration;
@@ -279,36 +280,14 @@ impl Link {
         format!("exec sh -c {} {} {} {} {offset}", quote(ATTACH), quote(&self.dir), quote(&self.unit), quote(&self.nonce))
     }
 
-    /// Connects through this host's link master to the destination, starting one when none answers: a fresh handshake to gex45 took 1.4 s longer than a multiplexed channel on 2026-11-11, and a link whose master is gone or not yet up connects directly, as before.
+    /// Connects through this host's standing link master to the destination.
     pub fn through_master(self) -> Self {
-        let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty()) else { return self };
-        let name: String = self.destination.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-        let master = PathBuf::from(runtime).join("north-links").join(&name);
-        if std::os::unix::net::UnixStream::connect(&master).is_err() {
-            let _ = std::fs::remove_file(&master);
-            if master.parent().is_some_and(|dir| std::fs::create_dir_all(dir).is_ok()) {
-                self.start_master(&master, &name);
-            }
-        }
-        Self { master: Some(master), ..self }
-    }
-
-    fn start_master(&self, master: &std::path::Path, name: &str) {
-        let mut start = std::process::Command::new(binary("systemd-run"));
-        start.args(["--user", "--scope", "--quiet", "--collect", &format!("--unit=north-link-master-{name}"), "--"]).arg(&self.ssh).args(["-M", "-N", "-f", "-S"]).arg(master);
-        start.args(OPTIONS).args(["-o", MASTER_IDLE]).arg(&self.destination).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        if let Ok(mut child) = start.spawn() {
-            std::thread::spawn(move || child.wait());
-        }
+        Self { master: standing_master(&self.ssh, &self.destination), ..self }
     }
 
     fn ssh(&self, command: &str) -> Command {
         let mut ssh = Command::new(&self.ssh);
-        ssh.args(OPTIONS);
-        match &self.master {
-            Some(master) => ssh.args(["-o", "ControlMaster=no", "-S"]).arg(master),
-            None => ssh.args(["-o", "ControlPath=none"]),
-        };
+        ssh.args(OPTIONS).args(channel(self.master.as_deref()));
         ssh.arg(&self.destination).arg("--").arg(command).stderr(Stdio::inherit()).kill_on_drop(true);
         ssh
     }
@@ -319,6 +298,41 @@ impl Link {
         if tokio::time::timeout(STOP_WAIT, child.wait()).await.is_err() {
             eprintln!("north session-link: could not reach {} to stop {}; its detached watchdog stops it", self.destination, self.unit);
         }
+    }
+}
+
+/// This host's standing ssh master to `destination`, which every link and every launch read of that destination share, started when none answers: a fresh handshake to gex45 took 1.4 s longer than a multiplexed channel on 2026-11-11, and a caller whose master is gone or not yet up connects directly, as before.
+pub fn standing_master(ssh: &Path, destination: &str) -> Option<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty())?;
+    Some(standing_master_under(Path::new(&runtime), ssh, destination))
+}
+
+pub(super) fn standing_master_under(runtime: &Path, ssh: &Path, destination: &str) -> PathBuf {
+    let name: String = destination.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    let master = runtime.join("north-links").join(&name);
+    if std::os::unix::net::UnixStream::connect(&master).is_err() {
+        let _ = std::fs::remove_file(&master);
+        if master.parent().is_some_and(|dir| std::fs::create_dir_all(dir).is_ok()) {
+            start_master(ssh, destination, &master, &name);
+        }
+    }
+    master
+}
+
+fn start_master(ssh: &Path, destination: &str, master: &Path, name: &str) {
+    let mut start = std::process::Command::new(binary("systemd-run"));
+    start.args(["--user", "--scope", "--quiet", "--collect", &format!("--unit=north-link-master-{name}"), "--"]).arg(ssh).args(["-M", "-N", "-f", "-S"]).arg(master);
+    start.args(OPTIONS).args(["-o", MASTER_IDLE]).arg(destination).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    if let Ok(mut child) = start.spawn() {
+        std::thread::spawn(move || child.wait());
+    }
+}
+
+/// The ssh options that send a command as a channel of `master`, or straight to its destination when there is none.
+pub fn channel(master: Option<&Path>) -> Vec<OsString> {
+    match master {
+        Some(master) => vec!["-o".into(), "ControlMaster=no".into(), "-S".into(), master.into()],
+        None => vec!["-o".into(), "ControlPath=none".into()],
     }
 }
 
