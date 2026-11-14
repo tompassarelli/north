@@ -135,22 +135,25 @@ fn old_and_ended_session_watchdogs_after_a_runtime_swap_are_no_fault_while_two_l
 }
 
 #[test]
-fn the_lander_of_each_repository_is_a_resident_and_a_second_one_for_a_repository_is_the_leak() {
+fn the_unit_running_one_land_serve_reads_as_one_and_a_second_unit_for_a_repository_pages() {
     let mut proc = FakeProc::new();
     let (north, old) = (north(LIVE), north(OLD));
+    const REST: &str = "north-land-rest.service";
+    let rest = proc.spawn_in(REST, "north", &[&north, "land", "serve", "--all"]);
+    proc.spawn_in_aged(rest, REST, "north", &[&north, "land", "serve", "--all"], 0);
     for check in 0..100 {
-        proc.spawn("north", &[&north, "capacity", "offload", "run", "--host", "gex45", "--head", &check.to_string()]);
+        proc.spawn_in_aged(rest, REST, "north", &[&north, "capacity", "offload", "run", "--host", "gex45", "--head", &check.to_string()], 0);
+    }
+    for repo in ["north", "south", "wisp", "makgora", "battlecraft", "nixos-config", "padbridge", "glide", "clause", "slippi-launcher", "makgora-client"] {
+        proc.spawn_in(&format!("north-land@{repo}.service"), "north", &[&north, "land", "serve", "--repo", &format!("/home/tom/code/{repo}/main")]);
     }
     proc.spawn("north", &[&north, "land", "serve", "--all"]);
-    for repo in ["north", "south", "wisp", "makgora", "battlecraft", "nixos-config", "padbridge", "glide", "clause", "slippi-launcher", "makgora-client"] {
-        proc.spawn("north", &[&north, "land", "serve", "--repo", &format!("/home/tom/code/{repo}/main")]);
-    }
-    proc.spawn("north", &["/home/tom/code/north/sandbox/target/debug/north", "land", "serve", "--once", "--repo", "/tmp/.tmpGzR5Ue/proj/main"]);
+    proc.spawn_in("run-p1234-i1235.scope", "north", &["/home/tom/code/north/sandbox/target/debug/north", "land", "serve", "--once", "--repo", "/tmp/.tmpGzR5Ue/proj/main"]);
     let (problems, record) = proc.problems();
     assert_eq!(problems, Vec::<String>::new());
-    assert_eq!((record["transient"].clone(), record["residents"]["land serve"].clone()), (json!(101), json!(12)));
-    proc.spawn("north", &[&old, "land", "serve", "--repo", "/home/tom/code/wisp/main"]);
-    assert_eq!(proc.problems().0, ["2 land serve processes for /home/tom/code/wisp/main"]);
+    assert_eq!((record["transient"].clone(), record["residents"]["land serve"].clone()), (json!(102), json!(12)));
+    proc.spawn_in("north-land@wisp-old.service", "north", &[&old, "land", "serve", "--repo", "/home/tom/code/wisp/main"]);
+    assert_eq!(proc.problems().0, ["2 land serve units for /home/tom/code/wisp/main: north-land@wisp-old.service, north-land@wisp.service"]);
 }
 
 const TIMER: (&str, &str, &str, &str) = ("north-runtime-follow.timer", "active", "waiting", "success");
@@ -204,7 +207,7 @@ fn a_remote_job_counts_once_with_its_wrapper_chain_and_orphaned_wrappers_still_c
     let mut proc = FakeProc::new();
     proc.sessions(2, 1);
     let north = north(LIVE);
-    proc.spawn("north", &[&north, "land", "serve", "--repo", "/home/tom/code/north/main"]);
+    proc.spawn_in("north-land@north.service", "north", &[&north, "land", "serve", "--repo", "/home/tom/code/north/main"]);
     for job in 0..65 {
         let check = proc.spawn("north", &[&north, "land", "checks", "--base", "b", "--head", &job.to_string()]);
         let deadline = proc.spawn_under(check, "north", &[&north, "capacity", "deadline", "-", "3600", "--", &north, "capacity", "offload", "run"]);

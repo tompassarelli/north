@@ -37,6 +37,10 @@ fn runs(program: &str, runtime: &str) -> bool {
     parts.any(|part| part == "runtimes") && parts.next() == Some(runtime)
 }
 
+fn lander_unit(unit: &str) -> bool {
+    unit.starts_with("north-land") && unit.ends_with(".service")
+}
+
 fn lander(argv: &[&str]) -> Option<String> {
     match argv {
         ["land", "serve", "--all"] => Some("all repositories".to_owned()),
@@ -48,7 +52,7 @@ fn lander(argv: &[&str]) -> Option<String> {
 enum Role<'a> {
     Resident(Resident),
     Watchdog { program: &'a str, session: &'a str },
-    Lander(String),
+    Lander { repo: String, unit: &'a str },
     Transient,
 }
 
@@ -67,18 +71,19 @@ impl<'a> Row<'a> {
         let (Some(pid), Some(parent), Some(age), Some(unit), Some(command)) = (fields.next(), fields.next(), fields.next(), fields.next(), fields.next()) else { return None };
         let argv: Vec<&str> = command.split('\t').collect();
         let (program, args) = (argv[0], argv[1..].to_vec());
-        let role = Self::role(program, &args);
+        let (unit, service) = if lander_unit(unit) { ("", unit) } else { (unit, "") };
+        let role = Self::role(program, &args, service);
         Some(Self { pid, parent, age: age.parse().unwrap_or(0), unit, args, role })
     }
 
-    fn role(program: &'a str, args: &[&'a str]) -> Role<'a> {
+    fn role(program: &'a str, args: &[&'a str], service: &'a str) -> Role<'a> {
         if let Some(resident) = Resident::of(args).filter(|_| promoted(program)) {
             return Role::Resident(resident);
         }
         match args {
             ["fleet", "watchdog", session, ..] => Role::Watchdog { program, session },
-            rest => match lander(rest).filter(|_| promoted(program)) {
-                Some(repo) => Role::Lander(repo),
+            rest => match lander(rest).filter(|_| promoted(program) && !service.is_empty()) {
+                Some(repo) => Role::Lander { repo, unit: service },
                 None => Role::Transient,
             },
         }
@@ -98,7 +103,7 @@ pub(super) struct NorthProcesses {
     residents: BTreeMap<Resident, u64>,
     sessions: BTreeSet<String>,
     watchdogs: BTreeMap<String, u64>,
-    landers: BTreeMap<String, u64>,
+    landers: BTreeMap<String, BTreeSet<String>>,
     stray: u64,
 }
 
@@ -120,7 +125,9 @@ impl NorthProcesses {
     fn count(&mut self, row: &Row, transient_pids: &BTreeSet<&str>, window: u64) {
         match &row.role {
             Role::Resident(resident) => self.resident(row, *resident),
-            Role::Lander(repo) => *self.landers.entry(repo.clone()).or_default() += 1,
+            Role::Lander { repo, unit } => {
+                self.landers.entry(repo.clone()).or_default().insert((*unit).to_owned());
+            }
             Role::Transient if !transient_pids.contains(row.parent) => {
                 *self.units.entry(row.unit.to_owned()).or_default() += 1;
                 self.outlasting += u64::from(row.unit.is_empty() && row.age >= window);
@@ -192,8 +199,8 @@ impl NorthProcesses {
         for (session, count) in self.watchdogs.iter().filter(|(_, count)| **count > 1) {
             problems.push(format!("{count} {WATCHDOG} processes of the live runtime for live session {session}"));
         }
-        for (repo, count) in self.landers.iter().filter(|(_, count)| **count > 1) {
-            problems.push(format!("{count} {LANDER} processes for {repo}"));
+        for (repo, units) in self.landers.iter().filter(|(_, units)| units.len() > 1) {
+            problems.push(format!("{} {LANDER} units for {repo}: {}", units.len(), units.iter().cloned().collect::<Vec<_>>().join(", ")));
         }
         problems.extend(self.ended_leaks());
         problems
@@ -202,7 +209,7 @@ impl NorthProcesses {
     pub(super) fn record(&self) -> Value {
         let mut residents: serde_json::Map<String, Value> = RESIDENTS.iter().map(|resident| (resident.name().to_owned(), json!(self.resident_count(*resident)))).collect();
         residents.insert(WATCHDOG.to_owned(), json!(self.watchdogs.values().sum::<u64>()));
-        residents.insert(LANDER.to_owned(), json!(self.landers.values().sum::<u64>()));
+        residents.insert(LANDER.to_owned(), json!(self.landers.values().map(BTreeSet::len).sum::<usize>()));
         json!({
             "transient": self.transient(),
             "outlasting": self.outlasting,
