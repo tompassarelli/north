@@ -148,28 +148,60 @@ fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_dir
     assert!(answered(&shown), "the relaunched session never answered the message: {shown}");
 }
 
+/// On 2026-11-11 a launch took 3.3 s from registration to its session host recorded live, 5.6 s at five at once, because the host was recorded live only after the launch's claims landed: here each claim waits for both launches' hosts to be recorded live.
 #[test]
-fn a_120_character_session_name_launches_and_answers_its_first_turn() {
+fn two_launches_at_once_one_with_a_120_character_name_record_their_hosts_live_before_their_claims_land_and_answer_their_first_turns() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "idle-interrupt");
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
-    let name: String = format!("north-1042-d0432-{}", "the-machine-refusal-detector-reads-the-refused-machine-".repeat(3)).chars().take(120).collect();
-    assert_eq!(name.len(), 120);
+    let long: String = format!("north-1042-d0432-{}", "the-machine-refusal-detector-reads-the-refused-machine-".repeat(3)).chars().take(120).collect();
+    assert_eq!(long.len(), 120);
+    let names = [long.as_str(), "narrow"];
+    let traces: Vec<String> = names.iter().map(|name| root.join(".local/state/north/fleet").join(name).join("hops.jsonl").display().to_string()).collect();
+    let live = traces.iter().map(|trace| format!("grep -q session-host {trace} 2>/dev/null")).collect::<Vec<_>>().join(" && ");
+    let saw = root.join("claims-saw");
+    fs::create_dir_all(root.join(".config/threads")).unwrap();
+    fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
+    fs::create_dir_all(root.join(".local/state/threads")).unwrap();
+    fs::copy(root.join("threads.db"), root.join(".local/state/threads/snapshot.db")).unwrap();
+    executable(&root.join("bin/north"), &format!("exec {} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_north")));
+    executable(
+        &root.join("bin/ssh"),
+        &format!(
+            "for word; do command=$word; done\ncase $command in *' claim '*)\n  i=0; while [ $i -lt 30 ] && ! {{ {live}; }}; do sleep 0.05; i=$((i+1)); done\n  if {live}; then echo live >> {saw}; else echo absent >> {saw}; fi;;\nesac\nTHREADS_DB={db} exec sh -c \"$command\"\n",
+            saw = saw.display(),
+            db = root.join("threads.db").display()
+        ),
+    );
 
-    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", &name, "--system-prompt", &brief, "start the box"]);
-    let stderr = text(&launched.stderr);
-    let mut shown = String::new();
+    let launches: Vec<_> = names
+        .iter()
+        .zip(["makgora#4", "makgora#5"])
+        .map(|(name, task)| {
+            let mut command = environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here");
+            command.env_remove("THREADS_DB").args(["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "reader", "--local", "launch order test", "--task", task, "--system-prompt", &brief, "start the box"]);
+            std::thread::spawn(move || command.output().unwrap())
+        })
+        .collect();
+    let launched: Vec<Output> = launches.into_iter().map(|launch| launch.join().unwrap()).collect();
+    let mut shown = Vec::new();
     let answered = north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
-        shown = text(&north(root, &["fleet", "show", &name]).stdout);
-        shown.contains("OK")
+        shown = names.iter().map(|name| text(&north(root, &["fleet", "show", name]).stdout)).collect();
+        shown.iter().all(|show| show.contains("OK"))
     });
-    north(root, &["fleet", "forget", &name]);
+    let claims = fs::read_to_string(&saw).unwrap_or_default();
+    for name in names {
+        north(root, &["fleet", "forget", name]);
+    }
 
-    assert!(launched.status.success(), "{stderr}");
-    assert!(answered, "the long-named session never answered its first turn: {shown}");
+    for output in &launched {
+        assert!(output.status.success(), "{}", text(&output.stderr));
+    }
+    assert!(!claims.is_empty() && claims.lines().all(|line| line == "live"), "a claim ran before both session hosts were recorded live: {claims:?}");
+    assert!(answered, "a session never answered its first turn: {shown:?}");
 }
 
 #[test]

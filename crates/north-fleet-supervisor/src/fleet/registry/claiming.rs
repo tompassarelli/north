@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::claim_releases;
@@ -11,6 +11,7 @@ use crate::fleet::runtime::now_ms;
 use crate::fleet::store::LAUNCH_GRACE_MS;
 
 use super::spooled::Holding;
+use super::starting::OpenedHost;
 use super::{Fleet, session_running};
 
 /// How many owners one `threads holder` read names, so a fleet with hundreds of exited sessions never asks for them all in a read the ledger cannot answer within its bound.
@@ -21,6 +22,12 @@ pub(super) fn never_started(record: &SessionRecord) -> bool {
     record.host_pid.is_none() && record.host_dir.as_os_str().is_empty() && now_ms().saturating_sub(record.created_ms) > LAUNCH_GRACE_MS
 }
 
+/// A host a launch opened beside its claims, if it opened one there.
+type Early = Option<NorthResult<OpenedHost>>;
+
+/// The wait on a launch's claims that its first turn takes.
+type ClaimGate<'a> = Box<dyn FnOnce() -> NorthResult<()> + 'a>;
+
 impl Fleet {
     /// Claims every task of a launch before its session starts: a live holder refuses it. A `--test` session claims nothing.
     pub(super) fn claim_before_start(&self, request: &LaunchRequest, tasks: &[String], verification: bool) -> NorthResult<()> {
@@ -28,6 +35,16 @@ impl Fleet {
             return Ok(());
         }
         self.claim_tasks(request.parent.as_deref(), &request.name, tasks)
+    }
+
+    /// The host a launch opened beside its claims and the claims still to wait on, unless the host failed to start and the claims were refused: the refusal is then the launch's answer, and the directory the host left is removed.
+    pub(super) fn refused_first<'a>(&self, opened: Early, claimed: impl FnOnce() -> NorthResult<()> + 'a, session_dir: &Path) -> NorthResult<(Early, ClaimGate<'a>)> {
+        let Some(Err(failed)) = opened else { return Ok((opened, Box::new(claimed))) };
+        if let Err(refused) = claimed() {
+            self.abandon_early(Some(Err(failed)), session_dir);
+            return Err(refused);
+        }
+        Ok((Some(Err(failed)), Box::new(|| Ok(()))))
     }
 
     /// Claims `tasks` for `name` under `parent`, leaving the whole-issue claims its ancestors hold and taking the boxes.

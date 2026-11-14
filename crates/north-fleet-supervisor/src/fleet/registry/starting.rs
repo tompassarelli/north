@@ -65,17 +65,26 @@ impl Fleet {
     }
 
     pub(super) fn go_live(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost) -> NorthResult<()> {
+        let live = self.record_live(record, opened)?;
+        self.open_conversation(record, opening, hooks, live)
+    }
+
+    /// [`Self::go_live`] for a fresh launch whose claims ran beside its host start: the host is recorded live first, and a refused claim ends it before the provider is sent anything.
+    pub(super) fn go_live_claimed(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost, claimed: impl FnOnce() -> NorthResult<()>) -> NorthResult<()> {
+        let live = self.record_live(record, opened)?;
+        if let Err(error) = claimed() {
+            live.abandon()?;
+            return Err(error);
+        }
+        self.open_conversation(record, opening, hooks, live)
+    }
+
+    /// Records the opened host live for the session, before its claims and its hooks verdict are in, so the host and its link count as up the moment they are; nothing reaches the provider but the handshake until [`Self::open_conversation`] has both.
+    fn record_live(&self, record: &mut SessionRecord, opened: OpenedHost) -> NorthResult<LiveHost> {
         let OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit } = opened;
         record.held_unit = held_unit;
-        let request = LaunchRequest::relaunching(record);
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
-        if let Some(reason) = hooks.verdict()? {
-            if started {
-                host.terminate()?;
-            }
-            return Err(NorthError::Refused(reason));
-        }
         if record.host_dir != host_dir {
             let _ = fs::remove_file(session_stream_path(&host_dir, &record.name));
             record.stream_offset = stream_len(&host_dir);
@@ -92,6 +101,17 @@ impl Fleet {
             _ => {}
         }
         self.start_watchdogs()?;
+        Ok(LiveHost { runtime, instructions, changed, host_dir, host, started })
+    }
+
+    /// Takes the hooks verdict and then sends the provider the session's opening frames: the first turn waits here on what the host start ran beside.
+    fn open_conversation(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, live: LiveHost) -> NorthResult<()> {
+        if let Some(reason) = hooks.verdict()? {
+            live.abandon()?;
+            return Err(NorthError::Refused(reason));
+        }
+        let LiveHost { runtime, instructions, changed, host_dir, host, started } = live;
+        let request = LaunchRequest::relaunching(record);
         let frames = runtime.open(&record.name, &request, opening, Instructions { text: &instructions, changed })?;
         if !frames.is_empty() {
             let opened_from = stream_len(&host_dir);
@@ -144,6 +164,22 @@ pub(super) struct OpenedHost {
 }
 
 impl OpenedHost {
+    pub(super) fn abandon(self) -> NorthResult<()> {
+        if self.started { self.host.terminate() } else { Ok(()) }
+    }
+}
+
+/// A session host recorded live whose provider has not yet been sent the session's opening frames.
+pub(super) struct LiveHost {
+    runtime: Arc<dyn Runtime>,
+    instructions: String,
+    changed: bool,
+    host_dir: PathBuf,
+    host: Host,
+    started: bool,
+}
+
+impl LiveHost {
     pub(super) fn abandon(self) -> NorthResult<()> {
         if self.started { self.host.terminate() } else { Ok(()) }
     }

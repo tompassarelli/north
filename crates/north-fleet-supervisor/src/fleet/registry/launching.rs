@@ -95,13 +95,12 @@ impl Fleet {
             let launched = self.succeed(&request.name, claim, |predecessor| {
                 record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
                 let tasks = predecessor.as_ref().filter(|predecessor| predecessor.carries_for(&request.tasks())).map_or_else(|| tasks.clone(), |predecessor| predecessor.carry_into(&mut record));
-                let claimed = self.claim_before_start(request, &tasks, verification);
-                let opened = joined();
-                if let Err(error) = claimed {
-                    self.abandon_early(opened, session_dir);
-                    return Err(error);
-                }
-                let brought = fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, opened, || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))));
+                let brought = std::thread::scope(|beside| {
+                    let claiming = beside.spawn(|| self.claim_before_start(request, &tasks, verification));
+                    let claimed = || claiming.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+                    let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
+                    Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))))
+                })?;
                 let Err(error) = brought else {
                     if let Err(error) = self.inherit_workers(request, &record) {
                         eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
@@ -149,7 +148,7 @@ impl Fleet {
     }
 
     /// Ends a host started beside a registration, start lock or claim that then failed, and removes the directory it ran in.
-    fn abandon_early(&self, opened: Option<NorthResult<OpenedHost>>, session_dir: &Path) {
+    pub(super) fn abandon_early(&self, opened: Option<NorthResult<OpenedHost>>, session_dir: &Path) {
         let Some(opened) = opened else { return };
         let ended = match opened {
             Ok(opened) => opened.abandon().and_then(|()| self.discard_failed_launch(session_dir)),
@@ -161,7 +160,7 @@ impl Fleet {
     }
 
     #[allow(clippy::too_many_arguments, reason = "the launch's parts the host start takes, each borrowed from launch_into")]
-    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, opened: Option<NorthResult<OpenedHost>>, prompt: impl FnOnce() -> (String, Option<Predicted>)) -> NorthResult<()> {
+    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, predecessor: Option<&Predecessor>, conversation: Option<&str>, hooks: HooksCheck, (opened, claimed): (Option<NorthResult<OpenedHost>>, impl FnOnce() -> NorthResult<()>), prompt: impl FnOnce() -> (String, Option<Predicted>)) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
                 remote::carry_conversation(self.runtime(record)?.as_ref(), request.machine.as_ref(), &self.profile(&LaunchRequest { machine: request.machine.clone(), ..LaunchRequest::relaunching(predecessor.record()) })?, account, kept)?;
@@ -170,8 +169,11 @@ impl Fleet {
             _ => fresh_opening(request, conversation),
         };
         match opened {
-            Some(opened) => self.go_live(record, opening, hooks, opened?)?,
-            None => self.start(record, account, opening, hooks)?,
+            Some(opened) => self.go_live_claimed(record, opening, hooks, opened?, claimed)?,
+            None => {
+                claimed()?;
+                self.start(record, account, opening, hooks)?;
+            }
         }
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
