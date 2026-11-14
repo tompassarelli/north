@@ -15,7 +15,6 @@ mod runner;
 mod screen;
 mod slash;
 mod state_clock;
-mod strip_view;
 mod view;
 
 #[cfg(test)]

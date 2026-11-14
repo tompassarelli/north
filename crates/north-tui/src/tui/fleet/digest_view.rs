@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use crate::fleet::board::money;
 use crate::fleet::books::{Landing, SessionSpend};
 use crate::fleet::gates::Gate;
+use crate::fleet::model::Status;
 use crate::foundation::clock::Timestamp;
 
 use super::desk::SessionSummary;
@@ -17,6 +18,16 @@ use super::screen::Screen;
 const MUTED: Style = Style::new().fg(Color::DarkGray);
 const BOLD: Style = Style::new().add_modifier(Modifier::BOLD);
 const KEY: Style = Style::new().fg(Color::Cyan);
+
+pub fn status_style(status: Status) -> Style {
+    match status {
+        Status::Working => Style::default().fg(Color::Green),
+        Status::Starting => Style::default().fg(Color::Cyan),
+        Status::Idle => Style::default().fg(Color::Gray),
+        Status::Parked => Style::default().fg(Color::Blue),
+        Status::Exited => Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+    }
+}
 
 pub fn draw_digest(frame: &mut Frame<'_>, screen: &mut Screen, area: Rect, now_ms: u64) {
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Cyan)).title(Span::styled(" digest ", BOLD));
@@ -112,7 +123,7 @@ fn session_lines(digest: &DigestPane, session: &SessionSummary, width: usize, no
     let task = one_line(facts.task.as_deref().unwrap_or("no task yet"), width.saturating_sub(indent.len() + name.chars().count() + status.len() + up.len() + 6));
     let headline = Line::from(vec![
         Span::styled(format!("  {indent}{name} "), BOLD),
-        Span::styled(status, super::strip_view::status_style(session.status)),
+        Span::styled(status, status_style(session.status)),
         Span::styled(up, MUTED),
         Span::styled(format!(" · {task}"), MUTED),
     ]);

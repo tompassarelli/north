@@ -7,6 +7,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 
 use super::desk::SessionSummary;
 use super::digest_view::digest_lines;
@@ -85,7 +86,7 @@ fn main_view_has_no_sessions_pane_and_no_glance_banner() {
     let rows: Vec<String> = buffer.content().chunks(200).map(|row| row.iter().map(|cell| cell.symbol()).collect()).collect();
     let text = rows.join("\n");
     assert!(!text.contains("sessions") && !text.contains("glance:"));
-    assert!(rows[0].starts_with("╭") && rows[0].trim_end().ends_with("╮") && rows[0].trim_end().chars().count() == 200);
+    assert!(!text.contains('╭') && !text.contains('╮'), "the chat pane has no border: {text}");
 }
 
 
@@ -131,16 +132,27 @@ fn a_reply_with_tabs_keeps_its_columns_apart() {
     assert_eq!(row, "• name    status  age");
 }
 
-fn frame_rows(screen: &mut Screen, width: u16) -> Vec<String> {
+fn frame_buffer(screen: &mut Screen, width: u16) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
     let mut painter = TranscriptPainter::default();
     terminal.draw(|frame| draw(frame, screen, None, &mut painter, 0)).unwrap();
-    let buffer = terminal.backend().buffer();
-    buffer.content().chunks(usize::from(width)).map(|row| row.iter().map(|cell| cell.symbol()).collect()).collect()
+    terminal.backend().buffer().clone()
+}
+
+fn rows_of(buffer: &Buffer) -> Vec<String> {
+    buffer.content().chunks(usize::from(buffer.area.width)).map(|row| row.iter().map(|cell| cell.symbol()).collect()).collect()
+}
+
+fn frame_rows(screen: &mut Screen, width: u16) -> Vec<String> {
+    rows_of(&frame_buffer(screen, width))
+}
+
+fn white_rule(buffer: &Buffer, row: u16) -> bool {
+    (0..buffer.area.width).all(|x| buffer[(x, row)].symbol() == "─" && buffer[(x, row)].fg == Color::White)
 }
 
 #[test]
-fn the_main_view_names_each_session_and_the_focused_pane() {
+fn the_main_view_is_the_chat_under_white_rules_with_its_title_on_the_status_row() {
     let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
     let empty = frame_rows(&mut screen, 80).join("\n");
     assert!(empty.contains("Ctrl+N starts one"), "{empty}");
@@ -148,16 +160,19 @@ fn the_main_view_names_each_session_and_the_focused_pane() {
     screen.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     screen.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     screen.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    let strip = |screen: &mut Screen| frame_rows(screen, 80).into_iter().find(|row| row.contains("alpha")).unwrap_or_default();
-    let row = strip(&mut screen);
-    assert!(row.contains("alpha") && row.contains("working") && row.contains("▸beta") && row.contains("idle"), "{row}");
-    assert!(!row.contains("▸alpha"), "{row}");
-    assert!(row.contains("keys: composer"), "{row}");
-    screen.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(strip(&mut screen).contains("keys: session list"));
+    let buffer = frame_buffer(&mut screen, 80);
+    let rows = rows_of(&buffer);
+    let all = rows.join("\n");
+    let status = rows.last().unwrap();
+    assert!(status.contains("beta") && status.contains("idle") && status.contains("/code/beta") && status.contains("? for shortcuts"), "{all}");
+    assert!(!status.contains("alpha"), "{all}");
+    assert!(rows.iter().all(|row| !row.contains("alpha") && !row.contains("keys:")), "{all}");
+    let prompt = u16::try_from(rows.iter().position(|row| row.starts_with("> ")).unwrap()).unwrap();
+    assert!(white_rule(&buffer, prompt - 1) && white_rule(&buffer, prompt + 1), "{all}");
+    assert_eq!((buffer[(0_u16, prompt)].symbol(), buffer[(0_u16, prompt)].fg), (">", Color::White), "{all}");
     screen.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
     screen.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
-    assert!(strip(&mut screen).contains("keys: session list"), "closing the digest returns focus to where it was");
+    assert!(frame_rows(&mut screen, 80).last().unwrap().contains("beta"), "closing the digest brings the chat back with its title");
 }
 
 #[test]

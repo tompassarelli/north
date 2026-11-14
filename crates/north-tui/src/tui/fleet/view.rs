@@ -7,9 +7,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 use crate::fleet::model::{Account, Effort, SessionRecord, Status, Transcript};
 
 use super::form::{Field, LaunchForm};
-use super::screen::{Dialog, Focus, Notice, Screen};
-use super::digest_view::draw_digest;
-use super::strip_view::{draw_strip, status_style};
+use super::screen::{Dialog, Notice, Screen};
+use super::digest_view::{draw_digest, status_style};
 use super::help_view::{draw_help, rows as help_rows};
 use super::painter::TranscriptPainter;
 
@@ -19,21 +18,20 @@ const COMPOSER: Style = Style::new().fg(Color::Rgb(229, 231, 235));
 pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, now_ms: u64) {
     let width = frame.area().width.saturating_sub(4).max(1);
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
-    let ceiling = frame.area().height.saturating_sub(composer_rows + 2 + 1 + 6).max(6);
-    let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 1 + 3));
+    let ceiling = frame.area().height.saturating_sub(composer_rows + 2 + 6).max(6);
+    let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 3));
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(1), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
+        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
         .split(frame.area());
     if screen.digest.shown {
         draw_digest(frame, screen, rows[0], now_ms);
     } else {
-        draw_transcript(frame, screen, transcript, painter, rows[0], now_ms);
+        draw_transcript(frame, screen, transcript, painter, rows[0]);
     }
-    draw_strip(frame, screen, rows[1]);
-    draw_composer(frame, screen, rows[2]);
-    draw_help(frame, screen, rows[3]);
-    draw_status(frame, screen, rows[4]);
+    draw_composer(frame, screen, rows[1]);
+    draw_help(frame, screen, rows[2]);
+    draw_status(frame, screen, transcript, rows[3], now_ms);
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),
@@ -67,37 +65,41 @@ fn elapsed(millis: u64) -> String {
     }
 }
 
-fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, area: Rect, now_ms: u64) {
+fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, area: Rect) {
     let Some(session) = screen.selected_session() else {
-        frame.render_widget(pane(Line::from(" transcript "), false), area);
+        if screen.sessions.is_empty() {
+            frame.render_widget(Paragraph::new(Span::styled("no sessions yet · Ctrl+N starts one", MUTED)), area);
+        }
         return;
     };
     let record = &session.record;
+    let pending = screen.pending_for(&record.name);
+    let lines = painter.lines(&record.name, transcript, &pending, area.width);
+    let width = usize::from(area.width.max(1));
+    let count: usize = lines.iter().map(|line| line.width().max(1).div_ceil(width)).sum();
+    let limit = u16::try_from(count.saturating_sub(usize::from(area.height))).unwrap_or(u16::MAX);
+    screen.measure_viewport(area.height, limit);
+    let text = Text::from(lines.to_vec());
+    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((limit - screen.scroll, 0)), area);
+}
+
+fn session_title(screen: &Screen, transcript: Option<&Transcript>, now_ms: u64) -> Vec<Span<'static>> {
+    let Some(session) = screen.selected_session() else {
+        return Vec::new();
+    };
+    let record = &session.record;
     let mut title = vec![
-        Span::styled(format!(" {} ", record.name), Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{} ", record.name), Style::default().add_modifier(Modifier::BOLD)),
         Span::styled(format!("{} ", session.phase.label()), status_style(session.status)),
         Span::styled(format!("· {} ", record.cwd.display()), MUTED),
     ];
-    if let Some(model) = &record.model {
-        title.push(Span::styled(format!("· {model} "), MUTED));
-    }
     if let Some(started) = transcript.and_then(Transcript::turn_started_ms).filter(|_| session.status == Status::Working) {
         title.push(Span::styled(format!("· {} ", elapsed(now_ms.saturating_sub(started))), Style::default().fg(Color::Green)));
     }
     if screen.scroll > 0 {
         title.push(Span::styled(format!("· ↑{} ", screen.scroll), Style::default().fg(Color::Yellow)));
     }
-    let block = pane(Line::from(title), false);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let pending = screen.pending_for(&record.name);
-    let lines = painter.lines(&record.name, transcript, &pending, inner.width);
-    let width = usize::from(inner.width.max(1));
-    let count: usize = lines.iter().map(|line| line.width().max(1).div_ceil(width)).sum();
-    let limit = u16::try_from(count.saturating_sub(usize::from(inner.height))).unwrap_or(u16::MAX);
-    screen.measure_viewport(inner.height, limit);
-    let text = Text::from(lines.to_vec());
-    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((limit - screen.scroll, 0)), inner);
+    title
 }
 
 fn draw_composer(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
@@ -108,22 +110,29 @@ fn draw_composer(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
         (None, Some(_)) => String::new(),
         (None, None) => " no session ".to_owned(),
     };
-    let rule = if screen.focus == Focus::Composer && screen.dialog.is_none() { Style::default().fg(Color::Cyan) } else { MUTED };
-    let block = Block::default().borders(Borders::TOP | Borders::BOTTOM).border_type(BorderType::Plain).border_style(rule).title(Line::from(target)).style(COMPOSER);
+    let block = Block::default().borders(Borders::TOP | Borders::BOTTOM).border_type(BorderType::Plain).border_style(Style::default().fg(Color::White)).title(Line::from(target)).style(COMPOSER);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    frame.render_widget(Paragraph::new(Span::styled("❯ ", COMPOSER.fg(Color::Cyan))), Rect { width: inner.width.min(2), ..inner });
+    frame.render_widget(Paragraph::new(Span::styled("> ", Style::default().fg(Color::White))), Rect { width: inner.width.min(2), ..inner });
     if inner.width > 2 {
         frame.render_widget(&screen.composer, Rect { x: inner.x + 2, width: inner.width - 2, ..inner });
     }
 }
 
-fn draw_status(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
+fn draw_status(frame: &mut Frame<'_>, screen: &Screen, transcript: Option<&Transcript>, area: Rect, now_ms: u64) {
     let line = match (screen.confirmation(), &screen.notice) {
         (Some(question), _) => Line::from(Span::styled(question, Style::default().fg(Color::Yellow))),
         (None, Some(Notice::Error(message))) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Red))),
         (None, Some(Notice::Info(message))) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Yellow))),
-        (None, None) => Line::from(Span::styled("? for shortcuts", MUTED)),
+        (None, None) => {
+            let mut spans = vec![Span::styled("? for shortcuts", MUTED)];
+            let title = if screen.digest.shown { Vec::new() } else { session_title(screen, transcript, now_ms) };
+            if !title.is_empty() {
+                spans.push(Span::raw("  "));
+                spans.extend(title);
+            }
+            Line::from(spans)
+        }
     };
     frame.render_widget(Paragraph::new(line), area);
     if let Some(session) = screen.selected_session().filter(|_| screen.notice.is_none() && screen.confirmation().is_none()) {
