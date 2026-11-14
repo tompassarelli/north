@@ -21,6 +21,7 @@ mod remove;
 mod reference_search;
 mod repo;
 mod rescue;
+mod rewritten;
 mod stray;
 mod target_seed;
 mod target_subvolume;

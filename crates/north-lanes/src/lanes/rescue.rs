@@ -5,10 +5,11 @@ use std::time::{Duration, SystemTime};
 use time::OffsetDateTime;
 
 use super::repo::{find_container, git_checked, git_ok, git_out};
+use super::rewritten::{self, Followed};
 use super::unpushed;
 use north_base::platform::process;
 
-const USAGE: &str = "Usage: north lane rescue [path] [--dry-run]
+const USAGE: &str = "Usage: north lane rescue [path] [--dry-run] [--rewritten]
 
 Relocate a dirty main checkout's tracked + untracked (non-ignored) changes
 into a new worktree/branch under <container>/worktrees/, verify it byte-for-byte,
@@ -18,9 +19,15 @@ A clean main checkout holding commits origin/main lacks (after fetching origin
 main) has them saved on a keep/ branch, reusing one that already contains HEAD,
 and main is reset to origin/main; the branch and main are verified afterwards.
 
+With --rewritten, a clean main checkout on main is moved onto origin/main even when
+that is not its descendant, as after a history rewrite, only when both hold
+the same tree; it refuses a dirty checkout or a differing tree, saves nothing
+on a keep/ branch, and touches no file.
+
   (no path)   operate on the container of the current directory
   path        operate on the container reached from this path instead
-  --dry-run   print the plan (files, destination) without acting";
+  --dry-run   print the plan (files, destination) without acting
+  --rewritten follow a rewritten origin/main that keeps the tree";
 const APPLY_LIMIT: Duration = Duration::from_secs(120);
 
 pub(super) struct Rescue {
@@ -31,6 +38,7 @@ pub(super) struct Rescue {
 
 pub(super) struct Arguments {
     dry_run: bool,
+    rewritten: bool,
     path: Option<String>,
 }
 
@@ -93,6 +101,9 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("lane rescue: no such directory '{}'\n{USAGE}", start.display());
         return 2;
     };
+    if parsed.rewritten {
+        return follow_rewrite(&start, parsed.dry_run);
+    }
     match rescue.rescue(&start, parsed.dry_run) {
         Finished::Done(line) => {
             println!("{line}");
@@ -114,18 +125,22 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 fn parse(arguments: &[String]) -> Result<Option<Arguments>, String> {
-    let mut parsed = Arguments { dry_run: false, path: None };
+    let mut parsed = Arguments { dry_run: false, rewritten: false, path: None };
     for argument in arguments {
         match argument.as_str() {
             "-h" | "--help" => return Ok(None),
-            "--dry-run" if parsed.dry_run => return Err("duplicate --dry-run".into()),
-            "--dry-run" => parsed.dry_run = true,
+            "--dry-run" | "--rewritten" => set_once(&mut parsed, argument)?,
             flag if flag.starts_with('-') => return Err(format!("unknown argument '{flag}'")),
             _ if parsed.path.is_some() => return Err("too many arguments".into()),
             path => parsed.path = Some(path.to_string()),
         }
     }
     Ok(Some(parsed))
+}
+
+fn set_once(parsed: &mut Arguments, flag: &str) -> Result<(), String> {
+    let field = if flag == "--dry-run" { &mut parsed.dry_run } else { &mut parsed.rewritten };
+    if std::mem::replace(field, true) { Err(format!("duplicate {flag}")) } else { Ok(()) }
 }
 
 pub(super) fn apply_diff(rescue_dir: &Path, diff: &[u8]) -> bool {
@@ -397,4 +412,17 @@ fn restore(main_dir: &Path, changes: &Changes) {
         let mut directory = main_dir.join(file);
         while directory.pop() && directory.starts_with(main_dir) && fs::remove_dir(&directory).is_ok() {}
     }
+}
+
+fn follow_rewrite(start: &Path, dry_run: bool) -> u8 {
+    match rewritten::follow(start, dry_run) {
+        Ok(Followed::Moved(line)) => println!("lane rescue: moved {line}"),
+        Ok(Followed::Plan(line)) => println!("lane rescue: DRY RUN — would move {line}"),
+        Ok(Followed::Already) => println!("lane rescue: main already equals origin/main"),
+        Err(message) => {
+            eprintln!("lane rescue --rewritten: {message}; main is UNTOUCHED");
+            return 1;
+        }
+    }
+    0
 }

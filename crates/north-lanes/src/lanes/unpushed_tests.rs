@@ -1,10 +1,11 @@
 use std::fs;
 
 use super::rescue::{Finished, Rescue, apply_diff};
+use super::rewritten::{Followed, follow};
 use north_base::test_inputs::git::{git_in, init_repo};
 
 #[test]
-fn a_clean_main_ahead_of_origin_keeps_its_commits_on_a_keep_branch_and_resets() {
+fn a_clean_main_ahead_of_origin_keeps_its_commits_on_a_keep_branch_and_follows_a_rewrite_only_when_it_keeps_the_tree_north_1281() {
     let root = tempfile::tempdir().unwrap();
     let base = root.path().canonicalize().unwrap();
     let main = base.join("main");
@@ -68,4 +69,19 @@ fn a_clean_main_ahead_of_origin_keeps_its_commits_on_a_keep_branch_and_resets() 
     };
     assert_eq!(git_in(&main, &["rev-parse", "HEAD"]), origin);
     assert_eq!(keeps(), keep);
+
+    let rewritten = git_in(&main, &["commit-tree", "HEAD^{tree}", "-m", "rewritten root"]);
+    git_in(&main, &["push", "-q", "--force", "origin", &format!("{rewritten}:refs/heads/main")]);
+    fs::write(main.join("loose.txt"), "loose\n").unwrap();
+    assert!(follow(&main, false).is_err());
+    assert_eq!(git_in(&main, &["rev-parse", "HEAD"]), origin);
+    fs::remove_file(main.join("loose.txt")).unwrap();
+    assert!(matches!(follow(&main, false), Ok(Followed::Moved(_))));
+    assert_eq!(git_in(&main, &["rev-parse", "HEAD"]), rewritten);
+    assert_eq!(git_in(&main, &["status", "--porcelain"]), "");
+
+    let diverged = git_in(&main, &["commit-tree", &format!("{keep}^{{tree}}"), "-m", "different tree"]);
+    git_in(&main, &["push", "-q", "--force", "origin", &format!("{diverged}:refs/heads/main")]);
+    assert!(follow(&main, false).is_err());
+    assert_eq!(git_in(&main, &["rev-parse", "HEAD"]), rewritten);
 }
