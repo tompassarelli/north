@@ -55,7 +55,9 @@ fn a_failing_unit_names_its_own_cause_under_one_condition_on_every_check_and_its
     assert_eq!(told, Told::default());
 
     assert_eq!(tick(&mut told, &journal(3, &goals)), failing(3, "start operation timed out"));
-    let started = format!("{}\n{}", journal(3, &goals), json!({"USER_UNIT": UNIT, "SYSLOG_IDENTIFIER": "systemd", "MESSAGE": format!("Started {UNIT}.")}));
+    let succeeded = |word: &str| format!("{}\n{}", journal(3, &goals), json!({"USER_UNIT": UNIT, "SYSLOG_IDENTIFIER": "systemd", "MESSAGE": format!("{word} {UNIT}.")}));
+    assert!(scan(&succeeded("Finished")).is_empty(), "a oneshot unit that finished after its last failure clears the failed-start streak");
+    let started = succeeded("Started");
     assert!(scan(&started).is_empty(), "a successful start after the last failure clears the failed-start streak");
     assert_eq!(tick(&mut told, &started), recovered, "a unit that started since its last failure is sent as recovered, not as failing");
 }

@@ -42,7 +42,7 @@ pub(super) fn scan(journal: &str) -> Vec<Failing> {
             let own = message.strip_prefix(unit).and_then(|rest| rest.strip_prefix(": ")).unwrap_or("");
             if message.starts_with("Failed to start") {
                 seen.count += 1;
-            } else if message.starts_with("Started ") {
+            } else if message.starts_with("Started ") || message.starts_with("Finished ") {
                 seen.started();
             } else if own.starts_with("start operation timed out") {
                 seen.timed_out = true;

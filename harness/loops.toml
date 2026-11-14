@@ -95,7 +95,7 @@ decision = "whether a fresh worker launch's first prompt carries grounding: the 
 sites = ["crates/north-fleet/src/fleet/brief_grounding.rs", "crates/north-fleet-supervisor/src/fleet/registry/grounding.rs", "crates/north-fleet-supervisor/src/fleet/registry/launching.rs"]
 updated_by = "north fleet launch puts the full query pack in every grounded-arm code-change brief (every one after the draw ends) and draws the arms in equal seeded shares until 2026-11-26, and experiment grounding-g2 in docs/rationale/experiments.toml keeps or deletes the grounded arm"
 cadence_hours = 24
-owner = "north#1147 A fleet worker's brief carries graph grounding as of its base commit"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 constants = [
   "crates/north-fleet/src/fleet/brief_grounding.rs::DEADLINE",
   "crates/north-fleet-supervisor/src/fleet/registry/grounding.rs::UNTIL_MS",
@@ -107,7 +107,7 @@ decision = "the files put into a first prompt for a brief that names none: the c
 sites = ["crates/north-fleet/src/fleet/file_prediction.rs", "crates/north-fleet/src/fleet/brief_files.rs", "crates/north-fleet-supervisor/src/fleet/registry/launching.rs"]
 updated_by = "experiment G1 and G2 of north#1147 on the launch path; the model, the map's size, the caps and the deadline are set by hand until the live draw settles them"
 cadence_hours = 24
-owner = "north#1147 A fleet worker's brief carries graph grounding as of its base commit"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 constants = [
   "crates/north-fleet/src/fleet/file_prediction.rs::DEADLINE",
 ]
@@ -237,7 +237,7 @@ decision = "how many lanes the lander tries in one round"
 sites = ["crates/north-lander/src/land/serve.rs"]
 updated_by = "north land serve"
 cadence_hours = 24
-owner = "north#1247"
+owner = "hand-set by decision, docs/rationale/learning-loops.md"
 
 constants = [
   "crates/north-landing/src/land/heartbeat.rs::LOOK",
