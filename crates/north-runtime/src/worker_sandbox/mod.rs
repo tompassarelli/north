@@ -365,9 +365,9 @@ pub fn checked_shell(program: &[String]) -> Command {
     shell
 }
 
-/// Whether this process runs inside a worker sandbox's Landlock domain, read from the no-new-privileges flag the kernel set when the domain was applied, which no process below it can clear.
+/// Whether this process runs inside a worker sandbox's Landlock domain, asked of the kernel as the no-new-privileges flag it set when the domain was applied, which no process below it can clear; asked by prctl, since a /proc mounted for another PID namespace has no /proc/self to read.
 pub fn confined() -> bool {
-    std::fs::read_to_string("/proc/self/status").is_ok_and(|status| status.lines().any(|line| line.split_whitespace().eq(["NoNewPrivs:", "1"])))
+    rustix::thread::no_new_privs().unwrap_or(true)
 }
 
 /// Runs `program` without the domain's rule against executing build output, keeping its other rules, when called inside a worker sandbox; `None` outside one, where nothing refuses it.
