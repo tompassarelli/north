@@ -11,19 +11,28 @@ use crate::test_file::is_test_file;
 use crate::{Range, git, holdlist};
 
 const SELF: &str = "review-accept";
-const REVERTS: &str = "This reverts commit ";
+const REVERTS: [&str; 2] = ["This reverts commit ", "Reverts: "];
 
 fn changed(directory: &Path, fork: &str, head: &str) -> Option<Vec<String>> {
     git::text(directory, &["diff", "--name-only", "--no-renames", fork, head]).map(|names| names.lines().map(str::to_owned).collect())
 }
 
-/// Whether the lane's patch `patch` is, exactly, the reverse of a commit a message of the lane names with git's `This reverts commit` line.
-fn reverts(directory: &Path, fork: &str, head: &str, patch: &str) -> bool {
-    git::messages(directory, fork, head)
+/// The commits on main below `fork` whose exact reverse is the lane's patch `patch`, named by git's `This reverts commit` line or
+/// the lander's and sheriff's `Reverts:` trailers: one named commit, or the range from the first named to the last, as the lander
+/// names each commit of a reverted lane oldest first. A named commit of the lane itself is no revert of main and counts for nothing.
+pub(crate) fn reverted(directory: &Path, fork: &str, head: &str, patch: &str) -> Option<Vec<String>> {
+    let messages = git::messages(directory, fork, head);
+    let named: Vec<&str> = messages
         .lines()
-        .filter_map(|line| line.strip_prefix(REVERTS))
+        .filter_map(|line| REVERTS.iter().find_map(|prefix| line.strip_prefix(prefix)))
         .filter_map(|reverted| reverted.split(|c: char| !c.is_ascii_hexdigit()).next())
-        .any(|reverted| patch_id(directory, reverted, &format!("{reverted}^")).is_ok_and(|reverse| reverse == patch))
+        .filter(|reverted| !reverted.is_empty() && git::text(directory, &["merge-base", "--is-ancestor", reverted, fork]).is_some())
+        .collect();
+    let reverse = |newest: &str, oldest: &str| patch_id(directory, newest, &format!("{oldest}^")).is_ok_and(|reverse| reverse == patch);
+    if let Some(one) = named.iter().find(|reverted| reverse(reverted, reverted)) {
+        return Some(vec![(*one).to_owned()]);
+    }
+    named.first().zip(named.last()).filter(|(oldest, newest)| reverse(newest, oldest)).map(|_| named.iter().map(|reverted| (*reverted).to_owned()).collect())
 }
 
 /// Whether the finish call `finished` handed in a commit of the lane `fork..head`, or one whose patch the lane holds under another commit, as when the lander rebases it.
@@ -57,7 +66,7 @@ pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finish
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
     let two = trust_boundary::needing_two(&files).unwrap_or_default();
     let speed_cut = two.is_empty() && live_fix(&git::messages(directory, &fork, head)).is_some();
-    let needed = if speed_cut || files.iter().all(is_test_file) || reverts(directory, &fork, head, &patch) { 1 } else { 2 };
+    let needed = if speed_cut || files.iter().all(is_test_file) || reverted(directory, &fork, head, &patch).is_some() { 1 } else { 2 };
     if accepted.len() >= needed {
         return Ok(());
     }

@@ -57,4 +57,16 @@ fn a_lane_that_changes_a_safe_push_key_lands_only_with_a_review_accept_that_a_co
 
     record("reviewer-a");
     assert_eq!(check(&repo, &base, &removed, &accepts, std::slice::from_ref(&author)), Ok(()), "a recorded reviewer pass admits the lane");
+
+    let reverted = commit(&repo, &[(SETTINGS, "[land]\n\tcheck = . :: cargo test\n\tcheck = . :: cargo clippy\n[landing]\n\tqueue = lander\n")], &format!("Revert drop clippy\n\nReverts: {removed}"));
+    assert_eq!(check(&repo, &removed, &reverted, &Accepts(root.path().join("none")), &[]), Ok(()), "the lander's exact revert of a key change needs no accept, so a red main can always be reverted");
+    let pretend = commit(&repo, &[(SETTINGS, "[land]\n\tcheck = . :: cargo fmt\n")], &format!("Revert\n\nReverts: {removed}"));
+    assert!(check(&repo, &reverted, &pretend, &Accepts(root.path().join("none")), &[]).is_err(), "a Reverts: trailer on a patch that is no revert grants nothing");
+
+    git_in(&repo, &["reset", "-q", "--hard", &reverted]);
+    let tightened = "[land]\n\tcheck = . :: cargo test\n\tcheck = . :: cargo clippy\n\tcheck = . :: cargo fmt\n[landing]\n\tqueue = lander\n";
+    commit(&repo, &[(SETTINGS, tightened)], "add fmt");
+    let dropped = commit(&repo, &[(SETTINGS, "[land]\n\tcheck = . :: cargo test\n\tcheck = . :: cargo clippy\n[landing]\n\tqueue = lander\n")], "drop fmt");
+    let readded = commit(&repo, &[(SETTINGS, tightened)], &format!("Revert drop fmt\n\nReverts: {dropped}"));
+    assert!(check(&repo, &reverted, &readded, &Accepts(root.path().join("none")), &[]).is_err(), "a lane that reverts its own commit is no revert of main, so its key change needs an accept");
 }

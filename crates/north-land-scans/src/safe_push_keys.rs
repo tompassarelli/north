@@ -9,6 +9,9 @@ use crate::{Range, git, holdlist, review_accept};
 
 const SELF: &str = "safe-push-keys";
 const SETTINGS: &str = ".safe-push";
+/// A guess: the sheriff searches back from the last green landing and the walk-back 16 landings past that, so 64 first-parent landings
+/// cover every red-main revert seen on 2026-11-14; the oldest landing a lander revert names would settle it.
+const RECENT: usize = 64;
 
 type Keys = BTreeMap<String, Vec<String>>;
 
@@ -28,11 +31,19 @@ fn changed(directory: &Path, base: &str, head: &str) -> Vec<String> {
     names.into_iter().filter(|name| before.get(*name) != after.get(*name)).cloned().collect()
 }
 
-/// `Err` is a lane that changes a key of `.safe-push` and holds no review accept of its patch id from a reviewer session that did not author it; a reviewer a commit message names grants nothing, since only a recorded accept counts.
+/// Whether the lane is the exact revert of landings among the newest `RECENT` on main's first-parent line below `fork`, as the
+/// lander's and sheriff's red-main reverts are; reverting an older tightening of `.safe-push` still needs an accept.
+fn recent_revert(directory: &Path, fork: &str, head: &str) -> bool {
+    let Some(commits) = patch_id(directory, fork, head).ok().and_then(|patch| review_accept::reverted(directory, fork, head, &patch)) else { return false };
+    let newest = git::text(directory, &["rev-list", "--first-parent", &format!("--max-count={RECENT}"), fork]).unwrap_or_default();
+    commits.iter().all(|commit| newest.lines().any(|landed| landed.starts_with(commit.as_str())))
+}
+
+/// `Err` is a lane that changes a key of `.safe-push` and holds no review accept of its patch id from a reviewer session that did not author it; a reviewer a commit message names grants nothing, since only a recorded accept counts, and an exact revert needs none, since it restores lines main already held.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
     let changed = changed(directory, &fork, head);
-    if changed.is_empty() {
+    if changed.is_empty() || recent_revert(directory, &fork, head) {
         return Ok(());
     }
     let (patch, accepted) = review_accept::reviewers(directory, &fork, head, accepts, finished)?;

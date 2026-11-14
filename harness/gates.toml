@@ -87,6 +87,14 @@ correct = 1
 [gate.review-accept]
 mode = "shadow"
 
-# A lane that changes a key of .safe-push is judged by the check and landing lines of the landing base's .safe-push, not its own, and lands only with a review accept of its patch id from a reviewer session that did not author it (`north runtime accept`, north#1287). A reviewer named in the commit message grants nothing. Would-be refusals: $XDG_STATE_HOME/north/gates/safe-push-keys.jsonl, keyed by lane head and patch id, on the host that runs the lane's checks before queueing, which every road to the lander runs. It enforces only after a shadow run has named a real lane.
+# A lane that changes a key of .safe-push is judged by the check and landing lines of the landing base's .safe-push, not its own, and lands only with a review accept of its patch id from a reviewer session that did not author it (`north runtime accept`, north#1287). A reviewer named in the commit message grants nothing. An exact revert, by git's `This reverts commit` line or the lander's and sheriff's `Reverts:` trailers, needs none, since it restores lines main already held, so a red main can always be reverted. Shadow rows: $XDG_STATE_HOME/north/gates/safe-push-keys.jsonl on the host that runs the lane's checks before queueing, which every road to the lander runs. The 2026-11-14 review (north#1544) read 166 decisions on cpx62, where 9 would-be refusals over 6 lanes each changed a .safe-push key with no accept, and the last day on cpx62b, where 8 more refused lane heads did the same; no refusal named a lane that left the keys alone. Gate 260 decided it enforces.
 [gate.safe-push-keys]
-mode = "shadow"
+mode = "enforce"
+
+[gate.safe-push-keys.review]
+reviewed = "2026-11-14"
+by = "gates-lead"
+issue = "north#1544"
+hosts = ["cpx62", "cpx62b"]
+decisions = 166
+correct = 17
