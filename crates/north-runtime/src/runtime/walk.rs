@@ -8,6 +8,7 @@ use super::pin::{Event, note, now};
 use super::probe::Shell;
 use super::review_hold::{self, Screen};
 use crate::platform::host;
+use north_offload::land_offload::{self, Deployment};
 use std::fs;
 use std::process::Command;
 
@@ -86,15 +87,40 @@ pub(super) fn walk_of(layout: &Layout, host: &str, live: Option<&str>, judged: O
     }
 }
 
-/// Ships the walked runtime to the other hosts, or nothing when it has not walked the spine here or `screen` refuses it (a reviewer's hold, or an after-landing run not ended green).
-pub(super) fn ship_if_walked<T>(walk: Result<String, String>, screen: &Screen, ship: impl FnOnce(&str) -> Result<T, Failure>) -> Result<Option<T>, Failure> {
-    match walk.and_then(|sha| screen.promotion(&sha, review_hold::now()).map(|_| sha)) {
-        Ok(sha) => ship(&sha).map(Some),
+/// Ships the walked runtime to each other deploy host that no standing hold names, or nothing when it has not walked the spine here or `screen` refuses it on this host (a reviewer's hold naming this host, or an after-landing run not ended green). A host a hold names is left out as `order --except` leaves it out: recorded in runtime-pins.jsonl and printed with its hold.
+pub(super) fn ship_if_walked<T>(layout: &Layout, walk: Result<String, String>, screen: &Screen, ship: impl FnOnce(&str, &[String]) -> Result<T, Failure>) -> Result<Option<T>, Failure> {
+    let here = host::name();
+    let held_at = review_hold::now();
+    match walk.and_then(|sha| screen.order(&sha, &[here.as_str()], held_at).map(|_| sha)) {
+        Ok(sha) => {
+            let (kept, left_out) = held_out(&land_offload::deployment(), screen, &sha, held_at);
+            for (destination, why) in &left_out {
+                println!("north runtime: not shipped to {destination}: {why}");
+                note(layout, &Event::LeftOut { sha: sha.clone(), host: destination.clone(), orderer: here.clone(), reason: why.clone(), at: now() });
+            }
+            if kept.is_empty() && !left_out.is_empty() {
+                return Ok(None);
+            }
+            ship(&sha, &kept).map(Some)
+        }
         Err(why) => {
             println!("north runtime: not shipped to the other hosts: {why}");
             Ok(None)
         }
     }
+}
+
+/// The destinations of the deploy hosts `screen` lets `sha` ship to, and those a standing hold names with its refusal. The settling host's own screen has already refused every hold naming no host, so only a hold naming a deploy host leaves it out.
+fn held_out(plan: &Deployment, screen: &Screen, sha: &str, at: u64) -> (Vec<String>, Vec<(String, String)>) {
+    let mut kept = Vec::new();
+    let mut left_out = Vec::new();
+    for (name, destination) in plan.names.iter().zip(&plan.destinations) {
+        match screen.order(sha, &[name.as_str()], at) {
+            Ok(_) => kept.push(destination.clone()),
+            Err(why) => left_out.push((destination.clone(), why)),
+        }
+    }
+    (kept, left_out)
 }
 
 #[cfg(test)]

@@ -233,11 +233,6 @@ impl Screen {
         self.screened(head, &|host| host.is_none_or(|host| hosts.contains(&host)), now)
     }
 
-    /// The slot and Live-fix promotions ship to every host after the settling host, so a standing hold naming any host refuses them.
-    pub(crate) fn promotion(&self, head: &str, now: u64) -> Result<Vec<String>, String> {
-        self.screened(head, &|_| true, now)
-    }
-
     fn screened(&self, head: &str, applies: &dyn Fn(Option<&str>) -> bool, now: u64) -> Result<Vec<String>, String> {
         if let Some(why) = (self.after_landing)(head).refusal() {
             return Err(format!("{} has not ended its after-landing run green: {why}", layout::short(head)));

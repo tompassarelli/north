@@ -115,8 +115,9 @@ fn walk_and_ship(layout: &Layout, hosts: &[Shell], checkout: &Path) -> probe::Fa
     let follow = walk.is_ok();
     let shipped = std::thread::scope(|scope| {
         let following = follow.then(|| scope.spawn(|| follow::follow_lander(layout)));
-        let shipped = walk::ship_if_walked(walk, &Screen::here(checkout), |here| {
-            ship_behind(&hosts[1..], here, &layout.runtime(here), checkout);
+        let shipped = walk::ship_if_walked(layout, walk, &Screen::here(checkout), |here, kept| {
+            let behind: Vec<&Shell> = hosts[1..].iter().filter(|host| kept.iter().any(|destination| destination == host.name())).collect();
+            ship_behind(&behind, here, &layout.runtime(here), checkout);
             Ok(())
         });
         if let Some(handle) = following {
@@ -146,7 +147,7 @@ fn canaries_at_once() -> bool {
     north_base::platform::harness::document(north_base::platform::harness::DEFAULTS).get("settle_remote_canaries_at_once").and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true)
 }
 
-fn ship_behind(hosts: &[Shell], here: &str, runtime: &Path, checkout: &Path) {
+fn ship_behind(hosts: &[&Shell], here: &str, runtime: &Path, checkout: &Path) {
     std::thread::scope(|scope| {
         for host in hosts {
             scope.spawn(move || {

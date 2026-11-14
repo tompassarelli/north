@@ -54,7 +54,7 @@ pub(in super::super) fn held_by_review(layout: &Layout, screen: &Screen, target:
     if layout.live_sha().as_deref() == Some(target) {
         return None;
     }
-    let why = format!("{} is not promoted: {}", layout::short(target), screen.promotion(target, review_hold::now()).err()?);
+    let why = format!("{} is not promoted: {}", layout::short(target), screen.order(target, &[host::name().as_str()], review_hold::now()).err()?);
     cadence::note_outcome(layout, pin::now(), Outcome::Refused { reason: why.clone() });
     Some(why)
 }

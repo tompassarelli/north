@@ -32,11 +32,11 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     ship_to(layout, &target, &runtime, hosts, Arc::new(|| false))
 }
 
-pub(super) fn deploy_live(layout: &Layout) -> Result<(), Failure> {
+pub(super) fn deploy_live(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     let target = layout.live_sha().ok_or_else(|| failed(1, "this host has no live runtime to ship"))?;
     let here = Layout { state: layout.state.clone() };
     let shipped = target.clone();
-    ship_to(layout, &target, &layout.runtime(&target), &[], Arc::new(move || here.live_sha().is_some_and(|live| live != shipped)))
+    ship_to(layout, &target, &layout.runtime(&target), hosts, Arc::new(move || here.live_sha().is_some_and(|live| live != shipped)))
 }
 
 /// Each host takes its turn on its own lock, so a host slow to promote delays only its own next copy; a copy whose runtime a newer one has replaced here while it waited is skipped, since the newer one is shipped on its own. A host that has not answered by its deadline (deadline.rs) is named skipped and left to the next tick's settle, which ships every host still behind.

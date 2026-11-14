@@ -426,7 +426,7 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     let tripped = Screen { trips: Trips(trips.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     let refused = tripped.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
     assert!(refused.contains(SQUASHED) && refused.contains("cli::parses") && refused.contains("north runtime trip clear"), "an open Buck2 trip refuses the order of a head at or after its head and names the trip: {refused}");
-    let promoted = tripped.promotion(NEW, now()).err().unwrap_or_default();
+    let promoted = tripped.order(NEW, &["whiterabbit"], now()).err().unwrap_or_default();
     assert!(promoted.contains(SQUASHED), "the slot and Live-fix promotion refuses the same head: {promoted}");
     assert!(tripped.order(OLD, &["whiterabbit"], now()).is_ok(), "a head before the tripped head is not refused");
     Trips(trips.clone()).clear(SQUASHED, "proxy", "the case passes on rerun", now()).unwrap();

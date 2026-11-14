@@ -57,7 +57,7 @@ fn every_promotion_path_refuses_a_head_whose_after_landing_run_is_running_failed
     symlink(layout::link(OLD), layout.current()).unwrap();
     let screen_of = |landing: Landing| Screen { holds: Holds(state.path().join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(move |_| landing.clone()), runs: MainRuns::none(), trips: Trips(state.path().join("trips")) };
     let shipped = Cell::new(0);
-    let ship = |_: &str| {
+    let ship = |_: &str, _: &[String]| {
         shipped.set(shipped.get() + 1);
         Ok(())
     };
@@ -69,7 +69,7 @@ fn every_promotion_path_refuses_a_head_whose_after_landing_run_is_running_failed
         assert!(named(&ordered), "north runtime order took a head whose after-landing run had not ended green; the rule was kept by hand through a held promotion lock: {ordered:?}");
         let promoted = held_by_review(&layout, &screen, NEW).unwrap_or_default();
         assert!(named(&promoted), "the slot and Live-fix promotion after a landing refuses it: {promoted:?}");
-        assert_eq!(ship_if_walked(Ok(NEW.to_owned()), &screen, ship).unwrap(), None, "the walk ships it to no other host");
+        assert_eq!(ship_if_walked(&layout, Ok(NEW.to_owned()), &screen, ship).unwrap(), None, "the walk ships it to no other host");
         assert_eq!(shipped.get(), 0);
         fs::remove_file(layout.current()).unwrap();
         symlink(layout::link(NEW), layout.current()).unwrap();
@@ -82,11 +82,11 @@ fn every_promotion_path_refuses_a_head_whose_after_landing_run_is_running_failed
     let order = Order::cleared(NEW.to_owned(), "a reviewed fix".to_owned(), "f-flow-lead".to_owned(), |sha| screen.order(sha, &["whiterabbit"], now())).unwrap();
     assert_eq!(order.sha, NEW);
     assert!(held_by_review(&layout, &screen, NEW).is_none());
-    assert_eq!(ship_if_walked(Err("rolled back".to_owned()), &screen, ship).unwrap(), None, "nothing ships until the runtime walked the spine here");
+    assert_eq!(ship_if_walked(&layout, Err("rolled back".to_owned()), &screen, ship).unwrap(), None, "nothing ships until the runtime walked the spine here");
     assert_eq!(shipped.get(), 0);
-    assert_eq!(ship_if_walked(Ok(NEW.to_owned()), &screen, ship).unwrap(), Some(()));
+    assert_eq!(ship_if_walked(&layout, Ok(NEW.to_owned()), &screen, ship).unwrap(), Some(()));
     assert_eq!(shipped.get(), 1);
-    assert!(ship_if_walked(Ok(NEW.to_owned()), &screen, |_| Err::<(), _>(failed(1, "unreachable"))).is_err());
+    assert!(ship_if_walked(&layout, Ok(NEW.to_owned()), &screen, |_, _| Err::<(), _>(failed(1, "unreachable"))).is_err());
     fs::remove_file(layout.current()).unwrap();
     symlink(layout::link(NEW), layout.current()).unwrap();
     assert!(lander_cleared(&layout, &screen).is_ok());
