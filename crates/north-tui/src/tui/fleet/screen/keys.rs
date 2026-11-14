@@ -160,7 +160,10 @@ impl Screen {
                 }
             },
             Dialog::Launch(mut form) => match form.handle_key(key) {
-                FormOutcome::Launch(request) => Some(Command::Launch(request)),
+                FormOutcome::Launch(request) => {
+                    self.sent_forms.insert(request.name.clone(), form);
+                    Some(Command::Launch(request))
+                }
                 FormOutcome::Cancelled => None,
                 FormOutcome::Editing => {
                     self.dialog = Some(Dialog::Launch(form));

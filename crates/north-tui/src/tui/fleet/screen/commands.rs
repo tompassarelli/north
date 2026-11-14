@@ -4,7 +4,8 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::Decision;
 use crate::fleet::model::{Effort, EntryKind, Transcript};
 
-use super::{Command, Focus, Notice, PendingMessage, Screen};
+use super::super::form::LaunchForm;
+use super::{Command, Dialog, Focus, Notice, PendingMessage, Screen};
 
 impl Screen {
     pub fn begin(&mut self, command: &Command, transcript: Option<&Transcript>) {
@@ -39,9 +40,13 @@ impl Screen {
 
     pub fn settle(&mut self, command: Command, outcome: NorthResult<()>) {
         self.release(command.session());
-        let origin = if let Command::Launch(request) = &command { self.launching.remove(&request.name) } else { None };
+        let (origin, sent_form) = match &command {
+            Command::Launch(request) => (self.launching.remove(&request.name), self.sent_forms.remove(&request.name)),
+            _ => (None, None),
+        };
         match (command, outcome) {
             (Command::Launch(request), Ok(())) => self.launched(request.name, origin),
+            (Command::Launch(_), Err(error)) => self.launch_refused(sent_form, &error),
             (Command::Send { name, text, .. }, Err(error)) => self.send_failed(&name, &text, &error),
             (Command::Send { .. }, Ok(())) => {}
             (Command::Decide { .. }, Err(error @ NorthError::GateAnswered { .. })) => {
@@ -68,6 +73,17 @@ impl Screen {
             self.focus = Focus::Composer;
         } else {
             self.notice = Some(Notice::Info(format!("launched {name}; Tab to the session list and select it to write to it")));
+        }
+    }
+
+    fn launch_refused(&mut self, sent_form: Option<Box<LaunchForm>>, error: &NorthError) {
+        match sent_form {
+            Some(mut form) if self.dialog.is_none() => {
+                form.problem = Some(error.user_message());
+                self.dialog = Some(Dialog::Launch(form));
+                self.notice = None;
+            }
+            _ => self.fail(error),
         }
     }
 

@@ -8,7 +8,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::Digest;
 use crate::fleet::gates::{Decision, Gate, GateRequest};
 use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionPhase, Status, Transcript};
@@ -318,6 +318,30 @@ fn a_launch_settling_keeps_the_session_selected_while_typing() {
     assert_eq!(screen.selected.as_deref(), Some(launch.session()));
     assert_eq!(screen.focus, Focus::List);
     assert_eq!(screen.composer.lines().concat(), "x");
+}
+
+#[test]
+fn a_refused_launch_keeps_the_form_as_typed() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    key(&mut desk, &mut screen, control('n'));
+    let Some(Dialog::Launch(form)) = &mut screen.dialog else { panic!("Ctrl+N opened no launch form") };
+    form.field = Field::Model;
+    type_text(&mut desk, &mut screen, "opus");
+    let Some(Dialog::Launch(form)) = &mut screen.dialog else { panic!("typing closed the form") };
+    form.field = Field::Prompt;
+    screen.paste("do the work");
+    let launch = apply_event(&mut screen, Event::Key(press(KeyCode::Enter))).expect("the launch form did not submit");
+    let Command::Launch(request) = &launch else { panic!("the form sent {launch:?}") };
+    let name = request.name.clone();
+    screen.begin(&launch, None);
+    assert!(screen.dialog.is_none());
+    screen.settle(launch, Err(NorthError::Refused("account a has nothing left".into())));
+    let Some(Dialog::Launch(form)) = &screen.dialog else { panic!("the refused launch left no form open") };
+    assert_eq!(form.name.lines().concat(), name);
+    assert_eq!(form.model.lines().concat(), "opus");
+    assert_eq!(form.prompt.lines().concat(), "do the work");
+    assert_eq!(form.problem.as_deref(), Some("account a has nothing left"));
 }
 
 fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
