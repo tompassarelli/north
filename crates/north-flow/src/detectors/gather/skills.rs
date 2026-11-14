@@ -136,6 +136,6 @@ impl Gatherer<'_> {
                 Some(Skill { drift: self.skill_drift(&front), id, reviewed, changes: changed, corrections: corrected })
             })
             .collect();
-        Facts { owner: None, skills }
+        Facts { skills }
     }
 }

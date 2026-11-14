@@ -11,7 +11,6 @@ pub struct Reading {
 
 #[derive(Default)]
 pub struct Facts {
-    pub owner: Option<String>,
     pub readings: Vec<Reading>,
 }
 
@@ -32,7 +31,7 @@ pub fn due(facts: &Facts) -> Vec<Finding> {
             Finding {
                 detector: Detector::CodeHealthReview,
                 key: format!("code-health-review:{repo}:{}", reading.since),
-                owner: facts.owner.clone(),
+                owner: None,
                 title: format!("Review the code health of {repo}"),
                 detail: format!(
                     "`north code-health signal` fires for {repo} since its review marker {}: {}. Follow harness/code-health/review-brief.md with repo {repo} and checkout {checkout}, starting from `north code-health report --repo {checkout} --rev origin/main`, and land the bounded behavior-preserving slices it identifies.{measured}",
@@ -56,11 +55,11 @@ mod tests {
 
     #[test]
     fn a_fired_repository_is_one_box_on_the_owner_and_a_quiet_one_is_none() {
-        let facts = Facts { owner: Some("north#722".to_owned()), readings: vec![reading("wisp", &["11 days since review with 40 commits (limit 3)"]), reading("makgora", &[])] };
+        let facts = Facts { readings: vec![reading("wisp", &["11 days since review with 40 commits (limit 3)"]), reading("makgora", &[])] };
         let found = due(&facts);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].key, "code-health-review:wisp:6f03d49689");
-        assert_eq!(found[0].owner.as_deref(), Some("north#722"));
+        assert!(found[0].owner.is_none() && found[0].detector.files_own_issue(), "a fired repository is filed as an issue of its own");
         assert!(found[0].box_line().contains("11 days since review with 40 commits"));
         assert!(found[0].box_line().contains("median 4 hand files per feature commit, 12.5% of feature commits reverted"));
     }

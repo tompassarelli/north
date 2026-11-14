@@ -81,6 +81,6 @@ impl Gatherer<'_> {
                 eprintln!("detectors: could not record the code-health readings: {error}");
             }
         }
-        code_health_review::Facts { owner: None, readings }
+        code_health_review::Facts { readings }
     }
 }

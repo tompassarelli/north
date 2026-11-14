@@ -12,7 +12,6 @@ pub struct Skill {
 
 #[derive(Default)]
 pub struct Facts {
-    pub owner: Option<String>,
     pub skills: Vec<Skill>,
 }
 
@@ -36,7 +35,7 @@ pub fn due(facts: &Facts) -> Vec<Finding> {
             Finding {
                 detector: Detector::SkillReview,
                 key: format!("skill-review:{id}:{}", skill.reviewed),
-                owner: facts.owner.clone(),
+                owner: None,
                 title: format!("Review the {id} skill"),
                 detail: format!("Since its last review on {}: {}. Recheck its facts against the real tools, versions and paths where it was grounded, and compress its prose and move knowledge to its one owner where it was written, without changing facts.", skill.reviewed, signals.join("; ")),
                 done_when: format!("harness/skills/{id}/SKILL.md carries a `written:` (and, when facts were rechecked, a `grounded:`) date after {} and the review commit names which review it was.", skill.reviewed),
@@ -77,10 +76,10 @@ mod tests {
     #[test]
     fn a_skill_with_a_correction_since_its_review_files_one_box_and_an_unchanged_skill_none() {
         let corrected = Skill { corrections: vec!["2026-11-05T10:00:00Z".into()], ..skill("debugging") };
-        let found = due(&Facts { owner: Some("north#1012".into()), skills: vec![corrected, skill("workers")] });
+        let found = due(&Facts { skills: vec![corrected, skill("workers")] });
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].key, "skill-review:debugging:2026-11-01");
-        assert_eq!(found[0].owner.as_deref(), Some("north#1012"));
+        assert!(found[0].owner.is_none() && found[0].detector.files_own_issue(), "a skill due for review is filed as an issue of its own");
         assert!(found[0].detail.contains("corrections classed to it were seen 1 time"));
 
         let root = tempfile::tempdir().unwrap();
