@@ -38,7 +38,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         println!("north runtime settle already running");
         return Ok(());
     }
-    promote_here(layout);
+    let promoted = promote_here(layout);
     if let Some(live) = handed_to_live(layout) {
         drop(lock);
         let error = Command::new(layout.runtime(&live).join("north")).args(["runtime", "settle"]).exec();
@@ -86,19 +86,22 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     if let Some(landing) = landing.filter(|landing| !judged(layout, &landing.sha)) {
         judge(layout, &checkout, &landing, &broken);
     }
-    match failing.is_empty() {
-        true => Ok(()),
-        false => Err(failed(1, format!("not live and healthy everywhere: {}", failing.join(" | ")))),
+    outcome(promoted, &failing)
+}
+
+/// The follower's result: this host's own update, whatever the other hosts' problems, which are printed and judged against the landing but fail nothing, so a pin held by a trip or a reviewer exits 0 (north#1551).
+fn outcome(promoted: Result<(), Failure>, failing: &[String]) -> Result<(), Failure> {
+    if !failing.is_empty() {
+        println!("north runtime settle: not live and healthy everywhere: {}", failing.join(" | "));
     }
+    promoted
 }
 
 /// Brings this host to the pinned runtime, then walks its canary and follows the lander link from `walk_and_ship` when it passed, and watches a fresh swap for rising failures.
-fn promote_here(layout: &Layout) {
+fn promote_here(layout: &Layout) -> Result<(), Failure> {
     let follow::Followed { here: updated, .. } = follow::update_following_lander(layout, false, false);
-    if let Err(failure) = updated {
-        eprintln!("north runtime settle: {}: {}", host::name(), failure.message);
-    }
     watch::watch(layout);
+    updated.map(|_| ()).map_err(|failure| failed(failure.code, format!("{}: {}", host::name(), failure.message)))
 }
 
 fn fleet_hosts() -> Vec<Shell> {
@@ -292,7 +295,16 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{blame, due_in};
+    use super::{blame, due_in, outcome};
+    use super::super::failure::failed;
+
+    #[test]
+    fn a_host_held_behind_a_trip_or_a_reviewer_does_not_fail_the_follower_but_a_failed_update_here_does() {
+        let held = vec!["tom@cpx62: live runtime 7419083c predates the landing".to_owned()];
+        assert!(outcome(Ok(()), &held).is_ok());
+        let failure = outcome(Err(failed(1, "whiterabbit: build failed".to_owned())), &[]).err().map(|failure| (failure.code, failure.message));
+        assert_eq!(failure, Some((1, "whiterabbit: build failed".to_owned())));
+    }
 
     #[test]
     fn settle_judges_only_a_landing_the_pinned_runtime_holds_once_the_pin_had_its_deadline() {
