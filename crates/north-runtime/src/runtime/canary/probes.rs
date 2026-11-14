@@ -390,3 +390,103 @@ pub(super) fn lander_tokens(north: &str) -> String {
     ));
     script
 }
+
+const BUILD_HOST_TAKE_PROBE: &str = "a build host's throwaway lane is judged by the promoted lander";
+const TAKE_PATHS: [&str; 3] = ["crates/north-lander/", "crates/north-landing/", "crates/north-trusted-mirror/"];
+
+pub(super) fn plain_host(host: &str) -> bool {
+    host.starts_with(|first: char| first.is_ascii_lowercase() || first.is_ascii_digit()) && host.chars().all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || matches!(character, '.' | '-'))
+}
+
+pub(super) fn changes_a_take_path(changed: &str) -> bool {
+    changed.lines().any(|path| TAKE_PATHS.iter().any(|prefix| path.starts_with(prefix)))
+}
+
+pub(super) fn build_host_take(sha: &str, build: &str) -> Probe {
+    let north = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"/north");
+    // Both hosts name the scratch origin by the same path, since the queue a ticket goes to is keyed by its origin URL.
+    let root = format!("/tmp/north-canary-take-{sha}");
+    let key = north_base::platform::land_queue::key(&format!("{root}/origin.git"));
+    let script = own_broker(BUILD_HOST_TAKE).replace("__NORTH__", &north).replace("__BUILD__", &format!("'{build}'")).replace("__ROOT__", &root).replace("__KEY__", &key).replace("__NO_VERDICT__", &super::NO_VERDICT.to_string());
+    judging(sha, vec![probe(BUILD_HOST_TAKE_PROBE, script, SCRATCH_LANDING_LIMIT)]).remove(0)
+}
+
+const BUILD_HOST_TAKE: &str = r#"set -uo pipefail
+north=__NORTH__
+build=__BUILD__
+root=__ROOT__
+key=__KEY__
+remote() { ssh -o BatchMode=yes -o ConnectTimeout=5 -- "$build" "$@"; }
+unset_up() { echo "the throwaway lane could not be set up on $build: $1" >&2; exit __NO_VERDICT__; }
+trap 'rm -rf "$root"; remote "rm -rf $root \"\${XDG_STATE_HOME:-\$HOME/.local/state}/north/land-queue/$key\"" >/dev/null 2>&1' EXIT
+rm -rf "$root"
+mkdir -p "$root"
+__OWN_BROKER__state="$root/state"
+mkdir -p "$state"
+export XDG_STATE_HOME="$state"
+export NORTH_TEST_ROOT="$state"
+export THREADS_DB="$state/threads.db"
+export NORTH_PUSH_LOG="$root/pushes.tsv"
+export NORTH_FLEET_TEST=1
+export GIT_CONFIG_GLOBAL="$root/gitconfig"
+export GIT_CONFIG_NOSYSTEM=1
+: > "$root/gitconfig"
+export PATH="$(dirname "$north"):$PATH"
+origin="$root/origin.git"
+main="$root/project/main"
+mkdir -p "$main"
+git -C "$main" init -q -b main || exit 1
+git -C "$main" config user.name canary
+git -C "$main" config user.email canary@example.invalid
+git -C "$main" config commit.gpgsign false
+printf 'the scratch repository a build host hands a throwaway lane into\n' > "$main/README.md"
+printf '[landing]\n\tqueue = lander\n\tlander-host = %s\n\tremote-hosts = %s\n[land]\n\tlocal-only = the canary scratch check builds nothing and reads nothing of this host :: true\n\tcheck = ** :: true\n' "$(hostname -s 2>/dev/null || hostname)" "$build" > "$main/.safe-push"
+git -C "$main" add . && git -C "$main" commit -q -m 'Start the scratch repository' || exit 1
+git clone -q --bare "$main" "$origin" || exit 1
+git -C "$main" remote add origin "$origin"
+git -C "$main" fetch -q origin || exit 1
+git -C "$main" bundle create -q "$root/base.bundle" HEAD main || exit 1
+remote "rm -rf $root && mkdir -p $root && cat > $root/base.bundle" < "$root/base.bundle" || unset_up "the scratch repository was not copied there"
+cat > "$root/hand-in.sh" <<REMOTE
+set -euo pipefail
+root=$root
+export GIT_CONFIG_GLOBAL="\$root/gitconfig" GIT_CONFIG_NOSYSTEM=1 NORTH_FLEET_TEST=1 THREADS_DB="\$root/threads.db" NORTH_PUSH_LOG="\$root/pushes.tsv"
+: > "\$root/gitconfig"
+git clone -q --bare "\$root/base.bundle" "\$root/origin.git"
+git clone -q "\$root/origin.git" "\$root/project/main"
+git -C "\$root/project/main" config user.name canary
+git -C "\$root/project/main" config user.email canary@example.invalid
+git -C "\$root/project/main" config commit.gpgsign false
+git -C "\$root/project/main" worktree add -q -b canary-take "\$root/project/worktrees/canary-take" origin/main
+cd "\$root/project/worktrees/canary-take"
+printf 'the build host change\n' > take.txt
+git add take.txt
+git commit -q -m 'Hand in the build host change'
+n="\$HOME/.local/state/north/current/north"; [ -x "\$n" ] || n=north
+"\$n" safe-push --to main </dev/null
+REMOTE
+handed=$(remote bash -s < "$root/hand-in.sh" 2>&1) || unset_up "$handed"
+grep -q 'queued (outbox)' <<<"$handed" || unset_up "its hand-in was not queued in its outbox: $handed"
+checker="$root/checker"
+printf '#!/bin/sh\nprintf "safe-push: verdict green\\n"\nexit 0\n' > "$checker"
+chmod +x "$checker"
+token="$root/token"
+printf '#!/bin/sh\nprintf "ghs_canary_landing\\n"\n' > "$token"
+chmod +x "$token"
+served=$(cd "$main" && "$north" land serve --once --repo "$main" --checker "$checker" --app-token "$token" 2>&1)
+tickets=$(find "$state/north/land-queue/$key" -name '*.json' 2>/dev/null)
+verdict=$(xargs -r grep -ho '"verdict": *"[^"]*"' <<<"$tickets" | head -n 1 | sed -E 's/^"verdict": *"(.*)"$/\1/')
+if [ -z "$tickets" ]; then
+  echo "the promoted lander took no lane from $build's outbox (unreachable): $served" >&2
+  exit 1
+fi
+case "$verdict" in
+  "conflict unreadable"*)
+    echo "the promoted lander decided $build's throwaway lane '$verdict': $served" >&2
+    exit 1 ;;
+  "")
+    echo "the promoted lander took $build's throwaway lane and left it undecided: $served" >&2
+    exit __NO_VERDICT__ ;;
+esac
+echo "the promoted lander judged $build's throwaway lane: $verdict"
+"#;

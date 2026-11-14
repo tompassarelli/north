@@ -22,6 +22,7 @@ struct Fleet<'a> {
     landers: Option<probes::Landers>,
     depbox_host: Option<std::path::PathBuf>,
     services: Option<String>,
+    checkout: Option<std::path::PathBuf>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
     pages: Mutex<Vec<(String, String)>>,
@@ -88,6 +89,10 @@ impl Machine for Fleet<'_> {
     fn lander_repositories(&self) -> Option<probes::Landers> {
         self.landers.clone()
     }
+
+    fn lander_take_host(&self, _sha: &str) -> Option<String> {
+        self.checkout.as_deref().and_then(|checkout| take_host(&checkout.join(".git"), "live", "candidate"))
+    }
 }
 
 struct Host {
@@ -113,7 +118,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, offloads_hub: true, settles: false, builds: false, landers: None, depbox_host: None, services: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, offloads_hub: true, settles: false, builds: false, landers: None, depbox_host: None, services: None, checkout: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -672,4 +677,47 @@ fn a_canary_that_cannot_place_its_probe_is_not_judged() {
     let other = run("  claude:a available: 5h unread, week 40% (60% headroom)\n  claude:c available: 5h 7%, week 1% (93% headroom)\nwr.md: target whiterabbit claude:a");
     assert!(other.status.success(), "{}", String::from_utf8_lossy(&other.stderr));
     assert!(fs::read_to_string(&ran).unwrap().contains("--claude-account c"));
+}
+
+fn runtime_history(changed: &str, hosts: &str) -> tempfile::TempDir {
+    let repo = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(repo.path()).args(["-c", "user.name=canary", "-c", "user.email=canary@example.invalid", "-c", "commit.gpgsign=false"]).args(args).status().unwrap().success());
+    git(&["init", "-q", "-b", "main"]);
+    fs::write(repo.path().join(".safe-push"), format!("[landing]\n\tremote-hosts = {hosts}\n")).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "live"]);
+    git(&["tag", "live"]);
+    let path = repo.path().join(changed);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "changed\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "candidate"]);
+    git(&["tag", "candidate"]);
+    repo
+}
+
+#[test]
+fn a_runtime_whose_lander_refuses_a_build_host_lane_is_rolled_back() {
+    let refused = || ("throwaway lane", exited(1, "the promoted lander decided cpx62's throwaway lane 'conflict unreadable'\n"));
+    let history = runtime_history("crates/north-landing/src/land/candidate.rs", "cpx62");
+    let host = Host::promoted();
+    let fleet = Fleet { checkout: Some(history.path().to_path_buf()), ..host.settling(Some(refused())) };
+    assert_eq!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::RolledBack, "on 2026-11-14 a lander change had every build-host hand-in decided 'conflict unreadable' and went live");
+    assert_eq!(host.current(), layout::link(PREVIOUS));
+    let alarms = fleet.alarms.lock().unwrap();
+    assert!(alarms[0].contains("a build host's throwaway lane is judged by the promoted lander") && alarms[0].contains("conflict unreadable"), "{}", alarms[0]);
+
+    let history = runtime_history("docs/rationale/landing.md", "cpx62");
+    let host = Host::promoted();
+    let fleet = Fleet { checkout: Some(history.path().to_path_buf()), ..host.settling(Some(refused())) };
+    assert_eq!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::Passed);
+    assert!(!fleet.probed.lock().unwrap().iter().any(|name| name.contains("throwaway lane")), "a promotion that changes no lander or take path runs the probe");
+
+    for hosts in ["$(touch${IFS}owned)", "-oProxyCommand=touch", "cpx62&touch"] {
+        let history = runtime_history("crates/north-lander/src/land/serve.rs", hosts);
+        assert_eq!(take_host(&history.path().join(".git"), "live", "candidate"), None, "{hosts}");
+    }
+    let history = runtime_history("crates/north-lander/src/land/serve.rs", "cpx62");
+    fs::write(history.path().join(".safe-push"), "[landing]\n\tremote-hosts = $(touch owned)\n").unwrap();
+    assert_eq!(take_host(&history.path().join(".git"), "live", "candidate").as_deref(), Some("cpx62"), "the host is read from the candidate commit, not the working tree");
 }

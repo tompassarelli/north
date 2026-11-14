@@ -58,6 +58,9 @@ pub(super) trait Machine: Sync {
     fn settles_fleet(&self, host: &str) -> bool;
     fn takes_land_checks(&self, host: &str) -> bool;
     fn lander_repositories(&self) -> Option<Landers>;
+    fn lander_take_host(&self, _sha: &str) -> Option<String> {
+        None
+    }
     /// The probes runtime `sha` judges itself by on `host`, or why it printed none; a machine that asks no runtime answers with the list compiled into the running north.
     fn listed_by(&self, host: &str, sha: &str) -> Result<CoreLoop, String>
     where
@@ -82,6 +85,9 @@ pub(super) fn compiled(host: &str, sha: &str, machine: &impl Machine) -> CoreLoo
     let mut plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.offloads_to_hub(host), machine.settles_fleet(host), landers.as_ref());
     if machine.takes_land_checks(host) {
         plan.probes.push(probes::offloaded_land_check(host, sha));
+    }
+    if machine.settles_fleet(host) && let Some(build) = machine.lander_take_host(sha) {
+        plan.probes.push(probes::build_host_take(sha, &build));
     }
     plan
 }
@@ -334,9 +340,24 @@ impl Machine for Live<'_> {
         self.host.run(&probes::repositories_script()).ok().map(|listing| probes::parse_repositories(&listing))
     }
 
+    fn lander_take_host(&self, sha: &str) -> Option<String> {
+        let live = self.rollback_target(sha)?;
+        let mirror = north_trusted_mirror::Mirror::open(&update::checkout()).ok()?;
+        take_host(mirror.git_dir(), &live, sha)
+    }
+
     fn listed_by(&self, host: &str, sha: &str) -> Result<CoreLoop, String> {
         listing::listed_by_live(self, host, sha)
     }
+}
+
+pub(super) fn take_host(mirror: &std::path::Path, live: &str, candidate: &str) -> Option<String> {
+    let git = |args: &[&str]| north_trusted_mirror::command(mirror).args(args).output().ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
+    if git(&["diff", "--name-only", &format!("{live}..{candidate}")]).is_some_and(|changed| !probes::changes_a_take_path(&changed)) {
+        return None;
+    }
+    let hosts = git(&["config", "--blob", &format!("{candidate}:.safe-push"), "--get-all", "landing.remote-hosts"])?;
+    hosts.split(|character: char| character.is_whitespace() || character == ',').find(|host| !host.is_empty()).filter(|host| probes::plain_host(host)).map(str::to_owned)
 }
 
 #[cfg(test)]
