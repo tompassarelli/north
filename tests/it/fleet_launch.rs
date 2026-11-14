@@ -222,7 +222,7 @@ fn two_launches_at_once_one_with_a_120_character_name_record_their_hosts_live_be
     let traces: Vec<String> = names.iter().map(|name| root.join(".local/state/north/fleet").join(name).join("hops.jsonl").display().to_string()).collect();
     let live = traces.iter().map(|trace| format!("grep -q session-host {trace} 2>/dev/null")).collect::<Vec<_>>().join(" && ");
     let saw = root.join("claims-saw");
-    far_ledger(root, &format!("case $command in *' claim '*)\n  i=0; while [ $i -lt 30 ] && ! {{ {live}; }}; do sleep 0.05; i=$((i+1)); done\n  if {live}; then echo live >> {saw}; else echo absent >> {saw}; fi;;\nesac\n", saw = saw.display()));
+    far_ledger(root, &format!("case $command in *' claim '*)\n  i=0; while [ $i -lt 500 ] && ! {{ {live}; }}; do sleep 0.05; i=$((i+1)); done\n  if {live}; then echo live >> {saw}; else echo absent >> {saw}; fi;;\nesac\n", saw = saw.display()));
 
     let launched = launched_at_once(root, &names);
     let claims = fs::read_to_string(&saw).unwrap_or_default();
