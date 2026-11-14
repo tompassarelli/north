@@ -2065,7 +2065,7 @@ consumers = ["crates/north-land-checks/src/land/slots/runner/queue_checks.rs"]
 [prequeue_build_checks]
 value = "off"
 allowed = { one_of = ["on", "off"] }
-unit = "off: a hand-in to a repository whose landing base names its lane test line in a land.after-only line, which only north does, runs no check on a build host before queueing: it queues once the static gates of the enqueue path pass (secret, private-kind, static and lane gates, revert guard), and clippy, the @enqueue lines and the tests decide on the landed commit in the after-landing run, which reverts the culprit lane when it is red; on runs those checks before queueing as before"
+unit = "off: a hand-in to a repository whose landing base names its lane test line in a land.after-only line, which only north does, runs no check on a build host before queueing unless it changes a path in trust_boundary_paths, which keeps its checks before queueing while review-accept is in shadow: it queues once the static gates of the enqueue path pass (secret, private-kind, static and lane gates, revert guard), and clippy, the @enqueue lines and the tests decide on the landed commit in the after-landing run, which reverts the culprit lane when it is red; on runs those checks before queueing as before"
 source = "north#1036 (2026-11-14): north hand-ins waited p50 19.5 min before queueing against 0.9 min queued, nearly all of it build-host checks the after-landing run repeats, and the owner ordered the build-host checks moved after landing"
 fallback = "a missing value or any value but off reads as on"
 consumers = ["crates/north-land-checks/src/land/slots/runner/queue_checks.rs"]

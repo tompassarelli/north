@@ -26,7 +26,7 @@ const PREQUEUE_BUILD_CHECKS: &str = "prequeue_build_checks";
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = judged::config(root, base, head);
     let landing = config.after_set().commands(root, base, head)?;
-    if builds_after_landing(root, base, &landing) {
+    if builds_after_landing(root, (base, head), &landing) {
         return Ok(Vec::new());
     }
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
@@ -268,9 +268,9 @@ pub fn tests_after_landing(root: &Path, base: &str, head: &str) -> bool {
     lane_tests(&landing).is_some_and(|line| leaves_tests(root, base, head, &line))
 }
 
-fn builds_after_landing(root: &Path, base: &str, landing: &[String]) -> bool {
+fn builds_after_landing(root: &Path, (base, head): (&str, &str), landing: &[String]) -> bool {
     let off = document(DEFAULTS).get(PREQUEUE_BUILD_CHECKS).and_then(|entry| entry.get("value")).and_then(toml_edit::Item::as_str) == Some("off");
-    off && lane_tests(landing).is_some_and(|line| Config::load(root, base).after_only_reason(&line).is_some())
+    off && lane_tests(landing).is_some_and(|line| Config::load(root, base).after_only_reason(&line).is_some()) && changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(&files).is_some_and(|crossing| crossing.is_empty()))
 }
 
 fn leaves_tests(root: &Path, base: &str, head: &str, line: &str) -> bool {
