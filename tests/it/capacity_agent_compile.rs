@@ -143,6 +143,7 @@ fn refused_through_the_hook(host: &Host) {
         let mut hook = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north"));
         hook.env("NORTH_AGENT_ACTIVE", host.path("activation.active"));
         hook.env("AGENT_HOOK_ERRORS", host.path("hook-errors.tsv"));
+        hook.env("NORTH_HOOK_DEADLINE_MS", "0");
         fs::write(host.path("hook-request.json"), request.to_string()).unwrap();
         let ledger = host.path("state/north/ledger.db");
         let ledger_before = ledger.exists();

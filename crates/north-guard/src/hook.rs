@@ -357,24 +357,37 @@ fn first_prompt(input: &HookInput) -> bool {
     std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
-pub fn run(arguments: &[String]) -> Result<Vec<Evidence>, String> {
+pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Result<Vec<Evidence>, String> {
     let kind = match arguments {
         [] => None,
         [verb] if verb == "dispatch" => None,
         [verb] if verb == "spawn-gate" => {
-            println!("{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live));
+            let _ = writeln!(writer, "{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live));
             return Ok(Vec::new());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
         _ => return Err("Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]".into()),
     };
     Ok(process(
-        io::stdin().lock(),
-        &mut io::stdout().lock(),
+        request,
+        writer,
         kind.map_or(&[], HookKind::guards),
         kind.map_or("", HookKind::event),
     )
     .unwrap_or_default())
+}
+
+/// The answer for a Bash call whose hook missed its deadline: a heavy command is still routed through machine-capacity admission, so the deadline never lets it run unleased on this host.
+pub fn deadline_answer(request: &[u8]) -> Option<Value> {
+    let input = HookInput::parse(request)?;
+    if input.data["tool_name"].as_str() != Some("Bash") {
+        return None;
+    }
+    match crate::guard::heavy_command::judge(&input) {
+        Verdict::Rewrite(updated, said) => Some(json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": updated, "additionalContext": said}})),
+        Verdict::Deny(reason) => Some(json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}})),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
