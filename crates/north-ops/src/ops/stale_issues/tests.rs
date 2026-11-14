@@ -41,7 +41,7 @@ fn an_open_issue_25_hours_old_is_closed_with_its_open_boxes_and_lanes_and_its_ho
     assert_eq!(spy.closed[1].1, COMMENT, "an issue with no open box or lane gets the rule alone");
     assert!(COMMENT.contains("24-hour rule"));
     assert_eq!(spy.messages.iter().map(|(to, _)| to.as_str()).collect::<Vec<_>>(), ["burn-lead-b-2", "proxy"]);
-    assert_eq!(spy.messages[0].1, "north#7 closed at 24 h: file a finishable successor for its open boxes, comment `rewritten as REPO#N` on it so its holder's launches follow, and re-point lanes that name it");
+    assert_eq!(spy.messages[0].1, "north#7 closed at 24 h: file a finishable successor for its open boxes and re-point lanes that name it");
 
     let mut record = Record::open(&directory.path().join("messaged.txt")).unwrap();
     sweep("north", &issues, now, false, &mut spy, &mut record);
