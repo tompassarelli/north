@@ -50,7 +50,7 @@ pub fn skeleton(category: &str, neighborhood: &[String], over_budget: bool) -> O
             lines.push("Test bar: verification is over its time budget, so this lane lands no net-new test; a test it adds is paid for by deleting one.".into());
         }
         lines.push(String::new());
-        lines.push("Build rule: run `cargo clippy --all-targets -p <touched crates> -- -D warnings` plus the named tests in Done when, then queue the lane; the lander lands it in seconds, runs the full suite once per landed batch afterwards, and reverts the lane and tells you if it fails, unless Done when names a full run.".into());
+        lines.push("Build rule: on a build host, lint and test the touched crate from the lane through `./bin/land-shell --dev`, so the lane grows no Cargo target: `./bin/land-shell --dev -- buck2 --isolation-dir north-g$(cat /etc/buildbarn/store-generation)-lint bxl --remote-only --materializations=none //lint/clippy.bxl:clippy -- --targets //crates/<crate>:` and `./bin/land-shell --dev -- buck2 --isolation-dir north-g$(cat /etc/buildbarn/store-generation) test --remote-only --unstable-allow-compatible-tests-on-re //crates/<crate>:`; elsewhere run `cargo clippy --all-targets -p <touched crates> -- -D warnings` plus the named tests in Done when, then queue the lane; the lander lands it in seconds, runs the full suite once per landed batch afterwards, and reverts the lane and tells you if it fails, unless Done when names a full run.".into());
         lines.join("\n") + "\n"
     })
 }
