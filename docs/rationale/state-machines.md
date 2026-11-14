@@ -220,7 +220,7 @@ fixes in each machine's code from history.
     strings (`crates/north-pacing/src/laptop/tick.rs:80,95`); draining stays forever when the job queue is
     unreadable. Shapes: status-string.
 36. **Rename-into-place leftovers** (none counted). Staging names nothing reaps after a crash: `.stage.*` and
-    `.current.PID` (`crates/north-ops/src/ops/vendor_runtime/mod.rs:100-125`), `.incoming/PID`
+    `.current.PID` (`crates/north-runtime/src/vendor_runtime/mod.rs:100-125`), `.incoming/PID`
     (`ops/retention/archive.rs:141`), `.zst.tmpPID` (`ops/convo/archive.rs:246`), `target.seeding-PID`
     (`crates/north-lanes/src/lanes/target_seed.rs:44`). Shapes: phase-suffix.
 

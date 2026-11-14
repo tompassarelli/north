@@ -47,10 +47,10 @@ const UNIFORM: &[(&str, Run)] = &[
     ("resident-cap", crate::resident_cap::run),
     ("docs", north_docs::docs::run),
     ("convo", crate::convo::run),
-    ("incident-mine", crate::ops::incident_mine::run),
+    ("incident-mine", north_convo::incident_mine::run),
     ("tool-mine", crate::tool_mine::run),
     ("policy-replay", crate::policy_replay::run),
-    ("defaults-measure", crate::ops::defaults_measure::run),
+    ("defaults-measure", north_tune::defaults_measure::run),
     ("spend", super::spend::run),
     ("proxy", |arguments| match arguments.first().map(String::as_str) {
         Some("calls") => {

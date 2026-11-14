@@ -38,7 +38,7 @@ lines = 1
 kind = "hint"
 
 [[read]]
-file = "crates/north-ops/src/ops/incident_mine/classify.rs"
+file = "crates/north-convo/src/incident_mine/classify.rs"
 lines = 3
 kind = "hint"
 

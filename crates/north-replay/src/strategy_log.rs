@@ -8,8 +8,8 @@ use std::process::Command;
 use north_strategy_types::{Envelope, Kind, Snapshot, admission, land, placement};
 use serde::de::DeserializeOwned;
 
-use crate::foundation::clock::Timestamp;
-use crate::platform::decision_log;
+use north_base::foundation::clock::Timestamp;
+use north_base::platform::decision_log;
 
 const USAGE: &str = "usage: north ops strategy log check [--since DURATION]\n       north ops strategy log retain [--days N]";
 const KEEP_DAYS: i64 = 14;

@@ -15,6 +15,7 @@ mod parallel;
 mod placed;
 mod refused;
 mod report;
+pub mod strategy_log;
 
 pub use bounds::Bounds;
 pub use refused::run as refusals;

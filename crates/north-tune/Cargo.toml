@@ -17,6 +17,7 @@ north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
 north-calibration = { path = "../north-calibration" }
 serde_json.workspace = true
+rusqlite.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]

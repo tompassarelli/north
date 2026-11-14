@@ -155,7 +155,7 @@ Each row of [feedback-loop.md](../feedback-loop.md) not read by a decision, with
   mining of 215 sessions. Verdict: deleted 2026-11-05; the review's bar now compares `rule_ids` in
   `agents/incidents.jsonl` from one retro to the last. Box 11.
 - Ten `harness/defaults.toml` entries carry `settles_when` but a source not starting `prior:`, so
-  `north defaults-measure --priors` never prints them (`crates/north-ops/src/ops/defaults_measure/priors.rs:18`):
+  `north defaults-measure --priors` never prints them (`crates/north-tune/src/defaults_measure/priors.rs:18`):
   build_input_retention_hours, capacity_mode_play_cpus, capture_batch_retention_hours, three codex_tier_*,
   evidence_retention_hours, explore_every, plan_meter_weighting, retention_budget_minutes. Verdict: wire, so the
   check lists every entry that has a settle count. Box 10.

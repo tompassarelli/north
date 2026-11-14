@@ -127,7 +127,7 @@ fn score_picks(decisions: &[Decision]) -> Row {
     let priced_wins = priced.iter().filter(|(ok, _)| *ok).count();
     let rate = (n > 0).then_some(wins as f64 / n as f64);
     let (lo, hi) = rate.map_or((0.into(), 0.into()), |rate| {
-        let (lo, hi) = crate::ops::report::wilson(rate, n);
+        let (lo, hi) = crate::platform::pystats::wilson(rate, n);
         (serde_json::Value::from(lo), serde_json::Value::from(hi))
     });
     Row::new()

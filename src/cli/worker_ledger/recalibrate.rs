@@ -6,7 +6,7 @@ use std::time::Duration;
 use toml_edit::DocumentMut;
 
 use crate::foundation::clock::Timestamp;
-use crate::ops::defaults_measure;
+use north_tune::defaults_measure;
 
 static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table(crate::platform::harness::DEFAULTS));
 const GOAL_KINDS: [&str; 2] = ["goal_eta", "goal_actual"];
