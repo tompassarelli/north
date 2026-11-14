@@ -15,7 +15,7 @@ const INTRO: &str = "The registered large cells, from the five frozen large task
 
 const HEADER: &str = "| Cell | Valid runs x tasks | Correct: north / plain | Time to all five landed: north / plain | F1, the wait for all five | F2, per task | F3, first try | Cost per run: north / plain | Reading |\n|---|---|---|---|---|---|---|---|---|\n";
 
-const LEGEND: &str = "\nF1 (five at once only): north's time to all five landed is at most 0.8 of plain's and north has at least as many correct. F2: north is at least 20 percent faster on at least 3 of the 5 tasks and more than 10 percent slower on none, counting only tasks both arms got correct in every run. F3: north's first hand-ins that passed are at least plain's. Each line reads each task's mean over the valid runs; the time to all five landed is the arm's last landing at five at once and the five times added at one worker, and a unit that reached the 4-hour stop, landed nothing or failed its check is a failed row, not a time. Cost sits beside the lines and decides none; a lead bought at more than twice plain's cost says so. With fewer than three valid runs a row is indicative and decides nothing.\n\n";
+const LEGEND: &str = "\nF1 (five at once only): north's time to all five landed is at most 0.8 of plain's and north has at least as many correct. F2: north is at least 20 percent faster on at least 3 of the 5 tasks and more than 10 percent slower on none, counting only tasks both arms got correct in every run. F3: north's first hand-ins that passed are at least plain's. Each line reads each task's mean over the valid runs; the time to all five landed is the arm's last landing at five at once and the five times added at one worker, and a unit that reached the 4-hour stop, landed nothing or failed its check is a failed row, not a time. Cost sits beside the lines and decides none; a lead bought at more than twice plain's cost says so. A cell with fewer than three valid runs shows only its run count and no figures.\n\n";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Cell {
@@ -277,12 +277,8 @@ struct Line {
 }
 
 impl Line {
-    fn show(&self, decided: bool) -> String {
-        match (decided, self.passed) {
-            (false, _) => self.detail.clone(),
-            (true, true) => format!("pass: {}", self.detail),
-            (true, false) => format!("loss: {}", self.detail),
-        }
+    fn show(&self) -> String {
+        if self.passed { format!("pass: {}", self.detail) } else { format!("loss: {}", self.detail) }
     }
 }
 
@@ -349,10 +345,7 @@ fn first_try_line(north: &[&Row], plain: &[&Row]) -> Line {
     Line { name: "F3", passed: n >= p, detail: format!("first hand-in passed {n} against {p} of {}, failed hand-ins {} against {}", north.len(), failed(north), failed(plain)) }
 }
 
-fn reading(runs: usize, lines: &[Line], cost_ratio: f64) -> String {
-    if runs < RUNS_WANTED {
-        return format!("indicative: {runs} of {RUNS_WANTED} runs, decides nothing");
-    }
+fn reading(lines: &[Line], cost_ratio: f64) -> String {
     let names = |passed: bool| lines.iter().filter(|line| line.passed == passed).map(|line| line.name).collect::<Vec<_>>().join(", ");
     let (won, lost) = (names(true), names(false));
     let mut parts = Vec::new();
@@ -374,6 +367,9 @@ fn cell_row(cell: Cell, rows: &[&Row]) -> String {
     if valid == 0 {
         return format!("| {} | 0 x {TASKS} | - | - | - | - | - | - | not yet run: 0 of {RUNS_WANTED} runs |\n", cell.name());
     }
+    if valid < RUNS_WANTED {
+        return format!("| {} | {valid} x {TASKS} | - | - | - | - | - | - | {valid} of {RUNS_WANTED} runs |\n", cell.name());
+    }
     let of = |arm: Arm| runs.iter().flatten().copied().filter(|row| row.arm == arm).collect::<Vec<&Row>>();
     let (north, plain) = (of(Arm::North), of(Arm::Plain));
     let (n_correct, p_correct) = (count(&north, |row| row.correct), count(&plain, |row| row.correct));
@@ -385,8 +381,7 @@ fn cell_row(cell: Cell, rows: &[&Row]) -> String {
         Some(task_line(&north, &plain)),
         Some(first_try_line(&north, &plain)),
     ];
-    let decided = valid >= RUNS_WANTED;
-    let shown = |name: &str| lines.iter().flatten().find(|line| line.name == name).map_or_else(|| "five at once only".to_owned(), |line| line.show(decided));
+    let shown = |name: &str| lines.iter().flatten().find(|line| line.name == name).map_or_else(|| "five at once only".to_owned(), |line| line.show());
     let (wait, task, first) = (shown("F1"), shown("F2"), shown("F3"));
     let applicable: Vec<Line> = lines.into_iter().flatten().collect();
     format!(
@@ -399,7 +394,7 @@ fn cell_row(cell: Cell, rows: &[&Row]) -> String {
         n_cost / valid as f64,
         p_cost / valid as f64,
         n_cost / p_cost,
-        reading(valid, &applicable, n_cost / p_cost)
+        reading(&applicable, n_cost / p_cost)
     )
 }
 
@@ -412,4 +407,29 @@ pub fn section(doc: &DocumentMut, path: &Path) -> Result<String, String> {
     }
     out.push_str(LEGEND);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render(runs: &[&str]) -> String {
+        let rows: Vec<Row> = runs
+            .iter()
+            .flat_map(|run| {
+                [Arm::North, Arm::Plain].into_iter().flat_map(move |arm| {
+                    (0..TASKS).map(move |task| Row { run: (*run).to_owned(), cell: Cell::Five, arm, task: format!("t{task}"), correct: true, seconds: 100.0, first_handin_pass: true, failed_handins: 0, tokens: 1, cost_usd: 1.0 })
+                })
+            })
+            .collect();
+        cell_row(Cell::Five, &rows.iter().collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn open_cell_renders_no_numbers() {
+        assert_eq!(render(&["lg5-1115a"]), "| large five-at-once cell | 1 x 5 | - | - | - | - | - | - | 1 of 3 runs |\n");
+        let closed = render(&["lg5-1115a", "lg5-1115b", "lg5-1115c"]);
+        assert!(closed.contains("| 3 x 5 | 15 of 15 / 15 of 15 |"), "{closed}");
+        assert!(closed.contains("$5.00 / $5.00"), "{closed}");
+    }
 }
