@@ -103,11 +103,11 @@ pub(super) struct NorthProcesses {
 }
 
 impl NorthProcesses {
-    pub(super) fn read(section: &str, runtime: Option<&str>, window: u64) -> Self {
+    pub(super) fn read(section: &str, held: &str, runtime: Option<&str>, window: u64) -> Self {
         let rows: Vec<Row> = section.lines().filter(|line| !line.is_empty()).filter_map(Row::parse).collect();
         let transient_pids: BTreeSet<&str> = rows.iter().filter(|row| matches!(row.role, Role::Transient)).map(|row| row.pid).collect();
         let (watchdogs, others): (Vec<&Row>, Vec<&Row>) = rows.iter().partition(|row| matches!(row.role, Role::Watchdog { .. }));
-        let mut processes = Self::default();
+        let mut processes = Self { live_units: held.lines().map(str::trim).filter(|unit| !unit.is_empty()).map(str::to_owned).collect(), ..Self::default() };
         for row in others {
             processes.count(row, &transient_pids, window);
         }
@@ -133,7 +133,6 @@ impl NorthProcesses {
         *self.residents.entry(resident).or_default() += 1;
         if resident == Resident::SessionHost {
             self.sessions.extend(row.session_name().map(str::to_owned));
-            self.live_units.extend((!row.unit.is_empty()).then(|| row.unit.to_owned()));
         }
     }
 

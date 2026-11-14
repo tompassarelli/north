@@ -108,7 +108,7 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         units: UNITS.iter().zip(section("units").lines()).map(|(unit, state)| ((*unit).to_owned(), state.trim().to_owned())).collect(),
         psi60: psi60(section("pressure")),
         load_per_core: load_per_core(section("load")),
-        north: sections.get("north").map(|north| NorthProcesses::read(north, linked_sha(Path::new(section("runtime").trim())), default_number("north_process_leak_window_sec") as u64)),
+        north: sections.get("north").map(|north| NorthProcesses::read(north, section("held"), linked_sha(Path::new(section("runtime").trim())), default_number("north_process_leak_window_sec") as u64)),
         ..Facts::default()
     };
     if let (true, Some(runtime), Some(at)) = (facts.swaps.is_empty(), facts.runtime.clone(), facts.swapped_at) {
@@ -241,6 +241,7 @@ fn facts_script() -> String {
          if [ \"$unit_state\" = activating ]; then sub=$(systemctl --user show -p SubState --value \"$unit\"); result=$(systemctl --user show -p Result --value \"$unit\"); changed=$(systemctl --user show -p StateChangeTimestampMonotonic --value \"$unit\"); timeout=$(systemctl --user show -p TimeoutStartUSec --value \"$unit\"); [ -n \"$changed\" ] || changed=0; age_us=$(( now_us - changed )); [ \"$age_us\" -ge 0 ] || age_us=0; timeout=${{timeout// /_}}; unit_state=\"$unit_state $sub $result $age_us $timeout\"; fi; echo \"$unit_state\"; done\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
+         mark held; uid=$(id -u); groups=\"${{NORTH_SETTLE_CGROUP:-/sys/fs/cgroup/user.slice/user-$uid.slice/user@$uid.service/agent.slice}}\"; for group in \"$groups\"/north-fleet-*.service; do unit=${{group##*/}}; [ -d \"$group\" ] && [ -d \"$state/held/$unit\" ] && [ ! -e \"$state/held/$unit/status\" ] && echo \"$unit\"; done\n\
          mark north; up=$(cut -d. -f1 \"$proc/uptime\" 2>/dev/null || echo 0); hz=$(getconf CLK_TCK 2>/dev/null || echo 100); for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
          read -r -a stat <\"$pid/stat\" 2>/dev/null || stat=(); parent=${{stat[3]:-0}}; age=$(( up - ${{stat[21]:-0}} / hz )); \
          mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); cgroup=; read -r cgroup <\"$pid/cgroup\" 2>/dev/null; unit=; [[ $cgroup =~ (north-fleet-[^/]*\\.service) ]] && unit=${{BASH_REMATCH[1]}}; argv=(\"${{pid##*/}}\" \"$parent\" \"$age\" \"$unit\" \"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\

@@ -51,10 +51,20 @@ impl FakeProc {
             let name = format!("worker-{session}");
             let unit = unit_of(&name);
             for _ in 0..hosts_each {
-                self.spawn_in(&unit, "north", &[&north, "session-host", "--name", &name, "--generation", "1", "--", &north, "session-link", "--ssh", "gex45"]);
+                self.spawn("north", &[&north, "session-host", "--name", &name, "--generation", "1", "--", &north, "session-link", "--ssh", "gex45"]);
             }
-            self.spawn_in(&unit, "north", &[&north, "session-link", "--ssh", "gex45", "--unit", &name]);
-            self.spawn_in(&unit, "north", &[&north, "fleet", "watchdog", &name]);
+            self.spawn("north", &[&north, "session-link", "--ssh", "gex45", "--unit", &name]);
+            self.spawn("north", &[&north, "fleet", "watchdog", &name]);
+            self.hold(&unit, false);
+        }
+    }
+
+    fn hold(&self, unit: &str, ended: bool) {
+        let held = self.0.path().join("north/held").join(unit);
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::create_dir_all(self.0.path().join("cgroup").join(unit)).unwrap();
+        if ended {
+            std::fs::write(held.join("status"), "0\n").unwrap();
         }
     }
 
@@ -63,11 +73,13 @@ impl FakeProc {
             .arg("-c")
             .arg(facts_script())
             .env("NORTH_SETTLE_PROC", self.0.path())
+            .env("NORTH_SETTLE_CGROUP", self.0.path().join("cgroup"))
             .env("HOME", self.0.path())
             .env("XDG_STATE_HOME", self.0.path())
             .output()
             .unwrap();
-        NorthProcesses::read(&sections(&String::from_utf8_lossy(&output.stdout))["north"], Some(LIVE), default_number("north_process_leak_window_sec") as u64)
+        let read = sections(&String::from_utf8_lossy(&output.stdout));
+        NorthProcesses::read(&read["north"], &read["held"], Some(LIVE), default_number("north_process_leak_window_sec") as u64)
     }
 
     fn problems(&self) -> (Vec<String>, Value) {
@@ -214,7 +226,7 @@ fn a_remote_job_counts_once_with_its_wrapper_chain_and_orphaned_wrappers_still_c
 }
 
 #[test]
-fn a_tool_server_per_live_session_is_growth_and_one_that_outlives_its_session_is_a_leak() {
+fn a_tool_server_in_a_held_unit_whose_cli_runs_is_growth_and_one_in_a_unit_whose_cli_ended_is_a_leak() {
     let mut proc = FakeProc::new();
     proc.sessions(2, 1);
     let tool = north(LIVE);
@@ -225,6 +237,7 @@ fn a_tool_server_per_live_session_is_growth_and_one_that_outlives_its_session_is
     assert_eq!(read.growth(), "transient growth: 2 for 2 live sessions");
     assert_eq!(read.leak(None), "transient leak: none");
     let unit = unit_of("worker-ended");
+    proc.hold(&unit, true);
     proc.spawn_in(&unit, "north", &[&tool, "--tool-server", "hand-in", "finish"]);
     let read = proc.read();
     let message = format!("1 transient north processes outlived their ended session {unit}");
