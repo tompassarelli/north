@@ -1,5 +1,5 @@
 //! The one dispatch from a detector kind to the facts it reads and the check that files its findings.
-use super::{Detector, Finding, Gatherer, Limits, code_health_review, correction, crate_headroom, default_text, disk, followed_source, machine_fix, machine_refusal, mechanism_discovery, plan, refusal, signal, skill_review, slow_check, slow_test};
+use super::{Detector, Finding, Gatherer, Limits, code_health_review, correction, crate_headroom, disk, followed_source, machine_fix, machine_refusal, mechanism_discovery, plan, refusal, signal, skill_review, slow_check, slow_test};
 
 pub fn run(detector: Detector, gatherer: &Gatherer, now: f64, limits: &Limits, pages: &mut Vec<Finding>) -> Option<Vec<Finding>> {
     Some(match detector {
@@ -14,7 +14,7 @@ pub fn run(detector: Detector, gatherer: &Gatherer, now: f64, limits: &Limits, p
         Detector::RecurringSequence => return None,
         Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes(), correction::graph_guard_landed),
         Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
-        Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs), &default_text("detector_slow_check_owner")),
+        Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs)),
         Detector::CrateHeadroom => crate_headroom::near(&gatherer.crates()),
         Detector::MachineFix => machine_fix::fixed(&gatherer.machine_fixes()),
         Detector::MachineRefusal => machine_refusal::refused(&gatherer.machine_refusals()),

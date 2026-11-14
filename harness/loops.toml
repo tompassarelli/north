@@ -339,7 +339,6 @@ writer = "flow"
 
 host = "lander"
 defaults = [
-  "detector_slow_test_owner",
   "detector_slow_test_profile_seconds",
   "detector_slow_test_runs",
   "detector_slow_test_seconds",

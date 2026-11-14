@@ -26,8 +26,8 @@ fn a_family_over_its_budget_in_each_newest_green_run_files_one_box_counting_only
     let overs = over(&found, &budgets, 3);
     assert_eq!(overs.iter().map(|over| (over.family, over.newest.len())).collect::<Vec<_>>(), [("clippy", 3)]);
     assert!(over(&found, &BTreeMap::from([("clippy", 75.0)]), 3).is_empty(), "one run at or under budget clears the streak");
-    let findings = slow(&overs, "north#634");
-    assert_eq!((findings.len(), findings[0].key.as_str(), findings[0].owner.as_deref()), (1, key("clippy").as_str(), Some("north#634")));
+    let findings = slow(&overs);
+    assert_eq!((findings.len(), findings[0].key.as_str(), findings[0].owner.as_deref()), (1, key("clippy").as_str(), None));
     assert!(findings[0].detail.contains("70 s, 80 s, 90 s") && findings[0].detail.contains(&budget_key("clippy")), "{}", findings[0].detail);
     assert_eq!([family("x ./bin/head-north --code a/ --build"), family("x ./bin/head-north land tests --only portable"), family("x cargo nextest run")], [Some("north_build"), Some("land_tests"), Some("nextest")]);
 }

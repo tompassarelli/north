@@ -83,7 +83,7 @@ pub fn key(family: &str) -> String {
     format!("slow-check:{family}")
 }
 
-pub fn slow(overs: &[Over], owner: &str) -> Vec<Finding> {
+pub fn slow(overs: &[Over]) -> Vec<Finding> {
     overs
         .iter()
         .map(|over| {
@@ -92,7 +92,7 @@ pub fn slow(overs: &[Over], owner: &str) -> Vec<Finding> {
             Finding {
                 detector: Detector::SlowCheck,
                 key: key(over.family),
-                owner: Some(owner.to_owned()),
+                owner: None,
                 title: format!("Bring the {} land check back under its {:.0} s budget", over.family.replace('_', " "), over.budget),
                 detail: format!("`{command}` ran {} of its own time (slot and lease waits excluded) in its newest {} green after-landing runs, over the {:.0} s budget {} in harness/defaults.toml", times.join(", "), over.newest.len(), over.budget, budget_key(over.family)),
                 done_when: format!("the {} land check runs in at most {:.0} s of its own time in each of {} later green after-landing runs, read from the lander's spans as `north land profile` reads them.", over.family.replace('_', " "), over.budget, over.newest.len()),

@@ -47,10 +47,6 @@ fn default_number(name: &str) -> f64 {
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
-fn default_text(name: &str) -> String {
-    DEFAULTS[name]["value"].as_str().unwrap_or_else(|| panic!("harness/defaults.toml has no text for {name}")).to_owned()
-}
-
 fn default_list(name: &str) -> Vec<String> {
     DEFAULTS[name]["value"].as_array().into_iter().flatten().filter_map(|item| item.as_str().map(str::to_owned)).collect()
 }

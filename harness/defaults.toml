@@ -1446,28 +1446,12 @@ source = "measured: a warm one-test profile took 15 s on ccx33 on 2026-11-06 (no
 fallback = "no profile is taken, so no box is filed that tick"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
-[detector_slow_test_owner]
-value = "north#634"
-allowed = { prefix = "north#" }
-unit = "issue that owns a slow test whose file no docs/rationale document with an Owner line names"
-source = "tom: the slow-test reflex files on the issue that owns the test's file and never opens a new issue; north#634 owns verification speed (2026-11-06)"
-fallback = "the box is not filed"
-consumers = ["crates/north-flow/src/detectors/mod.rs"]
-
 [detector_code_health_repos]
 value = ["north", "makgora", "wisp", "padbridge", "makgora-client"]
 allowed = { min_len = 0 }
 unit = "repositories whose `north code-health signal` the code-health-review detector reads and files a review box for"
 source = "tom: recurring reviews fire from signals through the flow detectors, not from timers of their own (north#1059, 2026-11-10); the list is the repositories the hourly code-health tick enrolled"
 fallback = "no code-health review box is filed"
-consumers = ["crates/north-flow/src/detectors/mod.rs"]
-
-[detector_code_health_owner]
-value = "north#722"
-allowed = { prefix = "north#" }
-unit = "issue a repository's code-health review box is filed on by the code-health-review detector"
-source = "tom: detectors file on the owning issue and never as a new issue (2026-11-05); structure debt shares the owner of the crate-split rationale (docs/rationale/crate-split.md)"
-fallback = "the box is not filed"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
 [detector_code_health_read_minutes]
@@ -1477,22 +1461,6 @@ unit = "minutes between one repository's code-health signal readings, each a fet
 source = "the hourly timer of the retired `north code-health tick` (north#1059)"
 fallback = "60"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
-
-[detector_slow_check_owner]
-value = "north#634"
-allowed = { prefix = "north#" }
-unit = "issue a land check family's over-budget box is filed on by the slow-check detector"
-source = "tom: verification after the push should fit 20 s, and a check that grows past its budget three runs in a row files its own box (north#634, 2026-11-06)"
-fallback = "the box is not filed"
-consumers = ["crates/north-flow/src/detectors/mod.rs"]
-
-[detector_skill_review_owner]
-value = "north#1276"
-allowed = { prefix = "north#" }
-unit = "issue a skill's review box is filed on by the skill-review detector"
-source = "tom: reviews fire on a signal in place of a calendar, and a skill changed, corrected or drifted since its last review gets one box (north#1059, 2026-11-10)"
-fallback = "the box is not filed"
-consumers = ["crates/north-flow/src/detectors/mod.rs", "crates/north-flow/src/detectors/gather/skills.rs"]
 
 [detector_followed_source_read_minutes]
 value = 1440

@@ -5,7 +5,6 @@ use std::fs;
 
 use super::Gatherer;
 use crate::detectors::skill_review::{Facts, Skill};
-use crate::detectors::default_text;
 use crate::foundation::clock::Timestamp;
 use crate::threads::incidents::corrections;
 
@@ -137,6 +136,6 @@ impl Gatherer<'_> {
                 Some(Skill { drift: self.skill_drift(&front), id, reviewed, changes: changed, corrections: corrected })
             })
             .collect();
-        Facts { owner: Some(default_text("detector_skill_review_owner")), skills }
+        Facts { owner: None, skills }
     }
 }

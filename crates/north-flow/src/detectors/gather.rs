@@ -15,7 +15,7 @@ use super::refusal::{self, Refusal};
 use super::signal::{self, Signal};
 use super::slow_check;
 use super::slow_test;
-use super::{Limits, default_number, default_text};
+use super::{Limits, default_number};
 use crate::health::loops::{self, Declared, Origin};
 use crate::flow::{Host, Places};
 use crate::platform::sqlite::{self, Access};
@@ -347,7 +347,6 @@ impl Gatherer<'_> {
         }
         let filed = Filer::new(self.places, self.host).filed_keys();
         let documents = self.owner_documents();
-        let fallback = default_text("detector_slow_test_owner");
         let mut found: Vec<(slow_test::Crossing, String)> = slow_test::told(&self.places.graph)
             .unwrap_or_else(|error| {
                 eprintln!("detectors: the slow tests are unread from the graph: {error}");
@@ -376,7 +375,7 @@ impl Gatherer<'_> {
             } else {
                 DRY_RUN_PROFILE.to_owned()
             };
-            slow.push(slow_test::Slow { owner: slow_test::owner_of(&file, &documents, &fallback), file, profile, crossing });
+            slow.push(slow_test::Slow { owner: slow_test::owner_of(&file, &documents), file, profile, crossing });
         }
         slow_test::Facts { slow }
     }

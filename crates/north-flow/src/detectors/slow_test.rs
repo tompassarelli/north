@@ -54,7 +54,7 @@ pub fn crossing(runs: &[Run], limits: &Limits) -> Vec<Crossing> {
 pub struct Slow {
     pub crossing: Crossing,
     pub file: String,
-    pub owner: String,
+    pub owner: Option<String>,
     pub profile: String,
 }
 
@@ -76,7 +76,7 @@ pub fn slow(facts: &Facts, limits: &Limits) -> Vec<Finding> {
             Finding {
                 detector: Detector::SlowTest,
                 key: key(binary, name),
-                owner: Some(slow.owner.clone()),
+                owner: slow.owner.clone(),
                 title: format!("Speed up the slow test {name}"),
                 detail: format!("`{binary} {name}` in {} took {seconds:.1} s in its newest land check run and was over the {:.0} s line in each of its newest {} runs; {}", slow.file, limits.slow_test_seconds, limits.slow_test_runs, slow.profile),
                 done_when: format!("`north ledger flow slow-tests --test {}` exits 0.", key(binary, name)),
@@ -191,13 +191,13 @@ pub fn document(text: &str) -> Option<Document> {
     Some(Document { owner, paths: PATH.captures_iter(text).map(|found| found[1].to_owned()).collect() })
 }
 
-pub fn owner_of(file: &str, documents: &[Document], fallback: &str) -> String {
+pub fn owner_of(file: &str, documents: &[Document]) -> Option<String> {
     let reach = |path: &String| (file == path || file.starts_with(&format!("{}/", path.trim_end_matches('/')))).then_some(path.len());
     documents
         .iter()
         .filter_map(|document| Some((document.paths.iter().filter_map(reach).max()?, &document.owner)))
         .max_by_key(|(length, _)| *length)
-        .map_or_else(|| fallback.to_owned(), |(_, owner)| owner.clone())
+        .map(|(_, owner)| owner.clone())
 }
 
 #[cfg(test)]

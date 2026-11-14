@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Gatherer, default_number, default_text};
+use super::{Gatherer, default_number};
 use crate::detectors::code_health_review::{self, Reading};
 use crate::detectors::default_list;
 use crate::flow::write_atomic;
@@ -54,7 +54,6 @@ impl Gatherer<'_> {
     }
 
     pub fn code_health_readings(&self, now: f64) -> code_health_review::Facts {
-        let owner = Some(default_text("detector_code_health_owner"));
         let wait = default_number("detector_code_health_read_minutes") * 60.0;
         let path = self.places.flow().join(READINGS);
         let mut saved: BTreeMap<String, Read> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
@@ -82,6 +81,6 @@ impl Gatherer<'_> {
                 eprintln!("detectors: could not record the code-health readings: {error}");
             }
         }
-        code_health_review::Facts { owner, readings }
+        code_health_review::Facts { owner: None, readings }
     }
 }
