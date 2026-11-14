@@ -35,7 +35,6 @@ crates_before = [
   "north-diff-gates",
   "north-dispatch",
   "north-docs",
-  "north-expectations",
   "north-fleet",
   "north-fleet-store",
   "north-fleet-supervisor",
@@ -872,6 +871,20 @@ before = ["2026-11-12", "2026-11-26"]
 after = ["2026-11-26", "2026-12-10"]
 review = "2026-12-12"
 owner = "tompassarelli/north#1039"
+
+[[experiment]]
+id = "north-ops-split"
+change = "north-ops' verb families move to the crates that own their domains, nine of them new, per docs/rationale/north-ops-split.md"
+landed = "dc8003249f"
+crates = ["north-github-broker", "north-ci", "north-issue-boxes", "north-claims", "north-desktop", "north-reclaim", "north-credentials", "north-remote-serve", "north-expectations", "north-nix"]
+metric = "none"
+measure = "git log on origin/main over the 28 days after the last move: commits that merge one of these crates back into another or move a module between two of them; keep the split when there are none, and record the count in docs/rationale/north-ops-split.md"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-15", "2026-12-13"]
+review = "2026-12-15"
+owner = "tompassarelli/north#1435"
 
 [[check]]
 id = "n1039-settle-fleet-session-stopped"
