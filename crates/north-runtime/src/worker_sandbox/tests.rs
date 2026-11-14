@@ -310,7 +310,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     assert_eq!(environment.iter().filter(|(name, _)| name.starts_with("XDG_") && name != "XDG_RUNTIME_DIR").map(|(name, value)| (name.as_str(), value.as_str())).collect::<Vec<_>>(), [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")], "a brokered build took the client's scratch homes, so its capacity admissions landed outside the host's decision ledger (north#1030)");
     assert_eq!(environment.iter().filter(|(name, _)| name == "HOME").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/home/a"], "a brokered command took the client's HOME instead of the broker's (north#992)");
     let north = Path::new("/n/north");
-    let wrapped = super::broker::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"));
+    let wrapped = super::capability::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"), false);
     assert_eq!(wrapped.join(" "), "capacity host run --class heavy --owner o -- /n/north --worker-sandbox --program -- cargo test -p x");
     offload_request::an_offload_request_s_process_takes_nothing_of_the_worker_s_but_its_typed_words();
     super::eval_unit_request::tests::a_listed_lead_starts_reads_and_stops_only_the_finish_proof_unit_and_a_request_outside_the_closed_list_starts_nothing();

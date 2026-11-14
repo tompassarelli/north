@@ -6,7 +6,6 @@ use north_base::foundation::{carry, offload};
 use north_base::verdict_cache;
 use north_providers::providers::{opencode, pi};
 
-use crate::fleet::model::Role;
 use super::peer::Peer;
 use super::lane_grant;
 use super::{CONFINED, HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
@@ -139,7 +138,7 @@ pub(super) fn caller_session(variables: Vec<(String, String)>, peer: &Peer, host
     let owned = lane_grant::own_session(peer, host, "");
     let session = owned.as_ref().ok().and_then(|(_, record)| record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned));
     let role = match &owned {
-        Ok((_, record)) => Some(record["role"].as_str().map_or_else(|| Role::unnamed(!record["parent"].is_null() || !record["task_ref"].is_null(), record["name"].as_str().unwrap_or_default()).label().to_owned(), str::to_owned)),
+        Ok((_, record)) => Some(super::capability::recorded_role(record)),
         Err(why) => (!why.is_empty()).then(|| "worker".to_owned()),
     };
     variables.into_iter().filter(|(name, _)| name != lane_grant::SESSION_ENV && name != session_scope::ROLE_ENV).chain(session.map(|name| (lane_grant::SESSION_ENV.to_owned(), name))).chain(role.map(|role| (session_scope::ROLE_ENV.to_owned(), role))).collect()

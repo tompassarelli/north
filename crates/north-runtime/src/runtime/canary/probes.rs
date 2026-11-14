@@ -166,7 +166,7 @@ export __BROKER__="$root/broker.sock"
 unset __HIDDEN__
 cat > "$root/command" <<'CANARY'
 __COMMAND__CANARY
-NORTH_FLEET_ROLE=worker NORTH_WORKER_SANDBOX=1 CANARY_NORTH="$north" "$north" --worker-sandbox "bash $root/command"
+NORTH_FLEET_ROLE=worker NORTH_WORKER_SANDBOX=1 CANARY_NORTH="$north" "$north" --worker-sandbox --worker "bash $root/command"
 "#;
 
 /// What a worker command must not hold: a file of the ssh directory it can open, an offload master socket, the agent socket variable, and on a host whose sessions reach the hub, an ssh that gets there.

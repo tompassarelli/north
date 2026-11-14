@@ -9,12 +9,12 @@ const SETTINGS: [&str; 2] = ["settings.json", "settings.local.json"];
 /// The first of `paths`, which a file tool of this session names, that it may not write, or `None` for a session whose shell is not confined. The boundary is the one the shell's domain applies ([`writable`]), since the Claude Code process that runs Edit and Write is never inside it; a lane the path itself names counts as the session's own, as a lane a command names does. A client's settings and hook files and its whole configuration directory are refused even where a writable tree covers them, because they decide which hooks run. A boundary that cannot be computed refuses every path.
 pub fn unwritable_by_file_tool(paths: &[String], cwd: &Path) -> Option<String> {
     let profile = std::env::var_os(CONFIG_DIR).filter(|directory| !directory.is_empty()).map(PathBuf::from);
-    confines_worker().then(|| outside(&Context::from_env_in(&paths.join(" "), cwd), paths, profile.as_deref())).flatten()
+    confines_worker(false).then(|| outside(&Context::from_env_in(&paths.join(" "), cwd), paths, profile.as_deref())).flatten()
 }
 
 /// The first of `paths`, which a reading tool of this session names, that a command of this session may not read, or `None` for a session whose shell is not confined: a path that is, lies inside or holds what a worker command is refused to read (`unreadable`), since the Claude Code process that runs Read, Grep and Glob is never inside the shell's domain. Links and `..` resolve as for a file tool that writes, relative paths against `cwd`, and `~` against the home. A boundary that cannot be computed refuses every path.
 pub fn unreadable_by_file_tool(paths: &[String], cwd: &Path) -> Option<String> {
-    confines_worker().then(|| shut(&Context::from_env_in("", cwd), paths)).flatten()
+    confines_worker(false).then(|| shut(&Context::from_env_in("", cwd), paths)).flatten()
 }
 
 fn shut(context: &Context, paths: &[String]) -> Option<String> {

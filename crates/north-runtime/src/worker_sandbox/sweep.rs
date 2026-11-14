@@ -32,13 +32,13 @@ pub(super) fn clear(places: &[PathBuf]) {
     }
 }
 
-/// Runs `north --worker-sandbox COMMAND` as a child that builds the domain, waits for it, then clears git's leftovers from the places `context` names; the child's exit code is the command's.
-pub(super) fn around(command: &str, context: &Context, marker: &str) -> std::process::ExitCode {
+/// Runs `north --worker-sandbox [--worker] COMMAND` as a child, with `--worker` when `worker` says so, that builds the domain, waits for it, then clears git's leftovers from the places `context` names; the child's exit code is the command's.
+pub(super) fn around(command: &str, worker: bool, context: &Context, marker: &str) -> std::process::ExitCode {
     let Ok(north) = std::env::current_exe() else {
         eprintln!("north worker-sandbox: cannot find its own executable");
         return std::process::ExitCode::from(126);
     };
-    let status = std::process::Command::new(north).arg(super::FLAG).arg(command).env(marker, "1").status();
+    let status = std::process::Command::new(north).arg(super::FLAG).args(worker.then_some(super::WORKER)).arg(command).env(marker, "1").status();
     clear(&places(context));
     match status {
         Ok(status) => std::process::ExitCode::from(status.code().map_or(128, |code| u8::try_from(code).unwrap_or(1))),

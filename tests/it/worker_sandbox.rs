@@ -70,7 +70,7 @@ impl Home {
     fn run_in(&self, directory: &Path, command: &str, sandboxed: bool) -> Output {
         let mut outer = self.outer(directory);
         if sandboxed {
-            outer.arg("--").arg(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]);
+            outer.arg("--").arg(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--worker", command]);
         } else {
             outer.args(["--", "bash", "-c", command]);
         }
@@ -301,7 +301,7 @@ fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_n
     ["manager", "north-links", "north-spares", "north-session-hosts"].iter().for_each(|directory| std::fs::create_dir_all(runtime.join(directory)).unwrap());
     let _listeners: Vec<std::os::unix::net::UnixListener> = ["daemon.sock", "manager/private", "north-kept.sock", "wayland-1", "north-ssh-0a1b", "north-taker-0a1b", "north-links/tom_gex45", "north-spares/tom_gex45.sock", "north-session-hosts/0a1b.sock"].iter().map(|name| std::os::unix::net::UnixListener::bind(runtime.join(name)).unwrap()).collect();
     let command = r#"test -c "$XDG_RUNTIME_DIR/daemon.sock" && test -c "$XDG_RUNTIME_DIR/manager/private" && test -S "$XDG_RUNTIME_DIR/north-kept.sock" && test -S "$XDG_RUNTIME_DIR/wayland-1" && test -c "$XDG_RUNTIME_DIR/north-ssh-0a1b" && test -c "$XDG_RUNTIME_DIR/north-taker-0a1b" && test -c "$XDG_RUNTIME_DIR/north-links/tom_gex45" && test -c "$XDG_RUNTIME_DIR/north-spares/tom_gex45.sock" && test -c "$XDG_RUNTIME_DIR/north-session-hosts/0a1b.sock" && ! umount "$XDG_RUNTIME_DIR/daemon.sock""#;
-    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &runtime).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", &runtime).current_dir(&runtime).output().unwrap();
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--worker", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &runtime).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", &runtime).current_dir(&runtime).output().unwrap();
     assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stderr).matches("north worker-sandbox:").count(), 0, "{}", String::from_utf8_lossy(&output.stderr));
 }
@@ -459,7 +459,7 @@ fn a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_
     std::fs::write(home.path().join("code/q/worktrees/second/src.rs"), "changed").unwrap();
     let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
     let command = format!("{north} hand-in --message change -- ../../../q/worktrees/second/src.rs");
-    let output = Command::new(north).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
+    let output = Command::new(north).args(["--worker-sandbox", "--worker", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     let lock = project.join(".git/worktrees/second/index.lock");
     assert!(!lock.exists(), "the hand-in left {} behind: {stderr}", lock.display());
@@ -495,7 +495,7 @@ fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
     let resident = rusqlite::Connection::open(state.join("ledger.db")).unwrap();
     resident.query_row("pragma journal_mode=wal", [], |_| Ok(())).unwrap();
     let command = child("1793000000000-956");
-    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "far-1").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
+    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--worker", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "far-1").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
     let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success(), "{report}");
     let names = |directory: &str| -> Vec<String> { std::fs::read_dir(home.path().join(directory)).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect() };
@@ -536,7 +536,7 @@ impl Worker {
 
     fn run(&self, command: &str) -> (String, String) {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
-        let output = Command::new(north).args(["--worker-sandbox", command]).env_clear().env("CLAUDECODE", "1").env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "w-sender").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
+        let output = Command::new(north).args(["--worker-sandbox", "--worker", command]).env_clear().env("CLAUDECODE", "1").env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "w-sender").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
         (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
     }
 
@@ -593,7 +593,7 @@ fn a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker() {
     git(&main, &["fetch", "-q", "origin", "main"]);
     let sandboxed = |command: &str| {
         Command::new(north)
-            .args(["--worker-sandbox", command])
+            .args(["--worker-sandbox", "--worker", command])
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap())
             .env("HOME", home.path())

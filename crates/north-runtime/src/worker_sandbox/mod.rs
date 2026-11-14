@@ -5,6 +5,7 @@ mod broker_served;
 mod broker_start;
 mod brokered_reads;
 mod buck;
+mod capability;
 mod check_request;
 mod finish_request;
 mod fleet_compile;
@@ -74,13 +75,14 @@ const PROGRAM: &str = "--program";
 const CHECKED: &str = "--checked";
 const HAND_OFF: &str = "--hand-off";
 const CANDIDATE: &str = "--candidate";
+const WORKER: &str = "--worker";
 const SOCKETS_HIDDEN: &str = north_base::platform::session_scope::SOCKETS_HIDDEN;
 const CONFINED: &str = north_base::platform::session_scope::CONFINED;
 const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
 const LANE_ONLY: &str = north_base::platform::session_scope::LANE_ONLY;
 const HOSTS_HIDDEN: &str = north_base::platform::session_scope::HOSTS_HIDDEN;
 const SESSION_SCOPE: &str = "NORTH_WORKER_SESSION_SCOPE";
-const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --checked -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --candidate -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker [--code DIRECTORY [--detached | --peers CGROUP]]";
+const USAGE: &str = "usage: north --worker-sandbox [--worker] COMMAND | north --worker-sandbox --built|--program [--worker] -- PROGRAM [ARGS...] | north --worker-sandbox --checked -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --candidate -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker [--code DIRECTORY [--detached | --peers CGROUP]]";
 
 /// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots`: the rule a process the outside broker handed work to keeps inside the namespace it builds, where Landlock could not be applied before the mount calls and the namespace alone does not know the worker's trees.
 fn confine_removal(roots: &[PathBuf]) -> Result<RulesetStatus, String> {
@@ -124,17 +126,18 @@ pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
     if !bound.is_empty() {
         return bind(arguments, bound);
     }
-    match arguments {
+    let (worker, arguments) = capability::worker_word(arguments);
+    match arguments.as_slice() {
         [broker, served @ ..] if broker == BROKER => broker_start::run(served),
         [maker, runtime, paths @ ..] if maker == MAKER => sockets::make(Path::new(runtime), &paths.iter().map(PathBuf::from).collect::<Vec<_>>()),
         [outside, separator, north, words @ ..] if outside == OUTSIDE && separator == "--" && !north.is_empty() => self::outside(north, words),
-        [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true, screen),
+        [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true, worker, screen),
         [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program, screen),
         [hand, separator, program @ ..] if hand == HAND_OFF && separator == "--" && !program.is_empty() => self::hand_off(program),
         [flag, separator, program @ ..] if flag == CANDIDATE && separator == "--" && !program.is_empty() => candidate::run(program),
-        [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false, screen),
+        [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false, worker, screen),
         [flag, separator, program @ ..] if flag == CHECKED && separator == "--" && !program.is_empty() => in_domain(program, false, true),
-        [command] => shell(command, screen),
+        [command] => shell(command, worker, screen),
         _ => {
             eprintln!("{USAGE}");
             std::process::ExitCode::from(2)
@@ -180,21 +183,21 @@ fn hand_off(program: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
-/// Every launched fleet session but the proxy seat (session_scope::confined_role, north#1485) is confined beyond the logins and build output once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706): its removal is confined and the sockets that start processes outside the domain are hidden (south#86). The proxy seat and adopted human windows keep both open, since they drive windows and units.
-fn confines_worker() -> bool {
-    let worker = north_base::platform::session_scope::confined_session();
+/// Every launched fleet session but the proxy seat (session_scope::confined_role, north#1485), as its capability record says (capability.rs), and every command started with `--worker` (the broker says so for a caller whose record confines it, north#1574) is confined beyond the logins and build output once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706): its removal is confined and the sockets that start processes outside the domain are hidden (south#86). The proxy seat and adopted human windows keep both open, since they drive windows and units.
+fn confines_worker(worker: bool) -> bool {
+    let worker = capability::confines_here(worker);
     let applies = north_base::platform::harness::document("harness/gates.toml")["gate"]["worker-sandbox"]["mode"].as_str() == Some("enforce") || std::env::var_os("NORTH_WORKER_SANDBOX").is_some_and(|canary| canary == "1");
     worker && applies
 }
 
-fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
+fn shell(command: &str, worker: bool, screen: Screen) -> std::process::ExitCode {
     if let Some(refused) = hook_screen::refusal(command, screen) {
         return refused;
     }
     let context = Context::from_env(command);
-    let confined = confines_worker();
+    let confined = confines_worker(worker);
     if confined && std::env::var_os(SWEPT).is_none() {
-        return sweep::around(command, &context, SWEPT);
+        return sweep::around(command, worker, &context, SWEPT);
     }
     broker::ensure();
     if confined {
@@ -210,12 +213,12 @@ fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
-/// Runs `program` under the command's domain, with the rule against executing build output unless `lift` says a lane's own build output that `north lane exec` vouched for.
-fn program(program: &[String], lift: bool, screen: Screen) -> std::process::ExitCode {
+/// Runs `program` under the command's domain, a worker's when `worker` or its capability record says so, with the rule against executing build output unless `lift` says a lane's own build output that `north lane exec` vouched for.
+fn program(program: &[String], lift: bool, worker: bool, screen: Screen) -> std::process::ExitCode {
     if let Some(refused) = hook_screen::program_refusal(program, screen) {
         return refused;
     }
-    in_domain(program, lift, confines_worker())
+    in_domain(program, lift, confines_worker(worker))
 }
 
 /// Runs `program` under the domain of a lane-only command when this one is, else of a worker when `worker` says so, else of an agent session.
