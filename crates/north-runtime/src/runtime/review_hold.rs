@@ -8,7 +8,7 @@ use north_base::platform::finish_record::verdict_store;
 use north_base::platform::harness::{DEFAULTS, document};
 use serde::{Deserialize, Serialize};
 
-use super::after_landing::{self, AfterLanding, Landing, Ledger};
+use super::after_landing::{self, AfterLanding, Ledger};
 use super::failure::{Failure, failed};
 use super::layout;
 use super::main_runs::{self, MainRun, MainRuns};
@@ -226,12 +226,12 @@ type Contains = Box<dyn Fn(&str, &str) -> Result<bool, String>>;
 pub(crate) type Revert = Box<dyn Fn(&Trip) -> Result<(), String>>;
 pub(crate) type Landed = Box<dyn Fn(&str) -> Result<Vec<String>, String>>;
 
-/// The facts a promotion screens a head by: the holds, `contains(commit, head)` saying whether `head` is `commit` or descends from it, `landed(lane)` naming the commits on main each landing of a lane made, since the lander squashes a lane into a commit of its own, and `after_landing(head)` the verdict of `head`'s after-landing run (after_landing.rs), and `revert(trip)` asking the sheriff to revert the commit a trip names (trip.rs).
+/// The facts a promotion screens a head by: the holds, `contains(commit, head)` saying whether `head` is `commit` or descends from it, `landed(lane)` naming the commits on main each landing of a lane made, since the lander squashes a lane into a commit of its own, and `after_landing(head)` the verdict of `head`'s after-landing run (after_landing.rs), none while that read is off, and `revert(trip)` asking the sheriff to revert the commit a trip names (trip.rs).
 pub(crate) struct Screen {
     pub holds: Holds,
     pub contains: Contains,
     pub landed: Landed,
-    pub after_landing: AfterLanding,
+    pub after_landing: Option<AfterLanding>,
     pub trips: Trips,
     pub runs: MainRuns,
     pub revert: Revert,
@@ -247,7 +247,7 @@ impl Screen {
         let checkout = checkout.to_path_buf();
         let ledger = state_home().join(PUSH_LEDGER);
         let after = Ledger::here(&checkout);
-        Self { holds: Holds::here(), contains: Box::new({ let checkout = checkout.clone(); move |commit, head| contained(&checkout, commit, head) }), landed: landed_in(ledger), after_landing: if after_landing::enabled() { Box::new(move |head| after.landing(head, now())) } else { Box::new(|_| Landing::Green) }, trips: Trips::here(), runs: MainRuns::main(), revert: Box::new(move |trip| super::trip::ask_revert(&checkout, trip)) }
+        Self { holds: Holds::here(), contains: Box::new({ let checkout = checkout.clone(); move |commit, head| contained(&checkout, commit, head) }), landed: landed_in(ledger), after_landing: after_landing::enabled().then(|| Box::new(move |head: &str| after.landing(head, now())) as AfterLanding), trips: Trips::here(), runs: MainRuns::main(), revert: Box::new(move |trip| super::trip::ask_revert(&checkout, trip)) }
     }
 
     /// Why `head` may not go live through an order that promotes the hosts `hosts`: a standing hold that `head` holds and that names no host or one of them, or a fact that cannot be read; else a line for each hold `head` holds that was lifted within the last day, naming who lifted it and why.
@@ -256,10 +256,8 @@ impl Screen {
     }
 
     fn screened(&self, head: &str, applies: &dyn Fn(Option<&str>) -> bool, now: u64) -> Result<Vec<String>, String> {
-        if let Some(why) = (self.after_landing)(head).refusal() {
-            return Err(format!("{} has not ended its after-landing run green: {why}", layout::short(head)));
-        }
-        self.tripped(head, now)?;
+        let passed = self.passed(head)?;
+        self.tripped(head, passed, now)?;
         if !enabled() {
             return Ok(Vec::new());
         }
@@ -280,6 +278,20 @@ impl Screen {
         Ok(held.iter().filter_map(|hold| hold.lifted.as_ref().filter(|lift| now.saturating_sub(lift.at) < SHOWN_FOR).map(|lift| format!("{} was held by {} ({}); {} lifted it: {}", hold.commit, hold.session, hold.why, lift.by, lift.why))).collect())
     }
 
+    /// Whether `head`'s own after-landing run ended green, refusing one whose run did not; false while the after-landing read is off.
+    fn passed(&self, head: &str) -> Result<bool, String> {
+        let Some(after_landing) = &self.after_landing else { return Ok(false) };
+        match after_landing(head).refusal() {
+            Some(why) => Err(format!("{} has not ended its after-landing run green: {why}", layout::short(head))),
+            None => Ok(true),
+        }
+    }
+
+    /// Whether a trip on `tripped` holds `head`: it is `head`'s own, or `head` descends from it without having `passed` its own run.
+    fn binds(&self, tripped: &str, head: &str, passed: bool) -> Result<bool, String> {
+        Ok(tripped == head || (!passed && (self.contains)(tripped, head)?))
+    }
+
     /// The newest completed run of main whose head is on `head`'s ancestry, the one that decides whether `head` is tripped; runs are read page by page until one is found or the list ends.
     fn newest_run(&self, head: &str) -> Result<Option<MainRun>, String> {
         let mut number = 1;
@@ -294,11 +306,11 @@ impl Screen {
         Ok(None)
     }
 
-    /// Refuses `head` when the newest completed Buck2 run on its ancestry is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on an ancestor (trip.rs), and asks the sheriff to revert the commit a trip names once it has held REVERT_AFTER_SECONDS; a run list or git that cannot say refuses the head.
-    fn tripped(&self, head: &str, now: u64) -> Result<(), String> {
+    /// Refuses `head` when the newest completed Buck2 run on its ancestry is red and no clear answers its trip, or when a lander's trip record (one no run names) stands on it or an ancestor (trip.rs), and asks the sheriff to revert the commit a trip names once it has held REVERT_AFTER_SECONDS; a trip binds only its own commit once `head` `passed` its own after-landing run; a run list or git that cannot say refuses the head.
+    fn tripped(&self, head: &str, passed: bool, now: u64) -> Result<(), String> {
         let unread = |why: String| unscreened(head, why);
         let newest = self.newest_run(head).map_err(unread)?.ok_or_else(|| unread("no completed run of main is on its ancestry".to_owned()))?;
-        if newest.red && !self.trips.cleared(&newest.head).map_err(unread)? {
+        if newest.red && self.binds(&newest.head, head, passed).map_err(unread)? && !self.trips.cleared(&newest.head).map_err(unread)? {
             let trip = match self.trips.read(&newest.head).map_err(unread)? {
                 Some(trip) => trip,
                 None => self.record(&newest).map_err(unread)?,
@@ -307,7 +319,7 @@ impl Screen {
             return Err(format!("{} contains {}", layout::short(head), trip.refusal()));
         }
         for trip in self.trips.open().map_err(unread)? {
-            if trip.run.is_none() && (self.contains)(&trip.head, head).map_err(unread)? {
+            if trip.run.is_none() && self.binds(&trip.head, head, passed).map_err(unread)? {
                 self.trips.revert_when_due(&trip, now, &self.revert).map_err(unread)?;
                 return Err(format!("{} contains {}", layout::short(head), trip.refusal()));
             }

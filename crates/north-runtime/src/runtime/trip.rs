@@ -1,8 +1,8 @@
 //! A Buck2 trip (north#1115): the record of a red run of main's Buck2 workflow, written by the screen on the host that settles the
-//! fleet (main_runs.rs) when the newest completed run on a head's ancestry is red. The trip holds the promotion of that head and of
-//! every later head (review_hold.rs `Screen`) until `north runtime trip clear COMMIT --why TEXT` clears it, the clear is kept with
-//! who cleared it and why, or a newer completed run on that ancestry is green. A record that names no run is the lander's
-//! (north-landing `trip`) and holds until cleared.
+//! fleet (main_runs.rs) when the newest completed run on a head's ancestry is red. The trip holds the promotion of that head, and of
+//! every later head whose own after-landing run has not passed (review_hold.rs `Screen`), until `north runtime trip clear COMMIT
+//! --why TEXT` clears it, the clear is kept with who cleared it and why, or a newer completed run on that ancestry is green. A
+//! record that names no run is the lander's (north-landing `trip`) and holds the same heads until cleared.
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};

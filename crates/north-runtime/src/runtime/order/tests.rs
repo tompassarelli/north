@@ -354,7 +354,7 @@ const NO_TRIPS: &str = "/nonexistent/north-test-trips";
 const HOSTED_LOG: &str = "test\tTest\t2026-11-13T19:24:41.7710459Z [2026-11-13T19:24:41.767+00:00]         FAIL [   0.526s] north::it golden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client";
 
 fn screen_of(holds: Holds, contains: fn(&str, &str) -> Result<bool, String>, landed: fn(&str) -> Result<Vec<String>, String>) -> Screen {
-    Screen { holds, contains: Box::new(move |commit, head| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(landed), after_landing: Box::new(|_| Landing::Green), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }
+    Screen { holds, contains: Box::new(move |commit, head| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(landed), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }
 }
 
 #[test]
@@ -427,7 +427,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
         ("an entry that is no hold", screen_of(Holds(unparsed), squashed, landings), "broken.json"),
         ("an entry not named for its hold", screen_of(Holds(misnamed), squashed, landings), "not the hold its name says"),
         ("git failing", screen_of(Holds(store.clone()), |_, _| Err("fatal: no such object".to_owned()), landings), "no such object"),
-        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: landed_in(state.path().join("pushes.tsv")), after_landing: Box::new(|_| Landing::Green), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }, "pushes.tsv"),
+        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: landed_in(state.path().join("pushes.tsv")), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }, "pushes.tsv"),
     ];
     for (case, screen, says) in failing {
         let refused = screen.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
@@ -436,9 +436,12 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let trips = state.path().join("trips");
     fs::create_dir_all(&trips).unwrap();
     fs::write(trips.join(format!("{SQUASHED}.trip")), "north\tcli::parses\n").unwrap();
-    let tripped = Screen { trips: Trips(trips.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    let tripped = Screen { trips: Trips(trips.clone()), after_landing: None, ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     let refused = tripped.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
-    assert!(refused.contains(SQUASHED) && refused.contains("cli::parses") && refused.contains("north runtime trip clear"), "an open Buck2 trip refuses the order of a head at or after its head and names the trip: {refused}");
+    assert!(refused.contains(SQUASHED) && refused.contains("cli::parses") && refused.contains("north runtime trip clear"), "an open Buck2 trip refuses the order of a later head with no after-landing run of its own and names the trip: {refused}");
+    let passing = Screen { trips: Trips(trips.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    assert!(passing.order(NEW, &["whiterabbit"], now()).is_ok(), "on 2026-11-14 a Buck2 trip on an ancestor held every later head for an hour until cleared by hand, though the head's own after-landing run passed");
+    assert!(passing.order(SQUASHED, &["whiterabbit"], now()).is_err(), "a trip still holds its own commit");
     let promoted = tripped.order(NEW, &["whiterabbit"], now()).err().unwrap_or_default();
     assert!(promoted.contains(SQUASHED), "the slot and Live-fix promotion refuses the same head: {promoted}");
     assert!(tripped.order(OLD, &["whiterabbit"], now()).is_ok(), "a head before the tripped head is not refused");
@@ -450,7 +453,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
             Ok(())
         })
     };
-    let reverting = Screen { trips: Trips(trips.clone()), revert: recorder(&asked), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    let reverting = Screen { trips: Trips(trips.clone()), revert: recorder(&asked), after_landing: None, ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     let tripped_at = now();
     let later = tripped_at + crate::runtime::trip::REVERT_AFTER_SECONDS + 1;
     let stamp = |record: std::path::PathBuf| fs::File::options().write(true).open(record).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(tripped_at)).unwrap();
@@ -464,8 +467,10 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     assert!(tripped.order(NEW, &["whiterabbit"], now()).is_ok(), "a cleared trip no longer holds");
     assert!(Trips(trips).clear(SQUASHED, "proxy", "again", now()).is_err(), "a trip is cleared once");
     let hosted = state.path().join("hosted-trips");
-    let reds_only = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
-    let read = Screen { runs: reds_only, trips: Trips(hosted.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    let reds_only = || MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
+    let passing = Screen { runs: reds_only(), trips: Trips(hosted.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    assert!(passing.order(NEW, &["whiterabbit"], now()).is_ok(), "a red hosted run on an ancestor holds no later head whose own after-landing run passed");
+    let read = Screen { runs: reds_only(), trips: Trips(hosted.clone()), after_landing: None, ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     let refused = read.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
     assert!(refused.contains(SQUASHED) && refused.contains("golden_path::a_brief_becomes") && refused.contains("north runtime trip clear"), "a newest red hosted run of main records its trip and refuses the head with its case: {refused}");
     assert_eq!(fs::read_to_string(hosted.join(format!("{SQUASHED}.trip"))).unwrap(), "run\t43491019011\nnorth\tgolden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client\n");

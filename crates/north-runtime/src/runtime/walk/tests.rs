@@ -127,7 +127,7 @@ fn a_failed_spine_walk_keeps_the_failing_step_s_report_and_log() {
 }
 
 fn screen_holding(holds: &std::path::Path) -> Screen {
-    Screen { holds: Holds(holds.to_path_buf()), contains: Box::new(|_, _| Ok(true)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(|_| Landing::Green), runs: MainRuns::none(), trips: Trips(holds.join("trips")), revert: Box::new(|_| Ok(())) }
+    Screen { holds: Holds(holds.to_path_buf()), contains: Box::new(|_, _| Ok(true)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Some(Box::new(|_| Landing::Green)), runs: MainRuns::none(), trips: Trips(holds.join("trips")), revert: Box::new(|_| Ok(())) }
 }
 
 #[test]

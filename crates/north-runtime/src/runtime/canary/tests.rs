@@ -491,7 +491,7 @@ fn a_runtime_that_fails_verify_north_or_the_scratch_landing_is_not_shipped() {
         assert_eq!(host.current(), layout::link(PREVIOUS), "{failing} left the failed runtime live");
         let walked = super::super::walk::walk_of(&host.layout, "whiterabbit", host.layout.live_sha().as_deref(), Some((PROMOTED, &Verdict::RolledBack)));
         let shipped = std::cell::RefCell::new(Vec::new());
-        let screen = super::super::review_hold::Screen { holds: super::super::review_hold::Holds(host.layout.state.join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(|_| super::super::after_landing::Landing::Green), trips: super::super::trip::Trips(host.layout.state.join("trips")), runs: super::super::main_runs::MainRuns::none(), revert: Box::new(|_| Ok(())) };
+        let screen = super::super::review_hold::Screen { holds: super::super::review_hold::Holds(host.layout.state.join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Some(Box::new(|_| super::super::after_landing::Landing::Green)), trips: super::super::trip::Trips(host.layout.state.join("trips")), runs: super::super::main_runs::MainRuns::none(), revert: Box::new(|_| Ok(())) };
         let _ = super::super::walk::ship_if_walked(&host.layout, walked, &screen, |sha: &str, _: &[String]| {
             shipped.borrow_mut().push(sha.to_owned());
             Ok(())
