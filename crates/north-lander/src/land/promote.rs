@@ -13,10 +13,12 @@ use tolerance::{Held, only_fixes, tolerated};
 use north_base::foundation::exit::NO_VERDICT;
 
 mod arrival;
+mod machinery_lane;
 mod report;
 mod options;
 mod unit;
 
+pub use machinery_lane::run as machinery_replay;
 pub use report::run;
 use arrival::arrive;
 use options::{Options, parse};
@@ -127,7 +129,7 @@ impl Round {
     }
 }
 
-fn recorded(done: &Path) -> Vec<Round> {
+fn recorded(done: &Path, last: usize) -> Vec<Round> {
     let Ok(entries) = fs::read_dir(done) else { return Vec::new() };
     let mut rounds: BTreeMap<String, Round> = BTreeMap::new();
     for path in entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")) {
@@ -148,7 +150,7 @@ fn recorded(done: &Path) -> Vec<Round> {
         round.lanes.sort_by_key(|lane| (queue::queued_micros(&lane.path), lane.path.clone()));
     }
     rounds.sort_by_key(|round| round.decided);
-    let skip = rounds.len().saturating_sub(ROUNDS);
+    let skip = rounds.len().saturating_sub(last);
     rounds.into_iter().skip(skip).collect()
 }
 
@@ -195,7 +197,7 @@ fn run_replay(binary: &Path, checkout: &Path, base: &str, checker: &str, tickets
 
 fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str, divergences: &mut Vec<Divergence>, unreached: &mut Vec<String>) -> usize {
     let mut replayed = 0;
-    for round in recorded(&repository.queue.join("done")) {
+    for round in recorded(&repository.queue.join("done"), ROUNDS) {
         let lanes = round.names();
         let class = replay::recorded_class(&round.verdict).unwrap_or_default();
         if let Some(signature) = replay::unfit_host(&round.verdict) {
