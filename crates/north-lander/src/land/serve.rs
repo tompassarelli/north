@@ -133,15 +133,20 @@ fn back_off(lander: &Lander, pause: Pause, reason: &str, retire: &AtomicBool) {
 
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     let wake = &lander.wake;
-    let _watchers = if once {
-        for reason in lander.pull_remote() {
+    let (_watchers, taken) = if once {
+        let pulled = lander.pull_remote();
+        for reason in pulled.waiting {
             println!("north land: waiting: {reason}");
         }
-        None
+        (None, pulled.taken)
     } else {
-        Some((outbox::watch(lander, wake), tickets::watch(&lander.queue, wake), verdicts::watch(lander)))
+        (Some((outbox::watch(lander, wake), tickets::watch(&lander.queue, wake), verdicts::watch(lander))), Vec::new())
     };
-    heartbeat::watched(lander, || serve_loop(lander, once, retire))
+    let code = heartbeat::watched(lander, || serve_loop(lander, once, retire));
+    for reason in lander.settle(&taken) {
+        println!("north land: waiting: {reason}");
+    }
+    code
 }
 
 fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {

@@ -230,41 +230,55 @@ impl Lander {
         Ok(())
     }
 
-    pub fn pull_remote(&self) -> Vec<String> {
-        let mut waiting = Vec::new();
+    pub fn pull_remote(&self) -> Pulled {
+        let mut pulled = Pulled::default();
         for host in self.remote_hosts() {
             if !plain(&host) {
-                waiting.push(format!("the outbox hosts name {host:?}, which is not an ssh host name; skipped"));
+                pulled.waiting.push(format!("the outbox hosts name {host:?}, which is not an ssh host name; skipped"));
                 continue;
             }
             let outboxes = match route::outboxes(&host) {
                 Ok(outboxes) => outboxes,
                 Err(error) => {
-                    waiting.push(format!("{host}'s outbox skipped this round: {error}"));
+                    pulled.waiting.push(format!("{host}'s outbox skipped this round: {error}"));
                     continue;
                 }
             };
             for outbox in outboxes {
-                self.pull_once(&outbox, &mut waiting);
+                self.pull_once(&outbox, &mut pulled);
             }
         }
-        waiting
+        pulled
     }
 
-    fn pull_once(&self, outbox: &Outbox, waiting: &mut Vec<String>) {
+    fn pull_once(&self, outbox: &Outbox, pulled: &mut Pulled) {
         let named = outbox.name();
         let mut taken = Vec::new();
         match self.pull_host(outbox, Duration::ZERO, &mut taken) {
             Ok(0) => {}
-            Ok(pulled) => println!("north land: pulled {pulled} tickets from {named}'s outbox"),
-            Err(error) => waiting.push(format!("{named}'s outbox skipped this round: {error}")),
+            Ok(count) => println!("north land: pulled {count} tickets from {named}'s outbox"),
+            Err(error) => pulled.waiting.push(format!("{named}'s outbox skipped this round: {error}")),
         }
-        if !taken.is_empty()
-            && let Err(error) = self.remote_outbox().and_then(|dir| ssh(&outbox.login, &format!("d={dir}; {}", settle_script(&taken))))
-        {
-            waiting.push(format!("{named}'s outbox keeps its taken tickets this round: {error}"));
+        if !taken.is_empty() {
+            pulled.taken.push((outbox.clone(), taken));
         }
     }
+
+    pub fn settle(&self, taken: &[(Outbox, Vec<String>)]) -> Vec<String> {
+        let mut waiting = Vec::new();
+        for (outbox, names) in taken {
+            if let Err(error) = self.remote_outbox().and_then(|dir| ssh(&outbox.login, &format!("d={dir}; {}", settle_script(names)))) {
+                waiting.push(format!("{}'s outbox keeps its taken tickets this round: {error}", outbox.name()));
+            }
+        }
+        waiting
+    }
+}
+
+#[derive(Default)]
+pub struct Pulled {
+    pub waiting: Vec<String>,
+    pub taken: Vec<(Outbox, Vec<String>)>,
 }
 
 fn settle_script(taken: &[String]) -> String {
