@@ -2,11 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use super::coordinator_tell::tell_coordinator;
 use super::github;
 
 const NORTH: &str = "tompassarelli/north";
 
 pub const CONFIRMING_TICKS: u32 = 2;
+
+const EXCERPT_CHARS: usize = 1_200;
 
 pub const STAFFED_ALARM: &str = "an alarm's body declares a `Category:` line, so dispatch would staff a worker on an issue that closes itself when its signal clears";
 
@@ -42,6 +45,10 @@ pub trait Tracker {
     fn create(&mut self, title: &str, body: &str) -> Result<(), String>;
     fn edit(&mut self, number: u64, body: &str) -> Result<(), String>;
     fn close(&mut self, number: u64, comment: &str) -> Result<(), String>;
+    /// The alarm under `title` holds no longer and no open issue carries it.
+    fn cleared(&mut self, _title: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub fn alarm(tracker: &mut dyn Tracker, breaches: &mut Breaches, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
@@ -57,7 +64,7 @@ pub fn declares_category(body: &str) -> bool {
 
 pub fn settle(tracker: &mut dyn Tracker, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
     match (tracker.open(title)?, body) {
-        (None, None) => {}
+        (None, None) => tracker.cleared(title)?,
         (Some(issue), None) => tracker.close(issue.number, closing)?,
         (None, Some(body)) => tracker.create(title, body)?,
         (Some(issue), Some(body)) => {
@@ -95,25 +102,15 @@ pub fn section_box(body: &str, heading: &str, key: &str, line: &str, add: bool) 
 
 pub struct Gh {
     repo: String,
-    preferred_labels: Vec<String>,
 }
 
 impl Gh {
     pub fn north() -> Self {
-        Self::of(NORTH, &[])
+        Self::of(NORTH)
     }
 
-    pub fn of(repo: &str, preferred_labels: &[&str]) -> Self {
-        Self { repo: repo.to_owned(), preferred_labels: preferred_labels.iter().map(|label| (*label).to_owned()).collect() }
-    }
-
-    fn present_labels(&self) -> Result<Vec<String>, String> {
-        if self.preferred_labels.is_empty() {
-            return Ok(Vec::new());
-        }
-        let listed = github::json(&["label", "list", "-R", &self.repo, "--json", "name", "-L", "500"])?;
-        let present: Vec<&str> = listed.as_array().into_iter().flatten().filter_map(|label| label["name"].as_str()).collect();
-        Ok(self.preferred_labels.iter().filter(|label| present.contains(&label.as_str())).cloned().collect())
+    pub fn of(repo: &str) -> Self {
+        Self { repo: repo.to_owned() }
     }
 }
 
@@ -136,12 +133,8 @@ impl Tracker for Gh {
     }
 
     fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
-        let labels = self.present_labels()?;
-        let mut command = vec!["issue", "create", "-R", &self.repo, "--title", title, "--body", body];
-        for label in &labels {
-            command.extend(["--label", label]);
-        }
-        succeeded(github::run(&command), "issue create")
+        let excerpt: String = body.chars().take(EXCERPT_CHARS).collect();
+        tell_coordinator(&format!("{} {title}", self.repo), Some(&format!("{title} on {}: {excerpt}", self.repo)))
     }
 
     fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
@@ -150,6 +143,10 @@ impl Tracker for Gh {
 
     fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
         succeeded(github::run(&["issue", "close", &number.to_string(), "-R", &self.repo, "--comment", comment]), "issue close")
+    }
+
+    fn cleared(&mut self, title: &str) -> Result<(), String> {
+        tell_coordinator(&format!("{} {title}", self.repo), None)
     }
 }
 

@@ -131,7 +131,7 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
     if options.dry_run {
         return Ok(());
     }
-    let mut tracker = Gh::of(&options.repo, &[]);
+    let mut tracker = Gh::of(&options.repo);
     for number in changed {
         let issue = github::json(&["issue", "view", &number.to_string(), "-R", &options.repo, "--json", "body"]).map_err(NorthError::Refused)?;
         let rewrite = rewrite_body(body_of(&issue), &workspace);

@@ -28,6 +28,7 @@ pub mod orchestration;
 pub use north_shared_config as shared_config;
 pub mod project_status;
 pub mod entry_points;
+pub mod coordinator_tell;
 pub mod github;
 pub mod gh_broker_route;
 pub mod github_quota;

@@ -101,7 +101,7 @@ pub fn alert(places: &Places, host: &dyn Host, rows: &[Value]) -> Result<(), Str
                 state.entry(repo).and_modify(|episode| episode.told = told);
             }
             Step::File { repo, slug, body } => {
-                let filed = settle(&mut Gh::of(&slug, &["bug", "area:landing"]), TITLE, Some(&body), "");
+                let filed = settle(&mut Gh::of(&slug), TITLE, Some(&body), "");
                 if let Err(error) = &filed {
                     println!("{repo}: lander stall issue error: {error}");
                 }
@@ -112,7 +112,7 @@ pub fn alert(places: &Places, host: &dyn Host, rows: &[Value]) -> Result<(), Str
                     println!("{repo}: lander recovery message error");
                 }
                 if let Some(slug) = slug
-                    && let Err(error) = settle(&mut Gh::of(&slug, &[]), TITLE, None, &text)
+                    && let Err(error) = settle(&mut Gh::of(&slug), TITLE, None, &text)
                 {
                     println!("{repo}: lander stall issue close error: {error}");
                 }

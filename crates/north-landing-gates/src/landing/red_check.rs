@@ -245,7 +245,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let culprit = culprit(&request.main, &failed);
     let recorded = repository().ok_or_else(|| "gh repo view names no repository".to_owned()).and_then(|repo| {
-        record_red(&mut rolling_issue::Gh::of(&repo, &[]), &request.main, &event_line(&request.main, &red, &culprit, None))
+        record_red(&mut rolling_issue::Gh::of(&repo), &request.main, &event_line(&request.main, &red, &culprit, None))
     });
     let issue = match recorded {
         Ok(issue) => issue.map(|number| number.to_string()),

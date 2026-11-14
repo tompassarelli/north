@@ -378,7 +378,7 @@ fn issue_reference(reference: &str) -> NorthResult<(String, u64)> {
 fn issues(repo: &str, reference: Option<&str>) -> NorthResult<Vec<(u64, String)>> {
     if let Some(reference) = reference {
         let (_, number) = issue_reference(reference)?;
-        return Ok(vec![(number, Gh::of(repo, &[]).body(number).map_err(NorthError::Refused)?)]);
+        return Ok(vec![(number, Gh::of(repo).body(number).map_err(NorthError::Refused)?)]);
     }
     let listed = github::json(&["issue", "list", "-R", repo, "--state", "open", "-L", "500", "--json", "number,body"]).map_err(NorthError::Refused)?;
     Ok(listed
@@ -421,7 +421,7 @@ pub fn run(ledger: &Ledger, arguments: &[String], domain: &dyn Fn(&[String]) -> 
         Some(reference) => issue_reference(reference)?.0,
         None => slug(options.repo.as_deref().unwrap_or_default()),
     };
-    let mut tracker = Gh::of(&repo, &[]);
+    let mut tracker = Gh::of(&repo);
     let issues: Vec<(u64, String)> = issues(&repo, options.issue.as_deref())?.into_iter().map(|(number, body)| (number, only(&body, options.only.as_deref()))).filter(|(_, body)| !checks(body).is_empty()).collect();
     if issues.is_empty() {
         return Ok(());

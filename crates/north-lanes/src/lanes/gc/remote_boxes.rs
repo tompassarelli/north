@@ -129,7 +129,7 @@ pub(super) fn append_box(repo: &str, number: u64, line: &str, branch: &str) -> R
     Ok(true)
 }
 
-pub(super) fn open_issue(repo: &str, branch: &str, line: &str) -> Result<String, String> {
+pub(super) fn tell_unboxed(repo: &str, branch: &str, line: &str) -> Result<(), String> {
     let title = format!("Unlanded origin branch {branch} is named in no open box");
-    gh(&["issue", "create", "-R", &format!("tompassarelli/{repo}"), "--title", &title, "--body-file", "-"], Some(&format!("## Done when\n{line}\n")))
+    north_base::platform::coordinator_tell::tell_coordinator(&format!("tompassarelli/{repo} {title}"), Some(&format!("{title} on {repo}: {line}")))
 }

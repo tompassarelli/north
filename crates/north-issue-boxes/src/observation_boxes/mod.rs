@@ -103,7 +103,7 @@ fn settle_issue(repo: &str, number: u64, body: &str, dry_run: bool, date: &str) 
     if dry_run {
         print!("{edited}");
     } else if edited != body {
-        Gh::of(repo, &[]).edit(number, &edited).map_err(NorthError::Refused)?;
+        Gh::of(repo).edit(number, &edited).map_err(NorthError::Refused)?;
     }
     Ok(())
 }

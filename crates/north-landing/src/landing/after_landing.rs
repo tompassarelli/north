@@ -196,7 +196,7 @@ fn gate_and_file(args: &Args) -> Result<String, String> {
     if failures.is_empty() {
         return Ok(format!("every gate passed on {}", args.head));
     }
-    let mut tracker = rolling_issue::Gh::of(&repo, &["bug", "priority:later", "evidence:code"]);
+    let mut tracker = rolling_issue::Gh::of(&repo);
     let existing = tracker.open(TITLE)?.map(|issue| Filed { number: issue.number, body: issue.body });
     let date = git(&main, &["log", "-1", "--format=%cs", &args.head])?;
     match filing(&args.head, date.trim(), existing.as_ref(), &failures) {

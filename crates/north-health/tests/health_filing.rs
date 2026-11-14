@@ -4,8 +4,12 @@ use std::process::Command;
 use north_base::foundation::shim::write_script;
 use north_base::platform::rolling_issue::{Breaches, Gh, alarm};
 
-const TEST: &str = "a_second_failure_of_the_same_unit_updates_its_open_issue_instead_of_filing_another";
+const TEST: &str = "a_unit_failing_after_its_closed_predecessor_tells_the_coordinator_once_and_files_no_issue";
 const TITLE: &str = "Harness services failing on whiterabbit";
+
+const NORTH: &str = r#"
+printf '%s\n' "$6" | head -n 1 >> "$NORTH_TEST_GH_DIR/log"
+"#;
 
 const GH: &str = r#"
 case "$*" in
@@ -23,17 +27,19 @@ esac
 "#;
 
 #[test]
-fn a_second_failure_of_the_same_unit_updates_its_open_issue_instead_of_filing_another() {
+fn a_unit_failing_after_its_closed_predecessor_tells_the_coordinator_once_and_files_no_issue() {
     let Some(directory) = std::env::var_os("NORTH_TEST_GH_DIR") else {
         let directory = tempfile::tempdir().unwrap();
         let bin = directory.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
         write_script(&bin.join("gh"), GH);
+        write_script(&bin.join("north"), NORTH);
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
         let status = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", TEST, "--nocapture"])
             .env("PATH", path)
             .env("NORTH_TEST_GH_DIR", directory.path())
+            .env("HOME", directory.path())
             .env("NORTH_TEST_GH_TITLE", TITLE)
             .status()
             .unwrap();
@@ -44,15 +50,16 @@ fn a_second_failure_of_the_same_unit_updates_its_open_issue_instead_of_filing_an
     let directory = Path::new(&directory);
     std::fs::write(directory.join("ran"), "").unwrap();
 
-    let mut gh = Gh::of("tompassarelli/north", &[]);
+    let mut gh = Gh::of("tompassarelli/north");
     let mut breaches = Breaches::default();
     alarm(&mut gh, &mut breaches, TITLE, Some(&body("2")), "closed").unwrap();
     alarm(&mut gh, &mut breaches, TITLE, Some(&body("2")), "closed").unwrap();
     alarm(&mut gh, &mut breaches, TITLE, Some(&body("50")), "closed").unwrap();
+    alarm(&mut gh, &mut breaches, TITLE, None, "closed").unwrap();
 
     let log = std::fs::read_to_string(directory.join("log")).unwrap();
-    assert_eq!(log.lines().filter(|line| *line == "create").count(), 1, "the second reading filed another issue:\n{log}");
-    assert_eq!(log.lines().filter(|line| *line == "edit").count(), 1, "the second reading did not update the open issue:\n{log}");
+    let told: Vec<&str> = log.lines().collect();
+    assert_eq!(told, [format!("{TITLE} on tompassarelli/north: Class: a harness unit failing on whiterabbit"), format!("cleared: tompassarelli/north {TITLE}")], "told once when the alarm started and once when it cleared, and filed nothing:\n{log}");
 }
 
 fn body(streak: &str) -> String {

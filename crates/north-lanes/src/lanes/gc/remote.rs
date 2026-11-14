@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::Gc;
 use super::evidence::{landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
 use super::exec::{api, git, git_slow, in_dir, verified};
-use super::remote_boxes::{append_box, archived_as, box_line, cited_open, named_in_open_box, open_issue, superseding};
+use super::remote_boxes::{append_box, archived_as, box_line, cited_open, named_in_open_box, superseding, tell_unboxed};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::RemoteStale;
 use north_base::foundation::clock::Timestamp;
@@ -271,11 +271,11 @@ impl Gc {
         }
         let line = box_line(branch.name, branch.tip, age);
         if self.options.dry_run {
-            return Ok(target.map_or_else(|| format!("would open an issue on {repo} for it"), |number| format!("would file a box on {repo}#{number}")));
+            return Ok(target.map_or_else(|| format!("would tell the coordinator of it, filing no issue on {repo}"), |number| format!("would file a box on {repo}#{number}")));
         }
         let filed = match target {
             Some(number) => append_box(repo, number, &line, branch.name).map(|appended| if appended { format!("filed a box on {repo}#{number}") } else { format!("{repo}#{number} already names it") }),
-            None => open_issue(repo, branch.name, &line).map(|url| format!("opened {url} for it")),
+            None => tell_unboxed(repo, branch.name, &line).map(|()| "told the coordinator of it, filing no issue".to_owned()),
         };
         Ok(filed.unwrap_or_else(|error| format!("box not filed: {error}")))
     }
