@@ -1,7 +1,9 @@
 pub mod docs;
+mod bootstrap;
 mod features_index;
 mod help_index;
 mod rationale_index;
+mod readme;
 mod reference_index;
 mod registry;
 mod structure_index;

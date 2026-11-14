@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{features_index, help_index, rationale_index, reference_index, structure_index, verbs_index};
+use crate::{features_index, help_index, rationale_index, readme, reference_index, structure_index, verbs_index};
 
-const USAGE: &str = "usage: north docs features-index|help-index|rationale-index|reference-index|structure-index|verbs-index [--check] [--root DIR]";
+const USAGE: &str = "usage: north docs features-index|help-index|rationale-index|readme|reference-index|structure-index|verbs-index [--check] [--root DIR]";
 
 pub struct Index {
     pub command: &'static str,
@@ -13,7 +13,13 @@ pub struct Index {
     pub notes: fn(&Path) -> Result<Vec<String>, String>,
 }
 
-const INDEXES: [&Index; 6] = [&features_index::INDEX, &help_index::INDEX, &rationale_index::INDEX, &reference_index::INDEX, &structure_index::INDEX, &verbs_index::INDEX];
+const README_PAGES: [Index; 3] = [
+    Index { command: "readme", source_dir: "docs/readme", file: "README.md", render: readme::readme, notes: |_| Ok(Vec::new()) },
+    Index { command: "readme", source_dir: "docs/readme", file: "docs/rationale/plain-runner-comparison.md", render: readme::comparison_page, notes: |_| Ok(Vec::new()) },
+    Index { command: "readme", source_dir: "docs/readme", file: "ARCHITECTURE.md", render: readme::architecture, notes: |_| Ok(Vec::new()) },
+];
+
+const INDEXES: [&Index; 9] = [&features_index::INDEX, &help_index::INDEX, &rationale_index::INDEX, &README_PAGES[0], &README_PAGES[1], &README_PAGES[2], &reference_index::INDEX, &structure_index::INDEX, &verbs_index::INDEX];
 
 impl Index {
     pub fn generate(&self, root: &Path) -> Result<(), String> {
@@ -61,7 +67,10 @@ impl Index {
 
 pub fn run(arguments: &[String]) -> u8 {
     let result = match arguments.split_first() {
-        Some((command, rest)) => INDEXES.iter().find(|index| index.command == command).map_or_else(|| Err(USAGE.to_owned()), |index| index.run(rest)),
+        Some((command, rest)) => {
+            let mut named = INDEXES.iter().filter(|index| index.command == command).peekable();
+            if named.peek().is_none() { Err(USAGE.to_owned()) } else { named.try_for_each(|index| index.run(rest)) }
+        }
         None => Err(USAGE.to_owned()),
     };
     match result {

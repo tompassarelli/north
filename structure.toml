@@ -1307,11 +1307,13 @@ may_use = ["foundation", "lifecycle"]
 
 [[crate_dag.crate]]
 name = "north-docs"
+layer = 6
 paths = ["crates/north-docs/src/**"]
 may_use = ["north-registries"]
 
 [[crate_dag.crate]]
 name = "north-offload"
+layer = 5
 paths = ["crates/north-offload/src/**"]
 may_use = ["north-base", "north-build-system", "north-capacity-host", "north-dispatch", "north-lanes", "north-pacing", "north-runtime-follow"]
 

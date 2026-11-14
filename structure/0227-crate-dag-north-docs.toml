@@ -1,5 +1,6 @@
 [[crate_dag.crate]]
 name = "north-docs"
+layer = 6
 paths = ["crates/north-docs/src/**"]
 may_use = ["north-registries"]
 

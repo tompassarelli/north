@@ -42,18 +42,18 @@ T3 Code's figures in the small-task rows are those of its stronger arm for that 
 <!-- north docs readme: comparison -->
 Measured 2026-11-14 against T3 Code v0.1.8 on the load ladder's small tasks t01 to t05: one source edit and its acceptance check each, with claude-opus-5-5 at medium effort in every arm; both arms on one build host, its one-minute load below 2 at each start. Time runs from the launch command to the change on main. Only valid runs are counted.
 
-| Cell | Valid runs x tasks | Landed: north / plain / given the file text | north, median | Faster T3 Code arm, median | Time ratio, each run | Time ratio, all valid runs | Cost ratio | Tokens | Reading |
-|---|---|---|---|---|---|---|---|---|---|
-| small one-worker cell | 1 x 5 | 5 of 5 / 5 of 5 / 5 of 5 | 15 s | given the file text, 18 s | 0.79 | 0.79 | 0.29 | 14x fewer | undecided until T3 Code's noise band is measured |
-| small five-at-once cell | 2 x 5 | 10 of 10 / 10 of 10 / 10 of 10 | 13.5 s | given the file text, 21 s | 0.65, 0.61 | 0.64 | 0.28 | 9x fewer | undecided until T3 Code's noise band is measured |
-| small one-worker cell on the later release runtime, cold start (the registered three-run set) | 3 x 5 | 15 of 15 / 15 of 15 / 15 of 15 | 14 s | given the file text, 22 s | 0.95, 0.86, 0.57 | 0.78 | 0.34 | 10x fewer | undecided until T3 Code's noise band is measured |
-| small five-at-once cell on the later release runtime, cold start (the registered three-run set) | 3 x 5 | 15 of 15 / 15 of 15 / 15 of 15 | 16 s | given the file text, 25 s | 0.48, 0.93, 0.54 | 0.66 | 0.27 | 10x fewer | undecided until T3 Code's noise band is measured |
-| small one-worker cell, block w4 on account c against T3 Code given the file text, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 12 s | given the file text, 15 s | 0.76, 0.79, 0.86 | 0.75 | 0.33 | 10x fewer | undecided until T3 Code's noise band is measured |
-| small five-at-once cell, block w4 on account c against T3 Code given the file text, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 14 s | given the file text, 20 s | 0.60, 0.84, 0.70 | 0.68 | 0.30 | 8x fewer | undecided until T3 Code's noise band is measured |
-| small one-worker cell, block w5 on account c against T3 Code given the file text, on the pinned release runtime with warm spares, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 12 s | given the file text, 16 s | 0.68, 0.80, 0.77 | 0.78 | 0.30 | 11x fewer | undecided until T3 Code's noise band is measured |
-| small five-at-once cell, block w5 on account c against T3 Code given the file text, on the pinned release runtime with warm spares, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 13 s | given the file text, 21 s | 0.63, 0.85, 0.59 | 0.70 | 0.29 | 9x fewer | undecided until T3 Code's noise band is measured |
+| Cell | Valid runs x tasks | Landed: north / plain / given the file text | north, median | Faster T3 Code arm, median | Time ratio, each run | Time ratio R, all valid runs (80% interval) | T3 Code band N | Cost ratio | Tokens | Reading |
+|---|---|---|---|---|---|---|---|---|---|---|
+| small one-worker cell | 1 x 5 | 5 of 5 / 5 of 5 / 5 of 5 | 15 s | given the file text, 18 s | 0.79 | 0.789 (0.706 to 0.833) | none | 0.29 | 14x fewer | undecided: 1 valid run, the band needs three |
+| small five-at-once cell | 2 x 5 | 10 of 10 / 10 of 10 / 10 of 10 | 13.5 s | given the file text, 21 s | 0.65, 0.61 | 0.643 (0.605 to 0.667) | none | 0.28 | 9x fewer | undecided: 2 valid runs, the band needs three |
+| small one-worker cell on the later release runtime, cold start (the registered three-run set) | 3 x 5 | 15 of 15 / 15 of 15 / 15 of 15 | 14 s | given the file text, 22 s | 0.95, 0.86, 0.57 | 0.781 (0.678 to 0.893) | 1.211 | 0.34 | 10x fewer | ahead, low confidence |
+| small five-at-once cell on the later release runtime, cold start (the registered three-run set) | 3 x 5 | 15 of 15 / 15 of 15 / 15 of 15 | 16 s | given the file text, 25 s | 0.48, 0.93, 0.54 | 0.658 (0.593 to 0.803) | 1.160 | 0.27 | 10x fewer | far ahead, low confidence |
+| small one-worker cell, block w4 against T3 Code given the file text, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 12 s | given the file text, 15 s | 0.76, 0.79, 0.86 | 0.750 (0.727 to 0.902) | 1.154 | 0.33 | 10x fewer | ahead, low confidence |
+| small five-at-once cell, block w4 against T3 Code given the file text, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 14 s | given the file text, 20 s | 0.60, 0.84, 0.70 | 0.682 (0.619 to 0.721) | 1.294 | 0.30 | 8x fewer | ahead |
+| small one-worker cell, block w5 against T3 Code given the file text, on the pinned release runtime with warm spares, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 12 s | given the file text, 16 s | 0.68, 0.80, 0.77 | 0.783 (0.727 to 0.850) | 1.188 | 0.30 | 11x fewer | ahead, low confidence |
+| small five-at-once cell, block w5 against T3 Code given the file text, on the pinned release runtime with warm spares, its own three-run set | 3 x 5 | 15 of 15 / not run / 15 of 15 | 13 s | given the file text, 21 s | 0.63, 0.85, 0.59 | 0.700 (0.636 to 0.778) | 1.100 | 0.29 | 9x fewer | ahead |
 
-Time ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. Cost ratio: north's cost per task over the faster arm's, at the list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens.
+Time ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. R's 80% interval resamples tasks and then runs within each task, 10,000 times from seed 20261114. Band N: the median over tasks of the faster T3 Code arm's slowest time over its fastest across the cell's runs, read from three valid runs. Reading, on time: far ahead when R is at or below 0.67 and below 1/N, ahead when R is below 1/N, behind when R is above N, inside the band otherwise, with low confidence when the interval crosses the threshold the label is read against; a cell whose every task got slower, or faster, run after run is not read. Cost ratio: north's cost per task over the faster arm's, at the list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens.
 
 Not counted:
 
@@ -66,7 +66,7 @@ Not measured yet:
 - tasks of one to ten minutes
 - ten and twenty at once
 - an outside benchmark
-- T3 Code's noise band, without which no cell is read as ahead or behind
+- T3 Code's noise band in the cells with fewer than three valid runs, which stay undecided
 <!-- end comparison -->
 
 ## Small tasks

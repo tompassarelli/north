@@ -1,1 +1,2 @@
   docs rationale-index [--check] [--root DIR]   Regenerate docs/rationale/README.md, one line per note: title, link, first sentence; --check fails when it is stale
+  docs readme [--check] [--root DIR]            Rewrite the front pages' generated blocks: README.md's quickstart from docs/onboarding.md, the comparison page's table from docs/readme/comparison.toml, ARCHITECTURE.md's map from docs/readme/layout.toml; --check also fails when the tree's top-level directories or crate layers and that map disagree

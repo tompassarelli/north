@@ -1,4 +1,5 @@
-# The README's map of the tree: one line per top-level directory and per crate layer.
+# ARCHITECTURE.md's map of the tree; `north docs readme --check` fails when a top-level directory or a
+# crate layer of the tree has no line here, or a line here names one the tree does not have.
 
 [dirs]
 src = "the `north` command: argument parsing, the composition root and the command reference and help, one file per command"
