@@ -91,6 +91,10 @@ impl Fleet {
         self.record(name).ok().map(|record| record.role())
     }
 
+    pub fn task_of(&self, name: &str) -> Option<String> {
+        self.record(name).ok().and_then(|record| record.task_ref)
+    }
+
     pub fn tell(&self, parent: &str, text: &str, delivery: Delivery) {
         let told = match self.record(parent) {
             Ok(record) if record.ended() => Ok(()),

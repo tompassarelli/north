@@ -71,3 +71,24 @@ pub(super) fn reader(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<
 pub(super) fn from_proxy(fleet: &Fleet, caller: Option<&str>) -> bool {
     caller.is_some_and(|caller| caller == PROXY || fleet.role_of(caller) == Some(Role::Proxy))
 }
+
+/// A launch from a lead or worker starts a worker unless it names the lead role, and holds its launcher's task when it names none.
+pub(super) fn inherit(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<&str>) {
+    if let Some(caller) = caller {
+        inherit_from(request, fleet.role_of(caller), fleet.task_of(caller));
+    }
+}
+
+fn inherit_from(request: &mut LaunchRequest, launcher: Option<Role>, task: Option<String>) {
+    if !matches!(launcher, Some(Role::Lead | Role::Worker)) {
+        return;
+    }
+    request.role.get_or_insert(Role::Worker);
+    if request.tasks().is_empty() {
+        request.task_ref = task;
+    }
+}
+
+#[cfg(test)]
+#[path = "lineage_tests.rs"]
+mod tests;

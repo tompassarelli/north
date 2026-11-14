@@ -244,6 +244,7 @@ fn second_rung_refused(fleet: &Fleet, name: &str, parent: Option<&str>, why: &st
 
 fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>, entered_ms: u64) -> NorthResult<()> {
     let LaunchParts { mut request, mut overrides, wait, take_over, priority, words } = parts;
+    lineage::inherit(fleet, &mut request, caller.as_deref());
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     super::claude_only::admit(&request)?;
     let mut issues = super::claim_box::IssueReads::github();
