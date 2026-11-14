@@ -90,7 +90,7 @@ fn request(lander: &Lander, tree: &str, commit: &str, kind: &str, lane: &str) ->
     if let Some(state) = std::env::var_os("XDG_STATE_HOME") {
         unit.arg(format!("--setenv=XDG_STATE_HOME={}", PathBuf::from(state).display()));
     }
-    unit.arg("--").arg(&north).args(["runtime", "build-ahead", "--tree", tree, "--commit", commit, "--kind", kind, "--lane", lane, "--checkout"]).arg(&lander.repo);
+    unit.arg("--").arg(&north).args(["runtime", "build-ahead", "--tree", tree, "--commit", commit, "--kind", kind, "--lane", lane, "--checkout"]).arg(&lander.worktree);
     unit.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let started = unit.status().is_ok_and(|status| status.success());
     match started {
