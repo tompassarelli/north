@@ -31,12 +31,12 @@ impl Predecessor {
         named.iter().all(|task| self.record.tasks().any(|held| held == task))
     }
 
-    /// Puts every task and claim the taken-over seat held into its successor's `record`, so a lead keeps the task that binds it to the lead grant; returns the claim keys the successor takes in the ledger.
+    /// Puts every task the taken-over seat held into its successor's `record`, and its box and other claims too unless the launch names a box of its own, so a lead keeps the task that binds it to the lead grant; returns the claim keys the successor takes in the ledger.
     pub(super) fn carry_into(&self, record: &mut SessionRecord) -> Vec<String> {
         record.task_ref = self.record.task_ref.clone();
         record.extra_tasks = self.record.extra_tasks.clone();
-        record.claim_box = self.record.claim_box.clone();
-        record.other_claims = self.record.other_claims.clone();
+        let named = record.claim_box.take();
+        (record.claim_box, record.other_claims) = named.map_or_else(|| (self.record.claim_box.clone(), self.record.other_claims.clone()), |named| (Some(named), std::mem::take(&mut record.other_claims)));
         record.claim_keys()
     }
 }
@@ -222,6 +222,27 @@ mod tests {
         }
     }
 
+    fn seat_taken_over(fleet: &Fleet, name: &str, named: Option<&str>) -> (SessionRecord, Vec<String>) {
+        let main = fleet.home.join("code/north/main");
+        let seat = fleet.root.join(name);
+        std::fs::create_dir_all(&seat).unwrap();
+        let held = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": main, "model": null, "created_ms": 1, "host_pid": null, "conversation": name, "host_dir": seat, "stream_offset": 0, "role": "lead", "task_ref": "north#1054", "extra_tasks": ["north#1055", "north#1056"], "claim_box": "old box"});
+        std::fs::write(seat.join("session.json"), held.to_string()).unwrap();
+        let request = LaunchRequest { prompt: "carry on".into(), task_ref: None, claim_box: named.map(str::to_owned), ..LaunchRequest::relaunching(&fleet.session(name).unwrap()) };
+        fleet
+            .succeed(name, Claim::TakeOver, |predecessor| {
+                let predecessor = predecessor.unwrap();
+                assert!(predecessor.carries_for(&request.tasks()));
+                let mut successor = request.record(None, Some(name.into()), false, 2);
+                successor.host_dir = seat.clone();
+                let claimed = predecessor.carry_into(&mut successor);
+                std::fs::create_dir_all(&seat).unwrap();
+                write_record(&seat, &successor).unwrap();
+                Ok((successor, claimed))
+            })
+            .unwrap()
+    }
+
     #[test]
     fn a_hand_over_whose_client_never_comes_up_leaves_the_session_revivable_on_its_own_account_and_a_take_over_record_with_no_live_successor_leaves_the_working_session_running() {
         let home = tempfile::tempdir().unwrap();
@@ -251,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn a_taken_over_lead_seat_keeps_its_task_and_extra_tasks() {
+    fn a_taken_over_lead_seat_keeps_its_tasks_and_a_take_over_racing_a_revive_leaves_one_running_session_in_its_own_conversation() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
         let dir = fleet.root.join("worker");
@@ -283,26 +304,12 @@ mod tests {
 
         let main = fleet.home.join("code/north/main");
         std::fs::create_dir_all(&main).unwrap();
-        let seat = fleet.root.join("seat");
-        std::fs::create_dir_all(&seat).unwrap();
-        let held = serde_json::json!({"name": "seat", "provider": "claude", "account": "a", "cwd": main, "model": null, "created_ms": 1, "host_pid": null, "conversation": "seat", "host_dir": seat, "stream_offset": 0, "role": "lead", "task_ref": "north#1054", "extra_tasks": ["north#1055", "north#1056"]});
-        std::fs::write(seat.join("session.json"), held.to_string()).unwrap();
-        let request = LaunchRequest { prompt: "carry on".into(), task_ref: None, claim_box: None, ..LaunchRequest::relaunching(&fleet.session("seat").unwrap()) };
-        let (taken, claimed) = fleet
-            .succeed("seat", Claim::TakeOver, |predecessor| {
-                let predecessor = predecessor.unwrap();
-                assert!(predecessor.carries_for(&request.tasks()));
-                let mut successor = request.record(None, Some("seat".into()), false, 2);
-                successor.host_dir = seat.clone();
-                let claimed = predecessor.carry_into(&mut successor);
-                std::fs::create_dir_all(&seat).unwrap();
-                write_record(&seat, &successor).unwrap();
-                Ok((successor, claimed))
-            })
-            .unwrap();
-        assert_eq!((taken.role(), taken.tasks().collect::<Vec<_>>()), (Role::Lead, ["north#1054", "north#1055", "north#1056"].to_vec()));
-        assert_eq!(claimed, ["north#1054", "north#1055", "north#1056"]);
+        let (taken, claimed) = seat_taken_over(&fleet, "seat", None);
+        assert_eq!((taken.role(), taken.tasks().collect::<Vec<_>>(), taken.claim_box.as_deref()), (Role::Lead, ["north#1054", "north#1055", "north#1056"].to_vec(), Some("old box")));
+        assert_eq!(claimed, ["north#1054@old box", "north#1055", "north#1056"]);
         assert_eq!(fleet.granted_launch("seat", &["--name", "n1054-child", "--task", "north#1054", "brief"].map(str::to_owned)).unwrap().name, "n1054-child");
+        let (boxed, claimed) = seat_taken_over(&fleet, "boxed", Some("new box"));
+        assert_eq!((boxed.claim_box.as_deref(), claimed[0].as_str()), (Some("new box"), "north#1054@new box"));
 
         let bare = fleet.root.join("bare");
         std::fs::create_dir_all(&bare).unwrap();
