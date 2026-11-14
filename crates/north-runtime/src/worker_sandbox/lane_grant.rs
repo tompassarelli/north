@@ -116,8 +116,9 @@ pub(super) fn own_session(cgroup: &str, host: &Host, absent: &str) -> Result<(Pa
 
 /// The placed sessions whose held unit runs here now, by directory and record: each held directory bound to a conversation whose CLI has not recorded its exit and whose unit has a cgroup under the host's, since a retired session's stopped unit never records an exit and its held directory and placed record stay behind.
 pub(super) fn placed_running(host: &Host) -> Vec<(PathBuf, Value)> {
+    let active = active_units(&host.cgroups);
     let held = std::fs::read_dir(host.home.join(session_host_files::HELD)).into_iter().flatten().flatten().map(|entry| entry.path());
-    held.filter(|unit| !unit.join("status").exists() && unit.file_name().is_some_and(|name| unit_has_cgroup(&host.cgroups, name)))
+    held.filter(|unit| !unit.join("status").exists() && unit.file_name().is_some_and(|name| active.contains(name)))
         .filter_map(|unit| bound_conversation(&unit))
         .map(|conversation| host.fleet.join(session_host_files::PLACED).join(conversation))
         .filter_map(|directory| read_record(&directory).map(|record| (directory, record)))
@@ -126,12 +127,19 @@ pub(super) fn placed_running(host: &Host) -> Vec<(PathBuf, Value)> {
 
 const CGROUP_DEPTH: usize = 6;
 
-/// Whether a cgroup directory named `unit` exists under `root` within the depth systemd nests a user unit at, which is so exactly while the unit is active.
-fn unit_has_cgroup(root: &Path, unit: &std::ffi::OsStr) -> bool {
-    fn below(directory: &Path, unit: &std::ffi::OsStr, depth: usize) -> bool {
-        std::fs::read_dir(directory).into_iter().flatten().flatten().filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).any(|entry| entry.file_name() == unit || (depth > 0 && below(&entry.path(), unit, depth - 1)))
+/// The names of the cgroup directories under `root` within the depth systemd nests a user unit at, one of which a unit has exactly while it is active, read in one walk for every held unit.
+fn active_units(root: &Path) -> std::collections::HashSet<std::ffi::OsString> {
+    fn below(directory: &Path, depth: usize, names: &mut std::collections::HashSet<std::ffi::OsString>) {
+        for entry in std::fs::read_dir(directory).into_iter().flatten().flatten().filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())) {
+            if depth > 0 {
+                below(&entry.path(), depth - 1, names);
+            }
+            names.insert(entry.file_name());
+        }
     }
-    below(root, unit, CGROUP_DEPTH)
+    let mut names = std::collections::HashSet::new();
+    below(root, CGROUP_DEPTH, &mut names);
+    names
 }
 
 /// The conversation the launching host bound the held unit whose directory is `held` to.

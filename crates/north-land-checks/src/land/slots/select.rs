@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use super::infer::infer;
 use north_base::foundation::exit::SLOTS_BUSY_STATUS;
@@ -206,18 +207,14 @@ impl Config {
         if self.checks.is_empty() {
             return Ok(self.inferred.clone());
         }
+        let entries: Vec<(&str, &str)> = self.checks.iter().map(|entry| entry.split_once(SEPARATOR).filter(|(patterns, command)| !patterns.is_empty() && !command.is_empty()).ok_or_else(|| format!("invalid land.check: {entry}"))).collect::<Result<_, _>>()?;
+        let all = OnceLock::new();
+        let touched = each_at_once(&entries, |(patterns, _)| touches(repo, base, head, patterns, &all));
         let mut commands: Vec<String> = Vec::new();
-        for entry in &self.checks {
-            let Some((patterns, command)) = entry.split_once(SEPARATOR) else {
-                return Err(format!("invalid land.check: {entry}"));
-            };
-            if patterns.is_empty() || command.is_empty() {
-                return Err(format!("invalid land.check: {entry}"));
+        for ((_, command), touched) in entries.into_iter().zip(touched) {
+            if touched && !commands.iter().any(|seen| seen == command) {
+                commands.push(command.to_owned());
             }
-            if commands.iter().any(|seen| seen == command) || !touches(repo, base, head, patterns) {
-                continue;
-            }
-            commands.push(command.to_owned());
         }
         Ok(commands)
     }
@@ -268,9 +265,20 @@ fn queued(entries: &[String]) -> impl Iterator<Item = &String> {
     entries.iter().filter(|entry| entry.split_once(SEPARATOR).is_some_and(|(patterns, _)| patterns.split(',').any(|spec| spec == ENQUEUE_PATTERN)))
 }
 
-fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {
+/// Whether the lane from `base` to `head` changes a path `patterns` names, `all` holding the lane's whole change list once a check has asked for it.
+fn touches(repo: &Path, base: &str, head: &str, patterns: &str, all: &OnceLock<Result<Vec<String>, String>>) -> bool {
     let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').filter(|spec| *spec != ENQUEUE_PATTERN && *spec != LANE_PATTERN).partition(|spec| *spec == RUST_INPUT);
-    (!rust.is_empty() && changed(repo, base, head, &[]).map_or(true, |files| files.iter().any(|path| rust_build_input(path)))) || (!specs.is_empty() && changed(repo, base, head, &specs).map_or(true, |files| !files.is_empty()))
+    (!rust.is_empty() && all.get_or_init(|| changed(repo, base, head, &[])).as_ref().map_or(true, |files| files.iter().any(|path| rust_build_input(path)))) || (!specs.is_empty() && changed(repo, base, head, &specs).map_or(true, |files| !files.is_empty()))
+}
+
+/// `test` of each of `items`, in their order, spread over as many threads as the host has cores.
+fn each_at_once<T: Sync>(items: &[T], test: impl Fn(&T) -> bool + Sync) -> Vec<bool> {
+    let width = std::thread::available_parallelism().map_or(1, usize::from);
+    let chunk = items.len().div_ceil(width).max(1);
+    std::thread::scope(|scope| {
+        let parts: Vec<_> = items.chunks(chunk).map(|part| scope.spawn(|| part.iter().map(&test).collect::<Vec<bool>>())).collect();
+        parts.into_iter().flat_map(|part| part.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    })
 }
 
 pub(super) fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Result<Vec<String>, String> {
