@@ -10,6 +10,12 @@ use crate::foundation::clock::Timestamp;
 const WEEK_S: i64 = 7 * 86_400;
 const ENDED: &str = "('done', 'not done', 'escalated', 'split', 'handoff', 'unclear')";
 const SLACK: &str = "'+10 minutes'";
+/// The indexes that let the settle read index pages instead of every run, claim and gate row under the write lock (north#1054).
+const INDEXES: [(&str, &str); 3] = [
+    ("runs", "CREATE INDEX IF NOT EXISTS runs_settle ON runs(role, ended, outcome, landed_sha, landed, fleet_name, started, item, expects_landing, agent)"),
+    ("events", "CREATE INDEX IF NOT EXISTS events_claims ON events(item, actor) WHERE kind = 'claim'"),
+    ("boundary_causes", "CREATE INDEX IF NOT EXISTS boundary_causes_gates ON boundary_causes(session, at) WHERE source = 'gate'"),
+];
 
 fn table(db: &Connection, name: &str) -> bool {
     db.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |_| Ok(())).is_ok()
@@ -53,6 +59,9 @@ fn split(db: &Connection, window: &str) -> String {
 /// Settles every finished worker run that ended in the last week, so a landing, a gate or a check recorded after the run's
 /// own row still reaches its outcome; returns how many changed.
 pub(super) fn outcomes(db: &Connection, now: Timestamp) -> rusqlite::Result<usize> {
+    for (_, index) in INDEXES.iter().filter(|(name, _)| table(db, name)) {
+        db.execute_batch(index)?;
+    }
     let since = Timestamp::from_unix_seconds(now.unix_seconds() - WEEK_S).iso();
     let settled = outcome(db);
     db.execute(&format!("UPDATE runs SET outcome = {settled} WHERE role = 'worker' AND outcome IN {ENDED} AND ended >= ?1 AND outcome IS NOT {settled}"), params![since])
