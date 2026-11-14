@@ -1,6 +1,4 @@
 use std::collections::BTreeSet;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -12,7 +10,6 @@ use super::super::select::changed;
 use super::super::selection_record::Recorded;
 use super::arguments::{Arguments, Outcome};
 use super::super::graph_selection::{self, Away, SELECTED, Selected};
-use crate::platform::records_mirror::state_home;
 use super::{say, warn};
 
 pub(super) struct Selections {
@@ -127,8 +124,6 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
     }
     let selected = selected(&selection);
     Outcome(arguments.outcome.clone()).record(&[SELECTED, &arguments.base, &arguments.head, &serde_json::to_string(&selected).unwrap_or_default()]);
-    let since = if let Selection::Tests(tests) = &selection { tests.unselected_since() } else { Vec::new() };
-    shadow_row(arguments, &selected, &since);
     let no_test = if let Selection::NoTest(reason) = &selection { Some(reason.clone()) } else { None };
     Some(It { filters: selection.arguments(), packages: selection.packages(), no_test })
 }
@@ -146,24 +141,5 @@ fn selected(selection: &Selection) -> Selected {
         Selection::Modules { modules, units, floor } => Selected { tests: units.tests().map(str::to_owned).collect(), modules: modules.clone(), floor: floor.entries(), ..Selected::default() },
         Selection::Tests(tests) => tests.selected(),
         Selection::NoTest(reason) => Selected { no_test: Some(reason.clone()), ..Selected::default() },
-    }
-}
-
-const GATE: &str = "test-selection";
-
-fn shadow_row(arguments: &Arguments, selected: &Selected, since: &[String]) {
-    let row = serde_json::json!({
-        "at": crate::foundation::clock::Timestamp::now().unix_seconds_f64(),
-        "base": arguments.base,
-        "head": arguments.head,
-        "after": arguments.after,
-        "current": { "tests": selected.tests.len(), "added": selected.added.len(), "modules": selected.modules, "floor": selected.floor, "every": selected.every },
-        "extra": { "since-map": since },
-        "extra_tests": since.len(),
-    });
-    let directory = state_home().join("north/gates");
-    let written = fs::create_dir_all(&directory).and_then(|()| OpenOptions::new().create(true).append(true).open(directory.join(format!("{GATE}.jsonl")))).and_then(|mut file| writeln!(file, "{row}"));
-    if let Err(why) = written {
-        warn(&format!("safe-push: the {GATE} gate's shadow row was not written: {why}"));
     }
 }

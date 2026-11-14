@@ -1,6 +1,5 @@
 //! `north test coverage`: a map from each Rust test to the functions it executes, recorded on a check
-//! host from an instrumented nextest run with a `rust-analyzer scip` index of the functions that refer to each
-//! item, and the selection it answers: the tests that reach the functions a lane changed, the tests of a whole
+//! host from an instrumented nextest run, and the selection it answers: the tests that reach the functions a lane changed, the tests of a whole
 //! changed file where the map is older than that code, and none where the lane changes an input the map does not
 //! trace. The change graph reads the map to pick the nextest check's tests, and the full suite still runs after the
 //! push (north#944). Depends only on north-base; the lander reaches it through `north test coverage`.
@@ -9,7 +8,6 @@ pub mod exec;
 mod handoff;
 pub mod hosts;
 pub mod hunks;
-pub mod index;
 pub mod map;
 pub mod miss;
 pub mod pick;

@@ -23,35 +23,11 @@ pub struct Map {
     pub tests: Vec<Test>,
     pub functions: Vec<Function>,
     #[serde(default)]
-    pub index: Index,
-    #[serde(default)]
     pub failed: Vec<Test>,
     /// Tests whose exec record the reads recorder could not finish, or whose instrumented child left no
     /// profile: the map cannot prove them unaffected, so the selection clears them through the crate closure.
     #[serde(default)]
     pub unprofiled: Vec<Test>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Index {
-    pub symbols: Vec<String>,
-    pub items: Vec<Item>,
-    pub refers: Vec<Refers>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Item {
-    pub file: String,
-    pub start: u32,
-    pub end: u32,
-    pub defines: Vec<u32>,
-    pub uses: Vec<u32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Refers {
-    pub function: u32,
-    pub symbols: Vec<u32>,
 }
 
 impl Map {

@@ -349,6 +349,15 @@ so the new selection is `[gate.test-selection]` with `mode = "shadow"`:
   blame, and there it confirms the walked-back landing like any suspect (failing twice at the tip, passing twice
   without it) before it reverts it, which no wrong row would have passed.
 
+## Measured and deleted
+
+On 2026-11-14 the shadow logs of both gates were read and the two mechanisms deleted; the `selected` record every land check writes stays.
+
+- Rule 3's since-map extras (the tests whose reached functions changed between the map's commit and the lane's base, the M..HEAD condition; `[gate.test-selection]`). Over 1,514 lanes the extras depended on the map's age (`cone::since_base`), not on the lane. They caught none of the post-landing misses, and they cost a mean of 517 extra tests per lane. Nothing read the gate's mode, so it could never have enforced. The selection keeps its stale-map handling through the carried hunks and the file-level reach.
+- Phase 2's item-reference proof (`[gate.test-selection-proof]`, the `rust-analyzer scip` index recorded with the map and its `item-in`, `defines` and `refers-to` facts). It would have dropped 95 lane-test pairs, 2 of them wrongly: lane 1042c11370 changed the helper `order_through_one_slot`, and two `land_offload::ship` tests that call it fell out of the proof. Its extras caught nothing. A change outside every function region again selects every test reaching its file, as before phase 2.
+
+The sections above describe these two as designed; the deleted code is in the history before the commit that carries `Live-fix: north#1544`.
+
 ## Fit to the five invariants
 
 - **Alone before together (1).** The alone check runs the new selection, so a lane that breaks a guarded or reachable
@@ -457,4 +466,4 @@ Each lane has a box on north#1039 with its Done when command:
   cannot name keeps no read set and stays reached by any change: the `north-land-sandbox` binary, which the recorder
   excepts because it spawns the recorder itself (`NO_RECORDING`), and any test whose record file is missing.
 - n1039-enforce: the shadow review and the switch to enforce of phase 1, once n1039-select and n1039-guards have run
-  24 h. Phase 2's review belongs to n1039-proof.
+  24 h. Phase 2 was measured and deleted on 2026-11-14 ("Measured and deleted").

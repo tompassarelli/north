@@ -22,7 +22,7 @@ fn each_test_reaches_the_spans_of_the_functions_it_executed_unexecuted_functions
     let function = |file: &str, start, end, reached_by: &[u32]| Function { file: file.to_owned(), start, end, reached_by: reached_by.to_vec() };
     assert_eq!(map.functions, vec![function("src/a.rs", 1, 9, &[1]), function("src/a.rs", 12, 20, &[0, 1]), function("src/b.rs", 3, 4, &[])]);
     assert_eq!(map.failed, vec![Test { binary: "north::it".to_owned(), name: "golden".to_owned() }]);
-    let sized = |tests: usize| Map { commit: "c".to_owned(), recorded: 0, tests: (0..tests).map(|index| Test { binary: "b".to_owned(), name: index.to_string() }).collect(), functions: Vec::new(), index: Index::default(), failed: Vec::new(), unprofiled: Vec::new() };
+    let sized = |tests: usize| Map { commit: "c".to_owned(), recorded: 0, tests: (0..tests).map(|index| Test { binary: "b".to_owned(), name: index.to_string() }).collect(), functions: Vec::new(), failed: Vec::new(), unprofiled: Vec::new() };
     assert!(complete(sized(0), 0).is_err());
     assert!(complete(sized(8), 10).is_err());
     assert!(complete(sized(9), 10).is_ok());

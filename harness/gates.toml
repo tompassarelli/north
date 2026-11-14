@@ -64,14 +64,6 @@ reviewed = "2026-11-08"
 by = "n706-wipe"
 decisions = 65
 
-# Phase 2 of docs/rationale/test-selection.md: a Rust change outside every function region selects only the tests whose reached functions refer to the changed item, by the `rust-analyzer scip` index recorded with the coverage map, and the crate closure where the index does not know the line (north#1039). `north graph ask affected` computes it beside the selection that gates and appends both sizes, the extra and the dropped tests to $XDG_STATE_HOME/north/gates/test-selection-proof.jsonl on the asking host.
-[gate.test-selection-proof]
-mode = "shadow"
-
-# Pre-landing test selection by measured reachability (docs/rationale/test-selection.md, north#1039). Every alone check and after-landing run records the selection that runs as a `selected` line in its outcome, and appends one row to $XDG_STATE_HOME/north/gates/test-selection.jsonl on the checking host with the base, the head, the size of the selection that runs and the tests only the new selection adds, by rule: today `since-map`, the known tests whose reached functions changed between the coverage map's commit and the lane's base (the M..HEAD condition). Those extra tests do not gate yet; the review reads every host's log after 24 h and at least 20 lanes with a non-empty difference.
-[gate.test-selection]
-mode = "shadow"
-
 # A post-landing culprit search whose base is already red on the failed tests walks back over the landings before it, each probed on the same failed tests, to the first one red where its parent passes, and names that earlier landing to the sheriff in its request (Walked-back trailer); when the sheriff finds main broken with no lane since the green parent to blame, it confirms the walked-back landing like any suspect, failing twice at the tip and passing twice without it, and reverts it (north#1039, docs/rationale/test-selection.md "Blame"). Each walk-back is logged to $XDG_STATE_HOME/north/gates/blame-walk-back.jsonl on the lander host. The 2026-11-14 review (north#1544) read all 54 rows of 2026-11-11 to 2026-11-14: 28 named no landing, and of the 26 that did, 21 named the landing main's history reverted or fixed for that failure and 5 were wrong, 4 on reds that passed at the tip on the sheriff's rerun and 1 the sheriff traced to another lane; the sheriff's confirmation refuses all 5.
 [gate.blame-walk-back]
 mode = "enforce"

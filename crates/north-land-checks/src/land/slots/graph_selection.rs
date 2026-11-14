@@ -40,8 +40,6 @@ struct Answer {
     known: usize,
     #[serde(default)]
     carried: Vec<String>,
-    #[serde(default)]
-    since: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -186,7 +184,6 @@ pub struct Tests {
     carried: BTreeSet<String>,
     listed: BTreeMap<String, Listed>,
     unknown: usize,
-    since: BTreeSet<String>,
 }
 
 impl Tests {
@@ -198,7 +195,7 @@ impl Tests {
             by_binary.entry(binary.to_owned()).or_default().insert(name.to_owned());
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        Some(Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.iter().filter_map(|id| id.split_once(' ')).map(|(_, name)| name.to_owned()).collect(), listed: BTreeMap::new(), unknown: 0, since: answer.since.into_iter().collect() })
+        Some(Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.iter().filter_map(|id| id.split_once(' ')).map(|(_, name)| name.to_owned()).collect(), listed: BTreeMap::new(), unknown: 0 })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -274,11 +271,6 @@ impl Tests {
 
     pub fn arguments(&self) -> String {
         format!("--tests -E {}", self.filter())
-    }
-
-    pub fn unselected_since(&self) -> Vec<String> {
-        let selected = self.selected();
-        self.since.iter().filter(|id| id.split_once(' ').is_none_or(|(binary, name)| !selected.holds(name) && (binary != IT_BINARY || !self.runs_module(name.split("::").next().unwrap_or(name))))).cloned().collect()
     }
 
     pub fn summary(&self) -> String {

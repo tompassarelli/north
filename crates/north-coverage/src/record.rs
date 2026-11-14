@@ -8,7 +8,7 @@ use serde::Deserialize;
 use north_build_system::{BuildSystem, Coverage, Resolution, Selection, Shell, Step, Tests};
 
 use crate::exec::{FAILED, Reached, TOOLS_ENV, WORK_ENV, Work};
-use crate::map::{Function, Index, Map, Test};
+use crate::map::{Function, Map, Test};
 use crate::reads;
 
 pub const MAP_LINE: &str = "north-coverage-map ";
@@ -90,11 +90,7 @@ fn record(arguments: &[String]) -> Result<(Map, Vec<reads::Read>), String> {
     let unprofiled = unprofiled_tests(&work, &binaries, &objects, &reached)?;
     let reads = reads::read(&read_units(&work.units())?, &binaries, &reached);
     let recorded = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    let mut map = assemble(commit, recorded, &binaries, &spans, &reached, &unprofiled);
-    match crate::index::record(&root, &work.root, &map.functions) {
-        Ok(index) => map.index = index,
-        Err(why) => eprintln!("north test coverage record: no item-reference index, so a change outside every function selects its crate closure: {why}"),
-    }
+    let map = assemble(commit, recorded, &binaries, &spans, &reached, &unprofiled);
     complete(map, listed).map(|map| (map, reads))
 }
 
@@ -307,7 +303,7 @@ pub fn assemble(commit: String, recorded: u64, binaries: &HashMap<String, String
     failed.sort();
     failed.dedup();
     let unprofiled = unprofiled_tests.keys().cloned().collect();
-    Map { commit, recorded, tests, functions, index: Index::default(), failed, unprofiled }
+    Map { commit, recorded, tests, functions, failed, unprofiled }
 }
 
 #[cfg(test)]

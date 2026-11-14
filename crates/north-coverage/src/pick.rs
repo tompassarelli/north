@@ -136,7 +136,7 @@ pub struct Located {
     pub outside: Vec<Probe>,
 }
 
-pub fn innermost(regions: &[(u32, u32)], stale: &[Hunk], probe: Probe) -> Option<usize> {
+fn innermost(regions: &[(u32, u32)], stale: &[Hunk], probe: Probe) -> Option<usize> {
     regions.iter().enumerate().filter_map(|(index, &(start, end))| carry(start, end, stale).map(|(start, end)| (start, end, index))).filter(|(start, end, _)| probe.within(*start, *end)).min_by_key(|(start, end, _)| end - start).map(|(_, _, index)| index)
 }
 
