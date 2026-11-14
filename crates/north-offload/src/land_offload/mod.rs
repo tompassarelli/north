@@ -135,6 +135,11 @@ pub fn check_hosts() -> Vec<(String, String)> {
     config().map(|cfg| destinations::check_hosts(&cfg, &north_base::platform::host::name())).unwrap_or_default()
 }
 
+/// The build hosts this host reaches that `offload_builds = false` closes for now.
+pub fn closed_build_hosts() -> Vec<String> {
+    config().map(|cfg| destinations::closed_build_hosts(&cfg, &north_base::platform::host::name())).unwrap_or_default()
+}
+
 fn check_login(machine: &gate::Machine) -> Option<String> {
     config().ok().and_then(|cfg| destinations::check_login(&cfg, machine))
 }

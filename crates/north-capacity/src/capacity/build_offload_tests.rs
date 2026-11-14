@@ -120,5 +120,7 @@ fn capacity_a_fleet_session_build_on_the_saturated_laptop_goes_to_the_build_host
     let busy_cpx62 = || vec![("gex45".to_owned(), room(20.0, 6.3)), ("cpx62".to_owned(), room(16.0, 12.0))];
     assert_eq!(route(&build, busy_cpx62), Route::Offload { host: "gex45".to_owned() });
     let full = || vec![("gex45".to_owned(), room(20.0, 18.0)), ("cpx62".to_owned(), Room::Unreachable)];
-    assert!(matches!(route(&build, full), Route::Declined(declined) if declined.lacks_host()), "the laptop builds it only once every build host is full or out of reach");
+    assert!(matches!(route(&build, full), Route::Declined(declined) if declined.lacks_host()), "with every build host full or out of reach the build is refused, never run on the laptop");
+    let closed = || vec![("cpx62".to_owned(), Room::Closed), ("cpx62b".to_owned(), Room::Closed)];
+    assert!(matches!(route(&build, closed), Route::Declined(declined) if declined.lacks_host() && declined.detail().contains("cpx62b: closed")), "every build host closed is a decline naming each, not the local route");
 }

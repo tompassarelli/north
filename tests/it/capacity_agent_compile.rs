@@ -63,14 +63,14 @@ fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_an
     });
     assert_eq!(compiled(&host), "", "a fleet session compiled on a laptop with no room");
     fs::write(host.path("pressure"), IDLE).unwrap();
-    let waited = gate(&host, Some("n634-x"), &["test"]);
-    assert_eq!(waited.status.code(), Some(0), "a fleet compile with room here: {}", String::from_utf8_lossy(&waited.stderr));
-    assert_eq!(compiled(&host), "test\n", "with room here the fleet compile runs here");
+    let refused = gate(&host, Some("n634-x"), &["test"]);
+    assert_eq!(refused.status.code(), Some(75), "a fleet compile with room here: {}", String::from_utf8_lossy(&refused.stderr));
+    assert_eq!(compiled(&host), "", "the incident of 2026-11-14: a fleet compile no build host took ran on the laptop because it had room");
     let mine = gate(&host, None, &["build"]);
     assert_eq!(mine.status.code(), Some(0), "{}", String::from_utf8_lossy(&mine.stderr));
-    assert_eq!(compiled(&host), "test\nbuild\n");
+    assert_eq!(compiled(&host), "build\n", "a build outside a fleet session still runs here");
     let admitted: i64 = rusqlite::Connection::open(host.path("capacity.db")).unwrap().query_row("SELECT count(*) FROM capacity_admissions WHERE decision = 'RESERVED'", [], |row| row.get(0)).unwrap();
-    assert_eq!(admitted, 1, "the fleet build admitted here is one admission row, kept for the ledger; a shell outside any session leases nothing (north#798)");
+    assert_eq!(admitted, 0, "a shell outside any session leases nothing (north#798)");
 }
 
 #[test]

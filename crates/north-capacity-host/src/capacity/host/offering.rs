@@ -69,7 +69,10 @@ impl Declines {
 
     /// The OFFLOAD_DECLINED line a decline earns, None when it repeats the reason already printed.
     pub(super) fn note(&mut self, why: Option<Declined>, owner: &str) -> Option<Obj> {
-        let why = why?;
+        let Some(why) = why else {
+            (self.missing_host, self.kept_here) = (None, None);
+            return None;
+        };
         self.missing_host = why.lacks_host().then(|| why.clone());
         self.kept_here = (!why.lacks_host()).then(|| why.clone());
         self.retry_milliseconds = why.retry_milliseconds(OFFLOAD_RETRY_MILLISECONDS);
@@ -156,13 +159,13 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
         }
     });
     let finished = await_offer(work, patience, (&offer, &offer_id), terminations, (&waiting_root, waiting_ticket.as_deref())).await;
-    let Some(done) = finished else {
-        if handed && let Some(ticket) = &waiting_ticket {
-            handover::restore(&waiting_root, ticket);
-        }
-        return None;
+    let failed = |why: &str| Err(Some(Declined::Failed(why.to_owned())));
+    let outcome = match finished {
+        Some(Ok(done)) => done,
+        Some(Err(_)) => failed("the offload stopped before it reported"),
+        None => failed("no build host started it before its --timeout-seconds"),
     };
-    match done.ok()? {
+    match outcome {
         Ok(code) => Some(code),
         Err(why) => {
             if handed && let Some(ticket) = &waiting_ticket {
@@ -174,9 +177,9 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     }
 }
 
-/// The decision that ends a fleet session's compile on a host that does not compile for sessions, once no build host took it and this host has no room beyond its reserves either; with room, the compile waits in this host's own heavy admission instead.
-fn no_build_host(missing: &Declined, here: &str, create: &Create) -> Obj {
-    Obj::new().put("decision", "REFUSED").put("reason", NO_BUILD_HOST).put("detail", format!("{}: {}; this host: {here}", missing.reason(), missing.detail())).put("owner", create.owner.as_str())
+/// The refusal a fleet session's build gets on a host that is not a build host once every build host was full, closed or out of reach or the offload failed: it never runs here, whatever this host's own room, lease or reserve, and the detail names each host and why.
+fn no_build_host(missing: &Declined, create: &Create) -> Obj {
+    Obj::new().put("decision", "REFUSED").put("reason", NO_BUILD_HOST).put("detail", format!("{}: {}", missing.reason(), missing.detail())).put("owner", create.owner.as_str())
 }
 
 /// The refusal a fleet session's Rust compile gets on a host whose operator entry sets `session_builds = false`: once no build host took it, whatever this host's room or lease.
@@ -188,16 +191,6 @@ pub(super) fn session_builds_off(host: &Host, command: &[String], create: &Creat
     Some(Obj::new().put("decision", "REFUSED").put("reason", SESSION_BUILDS_OFF).put("detail", key).put("owner", create.owner.as_str()))
 }
 
-/// The refusal a fleet session's Rust compile gets on a host that does not compile for sessions: only once every build host declined it for want of a host and this host has no room beyond its reserves either.
-pub(super) fn session_build_refusal(host: &Host, command: &[String], missing: Option<&Declined>, create: &Create) -> Option<Obj> {
-    if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) {
-        return None;
-    }
-    let missing = missing?;
-    let here = (host.own_build_refusal)()?;
-    Some(no_build_host(missing, &here, create))
-}
-
 /// The refusal a fleet session's Rust compile gets on a host whose hold keeps heavy work off it when the build hosts declined it for a reason that leaves it on this host (it builds an artifact the caller runs, ships too large a diff): the hold binds that fallback too, so the build never runs here.
 pub(super) fn held_build_refusal(host: &Host, command: &[String], kept: Option<&Declined>, create: &Create) -> Option<Obj> {
     if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) {
@@ -207,16 +200,12 @@ pub(super) fn held_build_refusal(host: &Host, command: &[String], kept: Option<&
     Some(Obj::new().put("decision", "REFUSED").put("reason", HELD_HOST).put("detail", format!("{}: {}", kept.reason(), kept.detail())).put("owner", create.owner.as_str()))
 }
 
-/// The refusal a fleet session's Rust compile gets when this host took it for want of a build host but its admission defers it: it waits in no queue, so no caller's deadline runs out behind a wait it never asked for, and is refused at once as when this host has no room.
-pub(super) fn deferred_session_build(host: &Host, command: &[String], missing: Option<&Declined>, create: &Create, first: &Obj) -> Option<Obj> {
-    if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) || first.get("decision").and_then(Value::as_str) != Some("DEFER") {
-        return None;
-    }
-    let reason = first.get("reason").and_then(Value::as_str).unwrap_or("DEFER");
-    Some(no_build_host(missing?, &format!("its admission defers it ({reason})"), create))
+/// The refusal a run offered before deciding gets once no build host took it, None when this host's own admission decides on it: only a decline that keeps the build here for a reason of its own, or a host that reaches no build host at all, leaves it that.
+pub(super) fn after_offer(host: &Host, command: &[String], declined: &Declines, create: &Create) -> Option<Obj> {
+    session_builds_off(host, command, create).or_else(|| declined.missing_host.as_ref().map(|missing| no_build_host(missing, create))).or_else(|| held_build_refusal(host, command, declined.kept_here.as_ref(), create))
 }
 
-/// A request offered before deciding runs on a build host with room; any other runs elsewhere only when this host defers it on the first look. None sends it to the queue.
+/// A request offered before deciding runs on a build host with room or is refused; any other runs elsewhere only when this host defers it on the first look. None sends it to the queue.
 pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
     let (root, request, create) = (waiting.root, waiting.request, waiting.create);
     let offered_before = build_offload::offers_first(agent_session(), (host.build_host)());
@@ -224,13 +213,7 @@ pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminati
         if let Some(code) = try_offload(waiting.again(), false, host, terminations, None).await {
             return Some(Admitted::Offloaded(code));
         }
-        if let Some(refused) = session_builds_off(host, waiting.command, create) {
-            return Some(Admitted::Here(refused));
-        }
-        if let Some(refused) = session_build_refusal(host, waiting.command, waiting.declined.missing_host.as_ref(), create) {
-            return Some(Admitted::Here(refused));
-        }
-        if let Some(refused) = held_build_refusal(host, waiting.command, waiting.declined.kept_here.as_ref(), create) {
+        if let Some(refused) = after_offer(host, waiting.command, waiting.declined, create) {
             return Some(Admitted::Here(refused));
         }
     }
@@ -239,7 +222,7 @@ pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminati
         return Some(Admitted::Here(first));
     }
     if offered_before {
-        return deferred_session_build(host, waiting.command, waiting.declined.missing_host.as_ref(), create, &first).map(Admitted::Here);
+        return None;
     }
     try_offload(waiting, true, host, terminations, None).await.map(Admitted::Offloaded)
 }

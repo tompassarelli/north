@@ -132,7 +132,6 @@ fn host() -> Host {
         hand_over: relaying_hand_over,
         lease_builds: || true,
         build_host: || false,
-        own_build_refusal: || None,
         session_builds: || true,
         reclaim_disk: || None,
         tend_disk: || {},

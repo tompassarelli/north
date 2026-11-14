@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use north_capacity_host::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
-use crate::land_offload::{check_hosts, room};
+use crate::land_offload::{check_hosts, closed_build_hosts, room};
 
 mod lane;
 mod remote;
@@ -26,13 +26,14 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool
         return Err(None);
     }
     let hosts = check_hosts();
-    if hosts.is_empty() {
+    let closed = closed_build_hosts();
+    if hosts.is_empty() && closed.is_empty() {
         return Err(None);
     }
     if let Some(refused) = refusal(candidate) {
         return Err(Some(refused));
     }
-    let mut rooms: Vec<(String, Room)> = hosts.iter().map(|(name, ssh)| (name.clone(), room_of(ssh))).collect();
+    let mut rooms: Vec<(String, Room)> = hosts.iter().map(|(name, ssh)| (name.clone(), room_of(ssh))).chain(closed.into_iter().map(|name| (name, Room::Closed))).collect();
     let mut failed = Vec::new();
     loop {
         let host = match route(candidate, || rooms.clone()) {

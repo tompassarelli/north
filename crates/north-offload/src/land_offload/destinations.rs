@@ -134,6 +134,12 @@ pub(super) fn offloads_builds(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(true)
 }
 
+/// The hosts `here` reaches whose `offload_builds = false` closes them to offloaded builds for now.
+pub(super) fn closed_build_hosts(cfg: &DocumentMut, here: &str) -> Vec<String> {
+    let closed = |name: &str| cfg.get("hosts").and_then(|hosts| hosts.get(name)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(false);
+    reached_destinations(cfg, here).into_iter().map(|(name, _)| name).filter(|name| closed(name)).collect()
+}
+
 /// The other hosts `here` reaches over ssh, each with its destination, in the order `[hosts]` declares them. A host that declares no `reaches` list reaches only itself.
 pub(super) fn reached_destinations(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };

@@ -66,6 +66,7 @@ pub enum Room {
     Free { free_cpus: f64 },
     Short(String),
     Unreachable,
+    Closed,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -164,7 +165,7 @@ pub fn wants_offload(candidate: &Candidate) -> bool {
     }
 }
 
-/// Whether a run goes to the build hosts before this host's own admission decides on it: a fleet session's run on a host that is not itself a build host, so it takes the build host with the most free room and this host builds it only once every build host is full or out of reach. A build host decides on its own sessions' runs first, as does any host on a run from outside a fleet session.
+/// Whether a run goes to the build hosts before this host's own admission decides on it: a fleet session's run on a host that is not itself a build host, so it takes the build host with the most free room, and a heavy or moderate build never runs here: when every build host is full, closed, out of reach or the offload fails, it is refused (exit 75) naming each host and why. A build host decides on its own sessions' runs first, as does any host on a run from outside a fleet session.
 pub fn offers_first(agent: bool, build_host: bool) -> bool {
     agent && !build_host
 }
@@ -190,6 +191,7 @@ pub fn most_free(hosts: impl IntoIterator<Item = (String, Room)>) -> Result<Stri
             }
             Room::Short(why) => short.push(format!("{name}: {why}")),
             Room::Unreachable => dark.push(format!("{name}: unreachable or unreadable over ssh")),
+            Room::Closed => short.push(format!("{name}: closed to offloaded builds (offload_builds = false)")),
         }
     }
     if let Some((name, _)) = best {
@@ -202,7 +204,7 @@ pub fn most_free(hosts: impl IntoIterator<Item = (String, Room)>) -> Result<Stri
     Err(Declined::NoRoom(short))
 }
 
-/// The probe runs only for a deferred heavy request this host may move, so a local admit, a pinned box or a host with no offload host costs no ssh.
+/// The probe runs only for a deferred heavy request this host may move, so a local admit, a pinned box or a host with no offload host costs no ssh; a closed build host counts as one without room, so only a host that reaches no build host at all keeps the run local.
 pub fn route(candidate: &Candidate, rooms: impl FnOnce() -> Vec<(String, Room)>) -> Route {
     if !wants_offload(candidate) {
         return Route::Local;

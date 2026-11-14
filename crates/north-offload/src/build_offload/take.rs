@@ -413,14 +413,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-
-/// Why this host takes no build a fleet session started here that no build host had room for: the rule it applies before running a pulled run, so a session's build and a pulled one share the interactive and game reserves.
-pub fn own_build_refusal() -> Option<String> {
-    if runs_no_checks_here() {
-        return Some("this host runs no checks or offloaded builds".to_owned());
-    }
-    if game_reserved() {
-        return Some("this host holds its game reserve".to_owned());
-    }
-    refusal(room::read_local().as_ref())
-}
