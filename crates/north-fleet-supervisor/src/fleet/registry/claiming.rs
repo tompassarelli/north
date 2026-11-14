@@ -51,15 +51,6 @@ impl Fleet {
         Ok((Some(Err(failed)), Box::new(|| Ok(()))))
     }
 
-    /// The claim keys of a taken-over seat its successor `name` still has to take: a key the name or a session below it already holds stays with its holder, so the seat's children keep the issues they work and a refused take-over gives up none of the old seat's claims.
-    pub(super) fn left_to_claim(&self, name: &str, keys: &[String]) -> Vec<String> {
-        let issues: Vec<String> = keys.iter().map(|key| claims::split_key(key).0.to_owned()).collect();
-        let Ok(rows) = self.claims.holders(Rows::Items(&issues)) else { return keys.to_vec() };
-        let below = self.descendants(name);
-        let kept = |key: &String| rows.iter().any(|(held, owner)| (owner == name || below.contains(owner)) && (self.claims.covers(held, key) || (claims::split_key(key).1.is_none() && claims::split_key(held).0 == key.as_str())));
-        keys.iter().filter(|key| !kept(key)).cloned().collect()
-    }
-
     /// Claims `tasks` for `name` under `parent`, leaving the whole-issue claims its ancestors hold and taking the boxes.
     fn claim_tasks(&self, parent: Option<&str>, name: &str, tasks: &[String]) -> NorthResult<()> {
         let ancestors = self.ancestors(parent);

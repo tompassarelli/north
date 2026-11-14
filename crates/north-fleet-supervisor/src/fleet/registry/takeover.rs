@@ -5,14 +5,15 @@ use crate::error::{NorthError, NorthResult};
 
 use super::Fleet;
 use super::stopping::Halt;
-use super::super::model::{LaunchRequest, Role, SessionRecord};
+use super::super::model::{Role, SessionRecord};
 use super::super::records::record_file;
 use super::super::runtime::PROXY;
 use super::super::store::{Addressee, Claim, FleetRow, RowKind};
 
-/// The session a takeover ended.
+/// The session a takeover ended, and where its directory now lies.
 pub(super) struct Predecessor {
     record: SessionRecord,
+    archived: PathBuf,
 }
 
 impl Predecessor {
@@ -24,62 +25,32 @@ impl Predecessor {
     pub(super) fn addressed_since(&self) -> u64 {
         self.record.addressed_since()
     }
-}
 
-/// The name a launch takes, with the session that holds it while the launch claims what it needs, so a refused claim leaves that session running as it was; it is stopped and archived only by [`Seat::retire`].
-pub(super) struct Seat<'a> {
-    fleet: &'a Fleet,
-    name: &'a str,
-    held: Option<SessionRecord>,
-    archived: Option<PathBuf>,
-}
-
-impl Seat<'_> {
-    pub(super) fn held(&self) -> Option<&SessionRecord> {
-        self.held.as_ref()
+    /// Whether the seat taken over keeps its claims: the launch names no task, or only tasks the seat held, as a relaunch of its own record does.
+    pub(super) fn carries_for(&self, named: &[String]) -> bool {
+        named.iter().all(|task| self.record.tasks().any(|held| held == task))
     }
 
-    /// Ends and archives the session holding the name; None when no session holds it.
-    pub(super) fn retire(&mut self) -> NorthResult<Option<Predecessor>> {
-        let Some(record) = self.held.clone() else { return Ok(None) };
-        let archived = self.fleet.archive(self.name, Halt::TakenOver, Halt::TakenOver.label())?;
-        eprintln!("north fleet: {} was held by conversation {}; it is stopped and archived at {}, and the name and its messages now go to the new session", self.name, record.conversation.as_deref().unwrap_or("none"), archived.display());
-        self.archived = Some(archived);
-        Ok(Some(Predecessor { record }))
+    /// Puts every task the taken-over seat held into its successor's `record`, and its box and other claims too unless the launch names a box of its own, so a lead keeps the task that binds it to the lead grant; returns the claim keys the successor takes in the ledger.
+    pub(super) fn carry_into(&self, record: &mut SessionRecord) -> Vec<String> {
+        record.task_ref = self.record.task_ref.clone();
+        record.extra_tasks = self.record.extra_tasks.clone();
+        let named = record.claim_box.take();
+        (record.claim_box, record.other_claims) = named.map_or_else(|| (self.record.claim_box.clone(), self.record.other_claims.clone()), |named| (Some(named), std::mem::take(&mut record.other_claims)));
+        record.claim_keys()
     }
-}
-
-/// Whether the seat taken over keeps its claims: the launch names no task, or only tasks the seat held, as a relaunch of its own record does.
-pub(super) fn carries_for(held: &SessionRecord, named: &[String]) -> bool {
-    named.iter().all(|task| held.tasks().any(|kept| kept == task))
-}
-
-/// Puts every task the taken-over seat `held` into its successor's `record`, and its box and other claims too unless the launch names a box of its own, so a lead keeps the task that binds it to the lead grant; returns the claim keys the successor's record names.
-pub(super) fn carry_into(held: &SessionRecord, record: &mut SessionRecord) -> Vec<String> {
-    record.task_ref = held.task_ref.clone();
-    record.extra_tasks = held.extra_tasks.clone();
-    let named = record.claim_box.take();
-    (record.claim_box, record.other_claims) = named.map_or_else(|| (held.claim_box.clone(), held.other_claims.clone()), |named| (Some(named), std::mem::take(&mut record.other_claims)));
-    record.claim_keys()
 }
 
 impl Fleet {
-    /// Claims what a launch taking over `seat` needs before the seat is stopped, so a refused claim leaves the seat running; returns the seat's predecessor, the keys the launch still has to claim, and whether they were claimed here.
-    pub(super) fn claim_then_retire(&self, seat: &mut Seat<'_>, request: &LaunchRequest, record: &mut SessionRecord, tasks: &[String], verification: bool) -> NorthResult<(Option<Predecessor>, Vec<String>, bool)> {
-        let tasks = seat.held().filter(|held| carries_for(held, &request.tasks())).map_or_else(|| tasks.to_vec(), |held| self.left_to_claim(&request.name, &carry_into(held, record)));
-        let claimed_first = seat.held().is_some();
-        if claimed_first {
-            self.claim_before_start(request, &tasks, verification)?;
-        }
-        Ok((seat.retire()?, tasks, claimed_first))
-    }
-
-    /// The session holding `name` when this launch takes the name over; None when no session holds it.
-    fn held_for(&self, name: &str, claim: Claim) -> NorthResult<Option<SessionRecord>> {
+    /// Ends and archives the session holding `name` when this launch takes the name over; None when no session holds it.
+    pub(super) fn retire_for(&self, name: &str, claim: Claim) -> NorthResult<Option<Predecessor>> {
         if claim != Claim::TakeOver || !self.session_dir(name)?.exists() || self.clear_ghost(name)? {
             return Ok(None);
         }
-        self.record(name).map(Some)
+        let record = self.record(name)?;
+        let archived = self.archive(name, Halt::TakenOver, Halt::TakenOver.label())?;
+        eprintln!("north fleet: {name} was held by conversation {}; it is stopped and archived at {}, and the name and its messages now go to the new session", record.conversation.as_deref().unwrap_or("none"), archived.display());
+        Ok(Some(Predecessor { record, archived }))
     }
 
     /// Removes a directory that holds a name with no session record in it, as a launch killed after claiming the name leaves, and gives up the claims the dead launch took under the name; true when it removed one. The caller holds the name's start lock, so no live launch is building a record there.
@@ -96,13 +67,14 @@ impl Fleet {
         Ok(true)
     }
 
-    /// Runs `succeed` to bring up the successor of the session holding `name`, which it retires through the [`Seat`] once its claims are in, all under the name's start lock, so a revive racing them either runs before the old session is stopped or finds the successor running.
-    pub(super) fn succeed<T>(&self, name: &str, claim: Claim, succeed: impl FnOnce(&mut Seat<'_>) -> NorthResult<T>) -> NorthResult<T> {
+    /// Retires the session holding `name` for a take-over and runs `succeed` to bring up its successor, all under the name's start lock, so a revive racing them either runs before the old session is stopped or finds the successor running.
+    pub(super) fn succeed<T>(&self, name: &str, claim: Claim, succeed: impl FnOnce(Option<Predecessor>) -> NorthResult<T>) -> NorthResult<T> {
         let _start = self.start_lock(name)?;
-        let mut seat = Seat { fleet: self, name, held: self.held_for(name, claim)?, archived: None };
-        let launched = succeed(&mut seat);
-        if let (Err(error), Some(archived)) = (&launched, &seat.archived) {
-            self.restore_predecessor(name, archived, error);
+        let predecessor = self.retire_for(name, claim)?;
+        let archived = predecessor.as_ref().map(|predecessor| predecessor.archived.clone());
+        let launched = succeed(predecessor);
+        if let (Err(error), Some(archived)) = (&launched, archived) {
+            self.restore_predecessor(name, &archived, error);
         }
         launched
     }
@@ -172,9 +144,8 @@ fn sent_at(id: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::super::HandedIn;
-    use super::super::fixtures::{fleet, lead, live, live_under, standing_host};
+    use super::super::fixtures::{fleet, live};
     use super::*;
-    use std::collections::BTreeSet;
     use std::path::Path;
     use std::sync::Arc;
 
@@ -190,8 +161,6 @@ mod tests {
     use crate::fleet::records::{read_record, write_record};
     use crate::fleet::sender::Sender;
     use crate::fleet::store::RowKind;
-    use crate::fleet::claims::{Claims, Rows, Taken, split_key};
-    use crate::fleet::session_lifecycle::ARCHIVE;
 
     struct NeverUp;
 
@@ -261,13 +230,12 @@ mod tests {
         std::fs::write(seat.join("session.json"), held.to_string()).unwrap();
         let request = LaunchRequest { prompt: "carry on".into(), task_ref: None, claim_box: named.map(str::to_owned), ..LaunchRequest::relaunching(&fleet.session(name).unwrap()) };
         fleet
-            .succeed(name, Claim::TakeOver, |taken| {
-                let held = taken.held().unwrap().clone();
-                assert!(carries_for(&held, &request.tasks()));
+            .succeed(name, Claim::TakeOver, |predecessor| {
+                let predecessor = predecessor.unwrap();
+                assert!(predecessor.carries_for(&request.tasks()));
                 let mut successor = request.record(None, Some(name.into()), false, 2);
                 successor.host_dir = seat.clone();
-                let claimed = carry_into(&held, &mut successor);
-                taken.retire()?;
+                let claimed = predecessor.carry_into(&mut successor);
                 std::fs::create_dir_all(&seat).unwrap();
                 write_record(&seat, &successor).unwrap();
                 Ok((successor, claimed))
@@ -301,68 +269,10 @@ mod tests {
         assert!(refused.is_err(), "{refused:?}");
         let kept = fleet.session("steady").unwrap_or_else(|error| panic!("the working session was archived: {}", error.user_message()));
         assert_eq!((kept.account.as_str(), kept.conversation.as_deref(), kept.live()), ("a", Some("steady"), true), "{kept:?}");
-
-        let home = tempfile::tempdir().unwrap();
-        let (fleet, claims) = lead_whose_child_holds_an_issue(home.path());
-        let mut record = fleet.session("slice").unwrap();
-        record.extra_tasks.push("north#1400".into());
-        write_record(&fleet.root.join("slice"), &record).unwrap();
-        claims.hold("north#1400", "outsider", &BTreeSet::new()).unwrap();
-        let before = std::fs::read(fleet.root.join("slice/session.json")).unwrap();
-        let request = LaunchRequest { prompt: "carry on".into(), task_ref: None, resume: None, ..LaunchRequest::relaunching(&record) };
-
-        let refused = fleet.take_over(&request).unwrap_err();
-
-        assert!(matches!(&refused, NorthError::Refused(why) if why == "north#1400 is already owned by outsider"), "{}", refused.user_message());
-        assert_eq!(std::fs::read(fleet.root.join("slice/session.json")).unwrap(), before, "the refused take-over changed the old session's record");
-        assert!(fleet.session("slice").unwrap().live() && !fleet.root.join(ARCHIVE).exists(), "the refused take-over stopped or archived the old session");
-        assert!(claims.holders(Rows::Items(&["north#1054".to_owned()])).unwrap().contains(&("north#1054".to_owned(), "slice".to_owned())), "the refused take-over gave up the old session's claim");
-    }
-
-    /// A ledger in which a claim another session holds is refused, as the threads ledger refuses one a live owner holds.
-    #[derive(Default)]
-    struct Owned(std::sync::Mutex<Vec<(String, String)>>);
-
-    impl Claims for Owned {
-        fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
-            let mut held = self.0.lock().unwrap();
-            if let Some((_, owner)) = held.iter().find(|(claim, owner)| claim == item && owner != session) {
-                return Err(NorthError::Refused(format!("{item} is already owned by {owner}")));
-            }
-            held.retain(|(claim, owner)| !(claim == item && owner == session));
-            held.push((item.to_owned(), session.to_owned()));
-            Ok(Taken::Held)
-        }
-
-        fn release(&self, item: &str, session: &str) -> NorthResult<()> {
-            self.0.lock().unwrap().retain(|(claim, owner)| !(claim == item && owner == session));
-            Ok(())
-        }
-
-        fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
-            Ok(self.0.lock().unwrap().iter().filter(|(claim, owner)| match rows {
-                Rows::Items(items) => items.iter().any(|item| item == split_key(claim).0),
-                Rows::Owners(owners) => owners.contains(owner),
-            }).cloned().collect())
-        }
-    }
-
-    /// On 2026-11-14 a take-over of p-agent-user-slice3 stopped and archived the lead, then was refused north#1397, which its child p-broker-code held.
-    fn lead_whose_child_holds_an_issue(home: &Path) -> (Fleet, Arc<Owned>) {
-        let claims = Arc::new(Owned::default());
-        let fleet = Fleet::at_claiming(home.into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap().arming(|_| Ok(())).starting_hosts(standing_host);
-        lead(&fleet, "slice", "north#1054");
-        let mut record = fleet.session("slice").unwrap();
-        record.extra_tasks = vec!["north#1397".into()];
-        write_record(&fleet.root.join("slice"), &record).unwrap();
-        live_under(&fleet, "broker", Some("slice"));
-        claims.hold("north#1054", "slice", &BTreeSet::new()).unwrap();
-        claims.hold("north#1397", "broker", &BTreeSet::new()).unwrap();
-        (fleet, claims)
     }
 
     #[test]
-    fn a_taken_over_lead_seat_keeps_its_tasks_and_its_childs_issues_and_a_take_over_racing_a_revive_leaves_one_running_session_in_its_own_conversation() {
+    fn a_taken_over_lead_seat_keeps_its_tasks_and_a_take_over_racing_a_revive_leaves_one_running_session_in_its_own_conversation() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
         let dir = fleet.root.join("worker");
@@ -372,8 +282,7 @@ mod tests {
         let row = fleet.new_row(RowKind::Message, "worker", "carry on with the build", &Sender::Tom).unwrap();
 
         let (predecessor, successor, revive) = fleet
-            .succeed("worker", Claim::TakeOver, |seat| {
-                let predecessor = seat.retire()?;
+            .succeed("worker", Claim::TakeOver, |predecessor| {
                 let delivery = fleet.clone();
                 let revive = std::thread::spawn(move || delivery.hand_in(&row));
                 let session = live(&fleet, "worker");
@@ -407,12 +316,5 @@ mod tests {
         std::fs::write(bare.join("session.json"), serde_json::json!({"name": "bare", "provider": "claude", "account": "a", "cwd": main, "model": null, "created_ms": 1, "host_pid": null, "conversation": "bare", "host_dir": bare, "stream_offset": 0, "role": "lead"}).to_string()).unwrap();
         let refused = fleet.granted_launch("bare", &["--name", "n1054-child", "--task", "north#1054", "brief"].map(str::to_owned)).unwrap_err();
         assert!(refused.contains("bare's record holds no task"), "{refused}");
-
-        let home = tempfile::tempdir().unwrap();
-        let (fleet, claims) = lead_whose_child_holds_an_issue(home.path());
-        let request = LaunchRequest { prompt: "carry on".into(), task_ref: None, resume: None, ..LaunchRequest::relaunching(&fleet.session("slice").unwrap()) };
-        let taken = fleet.take_over(&request).unwrap_or_else(|error| panic!("the take-over was refused: {}", error.user_message()));
-        assert_eq!(taken.tasks().collect::<Vec<_>>(), ["north#1054", "north#1397"]);
-        assert_eq!(claims.holders(Rows::Items(&["north#1397".to_owned()])).unwrap(), [("north#1397".to_owned(), "broker".to_owned())]);
     }
 }

@@ -40,11 +40,6 @@ impl Fleet {
         self
     }
 
-    pub fn starting_hosts(mut self, hosts: super::starting::HostStart) -> Self {
-        self.hosts = hosts;
-        self
-    }
-
     pub fn reading_proc(mut self, proc: PathBuf) -> Self {
         self.proc = proc;
         self

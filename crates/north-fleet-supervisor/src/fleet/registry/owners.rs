@@ -61,35 +61,15 @@ impl Fleet {
 
     /// The sessions above a launch whose parent is `parent`: its parent, that one's parent and so on, read from the cached fleet table and the records of this host changed since, or the whole registry without a recent table.
     pub fn ancestors(&self, parent: Option<&str>) -> BTreeSet<String> {
-        let parents = self.parents();
+        let (rows, records) = self.cached_view().unwrap_or_else(|| (cached_sessions(&self.root).ok().flatten().unwrap_or_default(), self.sessions().unwrap_or_default()));
+        let mut parents: BTreeMap<String, String> = rows.into_iter().filter_map(|row| Some((row.name, row.parent?))).collect();
+        parents.extend(records.into_iter().filter_map(|record| Some((record.name, record.parent?))));
         let mut found = BTreeSet::new();
         let mut next = parent.map(str::to_owned);
         while let Some(name) = next.filter(|name| !name.is_empty() && found.insert(name.clone())) {
             next = parents.get(&name).cloned();
         }
         found
-    }
-
-    /// The sessions below `name`: its children, theirs and so on, read as [`Self::ancestors`] reads.
-    pub(super) fn descendants(&self, name: &str) -> BTreeSet<String> {
-        let parents = self.parents();
-        let mut found = BTreeSet::new();
-        let mut frontier = vec![name.to_owned()];
-        while let Some(above) = frontier.pop() {
-            for child in parents.iter().filter(|(child, parent)| **parent == above && child.as_str() != name).map(|(child, _)| child) {
-                if found.insert(child.clone()) {
-                    frontier.push(child.clone());
-                }
-            }
-        }
-        found
-    }
-
-    fn parents(&self) -> BTreeMap<String, String> {
-        let (rows, records) = self.cached_view().unwrap_or_else(|| (cached_sessions(&self.root).ok().flatten().unwrap_or_default(), self.sessions().unwrap_or_default()));
-        let mut parents: BTreeMap<String, String> = rows.into_iter().filter_map(|row| Some((row.name, row.parent?))).collect();
-        parents.extend(records.into_iter().filter_map(|record| Some((record.name, record.parent?))));
-        parents
     }
 }
 

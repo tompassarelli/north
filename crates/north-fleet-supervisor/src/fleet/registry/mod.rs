@@ -121,7 +121,6 @@ pub struct Fleet {
     reckon: Arc<dyn Reckon>,
     spools_as: Option<String>,
     starts: spooled::Starts,
-    hosts: starting::HostStart,
 }
 
 struct Ports {
@@ -151,7 +150,7 @@ impl Fleet {
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         let kept = root.join(lanes::KEPT_LANES);
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), spools_as: None, starts: spooled::start_spooled, hosts: starting::start_host };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), spools_as: None, starts: spooled::start_spooled };
         fleet.adopt_journals()?;
         Ok(fleet)
     }

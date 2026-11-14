@@ -99,9 +99,7 @@ impl Host {
         }
         command.env("NORTH_FLEET_SCOPE", &unit);
         let _ = fs::remove_file(session_host_files::pid_path(&self.dir));
-        let mut child = command.spawn().map_err(|error| NorthError::io_at(error, || format!("starting the session host in {}", spec.cwd.display())))?;
-        let pid = child.id();
-        std::thread::spawn(move || child.wait());
+        let pid = command.spawn().map_err(|error| NorthError::io_at(error, || format!("starting the session host in {}", spec.cwd.display())))?.id();
         if let Err(error) = self.await_socket(pid) {
             self.terminate()?;
             return Err(error);
