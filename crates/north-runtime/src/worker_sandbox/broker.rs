@@ -45,7 +45,7 @@ const STDIO: usize = 3;
 pub(super) const REFUSED: u8 = 126;
 const SOCKET_CHECK: Duration = Duration::from_millis(100);
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
-const JOIN_CGROUP: &str = r#"echo 0 >"$0" || echo "north worker-sandbox broker: could not join the caller's cgroup $0, so this run counts against neither its lease nor its session" >&2; exec "$@""#;
+const JOIN_LEASE: &str = r#"echo 0 >"$0" || echo "north worker-sandbox broker: could not join the caller's lease scope $0, so this run counts against no lease" >&2; exec "$@""#;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct Request {
@@ -421,7 +421,7 @@ fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, 
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: running the finish check of {}", granted.session);
-    let code = relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment.clone(), peer, host), [stdout, stderr], stream, peer)?;
+    let code = relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment.clone(), peer, host), [stdout, stderr], stream)?;
     match granted.record(code, &host.environment, &host.home) {
         Ok(()) => eprintln!("north worker-sandbox broker: recorded the finish verdict of {} (exit {code})", granted.session),
         Err(why) => eprintln!("north worker-sandbox broker: {why}"),
@@ -439,22 +439,13 @@ pub(super) fn refuse(streams: Vec<OwnedFd>, why: String) -> String {
 
 /// The command that starts `north ARGUMENTS` for the caller `peer`: inside the caller's capacity lease scope when it runs in one, so a leased build's depbox and the compiles it forks count against that lease and its host's admission. Started in the broker's own service, a leased land check's clippy and a session's depbox compiles ran outside every lease, and admission read 0.05 cores for a lease whose compiles held 7 (gex45, 2026-11-10, north#1036).
 pub(super) fn brokered(north: &Path, arguments: Vec<String>, peer: &Peer) -> Command {
-    joined(north, &arguments, peer.cgroup().and_then(crate::capacity::gate::lease_cgroup))
-}
-
-/// The command that starts a check the broker relays for the caller `peer` (a finish check, a Done-when check, a lane-only grant): inside the caller's own cgroup, so a request the check sends back through the broker, such as the depbox its `cargo` reaches, is read as the caller's session and its compile goes to a build host. Started in the broker's own service, a finish check's compiles lost their session, ran as no agent's build, and the laptop leased them itself: 22 of them wrote 31 GB in 3 hours and stalled the desktop with iowait up to 63% (whiterabbit, 2026-11-14, north#1036).
-pub(super) fn relayed_command(north: &Path, arguments: &[String], peer: &Peer) -> Command {
-    joined(north, arguments, peer.cgroup().and_then(|cgroup| cgroup.lines().find_map(|line| line.strip_prefix("0::"))))
-}
-
-fn joined(north: &Path, arguments: &[String], cgroup: Option<&str>) -> Command {
-    let Some(cgroup) = cgroup.filter(|cgroup| !cgroup.trim_start_matches('/').is_empty()) else {
+    let Some(scope) = peer.cgroup().and_then(crate::capacity::gate::lease_cgroup) else {
         let mut command = Command::new(north);
         command.args(arguments);
         return command;
     };
     let mut command = Command::new("/bin/sh");
-    command.args(["-c", JOIN_CGROUP]).arg(Path::new(CGROUP_ROOT).join(cgroup.trim_start_matches('/')).join("cgroup.procs")).arg(north).args(arguments);
+    command.args(["-c", JOIN_LEASE]).arg(Path::new(CGROUP_ROOT).join(scope.trim_start_matches('/')).join("cgroup.procs")).arg(north).args(arguments);
     command
 }
 
@@ -473,7 +464,7 @@ fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], 
         }
     };
     eprintln!("north worker-sandbox broker: granted {} to {} ({})", arguments.iter().take(3).cloned().collect::<Vec<_>>().join(" "), session.name, session.task);
-    relayed(north, &arguments, &session.lane, urgency(variables, peer, host), [stdout, stderr], stream, peer)
+    relayed(north, &arguments, &session.lane, urgency(variables, peer, host), [stdout, stderr], stream)
 }
 
 /// Runs the Done-when check `asked` names for a caller `peer` outside every lane-only scope (check_request.rs), relaying the checker's output to the client; a refusal is told to the client and logged.
@@ -484,12 +475,13 @@ fn run_check(north: &Path, asked: Result<check_request::Check, String>, streams:
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: checking {} for {}", granted.arguments.last().map(String::as_str).unwrap_or_default(), granted.session);
-    relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment, peer, host), [stdout, stderr], stream, peer)
+    relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment, peer, host), [stdout, stderr], stream)
 }
 
 /// Starts `north ARGUMENTS` in `directory` with `variables` and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; its exit code.
-fn relayed(north: &Path, arguments: &[String], directory: &Path, variables: Vec<(String, String)>, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream, peer: &Peer) -> Result<u8, String> {
-    let mut child = relayed_command(north, arguments, peer)
+fn relayed(north: &Path, arguments: &[String], directory: &Path, variables: Vec<(String, String)>, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream) -> Result<u8, String> {
+    let mut child = Command::new(north)
+        .args(arguments)
         .current_dir(directory)
         .env_clear()
         .envs(variables)
