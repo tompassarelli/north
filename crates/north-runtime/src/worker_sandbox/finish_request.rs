@@ -16,6 +16,8 @@ use super::{CHECKED, FLAG, check_request};
 pub(super) const VERB: &str = "finish-check";
 const COMMAND_LIMIT: usize = 8192;
 const TURN: &str = "finish.lock";
+/// How long a finish check that compiles may wait for and hold its capacity lease: what the capacity gate gives a compile the session starts itself.
+const COMPILE_SECONDS: &str = "3600";
 const SHAPE: &str = "the broker runs one finish check and takes no other word: finish-check COMMAND HEAD, with a command of at most 8192 bytes";
 
 /// What a finish call asks the broker to run: its acceptance command and the commit it checks (empty when it checked none).
@@ -131,6 +133,17 @@ impl Granted {
             Ok(None) => return self,
             Err(why) => [FLAG, CHECKED, "--", "sh", "-c", &format!("echo '{why}' >&2; exit {}", check_offload::NO_HOST_EXIT)].map(str::to_owned).to_vec(),
         };
+        self
+    }
+
+    /// The same grant with a command that compiles Rust run as the session's own fleet compile (north#1553): `north capacity host run` under the session's gate owner starts the worker domain, so the compile meets what one the session starts in its own shell meets, offered first to a build host and, on a host that compiles for no session once none took it, refused with `NO_BUILD_HOST` (offering.rs), never compiled there. Run in a domain alone it reached no gate that counts a fleet compile, and the laptop compiled a session's `cargo nextest run --workspace` in place twice, at 11:45 PM and 11:48 PM on 2026-11-14, until laptop-load stopped it. A grant that left its domain to join the run before queueing, or whose command compiles nothing, is kept.
+    pub(super) fn compiling(mut self, north: &Path) -> Self {
+        let words = ["sh", "-c", &self.command].map(str::to_owned);
+        let in_domain = self.arguments.first().is_some_and(|word| word == FLAG);
+        let Some(class) = crate::capacity::gate::class_of(&words, 0).filter(|_| in_domain && crate::capacity::gate::compiles_rust(&words)) else { return self };
+        let owner = format!("gate:{}", self.session);
+        let gate = ["capacity", "host", "run", "--class", class.name(), "--owner", &owner, "--timeout-seconds", COMPILE_SECONDS, "--"].map(str::to_owned);
+        self.arguments = gate.into_iter().chain([north.to_string_lossy().into_owned()]).chain(self.arguments).collect();
         self
     }
 

@@ -58,3 +58,27 @@ fn a_finish_check_from_a_scope_nested_in_the_sessions_own_is_attributed_to_its_r
     let (directory, record) = super::lane_grant::own_session(&Peer::from(Some(cgroup)), &host, "no session").unwrap();
     assert_eq!((directory, record["name"].as_str()), (fleet, Some("w-nested")));
 }
+
+/// The laptop compiled a session's finish check `cargo nextest run --workspace` in place twice on 2026-11-14 (north#1553): a finish check that compiles Rust runs as the session's own fleet compile, through the capacity gate's run under the session's owner, which offers it to a build host or refuses it with NO_BUILD_HOST; one that compiles nothing keeps its domain alone, and the worker-domain wrapper never reaches a build host.
+#[test]
+fn a_finish_check_that_compiles_runs_as_the_sessions_fleet_compile_north_1553() {
+    let scratch = tempfile::tempdir().unwrap();
+    let north = Path::new("/var/lib/agent-runtime/current/north");
+    let check = |command: &str| {
+        let plain = granted(scratch.path(), "", &scratch.path().join("turn"));
+        Granted { arguments: [FLAG, CHECKED, "--", "sh", "-c", command].map(str::to_owned).to_vec(), command: command.to_owned(), ..plain }.compiling(north).arguments
+    };
+
+    let compiled = check("cargo nextest run --workspace");
+    let gate = ["capacity", "host", "run", "--class", "heavy", "--owner", "gate:w-joining", "--timeout-seconds", "3600", "--", "/var/lib/agent-runtime/current/north", FLAG, CHECKED, "--", "sh", "-c", "cargo nextest run --workspace"];
+    assert_eq!(compiled, gate, "a finish check that compiles Rust escaped the capacity gate's run as the session's fleet compile");
+    let command = &compiled[10..];
+    assert!(crate::capacity::gate::compiles_rust(command), "the gate's run does not read the finish check as a Rust compile, so a host that compiles for no session would run it");
+    assert_eq!(crate::capacity::build_host_command::for_build_host(command, false), ["north", "depbox", "run", "--", "sh", "-c", "cargo nextest run --workspace"], "a build host was sent the laptop's worker-domain wrapper");
+
+    assert_eq!(check("echo ran"), [FLAG, CHECKED, "--", "sh", "-c", "echo ran"], "a finish check that compiles nothing left its domain for the capacity gate");
+    assert_eq!(check("cargo --version"), [FLAG, CHECKED, "--", "sh", "-c", "cargo --version"], "a finish check that only asks cargo its version was held as a compile");
+
+    let joined = Granted { arguments: ["land", "checks", "--accept", "cargo nextest run --workspace"].map(str::to_owned).to_vec(), command: "cargo nextest run --workspace".to_owned(), ..granted(scratch.path(), "", &scratch.path().join("turn")) };
+    assert_eq!(joined.compiling(north).arguments[..2], ["land", "checks"], "a finish check that joined the run before queueing was wrapped again");
+}

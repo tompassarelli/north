@@ -2,7 +2,7 @@
 
 use super::build_offload::TOOLCHAIN_PROGRAMS;
 
-/// The command inside its confinement wrappers, or the command itself: a depbox wrapper (`depbox MODE --` or `north depbox MODE --`) and the worker-domain wrapper the sandbox broker puts around a `capacity host run` command (`north --worker-sandbox --program --`), which names this host's runtime path and would otherwise read as a laptop path a build host cannot run and as no compile at all.
+/// The command inside its confinement wrappers, or the command itself: a depbox wrapper (`depbox MODE --` or `north depbox MODE --`) and the worker-domain wrapper the sandbox broker puts around a `capacity host run` command (`north --worker-sandbox --program --`) or around a finish check it runs as a session's compile (`north --worker-sandbox --checked --`), which names this host's runtime path and would otherwise read as a laptop path a build host cannot run and as no compile at all.
 pub fn unwrapped(command: &[String]) -> &[String] {
     let depbox = |word: &str| word.rsplit('/').next() == Some("depbox");
     let north = |word: &str| word.rsplit('/').next() == Some("north");
@@ -10,7 +10,7 @@ pub fn unwrapped(command: &[String]) -> &[String] {
     match command {
         [program, mode, marker, inner @ ..] if depbox(program) && wrapped(mode, marker, inner) => unwrapped(inner),
         [program, verb, mode, marker, inner @ ..] if north(program) && verb == "depbox" && wrapped(mode, marker, inner) => unwrapped(inner),
-        [program, flag, mode, marker, inner @ ..] if north(program) && flag == "--worker-sandbox" && mode == "--program" && marker == "--" && !inner.is_empty() => unwrapped(inner),
+        [program, flag, mode, marker, inner @ ..] if north(program) && flag == "--worker-sandbox" && matches!(mode.as_str(), "--program" | "--checked") && marker == "--" && !inner.is_empty() => unwrapped(inner),
         _ => command,
     }
 }
