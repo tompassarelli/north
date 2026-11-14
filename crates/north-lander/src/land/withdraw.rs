@@ -50,25 +50,16 @@ fn withdraw(queue: &Path, options: &Options) -> Result<String, String> {
     let (path, ticket) = find(queue, &options.ticket)?;
     let verdict = format!("withdrawn by {}: {}", options.noticed_by, options.reason.trim());
     let seen = land_ticket::recorded(queue).and_then(|store| land_ticket::phase(&store, queue, &path));
-    let settled = match seen {
-        Some(Phase::Checking) => None,
-        _ => match queue::withdraw_seen(&path, ticket.clone(), verdict.clone(), seen).map_err(|error| format!("{}: {error}", path.display()))? {
-            Ok(moved) => Some(moved),
-            Err(Some(Phase::Checking)) => None,
-            Err(now) => return Err(format!("{}: its record is {now:?}, so it cannot be withdrawn", path.display())),
-        },
+    let already = |path: &Path| format!("{}: the lander is already landing it, so it cannot be withdrawn", path.display());
+    if seen == Some(Phase::Checking) {
+        return Err(already(&path));
+    }
+    let moved = match queue::withdraw_seen(&path, ticket.clone(), verdict.clone(), seen).map_err(|error| format!("{}: {error}", path.display()))? {
+        Ok(moved) => moved,
+        Err(Some(Phase::Checking)) => return Err(already(&path)),
+        Err(now) => return Err(format!("{}: its record is {now:?}, so it cannot be withdrawn", path.display())),
     };
-    let checking = settled.is_none();
-    let moved = match settled {
-        Some(moved) => moved,
-        None => {
-            let asked = queue.join(queue::WITHDRAWN).join(path.file_name().unwrap_or_default());
-            queue::write(&asked, &Ticket { verdict: Some(verdict.clone()), ..ticket.clone() }).map_err(|error| format!("{}: {error}", path.display()))?;
-            asked
-        }
-    };
-    let done = if checking { "the lander withdraws it when its check ends unless the check lands it" } else { "withdrew it" };
-    let mut lines = vec![format!("north land: {} ({}): {done}, recorded in {}", ticket.branch, ticket.head, moved.display())];
+    let mut lines = vec![format!("north land: {} ({}): withdrew it, recorded in {}", ticket.branch, ticket.head, moved.display())];
     if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
         let told = after::send(session, &format!("north land: {} ({}) was withdrawn from the landing queue: {}", ticket.branch, ticket.head, options.reason.trim()));
         lines.push(if told { format!("north land: told session {session}") } else { format!("north land: could not tell session {session}") });
@@ -101,5 +92,27 @@ pub fn run(arguments: &[String]) -> u8 {
             eprintln!("north land withdraw: {error}");
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use north_base::land_ticket::Records;
+
+    #[test]
+    fn a_ticket_the_lander_is_checking_is_refused_a_withdrawal_and_nothing_is_recorded_or_announced() {
+        let queue_dir = tempfile::tempdir().unwrap();
+        let path = queue_dir.path().join(queue::file_name(1_000, "lane"));
+        let ticket = Ticket { branch: "lane".into(), head: "abc".into(), session: Some("claude-x".into()), queued_micros: Some(1_000), ..Default::default() };
+        queue::write(&path, &ticket).unwrap();
+        land_ticket::queued(&path, "enqueued").unwrap();
+        Records::of(&path).unwrap().checking(std::slice::from_ref(&path)).unwrap();
+        let options = Options { ticket: "lane".into(), reason: "audit".into(), repo: ".".into(), noticed_by: "proxy".into(), class: "lander-withdrawn".into() };
+
+        let refused = withdraw(queue_dir.path(), &options).unwrap_err();
+
+        assert!(refused.contains("already landing it"), "{refused}");
+        assert!(path.exists() && !queue_dir.path().join(queue::WITHDRAWN).join(path.file_name().unwrap()).exists());
     }
 }
