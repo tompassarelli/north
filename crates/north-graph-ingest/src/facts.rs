@@ -25,8 +25,9 @@ impl Facts {
         self.telling.facts.push(Told::new(writer, subject, Term::keyword(predicate), object));
     }
 
-    pub fn holding(mut self, writer: &str, predicates: &[&str]) -> Self {
-        self.telling.held = Held { writer: writer.to_owned(), subjects: Vec::new(), predicates: predicates.iter().map(|name| Term::keyword(*name)).collect() };
+    pub fn holding(mut self, writer: &str, predicates: &[&str], quoting: &[&str], widens: fn(&Term, &Term) -> bool) -> Self {
+        let keywords = |names: &[&str]| names.iter().map(|name| Term::keyword(*name)).collect();
+        self.telling.held = Held { writer: writer.to_owned(), subjects: Vec::new(), predicates: keywords(predicates), quoting: keywords(quoting), widens: Some(widens) };
         self
     }
 

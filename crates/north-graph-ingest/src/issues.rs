@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use north_github_mirror::store::{CLOSED_ISSUES, OPEN_ISSUES, REPOS, key};
-use north_graph::Term;
+use north_graph::{Atom, Term};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
@@ -33,7 +33,7 @@ pub fn bodies(places: &Places) -> BTreeMap<String, String> {
 }
 
 pub fn read(places: &Places, shas: &Shas) -> Result<Sourced, String> {
-    let mut facts = Facts::new(&REPLACED).holding(WRITER, &HELD);
+    let mut facts = Facts::new(&REPLACED).holding(WRITER, &HELD, &["claims"], widens);
     let mut box_ids = BTreeMap::new();
     let mut seen = false;
     for repo in REPOS {
@@ -163,9 +163,20 @@ fn told_runs(facts: &mut Facts, box_ids: &BTreeMap<String, Vec<String>>, places:
 }
 
 fn whole_box(ids: &[String], node: String) -> String {
-    let mut wider = ids.iter().filter(|id| id.strip_prefix(node.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with('-')));
-    match (wider.next(), wider.next()) {
+    let mut found = ids.iter().filter(|id| *id == &node || wider(id, &node));
+    match (found.next(), found.next()) {
         (Some(id), None) => id.clone(),
         _ => node,
+    }
+}
+
+fn wider(id: &str, node: &str) -> bool {
+    id.strip_prefix(node).is_some_and(|rest| rest.starts_with('-'))
+}
+
+fn widens(whole: &Term, short: &Term) -> bool {
+    match (whole, short) {
+        (Term::Atom(Atom::String(whole)), Term::Atom(Atom::String(short))) => wider(whole, short),
+        _ => false,
     }
 }

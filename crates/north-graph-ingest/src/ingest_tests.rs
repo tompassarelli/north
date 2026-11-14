@@ -143,12 +143,14 @@ fn a_run_claims_its_box_of_a_closed_issue_and_the_lander_observes_the_landing(pl
     places.mirror.write("north/issues/closed", &json!({"numbers": [7, 634]}), None, 2.0).unwrap();
     let gone = north_graph::Told::new("mirror", "box:north#9:gone", Term::keyword("ticked"), Term::boolean(false));
     let intruder = north_graph::Told::new("session-9", "north#634", Term::keyword("has-box"), Term::string("box:north#9:gone"));
-    for fact in [&gone, &intruder] {
+    let unbacked = north_graph::Told::new("session-9", "session-9", Term::keyword("claims"), Term::triple(Term::string(HUNG), Term::keyword("done-at"), Term::string(FULL)));
+    for fact in [&gone, &intruder, &unbacked] {
         graph.tell(&fact.writer, fact.triple.clone()).unwrap();
     }
     let closed = ingest(graph, places, &[Source::Mirror]);
     let told = graph.told().unwrap();
-    assert!(!told.contains(&gone) && !told.contains(&intruder), "only the mirror's own facts of a closed issue are held, so another writer's has-box neither stays nor keeps a stale mirror fact of its object");
+    assert!(!told.contains(&gone) && !told.contains(&intruder) && !told.contains(&unbacked), "only the mirror's own facts of a closed issue are held, so another writer's has-box neither stays nor keeps a stale mirror fact of its object, and a claim stays only while a run still backs it");
+    assert!(told.contains(&north_graph::Told::new("run-634", "run-634", Term::keyword("claims"), Term::triple(Term::string(HUNG), Term::keyword("done-at"), Term::string(FULL)))), "a run's claim on a box of an issue that closed stays on the whole box: {:?}", closed.lines);
     for (subject, predicate, object) in [("north#634", "has-box", hung), (HUNG, "done-when", Term::string("cargo test -p slots")), ("north#634", "state", Term::keyword("closed"))] {
         assert!(told.contains(&north_graph::Told::new("mirror", subject, Term::keyword(predicate), object)), "a closed issue keeps the box facts it had while open: {subject} {predicate} {:?}", closed.lines);
     }
