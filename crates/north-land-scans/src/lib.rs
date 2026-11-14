@@ -15,6 +15,7 @@ pub mod generated_registry;
 pub mod git;
 pub mod holdlist;
 pub mod host_cases;
+pub mod host_evaluate;
 pub(crate) mod host_paths;
 pub mod incident_guard;
 pub mod language;
@@ -54,6 +55,7 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan generated-registry BASE..HEAD
        north land scan holdlist-guards-resolve BASE..HEAD
        north land scan host-cases BASE..HEAD
+       north land scan host-evaluate BASE..HEAD
        north land scan review-accept BASE..HEAD
        north land scan safe-push-keys BASE..HEAD
        north land scan turn-scope BASE..HEAD
@@ -116,6 +118,7 @@ fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "gate-shadow" => gate_shadow::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "holdlist-guards-resolve" => holdlist::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "host-cases" => host_cases::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
+        "host-evaluate" => host_evaluate::scan(directory, range, &mut out),
         "review-accept" => review_accept::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::here(), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
         "safe-push-keys" => safe_push_keys::scan(directory, range, &north_base::platform::records_mirror::state_home(), &north_base::platform::review_accept::Accepts::here(), &north_base::platform::finish_record::FinishRecords::here(), &mut out),
         "turn-scope" => turn_scope::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),

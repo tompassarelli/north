@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::*;
 use crate::host_cases;
+use crate::host_evaluate::{self, Evaluate};
 
 fn git_in(directory: &Path, arguments: &[&str]) -> String {
     let output = std::process::Command::new("git")
@@ -34,7 +35,7 @@ const BARS: &str = "[[experiment]]\nbar = 1\n";
 const MORE_BARS: &str = "[[experiment]]\nbar = 1\n\n[[experiment]]\nbar = 2\n";
 
 #[test]
-fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases_enter_only_by_a_list_change_alone_read_from_the_landing_base_north_1287_and_a_batch_is_judged_lane_by_lane_north_1415() {
+fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases_enter_only_by_a_list_change_alone_read_from_the_landing_base_north_1287_and_a_batch_is_judged_lane_by_lane_north_1415_and_a_lane_that_breaks_a_host_configuration_is_refused() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();
     git_in(repo, &["init", "-q", "-b", "main"]);
@@ -125,4 +126,36 @@ fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases
     assert_eq!(host_cases::check(repo, &alone, &kept), Ok(false));
     let removed = commit(repo, &[(manifest, plain), ("crates/alpha/src/lib.rs", "d\n")]);
     assert_eq!(host_cases::check(repo, &kept, &removed), Ok(false));
+
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    let good = "{ imports = [ ../../modules/a.nix ../../modules/b.nix ]; }\n";
+    let base = commit(repo, &[("flake.nix", "{}\n"), ("hosts/nexus/configuration.nix", good), ("hosts/gex45/configuration.nix", "{ }\n"), ("modules/a.nix", "{ }\n"), ("modules/b.nix", "{ }\n")]);
+
+    let touched = commit(repo, &[("modules/b.nix", "{ x = 1; }\n")]);
+    assert_eq!(host_evaluate::check(repo, &base, &touched, &Imports), Ok(()));
+    let both = vec!["gex45".to_owned(), "nexus".to_owned()];
+    assert_eq!(host_evaluate::affected(repo, both, &host_evaluate::changed_nix(repo, &base, &touched)), vec!["nexus".to_owned()]);
+
+    git_in(repo, &["reset", "-q", "--hard", &base]);
+    let joined = commit(repo, &[("hosts/nexus/configuration.nix", "{ imports = [ ../../modules/a.nix../../modules/b.nix ]; }\n")]);
+    let refusal = host_evaluate::check(repo, &base, &joined, &Imports).unwrap_err();
+    assert!(refusal.starts_with("nexus cannot evaluate its toplevel"), "{refusal}");
+    assert!(!refusal.contains("gex45"), "{refusal}");
+}
+
+struct Imports;
+
+impl Evaluate for Imports {
+    fn hosts(&self, _: &Path) -> Result<Vec<String>, String> {
+        Ok(vec!["gex45".to_owned(), "nexus".to_owned()])
+    }
+
+    fn toplevel(&self, directory: &Path, host: &str) -> Result<(), String> {
+        let file = Path::new("hosts").join(host).join("configuration.nix");
+        let text = std::fs::read_to_string(directory.join(&file)).map_err(|error| error.to_string())?;
+        let missing = host_evaluate::imported(directory, &file, &text).into_iter().find(|path| !directory.join(path).exists());
+        missing.map_or(Ok(()), |path| Err(format!("error: path '{}' does not exist", path.display())))
+    }
 }
