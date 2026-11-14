@@ -1,5 +1,5 @@
 //! A project's concerns as checks: `concerns.toml` at its root names each concern drawn from the README or
-//! AGENTS.md, the oracle command that measures it, the bound it must meet and its class.
+//! AGENTS.md, the oracle command that measures it, whether that oracle reads the checked-out commit or this host's state, the bound it must meet and its class.
 use serde::Deserialize;
 
 pub const PATH: &str = "concerns.toml";
@@ -19,6 +19,12 @@ impl Class {
             Self::Ready => "ready",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Reads {
+    Commit,
+    Host,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,6 +78,7 @@ pub struct Concern {
     pub unit: String,
     pub bound: Bound,
     pub class: Class,
+    pub reads: Reads,
     pub debt: Option<Debt>,
 }
 
@@ -87,6 +94,7 @@ struct Raw {
     max: Option<f64>,
     min: Option<f64>,
     class: String,
+    reads: Option<String>,
     ceiling: Option<f64>,
     owner: Option<String>,
     revisit: Option<String>,
@@ -116,13 +124,18 @@ impl Raw {
         let (class, debt) = match (self.class.as_str(), self.ceiling, self.owner, self.revisit) {
             ("contract", None, None, None) if self.pays.is_none() => (Class::Contract, None),
             ("contract", ..) => return Err(fail("a contract has no ceiling, owner, revisit trigger or paying paths; it is never red")),
-            ("ready", None, None, None) if self.pays.is_none() && self.oracle.trim().is_empty() => (Class::Ready, None),
-            ("ready", ..) => return Err(fail("a ready bar has only a name, source, unit and bound: the scoreboard reads it, so it has no oracle, ceiling, owner, revisit trigger or paying paths")),
+            ("ready", None, None, None) if self.pays.is_none() && self.oracle.trim().is_empty() && self.reads.is_none() => (Class::Ready, None),
+            ("ready", ..) => return Err(fail("a ready bar has only a name, source, unit and bound: the scoreboard reads it, so it has no oracle, reads, ceiling, owner, revisit trigger or paying paths")),
             ("debt", Some(ceiling), Some(owner), Some(revisit)) if bound.looser(ceiling) && !owner.trim().is_empty() && !revisit.trim().is_empty() => (Class::Debt, Some(Debt { ceiling, owner, revisit, pays: self.pays.unwrap_or_default() })),
             ("debt", ..) => return Err(fail("debt-allowed needs a ceiling looser than its bound, an owner and a revisit trigger")),
             (other, ..) => return Err(fail(&format!("class is contract, debt or ready, not {other}"))),
         };
-        Ok(Concern { name: self.name, source: self.source, oracle: self.oracle, unit: self.unit, bound, class, debt })
+        let reads = match self.reads.as_deref() {
+            Some("commit") => Reads::Commit,
+            Some("host") | None => Reads::Host,
+            Some(other) => return Err(fail(&format!("reads is commit, for an oracle that measures the checked-out tree, or host, for one that reads this host's state and so never reverts a landing; not {other}"))),
+        };
+        Ok(Concern { name: self.name, source: self.source, oracle: self.oracle, unit: self.unit, bound, class, reads, debt })
     }
 }
 

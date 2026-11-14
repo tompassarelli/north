@@ -5,6 +5,7 @@ oracle = "north land profile --since 24h --last 5 --repo north --metric landing-
 unit = "s"
 max = 20
 class = "debt"
+reads = "host"
 ceiling = 60
 owner = "tompassarelli/north#641"
 revisit = "the projected wait of a lane judged now, the median service time of the last 5 landings times one when it is the only ticket queued and two otherwise, stays over 60 s for a week"
@@ -17,6 +18,7 @@ oracle = "north land profile --since 24h --last 20 --repo north --metric landing
 unit = "s"
 max = 60
 class = "contract"
+reads = "host"
 
 [[concern]]
 name = "verification-p50"
@@ -25,6 +27,7 @@ oracle = "north land profile --since 24h --last 20 --repo north --metric verific
 unit = "s"
 max = 20
 class = "debt"
+reads = "host"
 ceiling = 300
 owner = "tompassarelli/north#641"
 revisit = "the after-push verification median of the last 20 landings stays over 420 s for a week"
@@ -37,6 +40,7 @@ oracle = "cut -d' ' -f3 /proc/loadavg"
 unit = "load"
 max = 22
 class = "debt"
+reads = "host"
 ceiling = 24
 owner = "tompassarelli/north#641"
 revisit = "the 15-minute load average stays over 24, the laptop's thread count, for a day"
@@ -48,6 +52,7 @@ oracle = "north check provenance debt --due | awk -F'\\t' '$1==\"north\"' | wc -
 unit = "records"
 max = 0
 class = "debt"
+reads = "host"
 ceiling = 5
 owner = "tompassarelli/north#641"
 revisit = "a Target-debt record sits unpaid past its trigger for a week"
@@ -59,6 +64,7 @@ oracle = "gh issue list --repo tompassarelli/north --search 'in:title \"main is 
 unit = "issues"
 max = 0
 class = "contract"
+reads = "host"
 
 [[concern]]
 name = "main-green-latest-verdict"
@@ -67,6 +73,7 @@ oracle = "awk -F'\\t' '$2==\"north\" && ($4==\"green\" || $4==\"red-main\") {las
 unit = "red verdicts"
 max = 0
 class = "contract"
+reads = "host"
 
 [[concern]]
 name = "no-python"
@@ -75,13 +82,15 @@ oracle = "git ls-files '*.py' | wc -l"
 unit = "files"
 max = 0
 class = "contract"
+reads = "commit"
 
 [[concern]]
 name = "procedures-valid"
 source = "AGENTS.md: north check harness tree-policy for its skills"
-oracle = "north check harness tree-policy >/dev/null 2>&1; echo $?"
+oracle = "north check harness tree-policy >&2; status=$?; [ $status -le 1 ] || exit $status; echo $status"
 max = 0
 class = "contract"
+reads = "commit"
 
 [[concern]]
 name = "layer-terms"
@@ -90,6 +99,7 @@ oracle = "{ rg -n -i '\\b(claude|opus|sonnet|haiku|gpt|codex)[ -]agent\\b|\\bage
 unit = "lines"
 max = 0
 class = "contract"
+reads = "commit"
 
 [[concern]]
 name = "fleet-screen-in-tui"
@@ -98,6 +108,7 @@ oracle = "{ rg -l ratatui src crates --glob '*.rs' --glob '!crates/north-tui/**'
 unit = "files"
 max = 0
 class = "contract"
+reads = "commit"
 
 [[concern]]
 name = "ready-landing-p90"
@@ -246,6 +257,7 @@ oracle = "north ops strategy refusals --since 3h"
 unit = "per h"
 max = 1
 class = "debt"
+reads = "host"
 ceiling = 6
 owner = "tompassarelli/north#643"
 revisit = "launches refused by placement, counting each launch by its last placement, stay over 6 an hour for a day"

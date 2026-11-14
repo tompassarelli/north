@@ -1,20 +1,42 @@
-//! Which landed commit turned a contract concern red: the contract concerns red in one tree, and the first commit of a landed range at
-//! which a concern is red, so the after-landing run can revert that commit.
-use std::collections::BTreeSet;
+//! Whether a landed commit turned a contract concern red: each contract's answer in one tree, green, red or no verdict when its
+//! oracle faults, and the first commit of a landed range at which a concern is red, so the after-landing run can weigh that commit
+//! against its parent.
 use std::path::Path;
 
-use super::oracle;
-use super::registry::{self, Class};
-use super::verdict::{Verdict, judge};
+use super::oracle::{self, Fault};
+use super::registry::{self, Class, Concern};
 
-/// The contract concerns that `concerns.toml` at `root` reads red there; none when the tree has no `concerns.toml`.
-pub fn red_contracts(root: &Path) -> Result<BTreeSet<String>, String> {
-    let path = root.join(registry::PATH);
-    let Ok(text) = std::fs::read_to_string(&path) else { return Ok(BTreeSet::new()) };
-    let concerns = registry::parse(&text).map_err(|problems| problems.join("; "))?;
-    let contracts: Vec<_> = concerns.iter().filter(|concern| concern.class == Class::Contract).collect();
-    let oracles: Vec<(&Path, &str)> = contracts.iter().map(|concern| (root, concern.oracle.as_str())).collect();
-    Ok(contracts.iter().zip(oracle::measure_all(&oracles)).filter(|(concern, reading)| matches!(judge(concern, reading.clone()), Verdict::RedContract(_))).map(|(concern, _)| concern.name.clone()).collect())
+#[derive(Clone, Debug, PartialEq)]
+pub enum Answer {
+    Green(f64),
+    Red(f64),
+    NoVerdict(Fault),
+}
+
+impl Answer {
+    pub fn red(&self) -> bool {
+        matches!(self, Self::Red(_))
+    }
+}
+
+/// The contract concerns that the text of a `concerns.toml` names.
+pub fn contracts(text: &str) -> Result<Vec<Concern>, String> {
+    let concerns = registry::parse(text).map_err(|problems| problems.join("; "))?;
+    Ok(concerns.into_iter().filter(|concern| concern.class == Class::Contract).collect())
+}
+
+/// What the oracle of each of `concerns` answers in the tree at `root`, side by side.
+pub fn answers(root: &Path, concerns: &[Concern]) -> Vec<Answer> {
+    let oracles: Vec<(&Path, &str)> = concerns.iter().map(|concern| (root, concern.oracle.as_str())).collect();
+    concerns
+        .iter()
+        .zip(oracle::read_all(&oracles))
+        .map(|(concern, reading)| match reading {
+            Ok(value) if concern.bound.holds(value) => Answer::Green(value),
+            Ok(value) => Answer::Red(value),
+            Err(fault) => Answer::NoVerdict(fault),
+        })
+        .collect()
 }
 
 /// The index of the first of `commits` (oldest first) at which `red_at` holds, given that it holds at the last one and, once true, stays true.
