@@ -74,9 +74,9 @@ pub fn lander_worktree(repo: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
+    let mirror = Mirror::open(&super::repositories::checkout(repo)?)?;
     if !worktree.join(".git").exists() {
         let path = worktree.to_str().ok_or_else(|| format!("{} is not UTF-8", worktree.display()))?;
-        let mirror = Mirror::open(&super::repositories::checkout(repo)?)?;
         let start = mirror.origin_main().unwrap_or_else(|_| trusted_mirror::SEED_HEAD.to_owned());
         git(mirror.git_dir(), &["worktree", "add", "-q", "-f", "--detach", path, &start])?;
     }
@@ -131,12 +131,27 @@ fn refuse(logs: &Path, name: &str, kind: &str, text: &str) -> Result<Pick, Strin
 }
 
 pub fn readable(worktree: &Path, ticket: &Ticket) -> bool {
+    unreadable(worktree, ticket).is_none()
+}
+
+fn unreadable(worktree: &Path, ticket: &Ticket) -> Option<String> {
     if has_commit(worktree, &ticket.head) {
-        return true;
+        return None;
     }
-    let root = ticket.root.to_str().unwrap_or_default();
-    let _ = output(worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", root, &format!("+{}:{}", ticket.head, Mirror::lane_ref(&ticket.branch))]);
-    has_commit(worktree, &ticket.head)
+    let fetch = |source: &str| {
+        let said = match output(worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", source, &format!("+{}:{}", ticket.head, Mirror::lane_ref(&ticket.branch))]) {
+            Ok(fetched) => String::from_utf8_lossy(&fetched.stderr).split_whitespace().collect::<Vec<_>>().join(" "),
+            Err(error) => error,
+        };
+        format!("fetch from {source}: {said}")
+    };
+    let root = fetch(ticket.root.to_str().unwrap_or_default());
+    if has_commit(worktree, &ticket.head) {
+        return None;
+    }
+    let Ok(served) = git(worktree, &["config", "--local", "--get", trusted_mirror::SERVED]) else { return Some(format!("{root}; the mirror names no served checkout")) };
+    let served = fetch(&served);
+    (!has_commit(worktree, &ticket.head)).then(|| format!("{root}; {served}"))
 }
 
 fn files(worktree: &Path, base: &str, ticket: &Ticket) -> HashSet<String> {
@@ -164,9 +179,10 @@ struct Turn<'a> {
 
 fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase, gating: &mut Option<Gating>) -> Result<Pick, String> {
     let (ticket, earlier) = (turn.ticket, turn.earlier);
-    case.readable = Some(readable(worktree, ticket));
-    if case.readable == Some(false) {
-        return Ok(Pick::Decided("conflict unreadable".to_owned()));
+    let unread = unreadable(worktree, ticket);
+    case.readable = Some(unread.is_none());
+    if let Some(why) = unread {
+        return Ok(Pick::Decided(format!("conflict unreadable: {why}")));
     }
     let cherry = git(worktree, &["cherry", base, &ticket.head])?;
     case.unlanded = Some(cherry.lines().any(|line| line.starts_with('+')));

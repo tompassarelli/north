@@ -210,6 +210,21 @@ fn the_lander_reads_only_what_origin_sent_whatever_a_worker_writes_into_the_main
     a_replace_ref_a_worker_plants_in_the_main_store_does_not_reach_the_candidate();
     an_origin_main_a_worker_moves_in_the_main_store_is_not_the_one_the_lander_reads();
     an_object_a_worker_plants_under_a_future_name_does_not_reach_the_candidate();
+    a_lane_handed_in_from_another_host_is_read_from_the_served_checkout();
+}
+
+fn a_lane_handed_in_from_another_host_is_read_from_the_served_checkout() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, main, base) = origin_and_main(dir.path());
+    fs::write(main.join("f"), "lane\n").unwrap();
+    commit_all(&main, "Lane work on another host");
+    let head = git(&main, &["rev-parse", "HEAD"]).unwrap();
+    git(&main, &["update-ref", "refs/land-remote/gex45/lane", &head]).unwrap();
+    git(&main, &["reset", "-q", "--hard", &base]).unwrap();
+    let worktree = lander_worktree(&main, "lander").unwrap();
+    ensure(&main, &worktree).unwrap();
+    let ticket = Ticket { branch: "lane".to_owned(), head, root: dir.path().join("gone"), ..Default::default() };
+    assert!(readable(&worktree, &ticket), "a lane whose worktree is on another host is read from the commit its hand-in sent to the served checkout (north#1485)");
 }
 
 fn a_replace_ref_a_worker_plants_in_the_main_store_does_not_reach_the_candidate() {

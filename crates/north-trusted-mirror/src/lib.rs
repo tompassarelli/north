@@ -14,6 +14,7 @@ pub const SEED_HEAD: &str = "refs/seed/head";
 pub const LANES: &str = "refs/lanes";
 const SEEDS: [(&str, &str); 2] = [("HEAD", SEED_HEAD), (ORIGIN_MAIN, "refs/seed/origin")];
 const FETCHED: &str = "north-origin-fetched";
+pub const SERVED: &str = "north.served";
 const COPIED: [&str; 2] = ["user.name", "user.email"];
 const PLACES: [&str; 7] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_INDEX_FILE", "GIT_NAMESPACE"];
 const STALL: [&str; 4] = ["-c", "http.lowSpeedLimit=1024", "-c", "http.lowSpeedTime=60"];
@@ -55,9 +56,15 @@ impl Mirror {
 
     pub fn open(main: &Path) -> Result<Self, String> {
         let git_dir = Self::repository(main)?;
-        if git_dir.join("HEAD").is_file() {
-            return Ok(Self { git_dir });
+        let mirror = if git_dir.join("HEAD").is_file() { Self { git_dir } } else { Self::make(main, git_dir)? };
+        let served = main.to_string_lossy();
+        if stdout(&mirror.git_dir, &["config", "--get", SERVED]).ok().as_deref() != Some(&*served) {
+            stdout(&mirror.git_dir, &["config", SERVED, &served])?;
         }
+        Ok(mirror)
+    }
+
+    fn make(main: &Path, git_dir: PathBuf) -> Result<Self, String> {
         let parent = Self::directory(main)?;
         fs::create_dir_all(&parent).map_err(|error| format!("{}: {error}", parent.display()))?;
         let pending = tempfile::Builder::new().prefix(".repo.git.").tempdir_in(&parent).map_err(|error| format!("{}: {error}", parent.display()))?;
