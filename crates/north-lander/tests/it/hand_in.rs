@@ -546,6 +546,7 @@ fn a_hand_in_behind_main_is_rebased_onto_it_before_its_checks_a_stopped_rebase_o
     let (output, journal) = decided(&world, &north, hand);
     let text = report(&output);
     assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert!(text.contains("rebased the lane's 0 commit(s)") && !text.contains("stays on its base"), "a lane whose hand-in may not remove files in it was not rebased onto main before its checks: {text}");
     let kept = if confined.exists() { git(&confined, &["ls-files", "--others", "--exclude-standard"]) } else { String::new() };
     assert!(!confined.exists(), "a landed lane whose hand-in may not remove files in it was kept, holding untracked {kept:?}: {text}");
 }

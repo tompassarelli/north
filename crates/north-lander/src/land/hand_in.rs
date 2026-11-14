@@ -224,7 +224,7 @@ fn rebase_onto_destination(lane: &Lane, facts: Option<&Facts>) -> Option<String>
         git(root, &["merge-tree", "--write-tree", "--merge-base", "HEAD", &rebased, &uncommitted]).ok()?;
     }
     let commits = git(root, &["rev-list", "--count", &format!("{remote_ref}..HEAD")]).ok()?;
-    if !lane_sync::rebase(root, &base) {
+    if !lane_sync::rebase(root, &base, &rebased, &uncommitted) {
         return None;
     }
     Some(format!("rebased the lane's {commits} commit(s) and its uncommitted changes onto origin/{} at {}, which moved on without a conflict", lane.destination, &base[..base.len().min(10)]))
