@@ -332,8 +332,8 @@ mod tests {
         std::os::unix::fs::symlink(&main, home.join("main-link")).unwrap();
         let (main_text, home_text) = (main.display().to_string(), home.display().to_string());
         let refused = [
-            "--parent proxy", "--parent n870-lead", "--role lead", "--role worker", "--role proxy", "--account a", "--system-prompt /etc/passwd", "--prompt vanilla",
-            "--container-shell", "--container-dir /work", "--take-over", "--dispatched", "--test", "--gates-aside", "--priority urgent", "--local why", "--pin why",
+            "--parent proxy", "--parent n870-lead", "--role lead", "--role worker", "--role proxy", "--account api:org", "--system-prompt /etc/passwd", "--prompt vanilla",
+            "--container-shell", "--container-dir /work", "--take-over", "--dispatched", "--test", "--gates-aside", "--priority urgent", "--pin why",
             "--foreground-cap 10", "--provider opencode", "--route api:org", "--model api:key", "--route claude-opus,api", "--model SK-abc", "--effort huge", "--idle-exit 1h",
             "--task north#999", "--task makgora#1", "--name n870-again",
         ];
@@ -346,7 +346,7 @@ mod tests {
             tick.deliver_row(&asking(&launch, id, text)).unwrap();
             assert_eq!(started(), None, "the spooled launch {text} started");
         }
-        for (id, text) in [("live", "n870-child"), ("not-a-child", "n870-lead"), ("no-session", "n870-none"), ("climbs", "../n870-stopped"), ("prompt", "n870-stopped --system-prompt /etc/passwd"), ("account", "n870-stopped --account a"), ("effort", "n870-stopped --effort huge")] {
+        for (id, text) in [("live", "n870-child"), ("not-a-child", "n870-lead"), ("no-session", "n870-none"), ("climbs", "../n870-stopped"), ("prompt", "n870-stopped --system-prompt /etc/passwd"), ("account", "n870-stopped --account api"), ("effort", "n870-stopped --effort huge")] {
             tick.deliver_row(&asking(&revive, id, text)).unwrap();
             assert_eq!(started(), None, "the spooled revive {text} started");
         }
