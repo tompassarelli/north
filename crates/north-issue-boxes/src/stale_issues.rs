@@ -5,15 +5,17 @@ use std::process::Command;
 
 use crate::foundation::clock::Timestamp;
 use crate::threads::client::threads_database;
-use north_ops::ops::stale_issues::{self as sweep, Hands, Owners, Record, Stale};
+use north_ops::ops::stale_issues::{self as sweep, Hands, Lanes, Owners, Record, Stale};
+
+use crate::issue_convert::boxes::checkboxes;
 
 const REPOSITORIES: [(&str, &str); 2] = [("tompassarelli", "north"), ("tompassarelli", "south")];
 const SENDER: &str = "service:north-stale-issues";
 
 const USAGE: &str = "usage: north issue close-stale [--dry-run]
 
-Closes every open issue of north and south created more than 24 hours ago, with a comment that names the 24-hour rule
-and nothing of the issue, and messages the issue's last owner session (the newest claim on it) to rewrite the work as issues that can each be finished within a day. Each issue's owner is messaged once:
+Closes every open issue of north and south created more than 24 hours ago as not planned, with a comment that names the 24-hour rule,
+the issue's open boxes and the unlanded lanes whose Item: names it, and messages the issue's last owner session (the newest claim on it, else its Owner: line, else proxy) to file a finishable successor and re-point those lanes. Each issue is messaged once:
 the messaged issues are recorded under ~/.local/state/north/stale-issues.txt. --dry-run prints what would happen and
 changes nothing. An hourly timer runs it.";
 
@@ -29,7 +31,7 @@ impl Hands for Live {
     }
 
     fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
-        let args = ["issue".to_owned(), "close".to_owned(), number.to_string(), "-R".to_owned(), self.repository.clone(), "--comment".to_owned(), comment.to_owned()];
+        let args = ["issue".to_owned(), "close".to_owned(), number.to_string(), "-R".to_owned(), self.repository.clone(), "--reason".to_owned(), "not planned".to_owned(), "--comment".to_owned(), comment.to_owned()];
         crate::platform::github::run_patiently(&args, "north issue close-stale").map(drop)
     }
 }
@@ -68,7 +70,19 @@ pub fn run(arguments: &[String]) -> u8 {
 fn close_repository(organisation: &str, name: &str, now: i64, dry_run: bool) -> Result<usize, String> {
     let repository = crate::issue_convert::read::repository(organisation, name, false)?;
     let owners = Owners::read(&threads_database(), name)?;
-    let stale: Vec<Stale> = repository.issues.iter().filter(|issue| issue.open).map(|issue| Stale { number: issue.number, created: issue.created, owner: owners.of(issue.number) }).collect();
+    let lanes = Lanes::read(&PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code").join(name).join("main"), name)?;
+    let stale: Vec<Stale> = repository
+        .issues
+        .iter()
+        .filter(|issue| issue.open)
+        .map(|issue| Stale {
+            number: issue.number,
+            created: issue.created,
+            owner: owners.of(issue.number, &issue.body),
+            open_boxes: checkboxes(&issue.body).into_iter().filter(|checkbox| !checkbox.ticked).map(|checkbox| checkbox.first).collect(),
+            lanes: lanes.naming(issue.number),
+        })
+        .collect();
     let mut record = Record::open(&record_file())?;
     let mut hands = Live { repository: format!("{organisation}/{name}") };
     let outcome = sweep::sweep(name, &stale, now, dry_run, &mut hands, &mut record);

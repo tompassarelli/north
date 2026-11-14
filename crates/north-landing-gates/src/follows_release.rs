@@ -36,7 +36,7 @@ fn origin_owner(repo: &Path) -> Result<String, String> {
         .map(str::to_owned)
         .ok_or_else(|| format!("origin remote {url} names no owner"))
 }
-fn issue_closed(repo: &Path, owner: Option<&str>, name: &str, number: &str) -> Result<bool, String> {
+fn close_reason(repo: &Path, owner: Option<&str>, name: &str, number: &str) -> Result<Option<String>, String> {
     let owner = match owner {
         Some(owner) => owner.to_owned(),
         None => origin_owner(repo)?,
@@ -44,14 +44,15 @@ fn issue_closed(repo: &Path, owner: Option<&str>, name: &str, number: &str) -> R
     let out = Command::new("gh")
         .current_dir(repo)
         .args(["issue", "view", number, "--repo", &format!("{owner}/{name}")])
-        .args(["--json", "state", "--jq", ".state"])
+        .args(["--json", "state,stateReason", "--jq", "if .state == \"CLOSED\" then .stateReason else empty end"])
         .output()
         .map_err(|e| e.to_string())?;
-    Ok(out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "CLOSED")
+    let reason = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    Ok((out.status.success() && !reason.is_empty()).then_some(reason))
 }
 fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
     match predecessor(follows) {
-        Predecessor::Issue { owner, name, number } => issue_closed(repo, owner, name, number),
+        Predecessor::Issue { owner, name, number } => Ok(close_reason(repo, owner, name, number)?.is_some_and(|reason| reason == "COMPLETED")),
         Predecessor::Sha(sha) => success(git(
             repo,
             &["merge-base", "--is-ancestor", sha, "refs/remotes/origin/main"],
@@ -61,7 +62,7 @@ fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
 }
 fn item_closed(repo: &Path, item: &str) -> Result<bool, String> {
     match predecessor(item) {
-        Predecessor::Issue { owner, name, number } => issue_closed(repo, owner, name, number),
+        Predecessor::Issue { owner, name, number } => Ok(close_reason(repo, owner, name, number)?.is_some()),
         _ => Ok(false),
     }
 }

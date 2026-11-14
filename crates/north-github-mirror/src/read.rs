@@ -8,6 +8,7 @@ use crate::store::{CLOSED_ISSUES, Mirror, OPEN_ISSUES, REPOS, key};
 pub enum Seen {
     Open,
     Closed,
+    NotPlanned,
 }
 
 pub fn now() -> f64 {
@@ -39,6 +40,9 @@ fn classify(open: &Value, closed: &Value, number: u64) -> Option<Seen> {
     let numbered = |rows: &Value| rows.as_array().is_some_and(|rows| rows.iter().any(|row| row["number"] == number || *row == number));
     if numbered(open) {
         return Some(Seen::Open);
+    }
+    if numbered(&closed["not_planned"]) {
+        return Some(Seen::NotPlanned);
     }
     numbered(&closed["numbers"]).then_some(Seen::Closed)
 }

@@ -24,7 +24,7 @@ pub fn runs_kind(status: &str) -> String {
 
 pub const OPEN_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt parent { number repository { name owner { login } } } issueType { name } assignees(first: 10) { nodes { login } } subIssuesSummary { total completed } subIssues(first: 100) { nodes { body } } labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
 
-const CLOSED_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: CLOSED, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number } } } }";
+const CLOSED_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: CLOSED, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number stateReason } } } }";
 
 const BRANCHES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { refs(refPrefix: \"refs/heads/\", first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { name target { ... on Commit { oid committedDate status { contexts { context state } } } } } } } }";
 
@@ -123,8 +123,8 @@ pub fn fetch_open_issues(repo: &str) -> Result<Vec<Value>, String> {
     paged(repo, OPEN_ISSUES_QUERY, "issues")
 }
 
-pub fn fetch_closed_issue_numbers(repo: &str) -> Result<Vec<Value>, String> {
-    Ok(paged(repo, CLOSED_ISSUES_QUERY, "issues")?.iter().map(|node| node["number"].clone()).collect())
+pub fn fetch_closed_issues(repo: &str) -> Result<Vec<Value>, String> {
+    paged(repo, CLOSED_ISSUES_QUERY, "issues")
 }
 
 pub fn fetch_branches(repo: &str) -> Result<Vec<Value>, String> {

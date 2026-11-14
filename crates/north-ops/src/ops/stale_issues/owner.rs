@@ -1,9 +1,19 @@
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::threads::claims::ledger;
 
+static OWNER_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^Owner:\s*([A-Za-z][A-Za-z0-9_-]*)(?:[^#A-Za-z0-9_-]|$)").expect("owner pattern"));
+
+fn declared(body: &str) -> Option<String> {
+    OWNER_LINE.captures(body).map(|line| line[1].to_owned())
+}
+
 /// The session that last held each issue, from the newest claim on it, whole or by box.
+#[derive(Default)]
 pub struct Owners(BTreeMap<u64, String>);
 
 impl Owners {
@@ -21,7 +31,8 @@ impl Owners {
         Ok(Self(found))
     }
 
-    pub fn of(&self, number: u64) -> Option<String> {
-        self.0.get(&number).cloned()
+    /// The newest claim's session, else the one an `Owner: SESSION` line of the issue's `body` names.
+    pub fn of(&self, number: u64, body: &str) -> Option<String> {
+        self.0.get(&number).cloned().or_else(|| declared(body))
     }
 }

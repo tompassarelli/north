@@ -11,7 +11,7 @@ use crate::platform::betterleaks;
 use crate::threads::claims;
 use manifest::{Manifest, Parent, Row, Scan, Tracker};
 
-mod boxes;
+pub(crate) mod boxes;
 mod closed;
 mod create;
 pub(crate) mod manifest;

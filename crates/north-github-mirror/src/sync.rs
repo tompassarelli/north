@@ -22,7 +22,7 @@ impl GitHub for Gh {
     }
 
     fn closed_issues(&self, repo: &str) -> Result<Vec<Value>, String> {
-        store::fetch_closed_issue_numbers(repo)
+        store::fetch_closed_issues(repo)
     }
 
     fn branches(&self, repo: &str) -> Result<Vec<Value>, String> {
@@ -131,8 +131,10 @@ fn closed_numbers(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64, ope
     if mirror.read(&closed).is_some_and(|copy| copy.body["open"] == open) {
         return mirror.confirm(&closed, at);
     }
-    let numbers = github.closed_issues(repo)?;
-    mirror.write(&closed, &json!({"open": open, "numbers": numbers}), None, at)
+    let issues = github.closed_issues(repo)?;
+    let numbers: Vec<&Value> = issues.iter().map(|issue| &issue["number"]).collect();
+    let not_planned: Vec<&Value> = issues.iter().filter(|issue| issue["stateReason"] == "NOT_PLANNED").map(|issue| &issue["number"]).collect();
+    mirror.write(&closed, &json!({"open": open, "numbers": numbers, "not_planned": not_planned}), None, at)
 }
 
 pub fn issues(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result<Fetch, String> {

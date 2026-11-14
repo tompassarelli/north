@@ -58,7 +58,9 @@ impl GitHub for Fake {
 
     fn closed_issues(&self, _repo: &str) -> Result<Vec<Value>, String> {
         self.closed_reads.set(self.closed_reads.get() + 1);
-        Ok(if self.issue_closed.get() { vec![json!(7), json!(638)] } else { vec![json!(7)] })
+        let dropped = json!({"number": 4, "stateReason": "NOT_PLANNED"});
+        let shipped = json!({"number": 7, "stateReason": "COMPLETED"});
+        Ok(if self.issue_closed.get() { vec![shipped, json!({"number": 638, "stateReason": "COMPLETED"}), dropped] } else { vec![shipped, dropped] })
     }
 
     fn branches(&self, _repo: &str) -> Result<Vec<Value>, String> {
@@ -126,6 +128,7 @@ fn a_fresh_mirror_answers_branches_tags_releases_issue_states_pages_the_reposito
     assert_eq!(read::listed(&mirror, at, "north", store::RELEASES, never).unwrap().len(), 1);
     assert_eq!(read::issue_state(&mirror, at, "north", 638), Some(Seen::Open));
     assert_eq!(read::issue_state(&mirror, at, "north", 7), Some(Seen::Closed));
+    assert_eq!(read::issue_state(&mirror, at, "north", 4), Some(Seen::NotPlanned));
     assert_eq!(read::issue_state(&mirror, at, "north", 5), None);
     assert_eq!(read::issue_state(&mirror, at + 1.0, "north", 638), None);
     assert_eq!(read::listed(&mirror, at + 1.0, "north", store::BRANCHES, || Ok(vec![json!("live")])).unwrap(), vec![json!("live")]);

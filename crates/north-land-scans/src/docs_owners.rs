@@ -97,12 +97,13 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary directory");
         let mirror = Mirror::at(directory.path().join("github-mirror.db"));
         mirror.write("north/issues/open", &json!([{"number": 9}]), None, 1.0).expect("write open issues");
-        mirror.write("north/issues/closed", &json!({"numbers": [4, 5]}), None, 1.0).expect("write closed issues");
+        mirror.write("north/issues/closed", &json!({"numbers": [4, 5, 6], "not_planned": [6]}), None, 1.0).expect("write closed issues");
         let state = |repository: &str, number: u64| recorded_issue_state(&mirror, repository, number);
 
         let closed = findings("docs/migration-plan.md", "Owners: North#4, #5\n\nMove `src/main.rs`.\n", &tree, "north", false, &state);
         assert_eq!(closed.len(), 1, "{closed:?}");
         assert!(closed[0].contains("every owner (north#4, north#5) is closed"), "{closed:?}");
+        assert!(findings("docs/migration-plan.md", "Owners: north#6\n", &tree, "north", false, &state).is_empty(), "a document owned only by a not-planned issue is not refused");
         assert!(findings("docs/migration-plan.md", "Owners: north#4, north#9\n", &tree, "north", true, &state).is_empty());
         assert!(findings("docs/migration-plan.md", "Owners: wisp#7\n", &tree, "north", true, &state).is_empty());
 
