@@ -19,8 +19,10 @@ with what authority and budget, it's the fleet.
 
 - "Sonnet does agent things" means a Sonnet worker: model, harness and loop together.
 - An all-in-one agent product is a packaged harness with defaults and a persona.
-- A **software factory** is the fleet plus the harness plus the landing path: issues go in,
-  verified landed changes come out.
+- A **software factory** is the fleet plus the harness plus the landing path and the records:
+  issues go in, verified landed changes come out, and what each run cost and where it went wrong
+  is kept, so a loss that recurs becomes a rule. It is the four layers working together, not a
+  fifth layer. North with the fleet it runs is one.
 
 ## NorthThread
 
