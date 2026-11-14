@@ -42,7 +42,10 @@ fn fails_first_runs(arguments: &[String]) -> u8 {
     let Ok(cwd) = std::env::current_dir() else { return north_base::foundation::exit::NO_VERDICT };
     let side = north_build_system::here();
     let built = side.test_build(&cwd).map_err(Some).and_then(|invocation| {
-        let output = invocation.command().stdin(std::process::Stdio::null()).output().map_err(|error| Some(error.to_string()))?;
+        let held = side.test_lock(&cwd).map_err(Some)?;
+        let ran = invocation.command().stdin(std::process::Stdio::null()).output();
+        drop(held);
+        let output = ran.map_err(|error| Some(error.to_string()))?;
         let log = String::from_utf8_lossy(&output.stderr).into_owned();
         eprint!("{log}");
         if !output.status.success() {

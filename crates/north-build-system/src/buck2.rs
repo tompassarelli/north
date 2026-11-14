@@ -11,6 +11,7 @@ use super::{Build, BuildSystem, Invocation, Lint, Mutants, Profile, Resolution, 
 
 pub(crate) mod generation;
 pub(crate) mod test_record;
+mod release_build;
 mod test_build;
 
 /// Buck2 over the generated BUCK targets (north#1115): the root package is `//:north`, a workspace crate `//crates/NAME:NAME`
@@ -33,7 +34,7 @@ impl Buck2 {
         }
         let query = format!("kind(\"{TEST_RULE}\", {})", targets(&request.selection).join(" + "));
         let buck2 = self.invocation(request.root, request.shell, self.words(&[])).words;
-        let words = ["bash", "-c", LISTING, "bash", &query].map(str::to_owned).into_iter().chain(buck2).collect();
+        let words = ["bash", "-c", LISTING, "bash", &query, &generation::lock_word(self.isolation.as_deref())].map(str::to_owned).into_iter().chain(buck2).collect();
         Some(Invocation::new(request.root, Shell::Inherited, words))
     }
 
@@ -95,8 +96,8 @@ const ON_WORKERS: &str = "--unstable-allow-compatible-tests-on-re";
 const TEST_RULE: &str = "^_north_test$";
 /// The marker line before each test binary's `--list --format terse` text, naming its Buck2 target.
 const BINARY_MARK: &str = "@@ ";
-/// Prints Buck2's binary id of each test target, then each target's binary, built on the workers, under a marker line with the names its own `--list` gives; $1 is the target query and the rest the `buck2` words with the shell that gives its build the network.
-const LISTING: &str = r#"set -eo pipefail; query=$1; shift; "$@" uquery --json --output-attribute binary_id "$query"; labels=$("$@" uquery "$query"); [ -z "$labels" ] || "$@" build --remote-only --show-output $labels | while read -r label path; do echo "@@ $label"; "$path" --list --format terse; done"#;
+/// Takes the tree's lock on its isolation directory (north#1403) on descriptor 9, which no Buck2 client keeps open, so the listing runs alone in it wherever it runs, then prints Buck2's binary id of each test target, then each target's binary, built on the workers, under a marker line with the names its own `--list` gives; $1 is the target query, $2 the lock file relative to the tree and the rest the `buck2` words with the shell that gives its build the network.
+const LISTING: &str = r#"set -eo pipefail; query=$1; lock=$2; shift 2; mkdir -p "${lock%/*}"; exec 9>>"$lock"; flock 9; "$@" uquery --json --output-attribute binary_id "$query" 9>&-; labels=$("$@" uquery "$query" 9>&-); [ -z "$labels" ] || "$@" build --remote-only --show-output $labels 9>&- | while read -r label path; do echo "@@ $label"; "$path" --list --format terse; done"#;
 /// What a coverage run says on this side until its instrumented binaries are built through Buck2 (north#1115 box 7d-tools).
 const NO_COVERAGE: &str = r#"echo "north: a coverage run is not on the Buck2 side yet" >&2; exit 1"#;
 const CLIPPY_GATE: &str = "//lint/clippy.bxl:clippy";
@@ -144,7 +145,7 @@ impl Buck2 {
     fn settings(&self, request: &Build) -> Vec<String> {
         let mut words: Vec<String> = (request.profile == Profile::Release).then(|| "@mode/release".to_owned()).into_iter().collect();
         words.extend(request.jobs.into_iter().flat_map(|jobs| ["--num-threads".to_owned(), jobs.to_string()]));
-        words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
+        words.extend(release_build::uncached(request).then(|| "--no-remote-cache".to_owned()));
         words.extend(request.timings.then(|| ["--build-report".to_owned(), self.timings(request).display().to_string()]).into_iter().flatten());
         words
     }
@@ -555,6 +556,10 @@ impl BuildSystem for Buck2 {
 
     fn lists_by_building(&self) -> bool {
         true
+    }
+
+    fn test_lock(&self, root: &Path) -> Result<Option<fs::File>, String> {
+        generation::held(root, self.isolation.as_deref())
     }
 
     fn copies_out(&self) -> bool {

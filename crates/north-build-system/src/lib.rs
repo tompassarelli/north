@@ -69,6 +69,10 @@ pub trait BuildSystem {
     fn test_build(&self, root: &Path) -> Result<Invocation, String>;
     /// The test executables a [`BuildSystem::test_build`] run in the tree at `root` printed, as paths relative to `root`, so a caller in another view of the tree joins them to its own root.
     fn test_executables(&self, root: &Path, printed: &str) -> Result<Vec<PathBuf>, String>;
+    /// The tree at `root`'s lock on the isolation directory this side's test lines run in, held until the file is dropped, so one Buck2 command at a time runs in it (north#1403): a caller that runs a test build or listing of its own holds it for as long as that command runs. `None` on the Cargo side, which holds nothing.
+    fn test_lock(&self, _root: &Path) -> Result<Option<std::fs::File>, String> {
+        Ok(None)
+    }
 }
 
 /// The build system this host runs: Buck2 when `[hosts.NAME] build_system` in the orchestration policy says `buck2`, with its test run once `buck2_tests` is set too, and Cargo when the key is unset, the policy unreadable, or the host holds no readable store generation, which it says.

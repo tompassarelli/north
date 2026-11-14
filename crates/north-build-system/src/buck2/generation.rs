@@ -89,3 +89,13 @@ pub(crate) fn hold(root: &Path, dir: &str) -> Result<File, String> {
     file.lock().map_err(|error| format!("cannot lock {}: {error}", path.display()))?;
     Ok(file)
 }
+
+/// The lock file of isolation directory `isolation` (Buck2's own when `None`) as a path relative to the tree, for a script that takes the lock in the tree it runs in.
+pub(crate) fn lock_word(isolation: Option<&str>) -> String {
+    lock_file(Path::new(""), isolation.unwrap_or(DEFAULT)).display().to_string()
+}
+
+/// The tree at `root`'s lock on `isolation`, held until the file is dropped; `None` where the side names no isolation directory.
+pub(crate) fn held(root: &Path, isolation: Option<&str>) -> Result<Option<File>, String> {
+    isolation.map(|dir| hold(root, dir)).transpose()
+}
