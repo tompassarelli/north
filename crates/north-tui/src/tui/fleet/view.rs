@@ -20,18 +20,22 @@ pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Tran
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
     let ceiling = frame.area().height.saturating_sub(composer_rows + 2 + 6).max(6);
     let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 3));
+    let working = working_line(screen, transcript, now_ms);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
+        .constraints([Constraint::Min(3), Constraint::Length(working.is_some().into()), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
         .split(frame.area());
     if screen.digest.shown {
         draw_digest(frame, screen, rows[0], now_ms);
     } else {
         draw_transcript(frame, screen, transcript, painter, rows[0]);
     }
-    draw_composer(frame, screen, rows[1]);
-    draw_help(frame, screen, rows[2]);
-    draw_status(frame, screen, transcript, rows[3], now_ms);
+    if let Some(line) = working {
+        frame.render_widget(Paragraph::new(line), rows[1]);
+    }
+    draw_composer(frame, screen, rows[2]);
+    draw_help(frame, screen, rows[3]);
+    draw_status(frame, screen, rows[4]);
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),
@@ -83,7 +87,21 @@ fn draw_transcript(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Optio
     frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((limit - screen.scroll, 0)), area);
 }
 
-fn session_title(screen: &Screen, transcript: Option<&Transcript>, now_ms: u64) -> Vec<Span<'static>> {
+fn working_line(screen: &Screen, transcript: Option<&Transcript>, now_ms: u64) -> Option<Line<'static>> {
+    screen.selected_session().filter(|session| session.status == Status::Working && !screen.digest.shown)?;
+    let transcript = transcript?;
+    let started = transcript.turn_started_ms()?;
+    Some(Line::from(vec![
+        Span::styled("✻ Working… ", Style::default().fg(Color::Rgb(215, 119, 87))),
+        Span::styled(format!("({} · {} tokens)", elapsed(now_ms.saturating_sub(started)), tokens(transcript.tracker.live_tokens())), MUTED),
+    ]))
+}
+
+fn tokens(count: u64) -> String {
+    if count < 1000 { count.to_string() } else { format!("{:.1}k", count as f64 / 1000.0) }
+}
+
+fn session_title(screen: &Screen) -> Vec<Span<'static>> {
     let Some(session) = screen.selected_session() else {
         return Vec::new();
     };
@@ -93,9 +111,6 @@ fn session_title(screen: &Screen, transcript: Option<&Transcript>, now_ms: u64) 
         Span::styled(format!("{} ", session.phase.label()), status_style(session.status)),
         Span::styled(format!("· {} ", record.cwd.display()), MUTED),
     ];
-    if let Some(started) = transcript.and_then(Transcript::turn_started_ms).filter(|_| session.status == Status::Working) {
-        title.push(Span::styled(format!("· {} ", elapsed(now_ms.saturating_sub(started))), Style::default().fg(Color::Green)));
-    }
     if screen.scroll > 0 {
         title.push(Span::styled(format!("· ↑{} ", screen.scroll), Style::default().fg(Color::Yellow)));
     }
@@ -119,14 +134,14 @@ fn draw_composer(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
     }
 }
 
-fn draw_status(frame: &mut Frame<'_>, screen: &Screen, transcript: Option<&Transcript>, area: Rect, now_ms: u64) {
+fn draw_status(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
     let line = match (screen.confirmation(), &screen.notice) {
         (Some(question), _) => Line::from(Span::styled(question, Style::default().fg(Color::Yellow))),
         (None, Some(Notice::Error(message))) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Red))),
         (None, Some(Notice::Info(message))) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Yellow))),
         (None, None) => {
             let mut spans = vec![Span::styled("? for shortcuts", MUTED)];
-            let title = if screen.digest.shown { Vec::new() } else { session_title(screen, transcript, now_ms) };
+            let title = if screen.digest.shown { Vec::new() } else { session_title(screen) };
             if !title.is_empty() {
                 spans.push(Span::raw("  "));
                 spans.extend(title);

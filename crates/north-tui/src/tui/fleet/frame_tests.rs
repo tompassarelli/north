@@ -135,7 +135,7 @@ fn a_transcript_paints_each_entry_in_its_own_look() {
     let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 1));
     buffer.set_line(0, 0, &lines[0], 80);
     let row: String = buffer.content().iter().map(|cell| cell.symbol()).collect::<String>().trim_end().to_owned();
-    assert_eq!(row, "• name    status  age");
+    assert_eq!(row, "● name    status  age");
 
     let entries = [
         Entry { kind: EntryKind::User, text: "why".into() },
@@ -155,6 +155,34 @@ fn a_transcript_paints_each_entry_in_its_own_look() {
     let reply = line_of("because");
     assert!(!buffer[(2, reply)].modifier.intersects(Modifier::DIM | Modifier::ITALIC), "the reply is plain text");
     assert_ne!(buffer[(2, reply)].bg, Color::Rgb(52, 58, 62), "the reply is not tinted");
+    let entries = [
+        Entry { kind: EntryKind::User, text: "run it".into() },
+        Entry { kind: EntryKind::Tool, text: "Bash cargo test".into() },
+        Entry { kind: EntryKind::ToolResult, text: "ok".into() },
+        Entry { kind: EntryKind::Notice, text: "heads up".into() },
+        Entry { kind: EntryKind::Assistant, text: "done".into() },
+    ];
+    let lines = paint(&entries, "", &[], 40);
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 40, lines.len() as u16));
+    Paragraph::new(lines).render(buffer.area, &mut buffer);
+    let rows = rows_of(&buffer);
+    let row = |text: &str| rows.iter().position(|row| row.contains(text)).unwrap();
+    assert!(rows[row("run it")].starts_with("> ") && buffer[(0_u16, row("run it") as u16)].bg == Color::Rgb(52, 58, 62), "{rows:?}");
+    assert!(rows[row("Bash(")].starts_with("● Bash(cargo test)"), "{rows:?}");
+    let result = row("ok");
+    assert!(rows[result].starts_with("  ⎿  ok") && buffer[(4_u16, result as u16)].modifier.contains(Modifier::DIM), "{rows:?}");
+    assert!(rows[row("heads up")].starts_with("● ") && rows[row("done")].starts_with("● "), "{rows:?}");
+
+    let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
+    screen.sync(vec![family("alpha", None, 1, Status::Working, 0)]);
+    let mut transcript = crate::fleet::model::Transcript::new();
+    transcript.tracker.observe(crate::fleet::turns::TurnSignal::Started { conversation: "c".into() }, 1_000);
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let mut painter = TranscriptPainter::default();
+    terminal.draw(|frame| draw(frame, &mut screen, Some(&transcript), &mut painter, 13_000)).unwrap();
+    let rows = rows_of(terminal.backend().buffer());
+    let working = rows.iter().position(|row| row.starts_with("✻ Working… (12s")).unwrap_or_else(|| panic!("{rows:?}"));
+    assert!(rows[working + 2].starts_with("> ") && !rows.last().unwrap().contains("12s"), "{rows:?}");
 }
 
 

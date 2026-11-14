@@ -79,8 +79,8 @@ fn paint_entry(entry: &Entry, width: usize, lines: &mut Vec<Line<'static>>) {
         EntryKind::User => paint_user(&entry.text, width, OPERATOR, lines),
         EntryKind::Assistant => paint_markdown(&entry.text, width, lines),
         EntryKind::Thinking => paint_thinking(&entry.text, width, lines),
-        EntryKind::Tool => lines.push(Line::from(vec![Span::styled("  ↳ ", dim), Span::styled(one_line(&entry.text, width.saturating_sub(4)), dim)])),
-        EntryKind::ToolResult => lines.push(Line::from(Span::styled(format!("    {}", one_line(&entry.text, width.saturating_sub(4))), dim))),
+        EntryKind::Tool => lines.push(paint_call(&one_line(&entry.text, width.saturating_sub(2)))),
+        EntryKind::ToolResult => lines.push(Line::from(Span::styled(format!("  ⎿  {}", one_line(&entry.text, width.saturating_sub(5))), dim))),
         EntryKind::Error => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Red))),
         EntryKind::Refusal => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Yellow))),
         EntryKind::Notice => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Yellow).add_modifier(Modifier::DIM))),
@@ -88,9 +88,14 @@ fn paint_entry(entry: &Entry, width: usize, lines: &mut Vec<Line<'static>>) {
     }
 }
 
+fn paint_call(text: &str) -> Line<'static> {
+    let (name, args) = text.split_once(' ').unwrap_or((text, ""));
+    Line::from(vec![Span::styled("● ", Style::default().fg(Color::Gray)), Span::styled(format!("{name}({args})"), Style::default().add_modifier(Modifier::BOLD))])
+}
+
 fn paint_user(text: &str, width: usize, style: Style, lines: &mut Vec<Line<'static>>) {
     for (index, line) in text.lines().enumerate() {
-        let marker = if index == 0 { "› " } else { "  " };
+        let marker = if index == 0 { "> " } else { "  " };
         let content = format!("{marker}{line:<padding$}", padding = width.saturating_sub(2));
         lines.push(Line::from(content).style(style));
     }
@@ -103,7 +108,7 @@ fn paint_markdown(text: &str, width: usize, lines: &mut Vec<Line<'static>>) {
         if !started && blank {
             continue;
         }
-        let prefix = if started { Span::raw("  ") } else { Span::styled("• ", Style::default().fg(Color::Gray)) };
+        let prefix = if started { Span::raw("  ") } else { Span::styled("● ", Style::default().fg(Color::Gray)) };
         started = true;
         let mut spans = vec![prefix];
         spans.extend(line.spans);
@@ -141,7 +146,7 @@ fn markdown_lines(text: &str, width: usize) -> Vec<Line<'static>> {
 fn prefixed(text: &str, style: Style) -> Vec<Line<'static>> {
     text.lines()
         .enumerate()
-        .map(|(index, line)| Line::from(Span::styled(format!("{}{line}", if index == 0 { "• " } else { "  " }), style)))
+        .map(|(index, line)| Line::from(Span::styled(format!("{}{line}", if index == 0 { "● " } else { "  " }), style)))
         .collect()
 }
 
