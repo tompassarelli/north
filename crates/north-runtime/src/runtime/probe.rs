@@ -197,8 +197,8 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
         problems.push(format!("{LAGS} {} predates the landing", &runtime[..8]));
     }
     for unit in UNITS {
-        let state = facts.units.get(unit).map_or("unknown", String::as_str);
-        if !healthy(state) {
+        let state = facts.units.get(unit).map_or("", String::as_str);
+        if !state.is_empty() && !healthy(state) {
             problems.push(format!("{unit} is {}", display(state)));
         }
     }

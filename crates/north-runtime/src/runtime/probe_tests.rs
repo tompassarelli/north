@@ -115,7 +115,7 @@ fn a_session_host_a_land_check_test_runs_from_its_sandbox_build_is_not_a_fleet_r
 }
 
 #[test]
-fn a_runtime_swap_leaves_old_and_ended_session_watchdogs_that_are_not_a_fault() {
+fn old_and_ended_session_watchdogs_after_a_runtime_swap_are_no_fault_while_two_live_ones_for_one_session_are_a_leak() {
     let mut proc = FakeProc::new();
     proc.sessions(2, 1);
     let old = north(OLD);
@@ -126,10 +126,7 @@ fn a_runtime_swap_leaves_old_and_ended_session_watchdogs_that_are_not_a_fault() 
     assert_eq!(problems, Vec::<String>::new());
     assert_eq!(record["residents"]["fleet watchdog"], json!(2));
     assert_eq!(record["strayWatchdogs"], json!(3));
-}
 
-#[test]
-fn two_live_runtime_watchdogs_for_one_live_session_are_a_leak() {
     let mut proc = FakeProc::new();
     proc.sessions(2, 1);
     proc.spawn("north", &[&north(LIVE), "fleet", "watchdog", "worker-1"]);
@@ -241,4 +238,17 @@ fn a_tool_server_in_a_held_unit_whose_cli_runs_is_growth_and_one_in_a_unit_whose
     assert_eq!(read.problems(), vec![message.clone()]);
     assert_eq!(read.leak(None), format!("transient leak: {message}"));
     assert_eq!(read.growth(), "transient growth: 2 for 2 live sessions");
+}
+
+#[test]
+fn an_empty_unit_state_is_unread_and_pages_no_one() {
+    let facts = Facts {
+        host: "gex45".to_owned(),
+        runtime: Some(LIVE.to_owned()),
+        units: UNITS.iter().map(|unit| ((*unit).to_owned(), String::new())).collect(),
+        settings: vec!["settings.json".to_owned()],
+        north: Some(NorthProcesses::default()),
+        ..Facts::default()
+    };
+    assert_eq!(problems(&facts, |_| true), Vec::<String>::new());
 }
