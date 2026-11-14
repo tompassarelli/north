@@ -174,6 +174,7 @@ fn shipped(directory: &Path, lane: &Lane, hosts: &[String], remote: &str, out: &
         let ran = Command::new(north_base::platform::north_binary::north_binary())
             .current_dir(directory)
             .args(["capacity", "offload", "run", "--host", host, "--base", &lane.base, "--head", &lane.head, "--timeout", &timeout.to_string(), "--", &command])
+            .env_remove("NORTH_HOME")
             .stdin(Stdio::null())
             .stderr(Stdio::inherit())
             .output();
