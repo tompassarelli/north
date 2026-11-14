@@ -16,7 +16,7 @@ pub fn conditions(plan: &Plan, base: &str, seed: u64) -> Value {
         "shared_file_share": plan.tasks.iter().filter(|t| t["shared"] == true).count() as f64 / plan.tasks.len().max(1) as f64,
         "orchestrator": sh("hostname -s").out.trim(), "laptop_load_at_start": sh("cut -d' ' -f1-3 /proc/loadavg").out.trim(),
         "host_load_at_start": crate::proc::host_loads(&plan.hosts), "laptop_north_built_from": sh("cut -c1-12 ~/.local/state/north/current/built-from").out.trim(), "other_fleet_sessions_working": working,
-        "model": plan.model, "effort_requested": plan.effort, "account": plan.accounts.join(","), "harness_north_built_from": harness,
+        "model": plan.model, "effort_requested": plan.effort, "context_arm": "context-500k, pinned in every brief so the spare fill before the first wave and the launches draw the same compaction window", "account": plan.accounts.join(","), "harness_north_built_from": harness,
         "repo": format!("eval-b synthetic workload, seed {seed}"), "base": base,
         "caches": "cold lanes: fresh worktrees on every host; the workload has no dependencies to warm",
         "local_time_at_start": local_time(crate::proc::now()),
