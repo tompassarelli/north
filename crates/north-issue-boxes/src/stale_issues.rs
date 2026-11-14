@@ -4,9 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::foundation::clock::Timestamp;
-use crate::threads::claims::ledger;
-use crate::threads::client::{ledger_host_name, threads_database};
-use crate::threads::rewrites;
+use crate::threads::client::threads_database;
 use north_ops::ops::stale_issues::{self as sweep, Hands, Lanes, Owners, Record, Stale};
 
 use crate::issue_convert::boxes::checkboxes;
@@ -17,13 +15,12 @@ const SENDER: &str = "service:north-stale-issues";
 const USAGE: &str = "usage: north issue close-stale [--dry-run]
 
 Closes every open issue of north and south created more than 24 hours ago as not planned, with a comment that names the 24-hour rule,
-the issue's open boxes and the unlanded lanes whose Item: names it, and files a successor carrying the open boxes, records the rewrite in the threads ledger (a lead holding the closed issue launches on the successor), and messages the issue's last owner session (the newest claim on it, else its Owner: line, else proxy) to split the successor if a box needs more than a day and re-point those lanes. It runs on the ledger host. Each issue is messaged once:
+the issue's open boxes and the unlanded lanes whose Item: names it, and messages the issue's last owner session (the newest claim on it, else its Owner: line, else proxy) to file a finishable successor and re-point those lanes. Each issue is messaged once:
 the messaged issues are recorded under ~/.local/state/north/stale-issues.txt. --dry-run prints what would happen and
 changes nothing. An hourly timer runs it.";
 
 struct Live {
     repository: String,
-    ledger: PathBuf,
 }
 
 impl Hands for Live {
@@ -36,20 +33,6 @@ impl Hands for Live {
     fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
         let args = ["issue".to_owned(), "close".to_owned(), number.to_string(), "-R".to_owned(), self.repository.clone(), "--reason".to_owned(), "not planned".to_owned(), "--comment".to_owned(), comment.to_owned()];
         crate::platform::github::run_patiently(&args, "north issue close-stale").map(drop)
-    }
-
-    fn file(&mut self, title: &str, body: &str) -> Result<u64, String> {
-        let args = ["issue", "create", "-R", &self.repository, "--title", title, "--body", body].map(str::to_owned);
-        let url = crate::platform::github::run_patiently(&args, "north issue close-stale")?;
-        url.trim().rsplit('/').next().and_then(|number| number.parse().ok()).ok_or_else(|| format!("gh issue create printed no issue URL: {}", url.trim()))
-    }
-
-    fn recorded_successor(&mut self, closed: &str) -> Result<Option<String>, String> {
-        rewrites::successor(&ledger::open(&self.ledger, false)?, closed).map_err(|error| format!("ledger {}: {error}", self.ledger.display()))
-    }
-
-    fn record_successor(&mut self, closed: &str, successor: &str) -> Result<(), String> {
-        rewrites::record(&ledger::open(&self.ledger, true)?, closed, successor, &Timestamp::now().iso()).map_err(|error| format!("ledger {}: {error}", self.ledger.display()))
     }
 }
 
@@ -70,10 +53,6 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    if !dry_run && let Some(host) = ledger_host_name() {
-        eprintln!("north issue close-stale: the threads ledger lives on {host}, and the closer records each rewrite in it, so it runs there");
-        return 2;
-    }
     let now = Timestamp::now().unix_seconds();
     let mut failures = 0;
     for (organisation, name) in REPOSITORIES {
@@ -99,14 +78,13 @@ fn close_repository(organisation: &str, name: &str, now: i64, dry_run: bool) -> 
         .map(|issue| Stale {
             number: issue.number,
             created: issue.created,
-            title: issue.title.clone(),
             owner: owners.of(issue.number, &issue.body),
-            open_boxes: checkboxes(&issue.body).into_iter().filter(|checkbox| !checkbox.ticked).map(|checkbox| checkbox.text).collect(),
+            open_boxes: checkboxes(&issue.body).into_iter().filter(|checkbox| !checkbox.ticked).map(|checkbox| checkbox.first).collect(),
             lanes: lanes.naming(issue.number),
         })
         .collect();
     let mut record = Record::open(&record_file())?;
-    let mut hands = Live { repository: format!("{organisation}/{name}"), ledger: threads_database() };
+    let mut hands = Live { repository: format!("{organisation}/{name}") };
     let outcome = sweep::sweep(name, &stale, now, dry_run, &mut hands, &mut record);
     outcome.lines.iter().for_each(|line| println!("{line}"));
     Ok(outcome.failed)

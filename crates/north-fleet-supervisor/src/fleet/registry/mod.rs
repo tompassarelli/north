@@ -15,7 +15,6 @@ use super::claims::Claims;
 use super::jobs::JobLeases;
 use super::model::{Account, LaunchRequest, SessionRecord};
 use super::promises::{Reckon, Unreckoned};
-use rewritten::{NoRewrites, Rewrites};
 use super::records::read_record;
 use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::Runtime;
@@ -63,7 +62,6 @@ mod withdrawing;
 mod spend_rows;
 mod spooled;
 mod lead_grant;
-pub mod rewritten;
 mod takeover;
 mod wait_rows;
 mod table;
@@ -125,7 +123,6 @@ pub struct Fleet {
     held_units: Arc<dyn HeldUnits>,
     desk: Arc<dyn ProxyDesk>,
     reckon: Arc<dyn Reckon>,
-    rewrites: Arc<dyn Rewrites>,
     spools_as: Option<String>,
     starts: spooled::Starts,
     hosts: starting::HostStart,
@@ -158,7 +155,7 @@ impl Fleet {
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         let kept = root.join(lanes::KEPT_LANES);
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), held_units: Arc::new(OverSshHeld), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), rewrites: Arc::new(NoRewrites), spools_as: None, starts: spooled::start_spooled, hosts: starting::start_host };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), held_units: Arc::new(OverSshHeld), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), spools_as: None, starts: spooled::start_spooled, hosts: starting::start_host };
         fleet.adopt_journals()?;
         Ok(fleet)
     }
@@ -175,12 +172,6 @@ impl Fleet {
 
     pub fn reckoning_with(mut self, reckon: Arc<dyn Reckon>) -> Self {
         self.reckon = reckon;
-        self
-    }
-
-    /// Reads the 24-hour closer's rewrites from `rewrites`, so a lead whose issue was closed and rewritten launches on its successor.
-    pub fn following_rewrites(mut self, rewrites: Arc<dyn Rewrites>) -> Self {
-        self.rewrites = rewrites;
         self
     }
 
