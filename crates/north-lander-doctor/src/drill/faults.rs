@@ -173,7 +173,7 @@ fn flaky_red_main(lander: &mut Lander) -> Result<String, String> {
         return Err("the flaky check passed on its first run, so main never went red".to_owned());
     }
     let failing: BTreeSet<Failure> = [failure.clone()].into();
-    let request = sheriff::Request { head: "tip".to_owned(), parent: "green".to_owned(), run: "drill".to_owned(), log: String::new(), failing: failing.clone(), tree: String::new() };
+    let request = sheriff::Request { head: "tip".to_owned(), parent: "green".to_owned(), run: "drill".to_owned(), log: String::new(), failing: failing.clone(), tree: String::new(), live_fix: String::new() };
     let lanes = [sheriff::Lane { commit: "tip".to_owned(), message: "an innocent lane (north#634)".to_owned() }];
     let rerun = |_: &sheriff::Lane, _: sheriff::On| Some(sheriff::Probed { host: "drill".to_owned(), failures: if run() { BTreeSet::new() } else { failing.clone() } });
     match sheriff::find(&request, "tip", &lanes, &BTreeSet::new(), rerun, rerun) {

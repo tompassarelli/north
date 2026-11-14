@@ -14,6 +14,11 @@ const DIR: &str = "safe-push/check-timings/buck2-after-landing";
 const TRIP: &str = "trip";
 const CLEARED: &str = "cleared";
 const RUN: &str = "run";
+const REVERT_ASKED: &str = "revert-asked";
+const REQUESTS: &str = "refs/heads/claude/land-revert-";
+
+/// Seconds a trip holds before the sheriff is asked to revert the commit it names, unless a fix lands first and its run turns main green (north#1508).
+pub(crate) const REVERT_AFTER_SECONDS: u64 = 300;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Clearing {
@@ -38,6 +43,12 @@ impl Trip {
             self.cases.iter().map(|(name, case)| format!("{case} in {name}")).collect::<Vec<_>>().join(", ")
         };
         format!("the Buck2 trip on {} holds it: {named}; `north runtime trip clear {} --why TEXT` clears it", self.head, self.head)
+    }
+
+    /// The sheriff's revert request for the commit this trip names (north-landing sheriff/request.rs): its cases as failed tests, the commit's parent as the green parent, its tree as the tree the red was read on, and a Live-fix trailer the sheriff's revert carries.
+    pub(crate) fn revert_request(&self, parent: &str, tree: &str) -> String {
+        let failed: Vec<String> = self.cases.iter().map(|(_, case)| format!("test {case} ... FAILED")).collect();
+        format!("Main red at {head}\n\n{}\n\nGreen-parent: {parent}\nMain-red-run: the Buck2 trip on {head}\nMain-red-tree: {tree}\nLive-fix: the Buck2 trip on {head} holds every promotion", failed.join("\n"), head = self.head)
     }
 }
 
@@ -115,6 +126,23 @@ impl Trips {
         Ok(trips)
     }
 
+    /// Asks once, through `ask`, for the revert of the commit `trip` names after the trip has stood REVERT_AFTER_SECONDS; true when it asked now.
+    pub(crate) fn revert_when_due(&self, trip: &Trip, now: u64, ask: &dyn Fn(&Trip) -> Result<(), String>) -> Result<bool, String> {
+        let asked = self.0.join(format!("{}.{REVERT_ASKED}", trip.head));
+        if exists(&asked)? {
+            return Ok(false);
+        }
+        let record = self.0.join(format!("{}.{TRIP}", trip.head));
+        let written = fs::metadata(&record).and_then(|meta| meta.modified()).map_err(|error| format!("{} has no time: {error}", record.display()))?;
+        let at = written.duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+        if now < at + REVERT_AFTER_SECONDS {
+            return Ok(false);
+        }
+        ask(trip)?;
+        fs::write(&asked, "").map_err(|error| format!("{} cannot be written: {error}", asked.display()))?;
+        Ok(true)
+    }
+
     /// Clears the open trip on `head`, recording who cleared it and why.
     pub(crate) fn clear(&self, head: &str, by: &str, why: &str, at: u64) -> Result<String, String> {
         if !exists(&self.0.join(format!("{head}.{TRIP}")))? {
@@ -128,4 +156,16 @@ impl Trips {
         fs::write(&cleared, text).map_err(|error| format!("{} cannot be written: {error}", cleared.display()))?;
         Ok(format!("north runtime trip: {by} cleared the Buck2 trip on {head}: {why}"))
     }
+}
+
+/// Files the sheriff's revert request for `trip` on origin from `checkout`, the request north-ci's sheriff and the lander's red after-landing run file, which the lander answers through its landing queue.
+pub(crate) fn ask_revert(checkout: &Path, trip: &Trip) -> Result<(), String> {
+    let git = |arguments: &[&str]| -> Result<String, String> {
+        let output = std::process::Command::new("git").arg("-C").arg(checkout).args(arguments).env("SAFE_PUSH_ACTIVE", "1").output().map_err(|error| error.to_string())?;
+        if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned()) } else { Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()) }
+    };
+    let parent = git(&["rev-parse", &format!("{}^", trip.head)])?;
+    let tree = git(&["rev-parse", &format!("{}^{{tree}}", trip.head)])?;
+    let request = git(&["commit-tree", &tree, "-p", &trip.head, "-m", &trip.revert_request(&parent, &tree)])?;
+    git(&["push", "-q", "--no-verify", "origin", &format!("{request}:{REQUESTS}{}", trip.head)]).map(drop)
 }

@@ -17,6 +17,7 @@ pub struct Request {
     pub log: String,
     pub failing: BTreeSet<Failure>,
     pub tree: String,
+    pub live_fix: String,
 }
 
 fn trailer(message: &str, key: &str) -> String {
@@ -24,7 +25,7 @@ fn trailer(message: &str, key: &str) -> String {
 }
 
 pub fn parse(head: &str, message: &str) -> Request {
-    Request { head: head.to_owned(), parent: trailer(message, "Green-parent"), run: trailer(message, "Main-red-run"), log: trailer(message, "Main-red-log"), failing: red_check::failures(message), tree: trailer(message, "Main-red-tree") }
+    Request { head: head.to_owned(), parent: trailer(message, "Green-parent"), run: trailer(message, "Main-red-run"), log: trailer(message, "Main-red-log"), failing: red_check::failures(message), tree: trailer(message, "Main-red-tree"), live_fix: trailer(message, "Live-fix") }
 }
 
 pub fn request_message(head: &str, parent: &str, failing: &BTreeSet<Failure>, log: &Path, tree: &str) -> String {

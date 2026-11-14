@@ -55,7 +55,7 @@ fn every_promotion_path_refuses_a_head_whose_after_landing_run_is_running_failed
         fs::create_dir_all(layout.runtime(sha)).unwrap();
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
-    let screen_of = |landing: Landing| Screen { holds: Holds(state.path().join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(move |_| landing.clone()), runs: MainRuns::none(), trips: Trips(state.path().join("trips")) };
+    let screen_of = |landing: Landing| Screen { holds: Holds(state.path().join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(move |_| landing.clone()), runs: MainRuns::none(), trips: Trips(state.path().join("trips")), revert: Box::new(|_| Ok(())) };
     let shipped = Cell::new(0);
     let ship = |_: &str, _: &[String]| {
         shipped.set(shipped.get() + 1);

@@ -351,6 +351,7 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: 
         short(lane),
         request.run
     );
+    let message = if request.live_fix.is_empty() { message } else { format!("{message}\nLive-fix: {}", request.live_fix) };
     git(worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
     let head = queue_revert(lander, worktree, &branch)?;
     let owner = lane_ticket(lander, request, tip, lane);
