@@ -39,7 +39,7 @@ pub(super) fn place_holds(reads: &Reads, fleet: &mut Fleet, unspent: &BTreeMap<S
             fleet.box_tries.entry(item.clone()).or_default().insert(slug, why);
         }
     }
-    for (item, boxes) in record::box_launching(&fleet.records, at, gone) {
+    for (item, boxes) in record::box_launching(&fleet.records, at, unspent, gone) {
         for (slug, why) in boxes {
             fleet.box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
         }

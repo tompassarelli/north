@@ -199,14 +199,23 @@ pub fn launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BTreeM
     newest.into_iter().filter(|(_, last)| last.launched && at - last.at < hold(last)).map(|(item, last)| (item, format!("north fleet dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0))).collect()
 }
 
-/// The boxes a dispatch launch staffed within its hold, whose sessions may not show in any fleet list yet, less those in `gone`: for each item the slug of each box with the launch that holds it.
-pub fn box_launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BoxHolds {
+/// The boxes a dispatch launch staffed within its hold, whose sessions may not show in any fleet list yet, less those in `gone`: for each item the slug of each box with the launch that holds it. A launch that failed to start, or whose gone session did no work (`unspent`), holds its box for the failed-launch hold, so the next run does not repeat the failure (north#1054).
+pub fn box_launching(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, gone: &BTreeSet<String>) -> BoxHolds {
     let mut held = BoxHolds::new();
-    for record in records.iter().filter(|record| record.launched && !record.hand && !gone.contains(&record.name) && at - record.at < hold(record)) {
+    for record in records.iter().filter(|record| !record.hand && box_hold(record, unspent, gone).is_some_and(|window| at - record.at < window)) {
         let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
-        held.entry(item).or_default().insert(slug, format!("north fleet dispatch launch {} on {} {:.0} min ago", record.name, record.host, (at - record.at) / 60.0));
+        let what = if record.launched { "launch" } else { "failed launch" };
+        held.entry(item).or_default().insert(slug, format!("north fleet dispatch {what} {} on {} {:.0} min ago", record.name, record.host, (at - record.at) / 60.0));
     }
     held
+}
+
+fn box_hold(record: &Record, unspent: &BTreeMap<String, String>, gone: &BTreeSet<String>) -> Option<f64> {
+    match (record.launched, gone.contains(&record.name)) {
+        (false, _) => Some(FAILED_HOLD_S),
+        (true, true) => unspent.contains_key(&record.name).then_some(FAILED_HOLD_S),
+        (true, false) => Some(hold(record)),
+    }
 }
 
 /// The boxes of each item a worker holds, by box slug, with the holder: what an issue's per-issue cap counts.

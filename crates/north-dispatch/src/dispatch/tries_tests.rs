@@ -42,3 +42,23 @@ fn a_forgotten_sessions_unread_report_is_no_try_but_an_unread_listed_one_still_c
     assert!(!unspent.contains_key("north-255-d1100") && notes.len() == 1, "an unread session that is not forgotten still counts and is noted: {unspent:?} {notes:?}");
     assert!(!record::holds(&records, now, &unspent, &forgotten).values().any(|why| why.contains("tries in 24 h")), "one counted try does not hand the item to the proxy");
 }
+
+#[test]
+fn a_box_whose_launch_never_started_is_not_launched_again_by_the_next_run() {
+    let now = 100_000.0;
+    let boxed = |item: &str, name: &str, at: f64, started: bool| Record { box_text: Some("lane sync".into()), launched: started, ..launch(item, name, at) };
+    let records = [
+        boxed("north#1108", "north-1108-d0650-lane-sync", now - 60.0, false),
+        boxed("north#1078", "north-1078-d0650-lane-sync", now - 120.0, true),
+        boxed("north#1109", "north-1109-d0650-lane-sync", now - 120.0, true),
+        boxed("north#1022", "north-1022-d0650-lane-sync", now - 20.0 * 60.0, false),
+    ];
+    let gone = BTreeSet::from(["north-1078-d0650-lane-sync".to_owned(), "north-1109-d0650-lane-sync".to_owned()]);
+    let unspent = BTreeMap::from([("north-1078-d0650-lane-sync".to_owned(), "exited before any report, a host failure".to_owned())]);
+    let held = record::box_launching(&records, now, &unspent, &gone);
+    let holds = |number: u64| held.get(&IssueRef::new("north", number)).is_some_and(|boxes| boxes.contains_key("lane-sync"));
+    assert!(holds(1108), "a launch that failed to start holds its box for the next run: {held:?}");
+    assert!(holds(1078), "a gone session that did no work holds its box: {held:?}");
+    assert!(!holds(1109), "a gone session that worked frees its box: {held:?}");
+    assert!(!holds(1022), "a failed launch's hold ends after 15 min: {held:?}");
+}
