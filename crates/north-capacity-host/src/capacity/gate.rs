@@ -19,6 +19,8 @@ const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
 const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
 const RUST_PROGRAMS: [&str; 3] = ["cargo", "rustc", "cargo-nextest"];
 const SANDBOX: &str = "DEPBOX";
+const SHIM_MARKER: &str = "# north capacity gate shim: the real program is the next one on PATH that is not a shim";
+const SHIMS_OUTPUT: &str = "-capacity-gate-shims/bin/";
 pub const LEASED: &str = "DEPBOX_LEASED";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -171,13 +173,24 @@ pub(super) fn finds_real(program: &str, args: &[String]) -> bool {
 fn real_program(program: &str, name: &str, args: &[String], executed: &[String]) -> Option<PathBuf> {
     let own = std::fs::canonicalize(program).ok();
     std::env::split_paths(&std::env::var_os("PATH")?).map(|directory| directory.join(name)).find(|candidate| {
-        executable(candidate) && std::fs::canonicalize(candidate).ok() != own && !super::gate_shim::is_shim(candidate) && !executed.contains(&invocation(candidate, args))
+        executable(candidate) && std::fs::canonicalize(candidate).ok() != own && !is_shim(candidate) && !executed.contains(&invocation(candidate, args))
     })
 }
 
 fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+pub fn is_shim(path: &Path) -> bool {
+    use std::io::Read;
+    if std::fs::canonicalize(path).is_ok_and(|real| real.to_string_lossy().contains(SHIMS_OUTPUT)) {
+        return true;
+    }
+    let mut head = Vec::with_capacity(4096);
+    let _ = std::fs::File::open(path).and_then(|file| file.take(4096).read_to_end(&mut head));
+    let head = String::from_utf8_lossy(&head);
+    head.starts_with("#!") && (head.lines().any(|line| line == SHIM_MARKER) || head.contains(SHIMS_OUTPUT))
 }
 
 pub fn class_of(words: &[String], depth: usize) -> Option<Class> {
