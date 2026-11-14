@@ -19,7 +19,12 @@ pub(super) struct Refusals {
 
 impl Refusals {
     pub(super) fn new() -> Self {
-        Self { since: Instant::now(), budget: Duration::from_secs(LAND_LINE_DEADLINE_SECONDS), hold: HOLD, hosts: Vec::new(), asks: 0 }
+        Self::within(LAND_LINE_DEADLINE_SECONDS)
+    }
+
+    /// Refusals whose placements share a line budget of `seconds` from the first placement.
+    pub(super) fn within(seconds: u64) -> Self {
+        Self { since: Instant::now(), budget: Duration::from_secs(seconds), hold: HOLD, hosts: Vec::new(), asks: 0 }
     }
 
     /// The hosts the next placement leaves out: those that failed and those whose line refused.
@@ -30,6 +35,11 @@ impl Refusals {
     /// The seconds left of the one line deadline since the first placement, which the next placement hands its job as the most it may wait in a line.
     pub(super) fn left(&self) -> u64 {
         self.budget.saturating_sub(self.since.elapsed()).as_secs()
+    }
+
+    /// Whether `host`'s line refused the run before, so every build host's line has refused it since the last placement.
+    pub(super) fn refused(&self, host: &str) -> bool {
+        !host.is_empty() && self.hosts.iter().any(|refused| refused == host)
     }
 
     /// What follows a refusal by `host`'s line: another placement at once, on the host with the least expected wait among those not yet refused, or after a hold once every host has refused; an error with the seconds spent once the budget or `REPLACEMENTS` placements are used up.

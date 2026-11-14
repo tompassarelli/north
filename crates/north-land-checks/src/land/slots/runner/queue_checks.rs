@@ -15,6 +15,10 @@ use super::super::select::changed;
 const ATTEMPTS: usize = 3;
 const FAILING: &str = "; failing check `";
 const TESTS_AFTER_LANDING: &str = "tests_after_landing";
+/// The most the checks before queueing wait in slot lines in all before the lane queues without them (north#1508): short of
+/// the 30-minute cap that ends a lead's background command, which twice ended a hand-in still waiting in line; a guess
+/// that the hand-in-to-queued times after it lands settle.
+const LINE_SECONDS: u64 = 180;
 
 /// The checks a lane runs alone before its ticket is written: its clippy (build and link), the
 /// `@enqueue` land.check lines, and the land test selection the batch would otherwise run unless `tests_after_landing`
@@ -94,6 +98,12 @@ impl Judged {
         Self { run: Err(QueueRefusal::Unjudged(text)), accepted: Accepted::Unjudged, output: String::new() }
     }
 
+    /// No check ran because every build host's slot line expected a wait past its deadline: the lane queues and the lander's own check is its one run, which still guards main (north#1508).
+    fn unplaced(why: &str) -> Self {
+        say(&format!("safe-push: {why}, so the lane is queued without its checks before queueing and the lander's own check is its one run"));
+        Self { run: Ok(()), accepted: Accepted::Unjudged, output: String::new() }
+    }
+
     /// Whether the finish call passes: its acceptance command passed and no check before queueing failed (north#1233).
     pub fn passed(&self) -> bool {
         self.run.is_ok() && self.accepted == Accepted::Passed
@@ -152,7 +162,8 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
     let outcome = tempfile::NamedTempFile::new().ok();
     let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), one_lane: true, runner_host: host.to_owned(), outcome: outcome.as_ref().map(|file| file.path().to_owned()), ..Arguments::default() };
     let (status, passed) = match attempts(root, &arguments, (&config, north), &commands, (command, stop)) {
-        Ok(ran) => ran,
+        Ok(Attempted::Ran(status, passed)) => (status, passed),
+        Ok(Attempted::Unplaced(why)) => return Judged::unplaced(&why),
         Err(text) => return Judged::unjudged(text),
     };
     let (own, others) = command.zip(outcome.as_ref()).map(|(command, outcome)| failed_output(outcome.path(), command)).unwrap_or_default();
@@ -168,12 +179,12 @@ fn listed(root: &Path, base: &str, head: &str) -> Result<Listed, String> {
     Ok((config, queue_commands(root, base, head)?))
 }
 
-/// The run's exit status and whether `watched` passed in it, running it again on another host when one reached no verdict, up to `ATTEMPTS` times; why it cannot run when no build host answers.
-fn attempts(root: &Path, arguments: &Arguments, (config, north): (&Config, &str), commands: &[String], (watched, stop): (Option<&str>, &Stop)) -> Result<(i32, Option<bool>), String> {
+/// The run's exit status and whether `watched` passed in it, running it again on another host when one reached no verdict, up to `ATTEMPTS` times; why no line placed it once every build host's slot line refused it; why it cannot run when no build host answers.
+fn attempts(root: &Path, arguments: &Arguments, (config, north): (&Config, &str), commands: &[String], (watched, stop): (Option<&str>, &Stop)) -> Result<Attempted, String> {
     let mut failed: Vec<String> = Vec::new();
     let (mut status, mut passed) = (NO_VERDICT_STATUS, None);
     let mut attempt = 1;
-    let mut lines = Refusals::new();
+    let mut lines = Refusals::within(LINE_SECONDS);
     while attempt <= ATTEMPTS {
         let arguments = Arguments { line_within: Some(lines.left()), ..arguments.clone() };
         let ran = block_on(run_added_avoiding(root.to_owned(), arguments, (config.clone(), Environment::load(north.to_owned())), commands.to_vec(), watched, &lines.avoiding(&failed), stop)).map_err(|error| error.to_string())?;
@@ -185,21 +196,42 @@ fn attempts(root: &Path, arguments: &Arguments, (config, north): (&Config, &str)
             return Err("no build host answers over ssh, so the checks before queueing cannot run; the lane is not queued uncompiled, so run safe-push again once a build host is back".to_owned());
         }
         if status == SLOTS_BUSY_STATUS {
-            block_on(lines.place_again(&ran.host)).map_err(|error| error.to_string())?.map_err(|reason| format!("{reason}; the lane is not queued uncompiled, so run safe-push again"))?;
-            continue;
+            match unplaced(&mut lines, &ran.host)? {
+                Some(why) => return Ok(Attempted::Unplaced(why)),
+                None => continue,
+            }
         }
         if status != NO_VERDICT_STATUS {
             break;
         }
-        if attempt < ATTEMPTS {
-            warn(&format!("safe-push: the checks before queueing reached no verdict on {}; running them again ({} of {ATTEMPTS})", if ran.host.is_empty() { "this host" } else { ran.host.as_str() }, attempt + 1));
-        }
-        if !ran.host.is_empty() {
-            failed.push(ran.host);
-        }
+        retry(ran.host, attempt, &mut failed);
         attempt += 1;
     }
-    Ok((status, passed))
+    Ok(Attempted::Ran(status, passed))
+}
+
+/// Why no line places the run once `host`'s slot line refused it, or none when another line takes it.
+fn unplaced(lines: &mut Refusals, host: &str) -> Result<Option<String>, String> {
+    if lines.refused(host) {
+        return Ok(Some("every build host's slot line expects the checks to wait past its deadline".to_owned()));
+    }
+    Ok(block_on(lines.place_again(host)).map_err(|error| error.to_string())?.err())
+}
+
+/// Says the next attempt after a run on `host` reached no verdict, and leaves that host out of it.
+fn retry(host: String, attempt: usize, failed: &mut Vec<String>) {
+    if attempt < ATTEMPTS {
+        warn(&format!("safe-push: the checks before queueing reached no verdict on {}; running them again ({} of {ATTEMPTS})", if host.is_empty() { "this host" } else { host.as_str() }, attempt + 1));
+    }
+    if !host.is_empty() {
+        failed.push(host);
+    }
+}
+
+/// What the attempts came to: a run's exit status and whether the watched command passed in it, or why no build host's line placed the run.
+enum Attempted {
+    Ran(i32, Option<bool>),
+    Unplaced(String),
 }
 
 fn accepted(run: &Result<(), QueueRefusal>, passed: Option<bool>, logged: bool) -> Accepted {
