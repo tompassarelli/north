@@ -10,6 +10,36 @@ clock = "from the launch command to the change on main"
 price = "list price of the model, from each row's input, output, cache-read and one-hour cache-write tokens"
 void = [
   "runs 2 and 3 of the small one-worker cell, void under the protocol's load rule and not counted",
+  { run = 1, level = 11, arm = "north", task = "t01", landed = true, seconds = 13, tokens = 16222, cost_usd = 0.1351 },
+  { run = 1, level = 11, arm = "north", task = "t03", landed = true, seconds = 13, tokens = 16623, cost_usd = 0.0512 },
+  { run = 1, level = 11, arm = "north", task = "t04", landed = true, seconds = 17, tokens = 32889, cost_usd = 0.0585 },
+  { run = 1, level = 11, arm = "north", task = "t02", landed = true, seconds = 20, tokens = 16144, cost_usd = 0.0448 },
+  { run = 1, level = 11, arm = "north", task = "t05", landed = true, seconds = 22, tokens = 33160, cost_usd = 0.0626 },
+  { run = 1, level = 15, arm = "north", task = "t01", landed = true, seconds = 12, tokens = 32939, cost_usd = 0.0596 },
+  { run = 1, level = 15, arm = "north", task = "t02", landed = true, seconds = 12, tokens = 32886, cost_usd = 0.06 },
+  { run = 1, level = 15, arm = "north", task = "t04", landed = true, seconds = 12, tokens = 16215, cost_usd = 0.0456 },
+  { run = 1, level = 15, arm = "north", task = "t03", landed = true, seconds = 16, tokens = 33773, cost_usd = 0.067 },
+  { run = 1, level = 15, arm = "north", task = "t05", landed = true, seconds = 16, tokens = 32973, cost_usd = 0.0601 },
+  { run = 1, level = 11, arm = "t3-plain", task = "t05", landed = true, seconds = 21, tokens = 235054, cost_usd = 0.1657 },
+  { run = 1, level = 11, arm = "t3-plain", task = "t02", landed = true, seconds = 23, tokens = 233107, cost_usd = 0.1636 },
+  { run = 1, level = 11, arm = "t3-plain", task = "t03", landed = true, seconds = 23, tokens = 196873, cost_usd = 0.164 },
+  { run = 1, level = 11, arm = "t3-plain", task = "t04", landed = true, seconds = 25, tokens = 273506, cost_usd = 0.1735 },
+  { run = 1, level = 11, arm = "t3-plain", task = "t01", landed = true, seconds = 26, tokens = 272171, cost_usd = 0.1993 },
+  { run = 1, level = 15, arm = "t3-plain", task = "t05", landed = true, seconds = 17, tokens = 154435, cost_usd = 0.1634 },
+  { run = 1, level = 15, arm = "t3-plain", task = "t04", landed = true, seconds = 24, tokens = 234441, cost_usd = 0.2046 },
+  { run = 1, level = 15, arm = "t3-plain", task = "t01", landed = true, seconds = 28, tokens = 272300, cost_usd = 0.1996 },
+  { run = 1, level = 15, arm = "t3-plain", task = "t02", landed = true, seconds = 29, tokens = 351043, cost_usd = 0.2293 },
+  { run = 1, level = 15, arm = "t3-plain", task = "t03", landed = true, seconds = 31, tokens = 353900, cost_usd = 0.2393 },
+  { run = 1, level = 11, arm = "t3-files", task = "t04", landed = true, seconds = 15, tokens = 155629, cost_usd = 0.1329 },
+  { run = 1, level = 11, arm = "t3-files", task = "t05", landed = true, seconds = 18, tokens = 155974, cost_usd = 0.136 },
+  { run = 1, level = 11, arm = "t3-files", task = "t01", landed = true, seconds = 19, tokens = 195401, cost_usd = 0.1905 },
+  { run = 1, level = 11, arm = "t3-files", task = "t02", landed = true, seconds = 21, tokens = 195545, cost_usd = 0.1631 },
+  { run = 1, level = 11, arm = "t3-files", task = "t03", landed = true, seconds = 25, tokens = 275876, cost_usd = 0.1814 },
+  { run = 1, level = 15, arm = "t3-files", task = "t05", landed = true, seconds = 23, tokens = 234289, cost_usd = 0.1943 },
+  { run = 1, level = 15, arm = "t3-files", task = "t03", landed = true, seconds = 24, tokens = 196681, cost_usd = 0.194 },
+  { run = 1, level = 15, arm = "t3-files", task = "t01", landed = true, seconds = 25, tokens = 234011, cost_usd = 0.1924 },
+  { run = 1, level = 15, arm = "t3-files", task = "t04", landed = true, seconds = 25, tokens = 233980, cost_usd = 0.1929 },
+  { run = 1, level = 15, arm = "t3-files", task = "t02", landed = true, seconds = 26, tokens = 233543, cost_usd = 0.1909 },
 ]
 reading = "undecided until T3 Code's noise band is measured"
 open = [
@@ -71,6 +101,8 @@ rows = [
 [cells]
 1 = "small one-worker cell"
 5 = "small five-at-once cell"
+11 = "small one-worker cell on the later release runtime, cold start (the registered three-run set)"
+15 = "small five-at-once cell on the later release runtime, cold start (the registered three-run set)"
 
 [arms]
 north = "north"
