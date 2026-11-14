@@ -20,8 +20,6 @@ pub enum Phase {
     IdleExited,
     /// Its host ended after its final report.
     HostEnded,
-    /// Its host exited with no stop and no final report; nothing revives it unasked.
-    HostLost,
     /// Stopped by a command: stop, forget, relaunch, an interactive hand-off or a take-over.
     Stopped,
     /// Bound to an interactive window, which north does not host.
@@ -31,7 +29,7 @@ pub enum Phase {
 }
 
 impl State for Phase {
-    const ALL: &'static [Self] = &[Self::Live, Self::Parked, Self::IdleExited, Self::HostEnded, Self::HostLost, Self::Stopped, Self::Adopted, Self::Retired];
+    const ALL: &'static [Self] = &[Self::Live, Self::Parked, Self::IdleExited, Self::HostEnded, Self::Stopped, Self::Adopted, Self::Retired];
 
     fn name(self) -> &'static str {
         match self {
@@ -39,10 +37,16 @@ impl State for Phase {
             Self::Parked => "parked",
             Self::IdleExited => "idle-exited",
             Self::HostEnded => "host-ended",
-            Self::HostLost => "host-lost",
             Self::Stopped => "stopped",
             Self::Adopted => "adopted",
             Self::Retired => "retired",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "host-lost" => Some(Self::Parked),
+            _ => Self::ALL.iter().copied().find(|state| state.name() == name),
         }
     }
 }
@@ -50,7 +54,7 @@ impl State for Phase {
 impl Phase {
     /// The session ended: nothing revives it unasked, and `fleet list` shows it exited.
     pub fn ended(self) -> bool {
-        matches!(self, Self::IdleExited | Self::HostEnded | Self::HostLost | Self::Stopped | Self::Retired)
+        matches!(self, Self::IdleExited | Self::HostEnded | Self::Stopped | Self::Retired)
     }
 
     /// The label `fleet list --json` has always printed as `ended`.
@@ -58,7 +62,6 @@ impl Phase {
         match self {
             Self::IdleExited => Some("idle-exit"),
             Self::HostEnded => Some("host-ended"),
-            Self::HostLost => Some("host-lost"),
             Self::Stopped => Some("stopped"),
             Self::Retired => Some("retired"),
             Self::Live | Self::Parked | Self::Adopted => None,
@@ -73,11 +76,11 @@ impl Lifecycle for Session {
     type State = Phase;
 
     fn legal(from: Option<Phase>, to: Phase) -> bool {
-        use Phase::{Adopted, HostEnded, HostLost, IdleExited, Live, Parked, Retired, Stopped};
+        use Phase::{Adopted, HostEnded, IdleExited, Live, Parked, Retired, Stopped};
         match (from, to) {
             (None, _) => true,
             (Some(Retired), _) | (Some(Adopted), Live) => false,
-            (Some(_), Live) | (Some(Live), Parked | IdleExited | HostEnded) | (Some(Live | Parked), HostLost) | (Some(_), Stopped) | (Some(Stopped), Retired) | (Some(Adopted), Adopted) => true,
+            (Some(_), Live) | (Some(Live), Parked | IdleExited | HostEnded) | (Some(_), Stopped) | (Some(Stopped), Retired) | (Some(Adopted), Adopted) => true,
             _ => false,
         }
     }

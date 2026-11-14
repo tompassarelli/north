@@ -9,8 +9,8 @@ use crate::error::NorthResult;
 
 use super::super::gates::GateRequest;
 use super::super::host::{Host, alive};
-use super::super::model::{Delivery, Phase, Role, SessionRecord, Status};
-use super::super::receipts::{Aftermath, Courier, HostDeath, deliver_death, report_lost, still_watched};
+use super::super::model::{Delivery, Role, SessionRecord, Status};
+use super::super::receipts::{Aftermath, Courier, HostDeath, deliver_death, still_watched};
 use super::super::records::write_record;
 use super::super::runtime::{Runtime, binary, new_uuid, now_ms};
 use super::super::sender::Sender;
@@ -48,25 +48,8 @@ impl Fleet {
         match deliver_death(self.ledger.as_ref(), &Inline(self), &death, now_ms())? {
             Aftermath::Revive => self.revive_mid_task(name, host_pid),
             Aftermath::Reported => Host::new(child.host_dir.clone()).terminate(),
-            Aftermath::Lost => self.end_lost_host(name, &death),
             Aftermath::Quiet => self.resume_unaccepted(name, host_pid),
         }
-    }
-
-    fn end_lost_host(&self, name: &str, death: &HostDeath) -> NorthResult<()> {
-        {
-            let _start = self.start_lock(name)?;
-            let Ok(child) = self.record(name) else { return Ok(()) };
-            if !still_watched(Some(&child), death.host_pid) {
-                return Ok(());
-            }
-            if Unaccepted::awaits_a_host(&child.host_dir) {
-                self.revive_held(name, None, None, None)?;
-                return Ok(());
-            }
-            self.phases()?.moved(child.launch(), Phase::HostLost, &format!("its host {} exited with no stop", death.host_pid))?;
-        }
-        report_lost(self.ledger.as_ref(), &Inline(self), death, now_ms())
     }
 
     fn revive_mid_task(&self, name: &str, dead_host: u32) -> NorthResult<()> {

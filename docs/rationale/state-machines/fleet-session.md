@@ -7,10 +7,8 @@ do not edit. The landing refuses a page that differs from what the check generat
 stateDiagram-v2
     state "idle-exited" as idle_exited
     state "host-ended" as host_ended
-    state "host-lost" as host_lost
     [*] --> adopted
     [*] --> host_ended
-    [*] --> host_lost
     [*] --> idle_exited
     [*] --> live
     [*] --> parked
@@ -20,17 +18,13 @@ stateDiagram-v2
     adopted --> stopped
     host_ended --> live
     host_ended --> stopped
-    host_lost --> live
-    host_lost --> stopped
     idle_exited --> live
     idle_exited --> stopped
     live --> host_ended
-    live --> host_lost
     live --> idle_exited
     live --> live: also from a live holder
     live --> parked: holder gone
     live --> stopped: also from a live holder
-    parked --> host_lost
     parked --> live
     parked --> stopped
     stopped --> live
@@ -39,7 +33,7 @@ stateDiagram-v2
     retired --> [*]
 ```
 
-- Checked: 35 situations and 1136 steps, every ordering of three processes (two on one host, one on
+- Checked: 32 situations and 943 steps, every ordering of three processes (two on one host, one on
   another) that each try every move for every holder and settle the instance, the death of the process holding
   the state, and its dwell running out.
 - Two instances: the first through every ordering above, the second attempting to start at each of the first's situations, gated by the machine's real admission path, and two launches racing from no record; the `together` promise names the situations in which no second instance may start.

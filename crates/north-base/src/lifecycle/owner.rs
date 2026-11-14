@@ -55,9 +55,5 @@ impl Liveness for Proc {
 
 fn started(pid: u32) -> Option<u64> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let mut fields = stat.rsplit_once(')')?.1.split_whitespace();
-    if fields.next()? == "Z" {
-        return None;
-    }
-    fields.nth(18)?.parse().ok()
+    stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
 }

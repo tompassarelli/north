@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use north_base::foundation::clock::Timestamp;
-use north_base::lifecycle::{FaultKind, Store};
+use north_base::lifecycle::{FaultKind, Lifecycle, State, Store};
 use crate::fleet::session_lifecycle::{Session, store_path};
 use serde_json::json;
 
@@ -11,12 +11,11 @@ use crate::error::NorthError;
 use crate::fleet::fakes::{Paper, Stream};
 use crate::fleet::limit::{AccountResets, park_limited};
 use crate::fleet::model::{Delivery, Phase, Status};
-use crate::fleet::records::{read_record, write_record};
-use crate::fleet::registry::fixtures::live;
-use crate::fleet::sender::Sender;
+use crate::fleet::records::read_record;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::runtimes::Runtimes;
+use crate::fleet::sender::Sender;
 use crate::fleet::waits::Run;
 
 fn fleet(home: &Path) -> Fleet {
@@ -53,20 +52,12 @@ fn a_retired_session_refuses_a_revival_and_keeps_its_retired_record_with_the_rep
 }
 
 #[test]
-fn a_host_killed_with_no_stop_is_orphaned_and_parked_on_the_next_read_then_ended_by_its_watchdog_which_tells_the_parent_and_a_send_to_it_says_it_ended_north_1054() {
+fn a_host_killed_mid_turn_is_an_orphaned_fault_until_the_next_read_parks_its_session_and_a_stored_host_lost_reads_as_parked_and_takes_a_send() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path());
-    let boss = live(&fleet, "boss");
     let dir = mid_turn(&fleet, "worker");
-    append(&dir, &[
-        json!({"type": "assistant", "session_id": "worker", "message": {"content": [{"type": "text", "text": "Not done: waiting."}]}}),
-        json!({"type": "result", "subtype": "success", "session_id": "worker"}),
-    ]);
     let mut host = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();
-    let mut started = read_record(&dir).unwrap();
-    started.parent = Some("boss".into());
-    started.host_pid = Some(host.id());
-    write_record(&dir, &started).unwrap();
+    let started = read_record(&dir).unwrap();
     assert_eq!(fleet.phases().unwrap().live(started.launch(), Some(host.id()), "a session host started for it").unwrap(), Phase::Live);
 
     host.kill().unwrap();
@@ -79,14 +70,46 @@ fn a_host_killed_with_no_stop_is_orphaned_and_parked_on_the_next_read_then_ended
     assert_eq!((read.phase(), fleet.status(&read)), (Some(Phase::Parked), Status::Parked));
     assert!(store.faults(Timestamp::now()).unwrap().is_empty());
 
-    fleet.guard("worker").unwrap();
-
-    let ended = read_record(&dir).unwrap();
-    assert_eq!((ended.phase(), fleet.status(&ended)), (Some(Phase::HostLost), Status::Exited));
-    let told = boss.frames.lock().unwrap().join("\n");
-    assert!(told.contains("worker") && told.contains(&format!("host {} exited with no stop", host.id())), "{told}");
+    let mut store = store;
+    store.transition::<Earlier>(&read.launch().instance(), Earlier::HostLost, "a build that had host-lost wrote it", Timestamp::now()).unwrap().unwrap();
+    let lost = read_record(&dir).unwrap();
+    assert_eq!((lost.phase(), fleet.status(&lost)), (Some(Phase::Parked), Status::Parked));
     let sent = fleet.send_message(&Sender::fleet(), "worker", "are you there", Delivery::Queued);
-    assert!(matches!(&sent, Err(NorthError::Refused(why)) if why.contains("worker ended")), "{sent:?}");
+    assert!(!matches!(&sent, Err(NorthError::Refused(why)) if why.contains("ended")), "{sent:?}");
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Earlier {
+    Parked,
+    HostLost,
+}
+
+impl State for Earlier {
+    const ALL: &'static [Self] = &[Self::Parked, Self::HostLost];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Parked => "parked",
+            Self::HostLost => "host-lost",
+        }
+    }
+}
+
+impl Lifecycle for Earlier {
+    const NAME: &'static str = Session::NAME;
+    type State = Self;
+
+    fn legal(_: Option<Self>, _: Self) -> bool {
+        true
+    }
+
+    fn dwell(_: Self) -> Option<std::time::Duration> {
+        None
+    }
+
+    fn orphan(_: Self) -> Option<Self> {
+        None
+    }
 }
 
 #[test]
@@ -175,7 +198,7 @@ fn fleet_session_model_is_sound() {
     use north_machine_model::{Promises, Together, explore_together};
     use crate::fleet::session_lifecycle::claim;
     let together = Together {
-        alone: &[Phase::Live, Phase::Parked, Phase::IdleExited, Phase::HostEnded, Phase::HostLost, Phase::Stopped, Phase::Adopted],
+        alone: &[Phase::Live, Phase::Parked, Phase::IdleExited, Phase::HostEnded, Phase::Stopped, Phase::Adopted],
         admits: |other| match other {
             Phase::Retired => true,
             _ => tempfile::tempdir().is_ok_and(|root| {
