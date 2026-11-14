@@ -150,7 +150,7 @@ pub(super) struct Starting<'a> {
 pub(super) fn launch_script(spec: &HostSpec, held: &Path, starting: &Starting, detached: Duration, properties: &[String]) -> String {
     let Starting { unit, dir, nonce, conversation } = *starting;
     let (q_unit, q_dir) = (quote(unit), quote(dir));
-    let binding = conversation.map_or_else(|| format!(" && rm -f {BOUND_CONVERSATION}"), |conversation| format!(" && printf %s {} > {BOUND_CONVERSATION}.tmp && mv {BOUND_CONVERSATION}.tmp {BOUND_CONVERSATION}", quote(conversation)));
+    let binding = conversation.map_or_else(|| format!(" && rm -f {BOUND_CONVERSATION}"), |conversation| format!(" && printf %s {} > {BOUND_CONVERSATION}.launch && mv {BOUND_CONVERSATION}.launch {BOUND_CONVERSATION}", quote(conversation)));
     let mut launch = format!(
         "sh -c {} {} {q_unit} </dev/null >/dev/null 2>&1 & systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce binding limit && : > in && : > out && : > err && printf %s {} > nonce{binding} && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group --property=IOAccounting=yes \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
