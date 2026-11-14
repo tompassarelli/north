@@ -186,9 +186,14 @@ fn handed_to_live(layout: &Layout) -> Option<String> {
 /// The standing hold that keeps `landing` off the host `facts` describe while its runtime predates the landing, read under the deploy name a hold names that host by.
 fn held_off(landing: Option<&Landing>, store: &Path, facts: &probe::Facts, live: impl Fn(&str) -> bool) -> Option<String> {
     let landing = landing.filter(|_| facts.runtime.as_deref().is_some_and(|runtime| !live(runtime)))?;
+    holding(store, &landing.sha, &facts.host)
+}
+
+/// The standing hold that keeps `head` off `host`, read under the deploy name a hold names that host by.
+pub(super) fn holding(store: &Path, head: &str, host: &str) -> Option<String> {
     let deployment = land_offload::deployment();
-    let name = deployment.destinations.iter().position(|destination| *destination == facts.host).map_or(facts.host.as_str(), |at| deployment.names[at].as_str());
-    Screen::here(store).holding(&landing.sha, name)
+    let name = deployment.destinations.iter().position(|destination| destination == host).map_or(host, |at| deployment.names[at].as_str());
+    Screen::here(store).holding(head, name)
 }
 
 fn judged_problems(facts: &mut probe::Facts, landing: Option<&Landing>, store: &Path, live: impl Fn(&str) -> bool, growth: &mut Growth) -> (Vec<String>, Option<String>) {

@@ -90,14 +90,15 @@ the live runtime's list before any probe runs, and the probes it keeps by name w
 with its own commit left out, so a probe emptied under its old name shows as changed (north#1022).
 
 `north runtime lag --json` answers the fleet-wide question (north#1081): a JSON array with one object per long-lived
-process on every declared host, `host`, `process`, `runtime` and `seconds`. The settling host asks each other host for
-its own list with `north runtime lag --processes --json` over ssh, and times each process from the first landing in
-`runtime-pins.jsonl` that changed a runtime input which the runtime it runs does not hold, so a host stuck behind
-several landings keeps growing instead of resetting at each new one; a process on a runtime it holds every landing of
-reads 0, one whose runtime cannot be named is timed from the newest landing, and a host that did not answer is one
+process on every declared host, `host`, `process`, `runtime`, `linked` and `seconds`. The settling host asks each other host for
+its runtime link, the link's mtime and its own list with `north runtime lag --processes --json` over ssh, and `seconds`
+is how long the process has stayed behind since its host's runtime link swapped: a process on the linked runtime or one
+built on it reads 0, any other process, one whose runtime cannot be named too, reads the seconds since the swap, so a
+promotion pages nothing while services restart onto the new link (north#1540). A host a standing review hold keeps off
+the pin reads 0 with the hold in `hold`, and a host that did not answer is one
 object with a null `seconds` and its reason in `unread`. The settling host's fleet tick starts `north runtime lag --sample` in a scope of its own, at most once a minute, so the
 reading does not stop with the stable pin. Each sample appends the worst reading to `runtime-lag.jsonl`, which the
-`ready-runtime-lag` bar reads (at most 5 min). A session process more than `runtime_promotion_slot_sec` behind the pin (it keeps the runtime it started on by design) pages the proxy once, keyed
+`ready-runtime-lag` bar reads (at most 5 min). A session process more than `runtime_promotion_slot_sec` behind since its host's swap (it keeps the runtime it started on by design) pages the proxy once, keyed
 `runtime-lag`, and the episode ends when no session process does. A host service (a broker, lander, watchdog or the
 offload taker; a worker sandbox broker is a session's own) pages the proxy by name, keyed `runtime-lag:HOST:PROCESS`, each
-time it starts to lag past 5 min, and a cleared notice ends its episode once it is back under 5 min; an unreadable host keeps its episodes open. Open episodes live in `runtime-lag-episodes.json`.
+time it has stayed behind past 10 min since its host took the new runtime, and a cleared notice ends its episode once it is back under 10 min; an unreadable host keeps its episodes open. Open episodes live in `runtime-lag-episodes.json`.
