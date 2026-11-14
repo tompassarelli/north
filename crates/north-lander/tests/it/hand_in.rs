@@ -499,11 +499,19 @@ fn a_hand_in_that_names_a_deleted_path_lands_its_deletion() {
     assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--others"])), (String::new(), "a.txt".to_owned()), "the unnamed file was staged");
 }
 
+fn handing(world: &World, message: &str, path: &Path) -> Child {
+    queueing(world, "hand_in::a_handed_in_lane_keeps_its_message_and_live_fix_trailer", VERB_ARGUMENTS, &["--message", message, "--", path.to_str().unwrap()]).spawn().unwrap()
+}
+
 #[test]
 fn a_handed_in_lane_keeps_its_message_and_live_fix_trailer() {
     if let Ok(arguments) = std::env::var(VERB_ARGUMENTS) {
         let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
-        let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string(), "--wait".to_owned()]);
+        let road = |lane: &hand_in::Lane| {
+            let file = Path::new(&std::env::var("NORTH_TEST_ROOT").unwrap()).join("landing-message");
+            fs::write(&file, &lane.message).unwrap();
+            enqueue::run(&["--repo".to_owned(), lane.root.display().to_string(), "--message".to_owned(), file.display().to_string(), "--wait".to_owned()])
+        };
         std::process::exit(i32::from(hand_in::run(&arguments, road)));
     }
     let (world, north) = scanned_world(JUDGE_PASSES);
@@ -513,10 +521,24 @@ fn a_handed_in_lane_keeps_its_message_and_live_fix_trailer() {
     let message = "Name the change once\n\nWhy it lands.\n\nLive-fix: the lander is red";
     git(&lane, &["commit", "-qm", message]);
 
-    let (output, journal) = decided(&world, &north, verb(&world, "", &[&lane.join("carried.txt")]));
+    let (output, journal) = decided(&world, &north, handing(&world, "", &lane.join("carried.txt")));
     let text = report(&output);
     assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
     assert_eq!(git(&north.origin, &["log", "-1", "--format=%B", "main"]), message, "a committed lane handed in with no message did not land under its head's message: {text}");
+
+    git(&north.checkout, &["fetch", "-q", "origin"]);
+    let lane = worktree(&north, "named");
+    fs::write(lane.join("named.txt"), "the named change\n").unwrap();
+    git(&lane, &["add", "named.txt"]);
+    git(&lane, &["commit", "-qm", "Name the change twice\n\nWhy it lands.\n\nItem: north#1540\nBox: the lane head's box\nLive-fix: the lander is red\n\nCo-Authored-By: A <a@example.com>"]);
+    let (output, journal) = decided(&world, &north, handing(&world, "Name the change twice", &lane.join("named.txt")));
+    let text = report(&output);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert_eq!(
+        git(&north.origin, &["log", "-1", "--format=%B", "main"]),
+        "Name the change twice\n\nItem: north#1540\nBox: the lane head's box\nLive-fix: the lander is red\nCo-Authored-By: A <a@example.com>",
+        "a hand-in message without trailers dropped the lane head's own: {text}"
+    );
 }
 
 #[test]

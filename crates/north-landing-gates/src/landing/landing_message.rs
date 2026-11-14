@@ -13,14 +13,12 @@ fn is_trailer(line: &str) -> bool {
         && key.chars().all(|character| character.is_ascii_alphanumeric() || character == '-')
 }
 
-pub(super) fn split_trailers(message: &str) -> (String, Vec<String>) {
-    let message = message.trim_end();
-    let Some((head, last)) = message.rsplit_once("\n\n") else { return (message.to_owned(), Vec::new()) };
-    let lines: Vec<&str> = last.lines().filter(|line| !line.trim().is_empty()).collect();
+fn trailer_block(paragraph: &str) -> Option<Vec<String>> {
+    let lines: Vec<&str> = paragraph.lines().filter(|line| !line.trim().is_empty()).collect();
     if lines.first().is_none_or(|line| !is_trailer(line))
         || !lines.iter().all(|line| is_trailer(line) || line.starts_with([' ', '\t']))
     {
-        return (message.to_owned(), Vec::new());
+        return None;
     }
     let mut trailers: Vec<String> = Vec::new();
     for line in lines {
@@ -32,22 +30,40 @@ pub(super) fn split_trailers(message: &str) -> (String, Vec<String>) {
             _ => trailers.push(line.trim_end().to_owned()),
         }
     }
-    (head.trim_end().to_owned(), trailers)
+    Some(trailers)
+}
+
+pub(super) fn split_trailers(message: &str) -> (String, Vec<String>) {
+    let mut head = message.trim_end();
+    let mut blocks = Vec::new();
+    while let Some((rest, last)) = head.rsplit_once("\n\n")
+        && let Some(block) = trailer_block(last)
+    {
+        blocks.push(block);
+        head = rest.trim_end();
+    }
+    (head.to_owned(), blocks.into_iter().rev().flatten().collect())
+}
+
+fn key(trailer: &str) -> String {
+    trailer.split_once(": ").map_or(trailer, |(key, _)| key).to_ascii_lowercase()
 }
 
 pub(super) fn message(commits: &[&LaneCommit], supplied: Option<&str>) -> String {
-    let mut text = match supplied {
-        Some(supplied) => split_trailers(supplied).0,
+    let (supplied_text, supplied_trailers) = supplied.map(split_trailers).unzip();
+    let supplied_trailers = supplied_trailers.unwrap_or_default();
+    let mut text = match supplied_text {
+        Some(supplied_text) => supplied_text,
         None => {
             let finished: Vec<&str> = commits.iter().filter(|commit| !unfinished_subject(commit.text.lines().next().unwrap_or_default())).map(|commit| commit.text.as_str()).collect();
             if finished.is_empty() { commits[0].text.clone() } else { finished.join("\n\n") }
         }
     };
+    let named: BTreeSet<String> = supplied_trailers.iter().map(|trailer| key(trailer)).collect();
     let mut seen = BTreeSet::new();
-    let supplied_trailers = supplied.map(|supplied| split_trailers(supplied).1).unwrap_or_default();
     let trailers: Vec<&String> = supplied_trailers
         .iter()
-        .chain(commits.iter().flat_map(|commit| commit.trailers.iter()))
+        .chain(commits.iter().flat_map(|commit| commit.trailers.iter()).filter(|trailer| !named.contains(&key(trailer))))
         .filter(|trailer| seen.insert(trailer.as_str()))
         .collect();
     if !trailers.is_empty() {
