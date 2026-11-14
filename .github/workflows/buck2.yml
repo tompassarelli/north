@@ -26,10 +26,12 @@ jobs:
           dev-shell: true
       - name: Allow unprivileged user namespaces for the worker sandbox tests
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Test temporary files in memory, under /tmp where the recorder tests expect them
+        run: sudo mkdir -p /tmp/cases && sudo mount -t tmpfs -o size=8g,mode=1777 tmpfs /tmp/cases
       - name: Test
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         env:
-          TMPDIR: /tmp
+          TMPDIR: /tmp/cases
         run: buck2 test -c "north.test_path=$PATH:/usr/local/bin:/usr/bin:/bin" //...
       - name: Build north for the harness tests
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
