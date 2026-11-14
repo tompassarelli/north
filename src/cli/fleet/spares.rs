@@ -1,4 +1,4 @@
-//! `north spare-fill NAME`, `north spare-fill --host HOST -- LAUNCH-WORDS` and `north spare-retire HOST DIR`: the fill each launch of a worker on a build host starts apart from itself, keeping spares there for the next launch like it, the same fill ahead of a first launch, and the call that takes down every spare under a directory tree.
+//! `north spare-fill NAME`, `north spare-fill --refresh` (the refill a promotion starts), `north spare-fill --host HOST -- LAUNCH-WORDS` and `north spare-retire HOST DIR`: the fill each launch of a worker on a build host starts apart from itself, keeping spares there for the next launch like it, the same fill ahead of a first launch, and the call that takes down every spare under a directory tree.
 use super::router::open_fleet;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
@@ -7,10 +7,11 @@ use crate::fleet::spares;
 
 pub fn fill(arguments: &[String]) -> u8 {
     let filled = match arguments {
+        [flag] if flag == "--refresh" => open_fleet().and_then(|fleet| fleet.refresh_spares()),
         [name] => open_fleet().and_then(|fleet| fleet.fill_spares(name)),
         [flag, host, dashes, words @ ..] if flag == "--host" && dashes == "--" && !words.is_empty() => open_fleet().and_then(|fleet| fill_ahead(&fleet, host, words)),
         _ => {
-            eprintln!("Usage: north spare-fill NAME | north spare-fill --host HOST -- LAUNCH-WORDS");
+            eprintln!("Usage: north spare-fill NAME | north spare-fill --refresh | north spare-fill --host HOST -- LAUNCH-WORDS");
             return 2;
         }
     };

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::thread::ScopedJoinHandle;
@@ -10,6 +11,9 @@ use crate::fleet::spares::{self, Place, Taken};
 use crate::fleet::store::Claim;
 
 use super::{Fleet, efforts, reserve};
+
+/// How recent a launch must be for a promotion to refill spares like it; a guess at a working day of one kind, which the share of warm takes after a promotion would settle.
+const REFRESH_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
 
 impl Fleet {
     /// A spare for a fresh launch, taken once its record is registering so the take runs beside that registration, with `record` moved onto the spare's conversation and directory; with it the request as the spare serves it, and `shown`'s first prompt, after which a lane the spare took over is removed.
@@ -51,6 +55,21 @@ impl Fleet {
     pub fn fill_spares_ahead(&self, request: &LaunchRequest) -> NorthResult<String> {
         let runtime = self.runtimes.get(&request.provider)?;
         self.fill_for(request, efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort, &request.name)?)
+    }
+
+    /// `north spare-fill --refresh`: refills, under this runtime, the spares of each kind of worker launched on a build host within [`REFRESH_WINDOW_MS`], from its latest launch. A spare's fingerprint carries the runtime, so each promotion orphaned the whole pool and the next launch of every kind started cold (north#1531).
+    pub fn refresh_spares(&self) -> NorthResult<String> {
+        let since = crate::fleet::runtime::now_ms().saturating_sub(REFRESH_WINDOW_MS);
+        let mut latest: BTreeMap<String, SessionRecord> = BTreeMap::new();
+        for record in self.sessions()?.into_iter().filter(|record| fill_wanted(record) && record.created_ms >= since) {
+            let request = LaunchRequest::relaunching(&record);
+            let machine = record.machine.as_ref().map(|machine| machine.name.clone()).unwrap_or_default();
+            let key = format!("{machine}-{}", spares::kind(&record.account, record.model.as_deref(), record.effort.map(Effort::label), request.window(), &record.cwd));
+            if latest.get(&key).is_none_or(|held| held.created_ms < record.created_ms) {
+                latest.insert(key, record);
+            }
+        }
+        Ok(latest.values().map(|record| self.fill_spares(&record.name).unwrap_or_else(|error| format!("{}: {}", record.name, error.user_message()))).collect::<Vec<_>>().join("\n"))
     }
 
     /// Keeps spares for launches like the worker `request` at `effort` on its build host, retiring those whose policy text, settings or runtime are no longer current.

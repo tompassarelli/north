@@ -71,6 +71,7 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
     let Some((step, status)) = failure else {
         let logged = fs::read_to_string(log.path()).unwrap_or_default();
         publication_notice(layout, target, unpublished.map(|status| (status, logged.as_str())), notify);
+        refill_spares(&layout.runtime(target).join("north"));
         return Ok(logged.lines().map(|line| crate::foundation::redact::redact(line) + "\n").collect());
     };
     match previous {
@@ -175,6 +176,13 @@ fn health_check(layout: &Layout) -> Command {
     let mut command = Command::new(layout.current().join("north"));
     command.args(["runtime", "health"]);
     command
+}
+
+/// Starts the live runtime's `north spare-fill --refresh` apart from the update, since a spare's fingerprint carries the runtime and the promotion just orphaned every spare (north#1531).
+fn refill_spares(north: &Path) {
+    let mut refill = Command::new(north);
+    refill.args(["spare-fill", "--refresh"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    let _ = std::os::unix::process::CommandExt::process_group(&mut refill, 0).spawn();
 }
 
 fn agents_sync(north: &Path) -> Command {
