@@ -12,18 +12,23 @@ pub const HOOK_TIMEOUT_SECS: u32 = 60;
 
 /// `work`'s answer when it comes before `deadline`, else None. The deadline bounds the hook's own time, running or blocked on what it waits for; the time a loaded host left it runnable but off a CPU moves the deadline later, up to the runtime's [`HOOK_TIMEOUT_SECS`], so a busy host does not turn a guard's answer into an empty one (north#1296).
 pub fn within<T: Send + 'static>(deadline: Instant, work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
-    let ceiling = Instant::now() + Duration::from_secs(HOOK_TIMEOUT_SECS.into());
+    let start = Instant::now();
+    within_by(deadline.saturating_duration_since(start), &|| start.elapsed(), work)
+}
+
+pub fn within_by<T: Send + 'static>(limit: Duration, elapsed: &dyn Fn() -> Duration, work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let ceiling = Duration::from_secs(HOOK_TIMEOUT_SECS.into());
     let starved_before = run_delay();
     let (sender, receiver) = mpsc::channel();
     let worker = std::thread::spawn(move || {
         let _ = sender.send(work());
     });
-    let mut until = deadline;
+    let mut until = limit;
     loop {
-        match receiver.recv_timeout(until.saturating_duration_since(Instant::now())) {
+        match receiver.recv_timeout(until.saturating_sub(elapsed())) {
             Ok(done) => return Some(done),
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                let moved = (deadline + run_delay().saturating_sub(starved_before)).min(ceiling);
+                let moved = (limit + run_delay().saturating_sub(starved_before)).min(ceiling);
                 if moved <= until {
                     return None;
                 }

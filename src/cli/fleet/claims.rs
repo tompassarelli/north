@@ -261,7 +261,6 @@ pub(super) fn hold(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
-    use std::time::Instant;
 
     use super::*;
 
@@ -297,11 +296,12 @@ mod tests {
         assert_eq!(late.hold("north#7@the box", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Held);
         assert!(spooled.lock().unwrap().is_empty(), "the claim was left in the spool: {:?}", spooled.lock().unwrap());
 
-        let (_slow, slow) = ledger("sleep 30", &spooled);
-        let begun = Instant::now();
+        let answered = tempfile::tempdir().unwrap();
+        let marker = answered.path().join("answered");
+        let (_slow, slow) = ledger(&format!("sleep 30; touch {}", marker.display()), &spooled);
         assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Queued("spooled".to_owned()));
         slow.release("north#7", "cpx62-worker").unwrap();
-        assert!(begun.elapsed() < Duration::from_secs(25), "a call waited for the ledger's 30 s answer: {:?}", begun.elapsed());
+        assert!(!marker.exists(), "a call waited for the ledger's 30 s answer");
         let words: Vec<Vec<String>> = spooled.lock().unwrap().clone();
         assert_eq!(words, [vec!["claim", "north#7", "--by", "cpx62-worker"], vec!["release", "north#7", "--by", "cpx62-worker", "--held-by", "cpx62-worker"]]);
 

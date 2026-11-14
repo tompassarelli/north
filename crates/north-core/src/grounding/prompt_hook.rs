@@ -76,15 +76,17 @@ fn hook_error(file: &Path, kind: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::foundation::hook_deadline::within_by;
 
     #[test]
     fn a_stuck_decider_is_abandoned_at_the_deadline_with_a_note_instead_of_hanging() {
-        let started = Instant::now();
-        let stuck = within(started + Duration::from_millis(100), || {
-            std::thread::sleep(Duration::from_secs(5));
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let stuck = within_by(Duration::from_secs(1), &|| Duration::from_secs(1), move || {
+            let _ = held.recv();
             Some("never".to_owned())
         });
         assert!(stuck.is_none());
+        drop(release);
         let dir = tempfile::tempdir().unwrap();
         let errors = dir.path().join("errors.tsv");
         let note = conclude(stuck, &errors).unwrap();

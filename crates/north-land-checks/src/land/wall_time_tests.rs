@@ -17,11 +17,6 @@ const JUDGED_BY_COST: [&str; 1] = ["crates/north-replay/src/"];
 const COST_TIMING: &str = r"Instant::now\(|\.elapsed\(\)|SystemTime::now\(|/proc/loadavg|/proc/pressure";
 const SUB_SECOND_BUDGET: &str = r"[(,]\s*Duration::from_millis\(\s*\d{1,3}\s*\)\s*[,)]";
 const INJECTED_CLOCK: &str = r"&\|\|";
-const CONTRACT_DEADLINES: [(&str, &str); 3] = [
-    ("crates/north-core/src/grounding/prompt_hook.rs", "the case hands within() a 100 ms deadline and a decider that sleeps 5 s; abandoning it at that deadline is the contract, and load can only make the abandonment later, never make the decider answer"),
-    ("crates/north-runtime/src/runtime/bounded.rs", "the case hands the command a 200 ms limit over a 30 s sleep; the kill at the limit is the contract, and its 10 s ceiling is a hang guard 20 times under the sleep"),
-    ("src/cli/fleet/claims.rs", "the case hands a claim a 300 ms bound over a 30 s sleep; spooling past that bound is the contract, and its 10 s ceiling is a hang guard under the sleep"),
-];
 const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 3] = [
     ("crates/north-base/src/platform/process.rs", "a negative wait: load can only end the 200 ms wait later, never make the gated command finish, so the assertion holds at any budget"),
     ("crates/north-fleet/src/fleet/rebooted_tests.rs", "the revive is held until its release, so the 100 ms budget only bounds how promptly the pass returns and the deferral does not depend on it"),
@@ -100,7 +95,7 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let rust = rust_files();
     assert!(rust.len() > 100, "listed {} Rust files", rust.len());
     let test_code = Regex::new(TEST_CODE).unwrap();
-    let tests: Vec<String> = rust.iter().filter(|path| !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE && !CONTRACT_DEADLINES.iter().any(|(allowed, _)| path.as_str() == *allowed)).cloned().collect();
+    let tests: Vec<String> = rust.iter().filter(|path| !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE).cloned().collect();
     let inline = tests.iter().filter(|path| !test_code.is_match(path) && !test_text(path).trim().is_empty()).count();
     assert!(inline > 20, "only {inline} files with an inline test module were scanned");
     let checks: Vec<String> = rust.iter().filter(|path| JUDGED_BY_COST.iter().any(|check| path.starts_with(check)) && !test_code.is_match(path)).cloned().collect();
