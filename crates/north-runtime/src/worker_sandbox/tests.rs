@@ -371,6 +371,8 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     let records = context.home.join(north_base::foundation::offload::SLOT_RECORDS);
     std::fs::create_dir_all(&records).unwrap();
     assert!(!roots.iter().chain(&written).any(|path| records.starts_with(path) || path.starts_with(&records)), "a worker may write or remove a build slot's record under {}, which tells the broker the project a request from that slot is served as", records.display());
+    let rewrites = north_base::foundation::stale_rewrites::file(&context.home);
+    assert!(!roots.iter().chain(&written).any(|path| rewrites.starts_with(path) || path.starts_with(&rewrites)), "a worker may write the 24-hour closer's rewrites record {}, which widens a lead's launch grant", rewrites.display());
 }
 
 #[test]

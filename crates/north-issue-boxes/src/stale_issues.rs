@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::foundation::clock::Timestamp;
+use crate::foundation::stale_rewrites;
 use crate::threads::client::threads_database;
 use north_ops::ops::stale_issues::{self as sweep, Hands, Lanes, Owners, Record, Stale};
 
@@ -15,12 +16,13 @@ const SENDER: &str = "service:north-stale-issues";
 const USAGE: &str = "usage: north issue close-stale [--dry-run]
 
 Closes every open issue of north and south created more than 24 hours ago as not planned, with a comment that names the 24-hour rule,
-the issue's open boxes and the unlanded lanes whose Item: names it, and messages the issue's last owner session (the newest claim on it, else its Owner: line, else proxy) to file a finishable successor and re-point those lanes. Each issue is messaged once:
+the issue's open boxes and the unlanded lanes whose Item: names it, and files a successor carrying the open boxes, records the rewrite under ~/.local/state/north/stale-rewrites.tsv, which no worker command writes (a lead holding the closed issue launches on the successor), and messages the issue's last owner session (the newest claim on it, else its Owner: line, else proxy) to split the successor if a box needs more than a day and re-point those lanes. Each issue is messaged once:
 the messaged issues are recorded under ~/.local/state/north/stale-issues.txt. --dry-run prints what would happen and
 changes nothing. An hourly timer runs it.";
 
 struct Live {
     repository: String,
+    rewrites: PathBuf,
 }
 
 impl Hands for Live {
@@ -34,10 +36,28 @@ impl Hands for Live {
         let args = ["issue".to_owned(), "close".to_owned(), number.to_string(), "-R".to_owned(), self.repository.clone(), "--reason".to_owned(), "not planned".to_owned(), "--comment".to_owned(), comment.to_owned()];
         crate::platform::github::run_patiently(&args, "north issue close-stale").map(drop)
     }
+
+    fn file(&mut self, title: &str, body: &str) -> Result<u64, String> {
+        let args = ["issue", "create", "-R", &self.repository, "--title", title, "--body", body].map(str::to_owned);
+        let url = crate::platform::github::run_patiently(&args, "north issue close-stale")?;
+        url.trim().rsplit('/').next().and_then(|number| number.parse().ok()).ok_or_else(|| format!("gh issue create printed no issue URL: {}", url.trim()))
+    }
+
+    fn recorded_successor(&mut self, closed: &str) -> Result<Option<String>, String> {
+        Ok(stale_rewrites::read(&self.rewrites)?.into_iter().find(|(recorded, _)| recorded == closed).map(|(_, successor)| successor))
+    }
+
+    fn record_successor(&mut self, closed: &str, successor: &str) -> Result<(), String> {
+        stale_rewrites::record(&self.rewrites, closed, successor)
+    }
+}
+
+fn home() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
 fn record_file() -> PathBuf {
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state/north/stale-issues.txt")
+    home().join(".local/state/north/stale-issues.txt")
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -78,13 +98,14 @@ fn close_repository(organisation: &str, name: &str, now: i64, dry_run: bool) -> 
         .map(|issue| Stale {
             number: issue.number,
             created: issue.created,
+            title: issue.title.clone(),
             owner: owners.of(issue.number, &issue.body),
-            open_boxes: checkboxes(&issue.body).into_iter().filter(|checkbox| !checkbox.ticked).map(|checkbox| checkbox.first).collect(),
+            open_boxes: checkboxes(&issue.body).into_iter().filter(|checkbox| !checkbox.ticked).map(|checkbox| checkbox.text).collect(),
             lanes: lanes.naming(issue.number),
         })
         .collect();
     let mut record = Record::open(&record_file())?;
-    let mut hands = Live { repository: format!("{organisation}/{name}") };
+    let mut hands = Live { repository: format!("{organisation}/{name}"), rewrites: stale_rewrites::file(&home()) };
     let outcome = sweep::sweep(name, &stale, now, dry_run, &mut hands, &mut record);
     outcome.lines.iter().for_each(|line| println!("{line}"));
     Ok(outcome.failed)

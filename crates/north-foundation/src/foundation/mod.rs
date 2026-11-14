@@ -11,4 +11,5 @@ pub mod limit_clock;
 pub mod offload;
 pub mod redact;
 pub mod shim;
+pub mod stale_rewrites;
 pub mod step;
