@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{features_index, help_index, rationale_index, readme, reference_index, structure_index, verbs_index};
+use crate::{features_index, help_index, rationale_index, readme, readme_large, reference_index, structure_index, verbs_index};
 
-const USAGE: &str = "usage: north docs features-index|help-index|rationale-index|readme|reference-index|structure-index|verbs-index [--check] [--root DIR]";
+const USAGE: &str = "usage: north docs features-index|help-index|rationale-index|readme|reference-index|structure-index|verbs-index [--check] [--root DIR]; north docs readme import-large [--root DIR] FILE...";
 
 pub struct Index {
     pub command: &'static str,
@@ -67,6 +67,7 @@ impl Index {
 
 pub fn run(arguments: &[String]) -> u8 {
     let result = match arguments.split_first() {
+        Some((command, rest)) if command == "readme" && rest.first().is_some_and(|verb| verb == "import-large") => readme_large::run_import(&rest[1..]),
         Some((command, rest)) => {
             let mut named = INDEXES.iter().filter(|index| index.command == command).peekable();
             if named.peek().is_none() { Err(USAGE.to_owned()) } else { named.try_for_each(|index| index.run(rest)) }

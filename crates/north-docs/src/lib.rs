@@ -5,6 +5,7 @@ mod help_index;
 mod rationale_index;
 mod readme;
 mod reference_index;
+mod readme_large;
 mod registry;
 mod structure_index;
 mod verbs_index;

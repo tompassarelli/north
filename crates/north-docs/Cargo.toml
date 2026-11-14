@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 north-registries = { path = "../north-registries" }
+serde_json.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]

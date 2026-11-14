@@ -14,7 +14,7 @@ void = [
   "run 2 of cell 25 (block w4, five at once), void under the load rule: an admission check held the host during it; rerun as run 4",
 ]
 open = [
-  "large tasks (the cells a general claim needs): not yet run",
+  "large tasks beyond the five frozen ones, and each large cell until it holds three valid runs",
   "tasks of one to ten minutes",
   "ten and twenty at once",
   "an outside benchmark",

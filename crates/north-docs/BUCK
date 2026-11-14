@@ -24,6 +24,7 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-registries:north-registries",
+        "//third-party:serde_json",
         "//third-party:toml_edit",
     ],
     visibility = ["PUBLIC"],
@@ -40,6 +41,7 @@ north_rust_test(
     deps = [
         "//crates/north-registries:north-registries",
         "//third-party:tempfile",
+        "//third-party:serde_json",
         "//third-party:toml_edit",
     ],
     visibility = ["PUBLIC"],

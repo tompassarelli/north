@@ -1368,6 +1368,7 @@ name = "north-docs"
 version = "0.1.0"
 dependencies = [
  "north-registries",
+ "serde_json",
  "tempfile",
  "toml_edit",
 ]

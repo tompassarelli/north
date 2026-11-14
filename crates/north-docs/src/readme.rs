@@ -10,6 +10,7 @@ use std::process::Command;
 use toml_edit::{DocumentMut, Item, Table};
 
 use crate::bootstrap::{self, Samples, median};
+use crate::readme_large;
 use crate::registry::{files, read};
 
 type Block = fn(&Path) -> Result<String, String>;
@@ -219,8 +220,9 @@ fn comparison(root: &Path) -> Result<String, String> {
         ));
     }
     out.push_str(&format!(
-        "\nTime ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. R's 80% interval resamples tasks and then runs within each task, 10,000 times from seed {seed}. Band N: the median over tasks of the faster {rival} arm's slowest time over its fastest across the cell's runs, read from three valid runs. Reading, on time: far ahead when R is at or below 0.67 and below 1/N, ahead when R is below 1/N, behind when R is above N, inside the band otherwise, with low confidence when the interval crosses the threshold the label is read against; a cell whose every task got slower, or faster, run after run is not read. Cost ratio: north's cost per task over the faster arm's, at the {}.\n\nNot counted:\n\n{}\nNot measured yet:\n\n{}",
+        "\nTime ratio: the median over tasks of north's mean time divided by the faster arm's, below 1 when north is faster; the faster arm is the one with the lower median in that cell, or in that run. R's 80% interval resamples tasks and then runs within each task, 10,000 times from seed {seed}. Band N: the median over tasks of the faster {rival} arm's slowest time over its fastest across the cell's runs, read from three valid runs. Reading, on time: far ahead when R is at or below 0.67 and below 1/N, ahead when R is below 1/N, behind when R is above N, inside the band otherwise, with low confidence when the interval crosses the threshold the label is read against; a cell whose every task got slower, or faster, run after run is not read. Cost ratio: north's cost per task over the faster arm's, at the {}.\n\n{}Not counted:\n\n{}\nNot measured yet:\n\n{}",
         field("price")?,
+        readme_large::section(&doc, &path)?,
         list(&doc, "void", &path)?,
         list(&doc, "open", &path)?
     ));
