@@ -205,7 +205,7 @@ fn built_host_cases(class: &[(String, String)], runs: impl FnOnce(&BTreeMap<Stri
     Ok(clean && ran == class.len() && passed == ran)
 }
 
-/// Runs the host cases of the crates in `passed` that the class names, read from the landing `base` and never from the lane at `root`, on the `declared` line narrowed to them, or from the binaries Buck2 builds when the host's `split` says so; whether there were none, or the run passed and ran as many cases as the class names.
+/// Runs the host cases of the crates in `passed` that the class names, read from the landing `base` and never from the lane at `root`, on the `declared` line narrowed to them, or from the binaries Buck2 builds when the host's `split` says so, the only host on which a line that names its own packages and tests reaches here, and there every host case of those crates runs, not only the ones the line names; whether there were none, or the run passed and ran as many cases as the class names.
 fn host_cases(root: &Path, base: Option<&str>, declared: &str, passed: &BTreeSet<String>, split: &CrateTests) -> Result<bool, String> {
     let package = |binary: &str| binary.split_once("::").map_or(binary, |(package, _)| package).to_owned();
     let class: Vec<(String, String)> = north_buck::host_class::reviewed(root, base)?.into_iter().filter(|(binary, _)| passed.contains(&package(binary))).collect();
@@ -223,7 +223,7 @@ fn host_cases(root: &Path, base: Option<&str>, declared: &str, passed: &BTreeSet
 }
 
 /// Keeps on the declared line every crate of `passed` that has a case in the class, read from the landing `base` and never from the lane at `root`, for a line that names its
-/// own packages and tests: the class run narrows the line that reads the selection variables, which such a line does
+/// own packages and tests on a host that does not build host cases with Buck2: the class run narrows the line that reads the selection variables, which such a line does
 /// not, so Buck2, which skips those cases, decides none of those crates there.
 fn hold(root: &Path, base: Option<&str>, passed: &mut BTreeSet<String>) -> Result<bool, String> {
     let package = |binary: &str| binary.split_once("::").map_or(binary, |(package, _)| package).to_owned();
@@ -272,7 +272,7 @@ fn execute(declared: &str) -> u8 {
         let cases: u64 = record.iter().flatten().filter(|run| split.owner(&run.target) == Some(name.as_str())).filter_map(TestRun::cases).map(|cases| cases.run).sum();
         eprintln!("north land crate-tests: Buck2 gave no verdict on {name} (exit {}, {cases} case(s) of it in its record), so the declared line tests it", status.map_or_else(|| "on a signal".to_owned(), |code| code.to_string()));
     }
-    let cases = if named.is_some() { hold(Path::new("."), base.as_deref(), &mut passed) } else { host_cases(Path::new("."), base.as_deref(), line, &passed, &split) };
+    let cases = if named.is_some() && !split.builds_host_cases() { hold(Path::new("."), base.as_deref(), &mut passed) } else { host_cases(Path::new("."), base.as_deref(), line, &passed, &split) };
     match cases {
         Ok(true) => {}
         Ok(false) => return FAILED,
