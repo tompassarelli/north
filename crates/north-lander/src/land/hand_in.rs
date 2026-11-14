@@ -144,7 +144,7 @@ fn paths(rest: &[String]) -> Vec<PathBuf> {
 }
 
 fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
-    let directory = std::env::current_dir().map_err(|error| format!("current directory: {error}"));
+    let directory = crate::land::freeze::unfrozen().and_then(|()| std::env::current_dir().map_err(|error| format!("current directory: {error}")));
     let facts = directory.as_deref().ok().and_then(|directory| early_facts::early_facts(directory, request, &road));
     let named = directory.and_then(|directory| name(&directory, request, &road)).and_then(|named| apply(named, &request.files));
     let named = match named {

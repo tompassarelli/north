@@ -132,6 +132,10 @@ fn run(arguments: &[String], called_micros: u128) -> u8 {
 }
 
 pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) -> u8 {
+    if let Err(frozen) = north_landing::land::freeze::unfrozen() {
+        eprintln!("safe-push: ✗ {frozen}.");
+        return 1;
+    }
     watch_for_cancel();
     let mut timeline = Timeline::start(shell);
     let code = match claim(shell) {

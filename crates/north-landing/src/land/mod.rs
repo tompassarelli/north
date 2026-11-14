@@ -12,6 +12,7 @@ pub mod steps;
 pub mod judge_case;
 pub mod checks;
 pub mod credential;
+pub mod freeze;
 pub mod heartbeat;
 pub mod hold;
 pub mod landed_copy;

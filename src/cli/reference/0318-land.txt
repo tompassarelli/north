@@ -4,6 +4,7 @@
   land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket ahead of every urgent ticket marked later and print the place the lander gives it
   land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason
   land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]  Land one queued ticket onto main without a lander round, only under a recorded approval, after the secret and privacy scans
+  land freeze --cause TEXT | --lift             Place or lift the landing freeze on this host and every fleet host: while placed, every hand-in, finish call and safe-push --to main is refused with its cause before any check runs, and no ticket is written
   land reuse report [--since DURATION]          Count the land-check units answered from a cache, from the north-reuse lines the lander harvests
   land reuse observe -- COMMAND...              Run a buck2 test line and print one north-reuse unit per test binary, with the action key when Buck2 answered it from its cache
   land follow                                   Run after each landing: ingest the fact graph from every source on this host

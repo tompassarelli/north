@@ -246,6 +246,20 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     fs::write(lane.join("unnamed.txt"), "a change the worker did not name\n").unwrap();
     let start = git(&lane, &["rev-parse", "HEAD"]);
 
+    let placed = north_lander::land::freeze::Freeze { cause: "the history cut rewrites main".to_owned(), placed_at: 0, placed_on: "laptop".to_owned() };
+    let freeze = north_lander::land::freeze::path(&world.path().join("state"));
+    fs::create_dir_all(freeze.parent().unwrap()).unwrap();
+    fs::write(&freeze, serde_json::to_string(&placed).unwrap()).unwrap();
+    let frozen_ran = world.path().join("frozen-check-ran");
+    let frozen = finish(&world, "frozen", &format!("touch {}", frozen_ran.display()), "Add a note during the cut (north#1281)", &lane.join("named.txt"));
+    let text = report(&frozen);
+    assert_eq!(frozen.status.code(), Some(1), "{text}");
+    assert!(refusals(&frozen).iter().any(|line| line.contains("the landing is frozen: the history cut rewrites main") && line.contains("NOT queued")), "a finish call during a freeze was not refused naming the freeze and its cause (north#1281): {text}");
+    assert!(!frozen_ran.exists(), "the check ran during a freeze: {text}");
+    assert_eq!(git(&lane, &["rev-parse", "HEAD"]), start, "a frozen finish call committed: {text}");
+    assert!(queue::pending(&north.queue).unwrap_or_default().is_empty(), "a frozen finish call queued a ticket: {text}");
+    fs::remove_file(&freeze).unwrap();
+
     let failed = finish(&world, "proposer", "echo the box is red; exit 3", "Add the finished note (north#1194)", &lane.join("named.txt"));
     let text = report(&failed);
     assert_eq!(failed.status.code(), Some(1), "{text}");
