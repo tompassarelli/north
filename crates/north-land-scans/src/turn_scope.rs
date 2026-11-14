@@ -76,7 +76,7 @@ pub fn scan(directory: &Path, range: &str, state: &Path, out: &mut impl Write) -
     let outcome = judge(directory, range, &tips, whole);
     let enforce = holdlist::enforcing(directory, SELF, [&git::merge_base(directory, base, head), head]);
     if !enforce {
-        holdlist::record(state, SELF, head, outcome.as_ref().err().map(String::as_str));
+        holdlist::record(state, SELF, (head, None), outcome.as_ref().err().map(String::as_str));
     }
     let Err(refusal) = outcome else {
         return 0;

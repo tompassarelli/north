@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use north_base::platform::finish_record::{FinishRecords, Finished};
-use north_base::platform::review_accept::Accepts;
+use north_base::platform::review_accept::{Accepts, patch_id};
 
 use crate::{Range, git, holdlist, review_accept};
 
@@ -48,9 +48,10 @@ pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, fini
         return 2;
     };
     let outcome = check(directory, base, head, accepts, &finished.all());
-    let enforce = holdlist::enforcing(directory, SELF, [&git::merge_base(directory, base, head), head]);
+    let fork = git::merge_base(directory, base, head);
+    let enforce = holdlist::enforcing(directory, SELF, [&fork, head]);
     if !enforce {
-        holdlist::record(state, SELF, head, outcome.as_ref().err().map(String::as_str));
+        holdlist::record(state, SELF, (head, patch_id(directory, &fork, head).ok().as_deref()), outcome.as_ref().err().map(String::as_str));
     }
     match outcome {
         Ok(()) => 0,

@@ -271,3 +271,7 @@ fn leaves_tests(root: &Path, base: &str, head: &str, line: &str) -> bool {
     }
     changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(&files).is_some_and(|crossing| crossing.is_empty()))
 }
+
+#[cfg(test)]
+#[path = "queue_checks_tests.rs"]
+mod tests;

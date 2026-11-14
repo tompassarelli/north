@@ -91,7 +91,7 @@ pub fn scan(directory: &Path, range: &str, state: &Path, out: &mut impl Write) -
     let outcome = check(directory, base, head);
     let enforce = holdlist::enforcing(directory, SELF, [&git::merge_base(directory, base, head), head]);
     if !enforce {
-        holdlist::record(state, SELF, head, outcome.as_ref().err().map(String::as_str));
+        holdlist::record(state, SELF, (head, None), outcome.as_ref().err().map(String::as_str));
     }
     match outcome {
         Ok(true) => {
