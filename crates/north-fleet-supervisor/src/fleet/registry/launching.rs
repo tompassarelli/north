@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::thread::ScopedJoinHandle;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::file_prediction;
 use crate::fleet::{brief_files, brief_grounding, proposal};
 use crate::fleet::hops;
 use crate::fleet::host::Host;
@@ -389,13 +388,10 @@ fn first_prompt(request: &LaunchRequest, verification: bool) -> (String, Option<
     };
     std::thread::scope(|scope| {
         let verdict = scope.spawn(|| hops::timed("verdict", || launch_verdict(request, verification)));
-        let predicted = scope.spawn(|| if verification { None } else { hops::timed("file prediction", || file_prediction::section(&prompt, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary())) });
         let grounded = scope.spawn(|| if verification || !grounding::carries_pack(arm) { None } else { hops::timed("brief grounding", || brief_grounding::section(&brief, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary())) });
         let shown = hops::timed("brief files", || brief_files::shown(&prompt, &request.cwd, request.machine.as_ref()));
-        let (guess, record) = predicted.join().unwrap_or(None).map_or((None, None), |(section, predicted)| (section, Some(predicted)));
-        let shown = guess.map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));
         let shown = grounded.join().unwrap_or(None).map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));
-        (proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked)), record)
+        (proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked)), None)
     })
 }
 
