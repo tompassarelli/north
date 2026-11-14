@@ -17,6 +17,7 @@ mod landing_message;
 pub mod lane_target;
 pub mod merge_continue;
 pub mod merge_set;
+pub mod pipe_verdicts;
 pub mod red_check;
 mod rerun;
 pub mod removed_surface;

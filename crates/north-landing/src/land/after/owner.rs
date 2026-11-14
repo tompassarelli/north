@@ -14,9 +14,13 @@ pub struct Reverted<'a> {
     pub branch: &'a str,
     pub commit: &'a str,
     pub revert: &'a str,
-    pub red: &'a str,
-    pub failing: &'a str,
-    pub log: &'a Path,
+    pub cause: Cause<'a>,
+}
+
+/// Why a landed commit was reverted: its post-land checks failed at `red`, or the pipe stopped once it went live, as the text says.
+pub enum Cause<'a> {
+    RedMain { red: &'a str, failing: &'a str, log: &'a Path },
+    PipeStopped(&'a str),
 }
 
 pub struct Row {
@@ -38,7 +42,10 @@ impl Reverted<'_> {
     }
 
     fn evidence(&self) -> String {
-        format!("the post-land checks failed at {} on {}; they failed twice at the tip and passed twice on main without {} ({}) in back-to-back reruns, so the sheriff queued its revert {} ahead of the queue; log: {}", &self.red[..self.red.len().min(9)], self.failing, self.branch, self.short(), self.revert, self.log.display())
+        match &self.cause {
+            Cause::RedMain { red, failing, log } => format!("the post-land checks failed at {} on {failing}; they failed twice at the tip and passed twice on main without {} ({}) in back-to-back reruns, so the sheriff queued its revert {} ahead of the queue; log: {}", &red[..red.len().min(9)], self.branch, self.short(), self.revert, log.display()),
+            Cause::PipeStopped(why) => format!("{why}, so the sheriff queued its revert {} ahead of the queue", self.revert),
+        }
     }
 
     fn notice(&self) -> String {

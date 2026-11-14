@@ -160,6 +160,11 @@ impl Config {
         self.inferred.iter().any(|inferred| inferred == command)
     }
 
+    /// Main's own command of the land.check line that `failed` names, as written or as the shared build issues it, so a refusal's text only picks a line and is never the command run.
+    pub fn listed(&self, failed: &str) -> Option<&str> {
+        self.checks.iter().filter_map(|entry| entry.split_once(SEPARATOR).map(|(_, command)| command)).find(|command| *command == failed || crate::land::slots::shared_build::built(command) == failed)
+    }
+
     pub fn runs(&self, command: &str) -> bool {
         self.checks.iter().any(|entry| entry.split_once(SEPARATOR).is_some_and(|(_, listed)| listed == command)) || self.is_inferred(command)
     }

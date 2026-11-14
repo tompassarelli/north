@@ -15,7 +15,7 @@ pub(super) fn last_error(text: &str) -> Option<String> {
     text.lines().map(str::trim).rfind(|line| !line.is_empty() && !line.starts_with('{')).map(bounded)
 }
 
-pub(super) fn first_error(text: &str) -> Option<String> {
+pub fn first_error(text: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
     let line = lines.iter().find(|line| {
         let lower = line.to_lowercase();

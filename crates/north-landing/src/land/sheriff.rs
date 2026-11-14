@@ -16,6 +16,7 @@ use super::steps;
 use crate::landing::red_check::{self, Failure};
 use north_strategy_types::land::{SheriffCase, SheriffStep};
 
+mod pipe_break;
 mod request;
 pub use request::{REQUESTS, Request, file, green_ancestor, parse, request_message};
 
@@ -326,12 +327,12 @@ impl Probes<'_> {
     }
 }
 
-fn lane_ticket(lander: &Lander, request: &Request, tip: &str, lane: &str) -> Option<Ticket> {
+fn lane_ticket(lander: &Lander, parent: &str, tip: &str, lane: &str) -> Option<Ticket> {
     let done = fs::read_dir(lander.queue.join("done")).ok()?;
     let store = north_base::land_ticket::recorded(&lander.queue);
     let landed = done.filter_map(Result::ok).map(|entry| entry.path()).filter_map(|path| Some((queue::read(&path).ok()?, path)));
     landed.filter(|(ticket, path)| north_base::land_ticket::read(store.as_ref(), &lander.queue, path, ticket.verdict.as_deref()) == north_base::land_ticket::Phase::Landed).map(|(ticket, _)| ticket).find(|ticket| {
-        ticket.head == lane || git(&lander.worktree, &["cherry", &ticket.head, tip, &request.parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}")))
+        ticket.head == lane || git(&lander.worktree, &["cherry", &ticket.head, tip, parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}")))
     })
 }
 
@@ -370,8 +371,8 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: 
     let message = if request.live_fix.is_empty() { message } else { format!("{message}\nLive-fix: {}", request.live_fix) };
     git(worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
     let head = queue_revert(lander, worktree, &branch)?;
-    let owner = lane_ticket(lander, request, tip, lane);
-    let reverted = Reverted { branch: owner.as_ref().map_or(lane, |owner| owner.branch.as_str()), commit: lane, revert: &branch, red: &request.head, failing: &names(cases), log: Path::new(&request.log) };
+    let owner = lane_ticket(lander, &request.parent, tip, lane);
+    let reverted = Reverted { branch: owner.as_ref().map_or(lane, |owner| owner.branch.as_str()), commit: lane, revert: &branch, cause: owner::Cause::RedMain { red: &request.head, failing: &names(cases), log: Path::new(&request.log) } };
     let told = owner::tell(&owner::Cli, owner.as_ref().and_then(|owner| owner.session.as_deref()), &reverted);
     println!("north land: sheriff: {told}");
     Ok(format!("revert {lane} {head} queued as {branch}"))
@@ -476,16 +477,21 @@ pub fn chase(lander: &Lander, head: &str, walked_back: Option<&str>, failing: &B
 }
 
 pub fn patrol(lander: &Lander) -> Result<(), String> {
+    let worktree = candidate::lander_worktree(&lander.repo, WORKTREE)?;
+    candidate::ensure(&lander.repo, &worktree)?;
     for (tip, name) in requests(lander)? {
         let (tip, name) = (tip.as_str(), name.as_str());
         let Some(head) = name.strip_prefix(REQUESTS) else { continue };
         let record = records(lander).join(queue::slug(head));
-        let worktree = candidate::lander_worktree(&lander.repo, WORKTREE)?;
-        candidate::ensure(&lander.repo, &worktree)?;
         let verdict = answer(lander, &worktree, name, tip)?;
         println!("north land: sheriff: main red at {}: {verdict}", short(head));
         queue::write_atomic(&record, &format!("{verdict}\n")).map_err(|error| format!("cannot write {}: {error}", record.display()))?;
         let _ = Command::new("git").arg("-C").arg(&lander.repo).args(["push", "-q", "--no-verify", "origin", "--delete", name]).env("SAFE_PUSH_ACTIVE", "1").output();
+    }
+    match pipe_break::patrol(lander, &worktree) {
+        Ok(Some(verdict)) => println!("north land: sheriff: {verdict}"),
+        Ok(None) => {}
+        Err(error) => println!("north land: sheriff: could not judge whether a landing-path commit stopped the pipe: {error}"),
     }
     Ok(())
 }

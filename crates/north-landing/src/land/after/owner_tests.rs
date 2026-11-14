@@ -29,7 +29,7 @@ impl Fleet for Fake {
 }
 
 fn reverted() -> Reverted<'static> {
-    Reverted { branch: "thing-lane", commit: "abcdef0123456789", revert: "sheriff-revert-abcdef012", red: "fedcba9876543210", failing: "step cargo clippy", log: Path::new("/logs/post-land-fedcba987654.log") }
+    Reverted { branch: "thing-lane", commit: "abcdef0123456789", revert: "sheriff-revert-abcdef012", cause: Cause::RedMain { red: "fedcba9876543210", failing: "step cargo clippy", log: Path::new("/logs/post-land-fedcba987654.log") } }
 }
 
 #[test]

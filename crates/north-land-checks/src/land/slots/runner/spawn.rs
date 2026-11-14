@@ -102,7 +102,17 @@ fn confined_to_candidate(north: &str, argv: Vec<String>) -> Vec<String> {
     std::iter::once(north.to_owned()).chain(CANDIDATE.map(str::to_owned)).chain(argv).collect()
 }
 
-pub(super) fn under_capacity(capacity: &str, argv: Vec<String>) -> Vec<String> {
+/// The words that run the check command `observed` on this host in its dependency box, outside any candidate confinement.
+fn local_step(north: &str, observed: String) -> Vec<String> {
+    ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), north.to_owned(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed].into()
+}
+
+/// The words that run `command` on this host as the lander runs a candidate's land check, confined to the candidate checkout it runs in (south#138).
+pub fn confined_step(north: &str, command: String) -> Vec<String> {
+    confined_to_candidate(north, local_step(north, command))
+}
+
+pub fn under_capacity(capacity: &str, argv: Vec<String>) -> Vec<String> {
     if capacity.is_empty() {
         return argv;
     }
@@ -261,8 +271,7 @@ impl Shared {
             under_capacity(capacity, shell_deadline(&environment.north, timeout + OFFLOAD_GRACE, &offload))
         } else {
             let observed = self.wrapped(&unit_reuse::quote(&environment.north), command);
-            let local: Vec<String> = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), environment.north.clone(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed].into();
-            let local = if self.checks_a_candidate() { confined_to_candidate(&environment.north, local) } else { local };
+            let local = if self.checks_a_candidate() { confined_step(&environment.north, observed) } else { local_step(&environment.north, observed) };
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(&environment.north, timeout, &local))
         };

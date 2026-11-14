@@ -305,7 +305,7 @@ fn leaves_tests(root: &Path, base: &str, head: &str, line: &str) -> bool {
     if setting(TESTS_AFTER_LANDING).and_then(toml_edit::Item::as_str) != Some("on") || Config::load(root, base).after_only_reason(line).is_none() {
         return false;
     }
-    changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(&files).is_some_and(|crossing| crossing.is_empty()))
+    changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(document(DEFAULTS), &files).is_some_and(|crossing| crossing.is_empty()))
 }
 
 #[cfg(test)]

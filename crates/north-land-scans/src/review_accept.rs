@@ -4,6 +4,7 @@ use std::path::Path;
 
 use north_base::build_inputs::live_fix;
 use north_base::platform::finish_record::{FinishRecords, Finished};
+use north_base::platform::harness::{DEFAULTS, document};
 use north_base::platform::review_accept::{Accepts, patch_id};
 use north_base::platform::trust_boundary;
 
@@ -59,7 +60,7 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
-    let crossing = trust_boundary::crossing(&files).ok_or("harness/defaults.toml lists no trust_boundary_paths, so no change can be told to cross one")?;
+    let crossing = trust_boundary::crossing(document(DEFAULTS), &files).ok_or("harness/defaults.toml lists no trust_boundary_paths, so no change can be told to cross one")?;
     if crossing.is_empty() {
         return Ok(());
     }

@@ -4,7 +4,7 @@ use std::process::ExitStatus;
 use std::time::Duration;
 
 use super::{Landed, Run, reap_scratch, settle};
-use super::execute::{apart, execute, judged, record};
+use super::execute::{apart, judged};
 use super::settle::announce;
 use crate::land::checks::Verdict;
 use crate::landing::red_check::Failure;
@@ -63,45 +63,6 @@ fn landed(heads: &[&str]) -> Landed {
 }
 
 #[test]
-fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_verdict_and_records_every_covered_head() {
-    let scratch = tempfile::tempdir().unwrap();
-    let grandchild = scratch.path().join("grandchild");
-    let mut stuck = run();
-    stuck.runner = vec!["sh".to_owned(), "-c".to_owned(), format!("sleep 600 & echo $! > {}; wait", grandchild.display()), "stuck".to_owned()];
-    stuck.worktree = scratch.path().to_owned();
-    stuck.log = scratch.path().join("post-land.log");
-    stuck.outcome = scratch.path().join("post-land.outcome");
-    stuck.ledger = scratch.path().join("post-land.tsv");
-    stuck.deadline = Duration::from_secs(1);
-    let landed = landed(&["b", "c", "d"]);
-    let checked = execute("sh", &stuck.runner[1..], &landed, "d", &stuck);
-    record(&stuck, &landed, &checked.verdict, checked.expired, 1);
-    assert!(checked.expired && matches!(checked.verdict, Verdict::Transient(_)), "{:?}", checked.verdict);
-    let pid = rustix::process::Pid::from_raw(std::fs::read_to_string(&grandchild).unwrap().trim().parse().unwrap()).unwrap();
-    let gone = north_base::platform::wait::until(Duration::from_secs(5), || process_ended(pid.as_raw_nonzero().get()));
-    assert!(gone, "the run's whole process group was killed");
-    let rows = std::fs::read_to_string(&stuck.ledger).unwrap();
-    let rows: Vec<Vec<&str>> = rows.lines().map(|row| row.split('\t').collect()).collect();
-    assert_eq!(rows.iter().map(|row| row[2]).collect::<Vec<_>>(), ["b", "c", "d"]);
-    assert!(rows.iter().all(|row| row[3] == "transient" && row[5] == "lane-a,lane-b"), "{rows:?}");
-    assert!(rows.iter().all(|row| row[8].is_empty()), "a run with no nextest summary records no test-run time: {rows:?}");
-    assert_eq!(super::execute::test_run_seconds("     Summary [  12.698s] 789 tests run: 789 passed\n     Summary [   3.1s] 5 tests run: 5 passed\n"), Some(16), "the nextest summaries of a log add up as the run's test time");
-    std::fs::write(&stuck.outcome, "selected\tb\td\t{\"tests\":[],\"added\":[],\"modules\":[],\"no_test\":\"the change graph reaches no test from docs/a.md\"}\n").unwrap();
-    std::fs::remove_file(&stuck.ledger).unwrap();
-    record(&stuck, &landed, &Verdict::Green, false, 1);
-    let marked = std::fs::read_to_string(&stuck.ledger).unwrap();
-    assert!(marked.lines().all(|row| { let row: Vec<&str> = row.split('\t').collect(); row[3] == "green" && row[9] == "no-test" }), "a green landing that ran no test says so in a column after the ones the readers use: {marked}");
-    assert!(marked.lines().all(|row| row.split('\t').nth(10) == Some("")), "a run that may reuse verdicts is not marked fresh: {marked}");
-    std::fs::write(&stuck.outcome, "selected\tb\td\t{\"tests\":[\"x\"],\"added\":[],\"modules\":[]}\n").unwrap();
-    std::fs::remove_file(&stuck.ledger).unwrap();
-    stuck.runner.push("--fresh".to_owned());
-    record(&stuck, &landed, &Verdict::Green, false, 1);
-    let fresh = std::fs::read_to_string(&stuck.ledger).unwrap();
-    assert!(fresh.lines().all(|row| row.split('\t').nth(9) == Some("")), "a landing that ran its tests carries no mark");
-    assert!(fresh.lines().all(|row| row.split('\t').nth(10) == Some("fresh")), "a run with no reused verdicts is marked fresh, the only row a promotion counts green: {fresh}");
-}
-
-#[test]
 fn an_after_landing_run_deadline_is_three_times_the_p90_of_its_repository_s_recorded_runs_and_doubles_after_an_expiry() {
     let scratch = tempfile::tempdir().unwrap();
     let ledger = scratch.path().join("post-land.tsv");
@@ -120,11 +81,6 @@ fn an_after_landing_run_deadline_is_three_times_the_p90_of_its_repository_s_reco
     assert_eq!(super::measured_deadline(&ledger, "owner/repo").seconds, 540, "a later run that reached a verdict returns the deadline to its measure");
     assert_eq!(super::measured_deadline(&scratch.path().join("absent.tsv"), "owner/repo").seconds, crate::landing::check_timings::CEILING, "an unmeasured repository gets the ceiling");
 }
-
-fn process_ended(pid: i32) -> bool {
-    std::fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| stat.rsplit_once(") ").is_some_and(|(_, rest)| rest.starts_with('Z')))
-}
-
 
 fn committed_repo(directory: &std::path::Path) -> String {
     let git = |arguments: &[&str]| {

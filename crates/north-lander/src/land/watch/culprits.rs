@@ -103,7 +103,7 @@ fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome
     git(&worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
     let head = sheriff::queue_revert(lander, &worktree, &branch)?;
     let failing = if outcome.failing.is_empty() { detail.to_owned() } else { sheriff::names(&outcome.failing.iter().cloned().collect::<Vec<_>>()) };
-    let reverted = Reverted { branch: &lane.ticket.branch, commit: &lane.tip, revert: &branch, red: &lane.tip, failing: &failing, log: &outcome.log };
+    let reverted = Reverted { branch: &lane.ticket.branch, commit: &lane.tip, revert: &branch, cause: owner::Cause::RedMain { red: &lane.tip, failing: &failing, log: &outcome.log } };
     println!("north land: {}", owner::tell(&owner::Cli, lane.ticket.session.as_deref(), &reverted));
     Ok(format!("revert of {} {head} queued as {branch}", lane.ticket.branch))
 }
