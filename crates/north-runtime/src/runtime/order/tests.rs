@@ -4,7 +4,7 @@ use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
 use super::super::after_landing::Landing;
-use super::super::review_hold::{Ask, Caller, Holds, Screen, in_checkout, landed_in, lane_of, now};
+use super::super::review_hold::{self, Ask, Caller, Holds, Screen, in_checkout, landed_in, lane_of, now};
 use super::super::main_runs::{MainRun, MainRuns};
 use super::super::trip::Trips;
 use super::super::update::{self, Flight};
@@ -358,7 +358,7 @@ fn screen_of(holds: Holds, contains: fn(&str, &str) -> Result<bool, String>, lan
 }
 
 #[test]
-fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_until_the_reviewer_lifts_it() {
+fn north_holds_lists_review_holds_and_a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_until_the_reviewer_lifts_it() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };
     for sha in [OLD, NEW] {
@@ -376,6 +376,9 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now());
     let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: REVIEWED.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());
     place(&reviewer).unwrap();
+    let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
+    let listed = review_hold::standing(&environment, state.path()).unwrap();
+    assert!(matches!(listed.as_slice(), [held] if held.commit == REVIEWED && held.session == "f-review"), "`north holds` lists a placed hold with its commit and holder: {listed:?}");
 
     let refused = ordered().err().map(|failure| failure.message).unwrap_or_default();
     assert!(refused.contains(REVIEWED) && refused.contains("f-review"), "a reviewer's hold was a message to the coordinator, who ordered each runtime by hand, and the lander lands the held lane as a squashed commit of its own: {refused:?}");
@@ -390,6 +393,7 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     assert!(ordered().is_err(), "a lift by another session leaves the hold standing");
 
     lift(&reviewer).unwrap();
+    assert!(review_hold::standing(&environment, state.path()).unwrap().is_empty(), "and stops listing it once it is lifted");
     run(&layout, &ordered().unwrap(), &settling, &[], &[], || Ok(()), |()| Ok(false)).unwrap();
     assert_eq!(settling.live.lock().unwrap().as_str(), NEW);
     assert!(update::slot::held_by_review(&layout, &screen, NEW).is_none());

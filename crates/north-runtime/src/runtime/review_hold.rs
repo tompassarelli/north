@@ -107,6 +107,23 @@ fn read_or_empty(path: &Path) -> Result<String, String> {
     }
 }
 
+/// A reviewer's hold that stands, as `north holds` lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Standing {
+    pub commit: String,
+    pub lane: String,
+    pub host: Option<String>,
+    pub session: String,
+    pub why: String,
+    pub at: u64,
+}
+
+/// Every hold in the verdict store `environment` and `home` name that is not lifted, oldest first, or why the store cannot be read.
+pub fn standing(environment: &[(String, String)], home: &Path) -> Result<Vec<Standing>, String> {
+    let holds = Holds::of(environment, home).all()?;
+    Ok(holds.into_iter().filter(|hold| hold.lifted.is_none()).map(|Hold { commit, lane, host, session, why, at, .. }| Standing { commit, lane, host, session, why, at }).collect())
+}
+
 pub(crate) struct Holds(pub PathBuf);
 
 impl Holds {

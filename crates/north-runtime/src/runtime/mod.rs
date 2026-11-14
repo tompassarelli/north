@@ -30,7 +30,7 @@ mod remote;
 pub mod mirror;
 mod reuse;
 pub(crate) mod review_accept;
-pub(crate) mod review_hold;
+pub mod review_hold;
 mod after_landing;
 mod settle;
 mod store;

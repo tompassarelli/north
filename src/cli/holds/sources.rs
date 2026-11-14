@@ -76,6 +76,26 @@ pub(super) fn session_holds(now: i64) -> Vec<Hold> {
     holds
 }
 
+pub(super) fn review_holds(home: &Path) -> Vec<Hold> {
+    let environment: Vec<(String, String)> = ["NORTH_VERDICT_CACHE_DIR", "XDG_STATE_HOME"].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
+    let Ok(standing) = north_runtime::runtime::review_hold::standing(&environment, home) else { return Vec::new() };
+    standing.into_iter().map(review_hold).collect()
+}
+
+fn review_hold(hold: north_runtime::runtime::review_hold::Standing) -> Hold {
+    let on = hold.host.as_deref().map_or(String::new(), |host| format!(", on {host}"));
+    Hold {
+        host: String::new(),
+        kind: format!("review hold on {}", hold.commit),
+        set_by: hold.session.clone(),
+        why: format!("{} (lane {}{on})", hold.why, hold.lane),
+        since: i64::try_from(hold.at).ok(),
+        lifts: Lift::Named(format!("`north runtime hold --lift {} --why TEXT` from {}", hold.commit, hold.session)),
+        lifts_when: String::new(),
+        red: None,
+    }
+}
+
 pub(super) fn laptop_word() -> Option<Hold> {
     let said = crate::laptop::Ctx::from_env().main(&["status".to_owned(), "--json".to_owned()]).ok()?;
     let word = crate::laptop::hand_word(&said)?;
