@@ -30,7 +30,7 @@ github-token  print an installation token for the app, limited to the repositori
               printed for another process to keep outlives a 30-minute refresh
 inspect       read a token on stdin and print the repositories and permissions the broker granted it
 Every request is logged to stderr with the caller's uid, pid and systemd unit and what was granted; the user broker's stderr is broker.log beside its socket. Clients take the socket
-from NORTH_BROKER_SOCKET, else /run/north-broker/broker.sock, else, when that one is out of the caller's reach, /run/agent-brokers/broker.sock, else their own ${XDG_RUNTIME_DIR}/north-broker/broker.sock.
+from NORTH_BROKER_SOCKET, else /run/north-broker/broker.sock, else their own ${XDG_RUNTIME_DIR}/north-broker/broker.sock.
 A cloud call goes to the same socket as plain HTTP at /hcloud/..., /digitalocean/... or /cloudflare/... with any placeholder
 token; the broker forwards it only if the caller's allowlist names the method and path, and never returns the real token.";
 

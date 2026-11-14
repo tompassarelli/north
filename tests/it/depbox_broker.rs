@@ -34,7 +34,6 @@ fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
     std::fs::create_dir_all(&other).unwrap();
     let control = UnixListener::bind(other.join("plain.sock")).unwrap();
     control.set_nonblocking(true).unwrap();
-    assert!(north_capacity_host::capacity::depbox_broker::hides(std::path::Path::new(north_base::platform::broker_client::AGENT_SOCKET)), "depbox leaves the agent broker socket in reach");
     let reached = depbox(scratch.path(), &socket, &other.join("plain.sock"));
     assert!(reached.status.success() && control.accept().is_ok(), "depbox itself did not run the probe: {}", String::from_utf8_lossy(&reached.stderr));
     let inside = depbox(scratch.path(), &socket, &socket);
