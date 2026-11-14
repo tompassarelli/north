@@ -1,0 +1,25 @@
+[package]
+name = "north-expectations"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-capacity-host = { path = "../north-capacity-host" }
+north-dispatch = { path = "../north-dispatch" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
+north-pace = { path = "../north-pace" }
+north-providers = { path = "../north-providers" }
+rustix.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true

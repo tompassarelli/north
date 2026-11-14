@@ -3,6 +3,7 @@ use crate::foundation::clock::Timestamp;
 pub mod accounts;
 pub mod health;
 pub mod infra;
+pub mod report;
 pub mod work;
 
 pub struct Snapshot {

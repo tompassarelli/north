@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-expectations"
+layer = 6
+paths = ["crates/north-expectations/src/**"]
+may_use = ["north-dispatch"]
+

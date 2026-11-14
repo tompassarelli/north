@@ -35,6 +35,7 @@ crates_before = [
   "north-diff-gates",
   "north-dispatch",
   "north-docs",
+  "north-expectations",
   "north-fleet",
   "north-fleet-store",
   "north-fleet-supervisor",

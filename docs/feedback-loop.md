@@ -59,10 +59,10 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-timers/src/job_watch/mod.rs | read | |
 | machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/database.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-pace/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
-| spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
+| spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | src/cli/views/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
-| goal-scores.jsonl | crates/north-flow/src/agents/goal/score.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
+| goal-scores.jsonl | crates/north-flow/src/agents/goal/score.rs | src/cli/views/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | crates/north-pace/src/usage/settings.rs services | read | |
 | costs/*.json | crates/north-pace/src/usage/refresh/digitalocean.rs | crates/north-pace/src/usage/settings.rs service lines | read | |
 | S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-timers/src/timers/skill_prune.rs | read | |

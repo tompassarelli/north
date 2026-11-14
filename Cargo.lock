@@ -964,6 +964,7 @@ dependencies = [
  "north-coverage",
  "north-dispatch",
  "north-docs",
+ "north-expectations",
  "north-fleet-store",
  "north-flow",
  "north-github-mirror",
@@ -1303,6 +1304,22 @@ name = "north-docs"
 version = "0.1.0"
 dependencies = [
  "north-registries",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-expectations"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-capacity-host",
+ "north-dispatch",
+ "north-fleet-supervisor",
+ "north-pace",
+ "north-providers",
+ "rustix 0.38.44",
+ "serde_json",
  "tempfile",
  "toml_edit",
 ]

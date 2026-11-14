@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
-use north_ops::foundation::shim::write_script;
-use north_ops::platform::rolling_issue::{Breaches, Gh, alarm};
+use north_base::foundation::shim::write_script;
+use north_base::platform::rolling_issue::{Breaches, Gh, alarm};
 
 const TEST: &str = "a_second_failure_of_the_same_unit_updates_its_open_issue_instead_of_filing_another";
 const TITLE: &str = "Harness services failing on whiterabbit";

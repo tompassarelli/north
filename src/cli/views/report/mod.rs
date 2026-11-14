@@ -8,7 +8,6 @@ use serde_json::Value;
 use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};
 
-pub use crate::platform::pystats::wilson;
 mod calibration;
 
 const WINDOW_SECONDS: f64 = 7.0 * 86_400.0;
@@ -112,13 +111,4 @@ pub fn lines() -> Vec<String> {
     }
     let now = Timestamp::now().unix_seconds_f64();
     render(&State { calibration: &rows, denials: &denials, scores: &scores }, now)
-}
-
-pub fn run(arguments: &[String]) -> u8 {
-    if !arguments.is_empty() {
-        eprintln!("usage: north fleet report");
-        return 2;
-    }
-    println!("{}", lines().join("\n"));
-    0
 }

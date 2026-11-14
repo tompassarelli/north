@@ -66,7 +66,7 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
     let held = fleet.held_since(since);
     let digest = digest_text(&Facts { now: Moment::now(), now_ms: now, since_label: window, landed: &books.landed, sessions: &sessions, gates: &gates, held: &held });
     let tree = tree(&sessions);
-    let report = crate::ops::report::lines();
+    let report = super::report::lines();
     let lanes = crate::flow::work_rows();
     let lane_lines = crate::flow::work_lines(&lanes);
     let text = text(window, &digest, &sessions, &tree, &report, &lane_lines);

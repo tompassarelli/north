@@ -199,7 +199,12 @@ const OPS: &[(&str, Run)] = &[
 pub(super) fn ops(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if let Some(run) = runner(OPS, verb) => run(rest),
-        _ => crate::ops::command::run(arguments),
+        Some((command, rest)) if command == "dividend" => north_expectations::dividend::run(rest),
+        Some((command, _)) if command == "check" => north_expectations::check::run(arguments),
+        _ => {
+            eprintln!("usage: north ops dividend [--dry-run] [CHECK] | north ops check [--dry-run | --synthetic]");
+            2
+        }
     }
 }
 
@@ -209,7 +214,7 @@ fn ops_github(arguments: &[String]) -> u8 {
 
 fn ops_watch(arguments: &[String]) -> u8 {
     match crate::watch::run(arguments) {
-        0 => crate::ops::watch::run(&["--once".to_owned()]),
+        0 => north_expectations::watch::run(&["--once".to_owned()]),
         refused => refused,
     }
 }

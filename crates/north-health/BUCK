@@ -58,6 +58,52 @@ north_rust_test(
     visibility = ["PUBLIC"],
 )
 
+north_rust_test(
+    name = "north-health-test-dispatch_pause_deploy",
+    binary_id = "north-health::dispatch_pause_deploy",
+    srcs = glob(["tests/**"]),
+    crate = "dispatch_pause_deploy",
+    crate_root = "tests/dispatch_pause_deploy.rs",
+    edition = "2024",
+    rustc_flags = RUSTC_FLAGS,
+    deps = [
+        "//crates/north-base:north-base",
+        "//crates/north-calibration:north-calibration",
+        "//crates/north-pace:north-pace",
+        "//crates/north-threads:north-threads",
+        "//third-party:rusqlite",
+        "//third-party:serde",
+        "//third-party:serde_json",
+        "//third-party:tempfile",
+        "//third-party:toml_edit",
+        ":north-health",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+north_rust_test(
+    name = "north-health-test-health_filing",
+    binary_id = "north-health::health_filing",
+    srcs = glob(["tests/**"]),
+    crate = "health_filing",
+    crate_root = "tests/health_filing.rs",
+    edition = "2024",
+    rustc_flags = RUSTC_FLAGS,
+    deps = [
+        "//crates/north-base:north-base",
+        "//crates/north-calibration:north-calibration",
+        "//crates/north-pace:north-pace",
+        "//crates/north-threads:north-threads",
+        "//third-party:rusqlite",
+        "//third-party:serde",
+        "//third-party:serde_json",
+        "//third-party:tempfile",
+        "//third-party:toml_edit",
+        ":north-health",
+    ],
+    visibility = ["PUBLIC"],
+)
+
 north_files(
     name = "files",
     srcs = glob(["**", "**/.*", "**/.*/**"]),

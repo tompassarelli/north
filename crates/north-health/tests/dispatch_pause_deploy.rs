@@ -1,5 +1,5 @@
 use north_base::dispatch_pause::held_by;
-use north_ops::health::flows::{Dispatch, Held, Host, HostFacts, World};
+use north_health::health::flows::{Dispatch, Held, Host, HostFacts, World};
 
 const DEPLOYED: &str = "# /home/tom/.config/systemd/user/north-dispatch.timer
 [Install]

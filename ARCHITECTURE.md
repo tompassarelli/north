@@ -80,6 +80,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-flow | The flow report, and agents, detectors, experiments, tempo and tool mining. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
 | 6 operations | north-ops | Thirty unrelated operations verb families, from agent capture to desktop upkeep. |
+| 6 operations | north-expectations | Declared expectations judged on a timer, each alerting once per breach and once per clear. |
 | 6 operations | north-health | Health facts: failed starts, flows, issues, loops, red main, rework. |
 | 6 operations | north-convo | Transcript search, and policy replay, and the context audit. |
 | 6 operations | north-lander-doctor | The lander doctor: each health bound read live and the remedy for each stuck state. |

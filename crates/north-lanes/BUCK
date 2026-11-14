@@ -67,6 +67,31 @@ north_rust_test(
     visibility = ["PUBLIC"],
 )
 
+north_rust_test(
+    name = "north-lanes-test-lane_gc_reaping",
+    binary_id = "north-lanes::lane_gc_reaping",
+    srcs = glob(["tests/**"]),
+    crate = "lane_gc_reaping",
+    crate_root = "tests/lane_gc_reaping.rs",
+    edition = "2024",
+    rustc_flags = RUSTC_FLAGS,
+    deps = [
+        "//crates/north-base:north-base",
+        "//crates/north-git-locks:north-git-locks",
+        "//crates/north-github-mirror:north-github-mirror",
+        "//third-party:regex",
+        "//third-party:rustix",
+        "//third-party:serde",
+        "//third-party:serde_json",
+        "//third-party:sha2",
+        "//third-party:tempfile",
+        "//third-party:time",
+        "//third-party:toml_edit",
+        ":north-lanes",
+    ],
+    visibility = ["PUBLIC"],
+)
+
 north_files(
     name = "files",
     srcs = glob(["**", "**/.*", "**/.*/**"]),
