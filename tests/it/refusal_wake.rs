@@ -4,7 +4,9 @@ use std::process::{Command, Output, Stdio};
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
+use north_base::land_ticket;
 use north_base::platform::wait;
+use north_core::fleet::store::Spool;
 use north_lander::land::heartbeat::Heartbeat;
 use north_lander::land::jobs::Chores;
 use north_lander::land::lander::Lander;
@@ -18,6 +20,7 @@ const ORIGIN: &str = "https://example.invalid/north";
 const BRIEF: &str = "Item: north#1194 finish at acceptance\nSurface: rust\n";
 const QUEUED_MICROS: u128 = 1_794_000_000_000_000;
 const REFUSAL: &str = "conflict with main at refusal.txt; rebase onto origin/main and hand in again";
+const WAKE_BOUND_MS: u64 = 2_000;
 
 fn north(root: &Path, args: &[&str]) -> Output {
     environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here").env("NORTH_TEST_ROOT", root).args(args).output().unwrap()
@@ -32,7 +35,7 @@ fn handed_in(queue_dir: &Path, root: &Path, branch: &str, micros: u128) -> (Path
     let hand_in = HandIn { wakes_session: true, ..HandIn::default() };
     let ticket = Ticket { origin: ORIGIN.into(), root: root.to_owned(), host: "here".into(), branch: branch.into(), head: "1".repeat(40), session: Some("narrow".into()), queued_at: "2026-11-12T04:00:00Z".into(), queued_micros: Some(micros), hand_in: Some(hand_in), ..Ticket::default() };
     queue::write(&path, &ticket).unwrap();
-    north_base::land_ticket::queued(&path, "enqueued").unwrap();
+    land_ticket::queued(&path, "enqueued").unwrap();
     (path, ticket)
 }
 
@@ -73,15 +76,19 @@ fn a_session_whose_finish_call_returned_at_the_queue_is_kept_past_its_report_and
 
     queue::decide(&landed, landed_ticket, "landed 2222222222222222222222222222222222222222 on main".to_owned()).unwrap();
     queue::decide(&refused, refused_ticket, REFUSAL.to_owned()).unwrap();
-    let woken = wait::until(Duration::from_secs(2), || shown(root).split_once(&format!("refused-lane: {REFUSAL}")).is_some_and(|(_, after)| after.contains("turn: success")));
+    let woken = wait::until(Duration::from_secs(20), || shown(root).split_once(&format!("refused-lane: {REFUSAL}")).is_some_and(|(_, after)| after.contains("turn: success")));
     let transcript = shown(root);
     let mut watcher = watcher;
     let _ = watcher.kill();
     let told = watcher.wait_with_output().unwrap();
     let said = String::from_utf8_lossy(&told.stdout).into_owned();
+    let decided = land_ticket::lanes_of(queue_dir.parent().unwrap(), "narrow").unwrap().into_iter().find(|lane| lane.branch == "refused-lane").and_then(|lane| lane.since_ms());
+    let wakes: Vec<u64> = Spool::at(&root.join(".local/state/north/fleet")).pending().unwrap().into_iter().filter(|row| row.to == "narrow" && row.text.starts_with(land_ticket::DECIDED_OPENER)).map(|row| row.sent_at).collect();
     north(root, &["fleet", "forget", "narrow"]);
 
-    assert!(woken, "the refusal started no turn in the session within 2 s:\n{transcript}\n{said}");
+    assert!(woken, "the refusal started no turn in the session within 20 s:\n{transcript}\n{said}");
+    let decided = decided.expect("the lander recorded no decision of the refused lane");
+    assert!(matches!(wakes.as_slice(), [woke] if woke.saturating_sub(decided) <= WAKE_BOUND_MS), "the lander did not write its one wake within {WAKE_BOUND_MS} ms of refusing, at {decided} ms: {wakes:?}\n{said}");
     assert_eq!(transcript.matches("[north: the lander has decided]").count(), 1, "the session was woken other than once, by the refusal alone:\n{transcript}\n{said}");
     assert!(!transcript.contains("landed-lane"), "a landing woke the session:\n{transcript}\n{said}");
 }
