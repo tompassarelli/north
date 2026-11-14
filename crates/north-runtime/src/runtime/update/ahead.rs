@@ -167,10 +167,29 @@ fn pulled(artifact: &Path, stamp: &str, commit: &str, runtime: &Path, fetch: imp
     pulled.then_some(()).ok_or_else(|| format!("{} now holds another build of {}", host.trim(), layout::short(commit)))
 }
 
-/// `north runtime build-ahead --fetch --tree TREE`: prints the path of the north built ahead for `tree` that this host can run, first pulling it from the build host its artifact names when that host alone holds it, so a landing step that needs the merged tree's north runs on a lander with no build grid (north#1433).
-fn fetched_north(layout: &Layout, tree: &str) -> Result<(), Failure> {
+/// `north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR]`: prints the path of the north built ahead for `tree` that this host can run, first pulling it from the build host its artifact names when that host alone holds it, so a landing step that needs the merged tree's north runs on a lander with no build grid (north#1433). With `commit`, a tree nobody asked for ahead, such as the candidate a lane was just cherry-picked into, is built from it on a build host first (north#1570).
+fn fetched_north(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
+    let (mut tree, mut commit, mut checkout) = (None, None, PathBuf::from("."));
+    let mut words = flags.iter();
+    while let Some(flag) = words.next() {
+        let value = words.next().cloned().ok_or_else(|| failed(64, format!("{flag} needs a value")))?;
+        match flag.as_str() {
+            "--tree" => tree = Some(value),
+            "--commit" => commit = Some(value),
+            "--checkout" => checkout = PathBuf::from(value),
+            other => return Err(failed(64, format!("unknown build-ahead --fetch flag {other}"))),
+        }
+    }
+    let tree = tree.filter(|tree| layout::is_sha(tree)).ok_or_else(|| failed(64, "build-ahead --fetch needs --tree TREE"))?;
+    let tree = tree.as_str();
     let artifact = layout.artifacts().join(tree);
     let north = artifact.join("north");
+    if !north.is_file()
+        && ready(layout, tree).is_none()
+        && let Some(commit) = commit
+    {
+        built_now(layout, tree, &commit, &checkout)?;
+    }
     if !north.is_file() {
         let stamp = fs::read_to_string(artifact.join(BUILT_FROM)).map_err(|error| failed(75, format!("no build-ahead artifact for tree {}: {error}", layout::short(tree))))?;
         let commit = stamp.split_whitespace().next().unwrap_or_default().to_owned();
@@ -183,6 +202,36 @@ fn fetched_north(layout: &Layout, tree: &str) -> Result<(), Failure> {
     Ok(())
 }
 
+/// Has a build host build the release north of `tree` from `commit` in `checkout` and waits for it, so the step asking gets a verdict for exactly that tree while this host compiles nothing. The request drains in a process of its own, since its slot goes on to build the requests queued behind it.
+fn built_now(layout: &Layout, tree: &str, commit: &str, checkout: &Path) -> Result<(), Failure> {
+    let log = layout.artifacts().join(format!("{tree}.log"));
+    let mut drainer = None;
+    if !building(layout, tree) {
+        fs::create_dir_all(layout.artifacts())?;
+        let output = File::create(&log)?;
+        let mut command = Command::new(std::env::current_exe()?);
+        command.args(["runtime", "build-ahead", "--tree", tree, "--commit", commit, "--checkout"]).arg(checkout);
+        command.stdin(std::process::Stdio::null()).stdout(output.try_clone()?).stderr(output);
+        drainer = Some(command.spawn()?);
+    }
+    eprintln!("north runtime build-ahead: no artifact for tree {}; a build host builds it from {} now, waited for up to {}s", layout::short(tree), layout::short(commit), AWAIT.as_secs());
+    let started = std::time::Instant::now();
+    while ready(layout, tree).is_none() {
+        let ended = match drainer.as_mut() {
+            Some(child) => child.try_wait().ok().flatten().is_some(),
+            None => !building(layout, tree),
+        };
+        if ended && ready(layout, tree).is_none() {
+            return Err(failed(75, format!("no build host built tree {} (see {})", layout::short(tree), log.display())));
+        }
+        if started.elapsed() >= AWAIT {
+            return Err(failed(75, format!("tree {} was not built within {}s (see {})", layout::short(tree), AWAIT.as_secs(), log.display())));
+        }
+        std::thread::sleep(SLOT_POLL);
+    }
+    Ok(())
+}
+
 fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
     layout::stamp(runtime, target).is_ok() && fs::copy(artifact.join(BUILT_ON), runtime.join(BUILT_ON)).is_ok()
 }
@@ -190,12 +239,10 @@ fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
 /// `north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR]`: the lander's request for the release
 /// north a lane's candidate tree carries, kept where the promotion of that tree's landing finds it.
 pub(in crate::runtime) fn run(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
-    if let [fetch, tree_flag, tree] = flags
+    if let Some((fetch, rest)) = flags.split_first()
         && fetch == "--fetch"
-        && tree_flag == "--tree"
-        && layout::is_sha(tree)
     {
-        return fetched_north(layout, tree);
+        return fetched_north(layout, rest);
     }
     let mut tree = None;
     let mut commit = None;
