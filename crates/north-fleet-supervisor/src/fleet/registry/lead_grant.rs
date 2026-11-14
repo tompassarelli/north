@@ -3,8 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::fleet::model::{Role, SessionRecord};
+use crate::fleet::records::write_record;
 
-use super::Fleet;
+use super::{Fleet, rewritten};
 
 const VALUED: [&str; 13] = ["--name", "--task", "--box", "--cwd", "--provider", "--account", "--local", "--model", "--effort", "--route", "--tier-reason", "--idle-exit", "--priority"];
 const BARE: [&str; 2] = ["--wait", "--no-wait"];
@@ -30,7 +31,8 @@ struct Lead {
 impl Fleet {
     /// The `north fleet launch` the tick runs for the spooled launch `words` of `writer`, or why it is refused.
     pub fn granted_launch(&self, writer: &str, words: &[String]) -> Result<Granted, String> {
-        let lead = self.lead(writer)?;
+        let mut lead = self.lead(writer)?;
+        self.join_rewritten(&mut lead, words);
         let (name, arguments) = launch(&lead, words)?;
         Ok(Granted { name, arguments, cwd: lead.main })
     }
@@ -63,6 +65,22 @@ impl Fleet {
         let main = own_main(writer, &record.cwd, &self.home.join("code"))?;
         let parent_tasks = record.parent.as_deref().and_then(|parent| self.record(parent).ok()).map(|parent| parent.tasks().map(str::to_owned).collect()).unwrap_or_default();
         Ok(Lead { record, parent_tasks, main })
+    }
+
+    /// Adds the launch's `--task` to `lead`'s record when the record holds no such issue but the 24-hour closer recorded it as the successor of one it holds, directly or through later rewrites.
+    fn join_rewritten(&self, lead: &mut Lead, words: &[String]) {
+        let Some(task) = words.iter().position(|word| word == "--task").and_then(|at| words.get(at + 1)) else { return };
+        let wanted = rewritten::issue(task);
+        if lead.record.tasks().any(|held| rewritten::issue(held) == wanted) || own_project(lead, task).is_err() {
+            return;
+        }
+        if !rewritten::successors(&self.rewrites.rewrites(), lead.record.tasks()).contains(&wanted) {
+            return;
+        }
+        let Ok(dir) = self.session_dir(&lead.record.name) else { return };
+        if lead.record.hold(task) && let Err(error) = write_record(&dir, &lead.record) {
+            eprintln!("north fleet: {} holds {task}, the closer's successor of an issue it held, but its record was not written: {}", lead.record.name, error.user_message());
+        }
     }
 
     fn revive_arguments(&self, lead: &Lead, words: &[String]) -> Result<Vec<String>, String> {
@@ -231,7 +249,16 @@ fn names_api(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::super::fixtures::fleet;
+    use super::super::rewritten::Rewrites;
     use super::*;
+
+    struct Closer;
+
+    impl Rewrites for Closer {
+        fn rewrites(&self) -> Vec<(String, String)> {
+            vec![("north#35".to_owned(), "north#1520".to_owned()), ("north#1520".to_owned(), "north#1521".to_owned())]
+        }
+    }
 
     fn recorded(fleet: &Fleet, name: &str, fields: serde_json::Value) {
         let dir = fleet.root.join(name);
@@ -242,9 +269,9 @@ mod tests {
     }
 
     #[test]
-    fn a_lead_launches_on_a_named_account_here_for_its_parents_issue_and_revives_its_stopped_worker_onto_another_account() {
+    fn a_lead_launches_on_a_successor_the_closer_recorded_and_a_strangers_comment_widens_nothing() {
         let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
+        let fleet = fleet(home.path()).following_rewrites(std::sync::Arc::new(Closer));
         std::fs::create_dir_all(fleet.home.join("code/north/main")).unwrap();
         recorded(&fleet, "release-lead", serde_json::json!({"role": "lead", "parent": "proxy", "task_ref": "tompassarelli/north#1281", "extra_tasks": ["tompassarelli/north#1054"]}));
         recorded(&fleet, "scoreboard-lead", serde_json::json!({"role": "lead", "parent": "release-lead", "task_ref": "tompassarelli/north#35"}));
@@ -254,9 +281,11 @@ mod tests {
         let launched = fleet.granted_launch("scoreboard-lead", &words(&["--name", "n1054-child", "--task", "north#1054", "--local", "the build host is down", "--account", "e", "brief"])).unwrap();
         let revived = fleet.granted_revive("scoreboard-lead", &words(&["sb-lookup", "--account", "e"])).unwrap();
         let outside = fleet.granted_launch("scoreboard-lead", &words(&["--name", "n259-child", "--task", "north#259", "brief"])).unwrap_err();
+        let successor = fleet.granted_launch("scoreboard-lead", &words(&["--name", "n1521-child", "--task", "north#1521", "brief"]));
 
         assert!(launched.arguments.windows(2).any(|pair| pair == ["--local", "the build host is down"]) && launched.arguments.windows(2).any(|pair| pair == ["--account", "e"]), "{:?}", launched.arguments);
         assert_eq!(revived.arguments, ["revive", "sb-lookup", "--account", "e"]);
-        assert!(outside.contains("--task north#259 is not granted to scoreboard-lead"), "{outside}");
+        assert!(outside.contains("--task north#259 is not granted to scoreboard-lead"), "an issue only a stranger's \"rewritten as north#259\" comment names, which the grant never reads, widens nothing: {outside}");
+        assert!(successor.is_ok() && fleet.record("scoreboard-lead").unwrap().tasks().any(|task| task == "north#1521"), "the successor the closer recorded for the lead's closed issue, through a second rewrite, is granted and joins its record: {successor:?}");
     }
 }

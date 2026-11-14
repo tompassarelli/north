@@ -100,7 +100,7 @@ pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
 }
 
 fn open_fleet_claiming(claims: ThreadsCli) -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).reckoning_with(Arc::new(super::promises::Laptop)).showing_proxy_on(Arc::new(desktop::Desktop)))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).reckoning_with(Arc::new(super::promises::Laptop)).showing_proxy_on(Arc::new(desktop::Desktop)).following_rewrites(Arc::new(super::rewrites::Ledger)))
 }
 
 fn far_machine(host: &str) -> bool {

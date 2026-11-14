@@ -18,6 +18,7 @@ pub mod jobs;
 pub mod landing;
 pub mod outside;
 pub mod projects;
+pub mod rewrites;
 pub mod runs;
 pub mod schema;
 pub mod snapshot;
