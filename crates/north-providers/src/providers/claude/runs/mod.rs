@@ -114,7 +114,7 @@ fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<Vec<
     let policy = fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse().ok());
     let main = MainIndex::parse(main);
     let repositories = landing::repositories();
-    let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));
+    let pushes = landing::landed_pushes(&repositories, &main);
     let ledger = Ledger { policy, prices: Prices::parse(&CATALOG, &DEFAULTS), main, sessions: fleet_sessions(&lanes::of_sessions(&repositories)), pushes, now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     let roots = roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name());

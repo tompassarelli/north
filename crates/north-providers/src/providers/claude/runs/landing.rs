@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
@@ -7,7 +8,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::truthy;
-use crate::fleet::landings::Push;
+use crate::fleet::landings::{self, Push};
 use crate::foundation::clock::Timestamp;
 
 static LAND: LazyLock<Regex> = LazyLock::new(|| {
@@ -104,14 +105,39 @@ pub fn repositories() -> Vec<PathBuf> {
     found
 }
 
-/// The subject of a pushed tip, read from the checkout of the repository it was pushed to.
-pub fn subject_in(repositories: &[PathBuf], push: &Push) -> Option<String> {
-    let named = |repo: &&PathBuf| checkout_name(repo) == Some(push.repository.as_str());
-    repositories.iter().filter(named).find_map(|repo| {
-        let output = Command::new("git").arg("-C").arg(repo).args(["log", "-1", "--format=%s", &push.oid, "--"]).stderr(Stdio::null()).output().ok()?;
-        let subject = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        (output.status.success() && !subject.is_empty()).then_some(subject)
-    })
+/// This host's push log [`settle`]d against `main`, each pushed tip's subject read from its repository's checkout.
+pub fn landed_pushes(repositories: &[PathBuf], main: &MainIndex) -> Vec<Push> {
+    let pushes = landings::pushes(&landings::push_log());
+    let subjects = subjects_in(repositories, &pushes);
+    settle(pushes, main, |push| subjects.get(&push.oid).cloned())
+}
+
+/// The subjects of the pushed tips by oid, read with one `git log` per checkout rather than a process per push.
+fn subjects_in(repositories: &[PathBuf], pushes: &[Push]) -> HashMap<String, String> {
+    let mut subjects = HashMap::new();
+    for repo in repositories {
+        let Some(name) = checkout_name(repo) else { continue };
+        let oids: String = pushes.iter().filter(|push| push.repository == name && !push.oid.is_empty() && !subjects.contains_key(&push.oid)).map(|push| format!("{}\n", push.oid)).collect();
+        if oids.is_empty() {
+            continue;
+        }
+        for (oid, subject) in logged_subjects(repo, &oids) {
+            subjects.entry(oid).or_insert(subject);
+        }
+    }
+    subjects
+}
+
+fn logged_subjects(repo: &Path, oids: &str) -> Vec<(String, String)> {
+    let spawned = Command::new("git").arg("-C").arg(repo).args(["log", "--no-walk=unsorted", "--ignore-missing", "--stdin", "--format=%H %s"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
+    let Ok(mut child) = spawned else { return Vec::new() };
+    if let Some(mut stdin) = child.stdin.take()
+        && stdin.write_all(oids.as_bytes()).is_err()
+    {
+        let _ = child.kill();
+    }
+    let Ok(output) = child.wait_with_output() else { return Vec::new() };
+    String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.split_once(' ')).filter(|(_, subject)| !subject.trim().is_empty()).map(|(oid, subject)| (oid.to_owned(), subject.trim().to_owned())).collect()
 }
 
 fn checkout_name(repo: &Path) -> Option<&str> {

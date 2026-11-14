@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-use crate::fleet::landings::{self, Push};
+use crate::fleet::landings::Push;
 use crate::foundation::clock::Timestamp;
 use crate::providers::claude::runs::landing::{self, MainIndex};
 use crate::providers::claude::runs::north_program;
@@ -24,7 +24,7 @@ pub(super) fn run(account: &str, day: &str) -> u8 {
     };
     let main = MainIndex::parse(&super::merged(day));
     let repositories = landing::repositories();
-    let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));
+    let pushes = landing::landed_pushes(&repositories, &main);
     let found = landings(&nodes, &pushes, account, day);
     let mut agents: Vec<&str> = found.iter().flat_map(|landing| landing.conversations.iter().map(String::as_str)).collect();
     agents.sort_unstable();
