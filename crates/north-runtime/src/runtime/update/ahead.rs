@@ -8,7 +8,8 @@
 //! file here, and whoever holds a slot drains the requests in order, every lander candidate oldest first and then a
 //! queued lane's hand-in, taking each off the queue so no other slot builds it, while a newer request withdraws every older
 //! one still waiting, so only the newest waiting tree is built ahead: requests build side by side, one per
-//! build host, and a candidate waits only while every build host is building; none builds on this host. The newest nine
+//! build host, a lane's newer hand-in ends the running build of that lane's older head and no other, and a candidate
+//! waits only while every build host is building; none builds on this host. The newest nine
 //! artifacts are kept, since builds side by side end three at a time.
 use super::super::build_host;
 use super::super::failure::{Failure, failed};
@@ -26,7 +27,7 @@ use std::time::Duration;
 
 const BUILT_AT: &str = "built-at";
 const BUILDING: &str = "building.lock";
-const KIND: &str = "kind";
+const LANE: &str = "lane";
 const SUPERSEDED: &str = "superseded";
 const PART: &str = ".part";
 type Stop<'a> = &'a dyn Fn() -> bool;
@@ -297,14 +298,16 @@ fn file(artifacts: &Path, ask: &Ask) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Marks every build running for another tree as superseded, by the rule that withdraws a waiting request: its build
-/// host build ends at once, since the landing it was for never comes.
+/// Marks a build running for an older head of the asking lane as superseded: its build host build ends at once, since
+/// the landing it was for never comes, while another lane's build and a lander candidate's run on beside it.
 fn supersede_running(artifacts: &Path, ask: &Ask) {
+    if ask.lane.is_empty() {
+        return;
+    }
     for entry in fs::read_dir(artifacts).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let Some(tree) = name.strip_suffix(PART).filter(|tree| *tree != ask.tree) else { continue };
-        let running = fs::read_to_string(entry.path().join(KIND)).ok().and_then(|word| Kind::parse(word.trim()));
-        if layout::is_sha(tree) && running.is_some_and(|kind| !(ask.kind == Kind::HandIn && kind == Kind::Candidate)) {
+        if layout::is_sha(tree) && fs::read_to_string(entry.path().join(LANE)).is_ok_and(|lane| lane == ask.lane) {
             let _ = fs::write(entry.path().join(SUPERSEDED), "");
         }
     }
@@ -371,7 +374,7 @@ fn built_ahead(layout: &Layout, artifacts: &Path, ask: &Ask, held: &BuildHost, a
     fs::create_dir_all(&staging)?;
     let building = File::create(staging.join(BUILDING))?;
     flock(&building, FlockOperation::NonBlockingLockExclusive).map_err(std::io::Error::from)?;
-    fs::write(staging.join(KIND), ask.kind.word())?;
+    fs::write(staging.join(LANE), &ask.lane)?;
     let taken = staging.join(commit);
     let stop = || staging.join(SUPERSEDED).is_file();
     let kept = built_on_a_slot(artifacts, commit, &taken, held, answered, build_on, &stop).and_then(|built| keep(&taken, &artifacts.join(tree)).map(|()| built).map_err(|error| format!("could not keep the build under {}: {error}", artifacts.display())));
@@ -547,8 +550,10 @@ mod tests {
             if commit != running_commit {
                 return build_there(hosts, host, commit, into, stop);
             }
-            file(&artifacts, &ask(&replacing, &replacing, Kind::HandIn, "i-lane")).unwrap();
-            assert!(stop(), "a build asked for a lane's hand-in is told to stop once a newer request is filed");
+            file(&artifacts, &ask(&"a".repeat(40), &"b".repeat(40), Kind::HandIn, "i-lane")).unwrap();
+            assert!(!stop(), "another lane's hand-in builds beside a running build and never ends it");
+            file(&artifacts, &ask(&replacing, &replacing, Kind::HandIn, "h-lane")).unwrap();
+            assert!(stop(), "a build asked for a lane's hand-in is told to stop once that lane's newer head is filed");
             Err(failed(1, "stopped"))
         };
         request(layout, &ask(&running, &running_commit, Kind::HandIn, "h-lane"), || vec![host("gex45", Some(4.0)), host("cpx62", Some(12.0))], superseded_build).unwrap();
