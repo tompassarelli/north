@@ -77,6 +77,7 @@ fn served(cwd: &Path) -> PathBuf {
 pub struct Pool {
     pub memory_kb: u64,
     pub entries: Vec<String>,
+    pub started_s: Vec<u64>,
 }
 
 /// Where a spare pool on `machine` lives, given the home layout shared with this host.
@@ -205,7 +206,7 @@ for e in "$pool"/*; do
   read -r unit _ _ _ spare ident cwd < "$e"
   systemctl --user -q is-active "$unit" || {{ rm -f "$e"; continue; }}
   [ -n "$cwd" ] && [ "$(stat -c {identity} "$cwd" 2>/dev/null)" = "$ident" ] || {{ drop "$e" "$unit" "$spare" "its directory $cwd is gone or is not the one it started in"; continue; }}
-  echo "${{e##*/}}"
+  echo "${{e##*/}} $(stat -c %Y "$e")"
 done"#,
         quote(&pool(&place.far_home())),
         drop = drop_function(&place.far_home()),
@@ -214,14 +215,23 @@ done"#,
     let (0, out) = run(place, &script)? else { return None };
     let mut lines = out.lines();
     let memory_kb = lines.next()?.trim().parse().ok()?;
-    Some(Pool { memory_kb, entries: lines.map(str::to_owned).collect() })
+    let (entries, started_s) = lines.map(|line| line.split_once(' ').map_or((line.to_owned(), 0), |(entry, at)| (entry.to_owned(), at.trim().parse().unwrap_or(0)))).unzip();
+    Some(Pool { memory_kb, entries, started_s })
 }
 
-/// The entries of `kind` a fill retires, because their fingerprint is not `fingerprint`, and how many spares it starts: up to [`PER_KIND`] of the kind and [`PER_HOST`] in all, and none while the host is under the memory floor: a spare waits idle, so a loaded host still keeps them.
-pub fn wanted(pool: &Pool, kind: &str, fingerprint: &str) -> (Vec<String>, usize) {
-    let of_kind = |entry: &&String| entry.starts_with(&format!("{kind}-"));
+/// When this host's current runtime went live, in Unix seconds: a spare started before it carries another runtime in its fingerprint, so no launch can take it.
+pub fn runtime_since() -> Option<u64> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
+    let changed = std::fs::symlink_metadata(Path::new(&home).join(".local/state/north/current")).ok()?.modified().ok()?;
+    changed.duration_since(std::time::UNIX_EPOCH).ok().map(|since| since.as_secs())
+}
+
+/// The entries a fill of `kind` retires, those of the kind whose fingerprint is not `fingerprint` and those of any kind started before the runtime went live at `runtime_since`, and how many spares it starts: up to [`PER_KIND`] of the kind and [`PER_HOST`] in all, and none while the host is under the memory floor: a spare waits idle, so a loaded host still keeps them. Spares of other kinds left from an earlier runtime held the host's whole room, so fills after each promotion started none (north#1531).
+pub fn wanted(pool: &Pool, kind: &str, fingerprint: &str, runtime_since: Option<u64>) -> (Vec<String>, usize) {
+    let of_kind = |entry: &String| entry.starts_with(&format!("{kind}-"));
     let current = |entry: &&String| entry.starts_with(&format!("{kind}-{fingerprint}-"));
-    let stale: Vec<String> = pool.entries.iter().filter(of_kind).filter(|entry| !current(entry)).cloned().collect();
+    let outdated = |at: u64| runtime_since.is_some_and(|since| at < since);
+    let stale: Vec<String> = pool.entries.iter().zip(&pool.started_s).filter(|(entry, at)| (of_kind(entry) && !current(entry)) || outdated(**at)).map(|(entry, _)| entry.clone()).collect();
     let held = pool.entries.len() - stale.len();
     let busy = pool.memory_kb < MEMORY_FLOOR_KB;
     let room = PER_KIND.saturating_sub(pool.entries.iter().filter(current).count()).min(PER_HOST.saturating_sub(held));
