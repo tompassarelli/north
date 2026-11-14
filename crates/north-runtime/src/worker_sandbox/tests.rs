@@ -180,8 +180,10 @@ fn no_agent_command_reads_the_operators_gh_login_and_no_worker_command_reads_a_k
         std::fs::write(secrets.join(name), "not a secret\n").unwrap();
     }
     std::os::unix::fs::symlink(secrets.join("linked"), ssh.join("peer")).unwrap();
+    let state = home.join(".local/state/north");
+    [state.join("claude-tokens/claude-x"), state.join("profiles/claude-x/.credentials.json"), home.join(".claude/.credentials.json")].iter().map(PathBuf::as_path).for_each(runnable);
     let logins = "! cat ~/.config/gh/hosts.yml && ! cat ~/hosts-link.yml && ! ln ~/.config/gh/hosts.yml /tmp/north-969-leak-$$ && cat ~/.config/gh/config.yml && cat ~/secrets/beside";
-    let trusted = ["~/.ssh/made-for-the-test", "~/.ssh/peer", "~/secrets/linked", "~/secrets/agent"];
+    let trusted = ["~/.ssh/made-for-the-test", "~/.ssh/peer", "~/secrets/linked", "~/secrets/agent", "~/.local/state/north/claude-tokens/claude-x", "~/.local/state/north/profiles/claude-x/.credentials.json", "~/.claude/.credentials.json"];
     for logins_only in [false, true] {
         let refused = if logins_only { "" } else { "! " };
         let command = std::iter::once(logins.to_owned()).chain(trusted.iter().map(|path| format!("{refused}cat {path}"))).collect::<Vec<_>>().join(" && ");
