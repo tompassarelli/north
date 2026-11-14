@@ -1,4 +1,4 @@
-//! A reviewer's accept of a lane's patch (north#1036, base/platform/review_accept.rs): `north runtime accept COMMIT` records, for the fleet session the caller's cgroup scope names, the accept of the patch of COMMIT over its merge-base with origin/main, and `north runtime accept --withdraw COMMIT` removes that session's own accept of it (north#1492). The session is read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or an argument; the request the broker takes is the words `review-accept PATCH-ID` or `review-accept --withdraw PATCH-ID` and nothing else of the caller's. The land scan `review-accept` counts these records.
+//! A reviewer's accept of a lane's patch (north#1036, base/platform/review_accept.rs): `north runtime accept COMMIT` records, for the fleet session the caller's cgroup scope names, the accept of the patch of COMMIT over its merge-base with origin/main, and `north runtime accept --withdraw COMMIT` removes that session's own accept of it (north#1492). A full sha this store lacks, such as the head of a lane handed in on a build host, is fetched from the trusted mirror beside the main checkout, where the lander publishes every lane it takes from an outbox (north#1485), so a reviewer needs no reach to that host. The session is read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or an argument; the request the broker takes is the words `review-accept PATCH-ID` or `review-accept --withdraw PATCH-ID` and nothing else of the caller's. The land scan `review-accept` counts these records.
 
 use north_base::platform::review_accept::{Accept as Record, Accepts, is_patch_id, patch_id};
 
@@ -72,7 +72,7 @@ fn command(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result
     if !settles {
         return Err(failed(64, format!("the host that settles the fleet reads the accepts its landing counts, and this is not it; accept from a session there\n{USAGE}")));
     }
-    let commit = git(&["rev-parse", "--verify", &format!("{named}^{{commit}}")]).ok().filter(|commit| full_sha(commit)).ok_or_else(|| failed(1, format!("{named} names no commit here")))?;
+    let commit = resolved(named).ok_or_else(|| failed(1, format!("{named} names no commit here, nor a lane head the trusted mirror publishes")))?;
     let fork = git(&["merge-base", BASE, &commit])?;
     let patch = patch_id(&std::env::current_dir().unwrap_or_default(), &fork, &commit).map_err(|why| failed(1, why))?;
     let line = serve(Accept { patch_id: patch, withdraw }).map_err(|why| failed(1, why))?;
@@ -80,6 +80,16 @@ fn command(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result
         println!("{line}");
     }
     Ok(())
+}
+
+/// The commit `named` names here, or, for a full sha this store lacks, the lane head the trusted mirror beside the main checkout publishes, fetched into this store.
+fn resolved(named: &str) -> Option<String> {
+    let here = || git(&["rev-parse", "--verify", &format!("{named}^{{commit}}")]).ok().filter(|commit| full_sha(commit));
+    here().or_else(|| {
+        let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok()?;
+        let main = std::path::Path::new(&common).parent()?;
+        (full_sha(named) && north_trusted_mirror::fetch_lane_head(main, &std::env::current_dir().ok()?, named).is_ok()).then(here).flatten()
+    })
 }
 
 #[cfg(test)]

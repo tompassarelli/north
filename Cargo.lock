@@ -2037,6 +2037,7 @@ dependencies = [
  "north-pacing",
  "north-providers",
  "north-runtime-follow",
+ "north-trusted-mirror",
  "percent-encoding",
  "regex",
  "rusqlite",

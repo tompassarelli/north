@@ -135,7 +135,7 @@ pub fn readable(worktree: &Path, ticket: &Ticket) -> bool {
         return true;
     }
     let root = ticket.root.to_str().unwrap_or_default();
-    let _ = output(worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", root, &format!("+{}:refs/lanes/{}", ticket.head, ticket.branch)]);
+    let _ = output(worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", root, &format!("+{}:{}", ticket.head, Mirror::lane_ref(&ticket.branch))]);
     has_commit(worktree, &ticket.head)
 }
 

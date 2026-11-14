@@ -882,8 +882,9 @@ then S2b and S2c in parallel; then S3 and S4.
   `landing.remote-hosts` (space-separated) from its own thread, independent of rounds: an ssh with
   `ConnectTimeout=5` waits on the host up to 10 s for a ticket, polling every 200 ms, and lists it;
   the lander then fetches each lane from
-  `ssh://<host><root>` into `refs/land-remote/<host>/<branch>`, copies the ticket into its own queue
-  with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages are
+  `ssh://<host><root>` into `refs/land-remote/<host>/<branch>`, publishes its head into the trusted mirror's
+  `refs/lanes/<branch>`, where the candidate picks it and a confined reviewer's `north runtime accept`
+  fetches it with no ssh to the host, copies the ticket into its own queue with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages are
   unchanged. A verdict goes back over the same link: an inotify watch on the lander's decided areas
   writes each decided ticket from a build host into that host's `outbox/decided/` as it is decided, so the
   hand-in waiting there reads a refusal within a second, not on the records mirror's next pass or never

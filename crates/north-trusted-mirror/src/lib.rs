@@ -11,6 +11,7 @@ pub const ORIGIN_MAIN: &str = "refs/remotes/origin/main";
 const REPOSITORY: &str = "repo.git";
 const WORKTREES: &str = "worktrees";
 pub const SEED_HEAD: &str = "refs/seed/head";
+pub const LANES: &str = "refs/lanes";
 const SEEDS: [(&str, &str); 2] = [("HEAD", SEED_HEAD), (ORIGIN_MAIN, "refs/seed/origin")];
 const FETCHED: &str = "north-origin-fetched";
 const COPIED: [&str; 2] = ["user.name", "user.email"];
@@ -93,6 +94,15 @@ impl Mirror {
         }
     }
 
+    pub fn lane_ref(branch: &str) -> String {
+        format!("{LANES}/{branch}")
+    }
+
+    /// Publishes the lane head `head` of `branch`, which `source` holds, under [`LANES`], where the lander picks it and a reviewer reads it; the fetch hashes every object it takes, so a lane can name no content but its own.
+    pub fn publish_lane(&self, source: &Path, branch: &str, head: &str) -> Result<(), String> {
+        stdout(&self.git_dir, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", &source.to_string_lossy(), &format!("+{head}:{}", Self::lane_ref(branch))]).map(drop)
+    }
+
     pub fn git_dir(&self) -> &Path {
         &self.git_dir
     }
@@ -122,4 +132,14 @@ impl Mirror {
         }
         self.fetch_origin().map_err(|error| format!("origin/main in the mirror is older than {} s and a fetch of origin failed: {error}", within.as_secs()))
     }
+}
+
+/// Fetches the published lane head `head` from the mirror beside `main` into the repository at `into`, reading the mirror and writing only `into`, so a confined reviewer reads a lane handed in on any host with the reach it already has.
+pub fn fetch_lane_head(main: &Path, into: &Path, head: &str) -> Result<(), String> {
+    let mirror = Mirror::directory(main)?.join(REPOSITORY);
+    let output = Command::new("git").arg("-C").arg(into).args(["-c", "maintenance.auto=false"]).args(["fetch", "-q", "--no-tags", "--no-write-fetch-head"]).arg(&mirror).arg(head).env("GIT_TERMINAL_PROMPT", "0").env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").output().map_err(|error| format!("git fetch {}: {error}", mirror.display()))?;
+    if !output.status.success() {
+        return Err(format!("the mirror {} holds no published lane head {head}: {}", mirror.display(), String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(())
 }

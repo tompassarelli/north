@@ -183,6 +183,12 @@ impl Lander {
     }
 
     fn take_lane(&self, outbox: &Outbox, ticket: &Ticket, bundle: Option<&str>) -> Result<(), Refusal> {
+        self.fetch_into_repo(outbox, ticket, bundle)?;
+        let checkout = super::repositories::checkout(&self.repo).map_err(Refusal::Unreachable)?;
+        Mirror::open(&checkout).and_then(|mirror| mirror.publish_lane(&self.repo, &ticket.branch, &ticket.head)).map_err(Refusal::Unreachable)
+    }
+
+    fn fetch_into_repo(&self, outbox: &Outbox, ticket: &Ticket, bundle: Option<&str>) -> Result<(), Refusal> {
         let host = &outbox.host;
         let from_bundle = bundle.map(|bundle| self.unbundle(outbox, ticket, bundle));
         if from_bundle.as_ref().is_some_and(Result::is_ok) && self.holds(outbox, ticket) {
@@ -318,3 +324,7 @@ fn lane_gone(outbox: &Outbox, ticket: &Ticket) -> bool {
     let root = ticket.root.to_string_lossy().replace('\'', "'\\''");
     ssh(&outbox.login, &format!("[ -e '{root}/.git' ] && echo present || echo gone")).is_ok_and(|answer| answer.trim() == "gone")
 }
+
+#[cfg(test)]
+#[path = "outbox_tests.rs"]
+mod tests;
