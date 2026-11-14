@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::*;
+use crate::worker_sandbox::eval_units::{NIX_PROFILE_BIN, SYSTEM_BIN};
 
 const LEAD_SESSION: &str = "release-evals-lead";
 const SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
