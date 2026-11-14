@@ -1,4 +1,5 @@
 mod attach;
+mod burst;
 mod clipboard;
 mod desk;
 mod digest;
@@ -39,6 +40,7 @@ use crate::fleet::model::{Status, Transcript};
 use crate::fleet::registry::Fleet;
 
 pub use desk::AccountRoom;
+use burst::Bursts;
 use desk::{FleetDesk, SessionDesk};
 use digest::SessionFacts;
 use painter::TranscriptPainter;
@@ -98,6 +100,7 @@ where
     B::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut runner = Runner::new(desk.actions());
+    let mut bursts = Bursts::new(events);
     let mut painter = TranscriptPainter::default();
     let mut next_poll = Instant::now();
     let mut dirty = true;
@@ -119,7 +122,7 @@ where
             send_to_terminal(screen);
             dirty = false;
         }
-        if let Some(event) = events(next_poll.saturating_duration_since(Instant::now()))? {
+        if let Some(event) = bursts.next(next_poll.saturating_duration_since(Instant::now()))? {
             dirty = true;
             if let Some(command) = apply_event(screen, event) {
                 screen.begin(&command, desk.transcript(command.session()));

@@ -349,14 +349,6 @@ fn a_refused_launch_keeps_the_form_as_typed() {
     assert!(frame.contains("lastword"), "the refusal is cut before its end:\n{frame}");
 }
 
-#[test]
-fn a_paste_with_carriage_returns_keeps_its_lines() {
-    let desk = desk();
-    let mut screen = screen(&desk);
-    apply_event(&mut screen, Event::Paste("first line\rsecond line\r\nthird line".into()));
-    assert_eq!(screen.composer.lines(), ["first line", "second line", "third line"]);
-}
-
 fn form_frame(screen: &mut Screen, width: u16, height: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     let mut painter = super::painter::TranscriptPainter::default();
@@ -553,4 +545,45 @@ fn a_reply_in_progress_is_drawn_before_its_turn_ends() {
     let frame = frame_text(&transcript, started + 83_000);
     assert_eq!(frame.matches("The first paragraph").count(), 1, "{frame}");
     assert!(frame.contains("still being written."), "{frame}");
+}
+
+fn scripted_day(script: Vec<Option<Event>>) -> Vec<Command> {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    screen.focus = Focus::Composer;
+    let mut script: VecDeque<Option<Event>> = script.into();
+    let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    let mut events = |_| Ok(script.pop_front().flatten());
+    drive(&mut desk, &mut screen, &mut terminal, &mut events).unwrap();
+    desk.performed()
+}
+
+fn typed(text: &str) -> Vec<Option<Event>> {
+    text.chars()
+        .map(|character| Some(Event::Key(press(if character == '\n' { KeyCode::Enter } else { KeyCode::Char(character) }))))
+        .collect()
+}
+
+fn send_of(text: &str) -> Command {
+    Command::Send { name: "parser".into(), text: text.into(), delivery: Delivery::Queued, deepen: false }
+}
+
+fn enter_after_a_pause() -> Vec<Option<Event>> {
+    vec![Some(Event::Key(press(KeyCode::Enter))), None]
+}
+
+fn quit() -> Vec<Option<Event>> {
+    vec![Some(Event::Key(control('q')))]
+}
+
+#[test]
+fn wayland_paste_and_dictation_arrive_whole_as_one_message_each() {
+    let mut script = vec![Some(Event::Paste("one\rtwo\r\nthree".into()))];
+    script.extend(enter_after_a_pause());
+    script.extend(typed("four\nfive\nsix"));
+    script.extend(enter_after_a_pause());
+    script.extend(typed("next"));
+    script.extend(enter_after_a_pause());
+    script.extend(quit());
+    assert_eq!(scripted_day(script), [send_of("one\ntwo\nthree"), send_of("four\nfive\nsix"), send_of("next")]);
 }
