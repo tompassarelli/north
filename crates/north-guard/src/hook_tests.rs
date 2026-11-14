@@ -298,3 +298,10 @@ fn a_file_tool_path_under_a_container_sessions_container_directory_reaches_the_s
         assert!(decision["permissionDecision"] == "deny" && decision["updatedInput"].is_null(), "{session} {path}: {decision}");
     }
 }
+
+#[test]
+fn the_read_guard_refuses_on_a_deadline_miss() {
+    let request = json!({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/a/b"}}).to_string();
+    let answer = deadline_answer(&["pre-read".into()], request.as_bytes()).expect("a read guard that missed its deadline answers");
+    assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny", "{answer}");
+}

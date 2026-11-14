@@ -39,7 +39,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             let started = std::time::Instant::now();
             let mut request = Vec::new();
             let _ = std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut request);
-            let missed = request.clone();
+            let (missed, verb) = (request.clone(), arguments.clone());
             let deadline = std::env::var("NORTH_HOOK_DEADLINE_MS").ok().and_then(|ms| ms.parse().ok()).map_or(GUARD_DEADLINE, std::time::Duration::from_millis);
             let worked = move || {
                 let mut answer = Vec::new();
@@ -53,7 +53,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
                 }
                 None => {
                     foundation::hook_deadline::record_error(&foundation::hook_deadline::errors_file(), "north-hook", "deadline");
-                    if let Some(answer) = hook::deadline_answer(&missed) {
+                    if let Some(answer) = hook::deadline_answer(&verb, &missed) {
                         println!("{answer}");
                     }
                     ExitCode::SUCCESS

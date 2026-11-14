@@ -380,8 +380,11 @@ pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Res
     .unwrap_or_default())
 }
 
-/// The answer for a Bash call whose hook missed its deadline: a heavy command is still routed through machine-capacity admission, so the deadline never lets it run unleased on this host.
-pub fn deadline_answer(request: &[u8]) -> Option<Value> {
+/// The answer for a call whose hook verb `arguments` missed its deadline: a reading tool call is refused, so a slow read guard never reads as an allow, and a heavy command is still routed through machine-capacity admission, so the deadline never lets it run unleased on this host.
+pub fn deadline_answer(arguments: &[String], request: &[u8]) -> Option<Value> {
+    if matches!(arguments, [kind] if HookKind::explicit(kind) == Some(HookKind::PreRead)) {
+        return Some(json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "file-read-reach: the read guard missed its deadline, so this read is refused; retry it."}}));
+    }
     let input = HookInput::parse(request)?;
     if input.data["tool_name"].as_str() != Some("Bash") {
         return None;
