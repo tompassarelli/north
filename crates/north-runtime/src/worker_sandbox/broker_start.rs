@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use super::broker::{self, SOCKET_ENV};
 use super::broker_served::{PEERS, Served};
 use super::lane_grant::Host;
+use super::peer::Peer;
 use super::{BROKER, CODE, FLAG, USAGE};
 
 const DETACHED: &str = "--detached";
@@ -33,12 +34,12 @@ pub(super) fn run(served: &[String]) -> ExitCode {
 
 /// Serves `served` until the broker's socket is replaced or removed (`broker::serve`).
 fn serve(served: Served) -> ExitCode {
-    broker::serve(served.words(), std::sync::Arc::new(move |north: &Path, stream: &UnixStream, cgroup: Option<&str>| answer(north, stream, cgroup, &served)))
+    broker::serve(served.words(), std::sync::Arc::new(move |north: &Path, stream: &UnixStream, peer: &Peer| answer(north, stream, peer, &served)))
 }
 
-/// Answers the one request on `stream` as a broker that serves `served`, from a caller whose `/proc/PID/cgroup` reads `cgroup`: a caller the broker does not answer is told so and started nothing, and its refusal is returned for the broker's log.
-pub(super) fn answer(north: &Path, stream: &UnixStream, cgroup: Option<&str>, served: &Served) -> Result<(), String> {
-    if let Some(why) = served.refusal(cgroup) {
+/// Answers the one request on `stream` as a broker that serves `served`, from the caller `peer`: a caller the broker does not answer is told so and started nothing, and its refusal is returned for the broker's log.
+pub(super) fn answer(north: &Path, stream: &UnixStream, peer: &Peer, served: &Served) -> Result<(), String> {
+    if let Some(why) = served.refusal(peer) {
         let Some((_, streams)) = broker::receive(stream)? else { return Ok(()) };
         let why = broker::refuse(streams, why);
         (&*stream).write_all(&[broker::REFUSED]).map_err(|error| error.to_string())?;
@@ -46,7 +47,7 @@ pub(super) fn answer(north: &Path, stream: &UnixStream, cgroup: Option<&str>, se
     }
     let mut host = Host::own();
     host.code.extend(served.code.clone());
-    broker::answer(north, stream, cgroup, &host)
+    broker::answer(north, stream, peer, &host)
 }
 
 /// Starts this north as a broker that also serves the projects under `code` and answers this process's cgroup alone, in a transient user service as `broker::ensure` starts the host's, on the socket [`SOCKET_ENV`] names; whether one listens there. The host's own socket is never given such a broker. Removing the socket ends it.

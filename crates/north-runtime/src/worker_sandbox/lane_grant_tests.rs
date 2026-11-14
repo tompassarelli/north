@@ -9,6 +9,7 @@ use north_base::foundation::shim::write_executable;
 use north_base::platform::gh_shim;
 
 use super::super::broker::{self, Request};
+use super::super::peer::Peer;
 use super::Host;
 
 const HELD: &str = "ghs_heldbythebrokeronlyAAAAAAAAAA";
@@ -72,7 +73,7 @@ impl Fixture {
         let (mut err, err_writer) = std::io::pipe().unwrap();
         let stdin = File::open("/dev/null").unwrap();
         let logged = std::thread::scope(|scope| {
-            let served = scope.spawn(|| broker::answer(&self.north, &server, Some(cgroup), &self.host));
+            let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host));
             let request = Request { arguments: arguments.iter().map(|word| (*word).to_owned()).collect(), directory: directory.to_owned(), environment };
             let code = broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap();
             (code, served.join().unwrap())
@@ -163,7 +164,7 @@ fn no_token_reaches_the_lane_only_process_after_it_lands_and_comments() {
         .unwrap();
     for _ in 0..2 {
         let (stream, _) = listener.accept().unwrap();
-        broker::answer(&fixture.north, &stream, Some(&cgroup()), &fixture.host).unwrap();
+        broker::answer(&fixture.north, &stream, &Peer::from(Some(cgroup().as_str())), &fixture.host).unwrap();
     }
     let output = client.wait_with_output().unwrap();
     let seen = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
@@ -272,9 +273,32 @@ fn a_lane_path_a_retired_placed_session_used_is_not_its_live_owner_north_1352() 
     let record = serde_json::from_slice::<serde_json::Value>(&std::fs::read(live.join("session.json")).unwrap()).unwrap();
     let checkout = super::super::request_checkout::Checkout { top: lane.canonicalize().unwrap(), git_dir: PathBuf::new(), common: PathBuf::new() };
     let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-session-live-1352.scope\n";
-    let admitted = || super::super::finish_request::admitted("evalb-live", &record, &live, &checkout, cgroup, &fixture.host);
+    let admitted = || super::super::finish_request::admitted("evalb-live", &record, &live, &checkout, &Peer::from(Some(cgroup)), &fixture.host);
     assert_eq!(admitted(), Ok(()), "a retired session's placed record, left behind with no status and no end, took a live session's lane");
     let unit = fixture.host.cgroups.join("user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-evalb-old-1352.service");
     std::fs::create_dir_all(&unit).unwrap();
     assert!(admitted().is_err_and(|refused| refused.contains("launched in, not one of")), "a placed session whose unit runs here no longer owns its lane");
+}
+
+const WINDOW: u32 = 4242;
+const SHELL: u32 = 4300;
+const APP_CGROUP: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-terminal-1.scope\n";
+
+fn adopt_window(fixture: &Fixture) -> PathBuf {
+    let directory = fixture.host.fleet.join("coordinator");
+    std::fs::create_dir_all(&directory).unwrap();
+    let record = serde_json::json!({ "name": "coordinator", "role": "coordinator", "placement": format!("adopted window, process {WINDOW}"), "adopted_ms": 1793952078246u64, "cwd": fixture.lane });
+    std::fs::write(directory.join("session.json"), record.to_string()).unwrap();
+    directory
+}
+
+#[test]
+fn a_shell_descended_from_an_adopted_window_resolves_to_its_record_and_an_app_scope_without_one_is_refused_north_1427() {
+    let fixture = Fixture::new();
+    let directory = adopt_window(&fixture);
+    let peer = Peer::with_pids(Some(APP_CGROUP), &[SHELL, WINDOW]);
+    let (found, record) = super::own_session(&peer, &fixture.host, "absent").unwrap();
+    assert_eq!((found, record["name"].as_str()), (directory, Some("coordinator")));
+    let unrelated = Peer::with_pids(Some(APP_CGROUP), &[SHELL]);
+    assert_eq!(super::own_session(&unrelated, &fixture.host, "absent").unwrap_err(), "absent");
 }

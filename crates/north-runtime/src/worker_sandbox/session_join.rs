@@ -4,15 +4,16 @@ use std::path::Path;
 
 use north_base::platform::session_scope;
 
+use super::peer::Peer;
 use super::{FLAG, LANE, SESSION_SCOPE};
 
-/// The variable that names, to the `--lane` child the broker starts for a lane-only session's shell command (`arguments`), the `cgroup.procs` of the session scope `cgroup` (the caller's `/proc/PID/cgroup`) names, in the cgroup filesystem at `root`. The child would otherwise run in the broker's own cgroup, so a `safe-push` or `task check` its command asks for would reach the broker from outside every session and be refused; it joins this scope first and keeps its session's grant (north#1068).
-pub(super) fn scope_for(arguments: &[String], cgroup: Option<&str>, root: &Path) -> Option<(String, String)> {
+/// The variable that names, to the `--lane` child the broker starts for a lane-only session's shell command (`arguments`), the `cgroup.procs` of the session scope the caller `peer` runs in names, in the cgroup filesystem at `root`. The child would otherwise run in the broker's own cgroup, so a `safe-push` or `task check` its command asks for would reach the broker from outside every session and be refused; it joins this scope first and keeps its session's grant (north#1068).
+pub(super) fn scope_for(arguments: &[String], peer: &Peer, root: &Path) -> Option<(String, String)> {
     let [flag, lane, ..] = arguments else { return None };
     if flag != FLAG || lane != LANE {
         return None;
     }
-    let path = cgroup?.lines().find_map(|line| line.strip_prefix("0::"))?;
+    let path = peer.cgroup()?.lines().find_map(|line| line.strip_prefix("0::"))?;
     let procs = root.join(path.trim_start_matches('/')).join("cgroup.procs");
     session_scope::lane_only_cgroup(path).then(|| (SESSION_SCOPE.to_owned(), procs.to_string_lossy().into_owned()))
 }

@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 use north_base::platform::finish_record::{FinishRecords, Finished};
 
 use super::lane_grant::{self, Host};
+use super::peer::Peer;
 use super::offload_request;
 use super::request_checkout::{self, Checkout};
 use super::{CHECKED, FLAG, check_request};
@@ -51,11 +52,11 @@ pub(super) fn asked(arguments: &[String]) -> Option<Result<Check, String>> {
     })
 }
 
-/// The process that runs `check` for a caller whose `/proc/PID/cgroup` reads `cgroup`, asked from `checkout`, on a host whose broker runs with `runtime` and `homes`, or why it is refused: the caller runs in no fleet session's scope, the commit is neither the lane's tip nor a commit made directly on it, or the session has a check running.
-pub(super) fn granted(check: Check, checkout: &Checkout, cgroup: &str, host: &Host, runtime: &Path, homes: &[(String, String)]) -> Result<Granted, String> {
-    let (directory, record) = lane_grant::own_session(cgroup, host, "a finish check is run for a fleet session, and this caller runs in no session's scope")?;
+/// The process that runs `check` for the caller `peer`, asked from `checkout`, on a host whose broker runs with `runtime` and `homes`, or why it is refused: the caller runs in no fleet session's scope, the commit is neither the lane's tip nor a commit made directly on it, or the session has a check running.
+pub(super) fn granted(check: Check, checkout: &Checkout, peer: &Peer, host: &Host, runtime: &Path, homes: &[(String, String)]) -> Result<Granted, String> {
+    let (directory, record) = lane_grant::own_session(peer, host, "a finish check is run for a fleet session, and this caller runs in no session's scope")?;
     let session = record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned).ok_or_else(|| format!("{} names no session", directory.display()))?;
-    admitted(&session, &record, &directory, checkout, cgroup, host)?;
+    admitted(&session, &record, &directory, checkout, peer, host)?;
     let environment = offload_request::environment(&host.environment, runtime, homes, Some(checkout))?;
     if !check.head.is_empty() && !on_lane(&check.head, checkout, &environment) {
         return Err(format!("{} is no commit of the lane {}: {session} checks the lane's own tip or the commit its finish call would make on it", check.head, checkout.top.display()));
@@ -66,9 +67,9 @@ pub(super) fn granted(check: Check, checkout: &Checkout, cgroup: &str, host: &Ho
 }
 
 /// Why `checkout` is not a lane the session `name`, whose record is `record` in the fleet directory `directory`, may run a finish check in, if it is not. An ordinary session's lanes are those under `worktrees/` of the project of the directory it launched in, one it made after launch among them (the sandbox gives it the same reach), never the main checkout and never the lane another live fleet session launched in, one placed here by another host among them, by its recorded directory or by its name; a lane-only session's is its own lane alone, since the scratch directory that would say which lanes it made since is not a fact the broker holds. The record vouches only for the tree the command ran on (`Granted::record`), so a lane another session could make is no gain to a caller.
-pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path, checkout: &Checkout, cgroup: &str, host: &Host) -> Result<(), String> {
+pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path, checkout: &Checkout, peer: &Peer, host: &Host) -> Result<(), String> {
     let own = lane_grant::own_lane(name, record)?;
-    if north_base::platform::session_scope::lane_only_cgroup(cgroup) {
+    if north_base::platform::session_scope::lane_only_cgroup(peer.cgroup().unwrap_or_default()) {
         return if own.canonicalize().ok().as_deref() == Some(checkout.top.as_path()) { Ok(()) } else { Err(format!("{} is not the lane of {name} ({}): a lane-only session's finish check runs in its own lane only", checkout.top.display(), own.display())) };
     }
     let cwd = PathBuf::from(record["cwd"].as_str().unwrap_or_default());

@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use super::CODE;
+use super::peer::Peer;
 
 pub(super) const PEERS: &str = "--peers";
 
@@ -21,9 +22,9 @@ impl Served {
         code.chain(self.peers.iter().flat_map(|peers| [OsString::from(PEERS), OsString::from(peers)])).collect()
     }
 
-    /// Why a caller whose `/proc/PID/cgroup` reads `cgroup` (`None` when unreadable) is not answered: the broker was started for one command, and the caller runs in another cgroup.
-    pub(super) fn refusal(&self, cgroup: Option<&str>) -> Option<String> {
+    /// Why the caller `peer` is not answered: the broker was started for one command, and the caller runs in another cgroup.
+    pub(super) fn refusal(&self, peer: &Peer) -> Option<String> {
         let peers = self.peers.as_deref()?;
-        (cgroup.map(str::trim) != Some(peers)).then(|| "this broker was started for one command's scratch project and answers only the processes of that command's cgroup; ask the host's broker from your lane".to_owned())
+        (peer.cgroup().map(str::trim) != Some(peers)).then(|| "this broker was started for one command's scratch project and answers only the processes of that command's cgroup; ask the host's broker from your lane".to_owned())
     }
 }

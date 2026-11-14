@@ -10,6 +10,7 @@ use std::process::Command;
 use north_base::foundation::offload::{HOLD_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 
 use super::super::broker::{self, Request};
+use super::super::peer::Peer;
 use super::super::broker_served::Served;
 use super::super::broker_start;
 use super::super::lane_grant::Host;
@@ -325,7 +326,7 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
 fn answers_of_a_probe_s_broker(root: &Path, north: &Path, code: Option<PathBuf>, verb: &str, directory: &Path, worker: &[(String, String)]) -> (u8, String, bool, Option<String>) {
     let started = || std::fs::read_to_string(root.join("seen")).unwrap_or_default();
     let serving = Served { code, peers: Some(OPEN_SCOPE.trim().to_owned()) };
-    let from = |cgroup: &str| asked(|server| broker_start::answer(north, server, Some(cgroup), &serving), verb, directory, worker);
+    let from = |cgroup: &str| asked(|server| broker_start::answer(north, server, &Peer::from(Some(cgroup)), &serving), verb, directory, worker);
     let seen = started();
     let (exit, told) = from(OPEN_SCOPE);
     let served = started().strip_prefix(&seen).and_then(|new| new.lines().next_back()).and_then(|line| line.split('|').next()) == Some(&*directory.to_string_lossy());
@@ -391,7 +392,7 @@ fn offload(root: &Path) {
 }
 
 fn ask(north: &Path, host: &Host, words: &str, directory: &Path, environment: &[(String, String)]) -> (u8, String) {
-    asked(|server| broker::answer(north, server, Some(OPEN_SCOPE), host), words, directory, environment)
+    asked(|server| broker::answer(north, server, &Peer::from(Some(OPEN_SCOPE)), host), words, directory, environment)
 }
 
 /// What a caller that asks for `words` from `directory` gets from the broker `answer` plays on the other end of its socket: its exit code, and what it was told with what the broker logged.

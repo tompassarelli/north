@@ -6,6 +6,7 @@ use std::process::Command;
 use north_base::land_ticket::{self, Phase};
 use north_base::platform::land_queue;
 
+use super::peer::Peer;
 use super::lane_grant::{self, Host};
 
 const VALUED: [&str; 4] = ["--reason", "--repo", "--noticed-by", "--class"];
@@ -30,10 +31,10 @@ fn asked(arguments: &[String], directory: &Path) -> Option<(String, PathBuf)> {
     Some((ticket, repo))
 }
 
-/// Refuses a `land withdraw` request asked from `directory` unless the session whose scope `cgroup` names on `host` queued every undecided ticket it names; `Ok` for every other request.
-pub(super) fn refusal(arguments: &[String], directory: &Path, cgroup: Option<&str>, host: &Host) -> Result<(), String> {
+/// Refuses a `land withdraw` request asked from `directory` unless the session whose scope the caller `peer` runs in on `host` queued every undecided ticket it names; `Ok` for every other request.
+pub(super) fn refusal(arguments: &[String], directory: &Path, peer: &Peer, host: &Host) -> Result<(), String> {
     let Some((ticket, repo)) = asked(arguments, directory) else { return Ok(()) };
-    let (record_directory, record) = lane_grant::own_session(cgroup.unwrap_or_default(), host, "a ticket is withdrawn through the broker by the fleet session that queued it, and this caller runs in no session's scope")?;
+    let (record_directory, record) = lane_grant::own_session(peer, host, "a ticket is withdrawn through the broker by the fleet session that queued it, and this caller runs in no session's scope")?;
     let session = record["name"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| format!("{} names no session", record_directory.display()))?;
     let queue = land_queue::directory(&state_home(host), &origin(&repo)?);
     let queuers = queuers(&queue, &ticket);

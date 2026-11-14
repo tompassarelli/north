@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::peer::Peer;
+
 use landlock::RulesetStatus;
 use serde_json::{Value, json};
 
@@ -270,7 +272,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
                     let _ = (&server).read(&mut heard).unwrap();
                     (&server).write_all(&[126]).unwrap();
                 } else {
-                    super::broker::answer(north, &server, None, &super::lane_grant::Host::own()).unwrap();
+                    super::broker::answer(north, &server, &Peer::from(None), &super::lane_grant::Host::own()).unwrap();
                 }
             });
             super::broker::knows(&client, &words(run))
@@ -289,9 +291,9 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_CONFINED", "1"), ("AGENT_CAPACITY_DB", "/home/a/forged.db"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config"), ("HOME", "/home/a/elsewhere"), ("NORTH_OFFLOAD_SUBJECT", "/home/a/notes"), ("NORTH_OFFLOAD_OWNER", "north-land"), ("NORTH_LAND_RED_FIX", "1"), ("NORTH_OFFLOAD_LANDER_SLOT", "1"), ("NORTH_OFFLOAD_HOLD", "gex45 code-p-main-1 abc"), (north_providers::providers::opencode::KEY_ENV, "go-key"), (north_providers::providers::pi::KEY_ENV, "go-key")];
     let homes = [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config"), ("HOME", "/home/a")].map(|(name, value)| (name.to_owned(), value.to_owned()));
     let sent_pairs = || sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect::<Vec<_>>();
-    let environment = super::request_env::environment_for(&words("capacity host run --class heavy --owner o -- cargo test"), sent_pairs(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes, &[]);
+    let environment = super::request_env::environment_for(&words("capacity host run --class heavy --owner o -- cargo test"), sent_pairs(), &Peer::from(Some(OPEN_SCOPE)), Path::new("/run/user/1000"), &homes, &[]);
     let own = [("PATH", "/usr/bin"), ("AGENT_CAPACITY_DB", "/home/a/.local/state/agents/machine-capacity/capacity.db"), ("NORTH_WORKER_CONFINED", "1")].map(|(name, value)| (name.to_owned(), value.to_owned()));
-    let read = super::request_env::environment_for(&words("capacity host status"), sent_pairs(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes, &own);
+    let read = super::request_env::environment_for(&words("capacity host status"), sent_pairs(), &Peer::from(Some(OPEN_SCOPE)), Path::new("/run/user/1000"), &homes, &own);
     let read_get = |name: &str| read.iter().filter(|(own, _)| own == name).map(|(_, value)| value.as_str()).collect::<Vec<_>>();
     assert_eq!((read_get("XDG_RUNTIME_DIR"), read_get("AGENT_CAPACITY_DB"), read_get("GIT_AUTHOR_NAME"), read_get("NORTH_WORKER_CONFINED"), read_get("HOME")), (vec!["/run/user/1000"], vec!["/home/a/.local/state/agents/machine-capacity/capacity.db"], vec![], vec![], vec!["/home/a"]), "a worker's brokered status read the admission state where the client's environment pointed it, unconfined");
     let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
@@ -331,11 +333,11 @@ fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
     let sent = || vec![("PATH".to_owned(), "/usr/bin".to_owned()), ("HOME".to_owned(), "/home/a".to_owned())];
     let homes = [("XDG_STATE_HOME".to_owned(), "/home/a/.local/state".to_owned()), ("XDG_CACHE_HOME".to_owned(), "/home/a/.cache".to_owned()), ("XDG_DATA_HOME".to_owned(), "/home/a/.local/share".to_owned()), ("XDG_CONFIG_HOME".to_owned(), "/home/a/.config".to_owned())];
     let marker = |environment: &[(String, String)]| environment.iter().find(|(name, _)| name == super::LANE_ONLY).map(|(_, value)| value.clone());
-    assert_eq!(marker(&super::request_env::environment(sent(), Some(LANE_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a lane-only scope's caller without its marker got wide reads");
-    assert_eq!(marker(&super::request_env::environment(sent(), None, Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller whose scope cannot be read got wide reads");
-    assert_eq!(marker(&super::request_env::environment(sent(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), None);
+    assert_eq!(marker(&super::request_env::environment(sent(), &Peer::from(Some(LANE_SCOPE)), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a lane-only scope's caller without its marker got wide reads");
+    assert_eq!(marker(&super::request_env::environment(sent(), &Peer::from(None), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller whose scope cannot be read got wide reads");
+    assert_eq!(marker(&super::request_env::environment(sent(), &Peer::from(Some(OPEN_SCOPE)), Path::new("/run/user/1000"), &homes)), None);
     let forged = sent().into_iter().chain([(super::LANE_ONLY.to_owned(), "1".to_owned())]).collect();
-    assert_eq!(marker(&super::request_env::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller may narrow itself");
+    assert_eq!(marker(&super::request_env::environment(forged, &Peer::from(Some(OPEN_SCOPE)), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller may narrow itself");
 }
 
 #[test]
@@ -427,11 +429,11 @@ fn a_leased_caller_s_brokered_run_starts_inside_its_lease_scope_north_1036() {
     let north = Path::new("/n/north");
     let arguments = vec!["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "cargo".to_owned(), "clippy".to_owned()];
     let leased = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/agent-capacity.slice/agent-capacity-44328cc608bb40a3880b26c9e0d73a21.scope\n";
-    let started = super::broker::brokered(north, arguments.clone(), Some(leased));
+    let started = super::broker::brokered(north, arguments.clone(), &Peer::from(Some(leased)));
     let words: Vec<String> = started.get_args().map(|word| word.to_string_lossy().into_owned()).collect();
     assert_eq!(started.get_program(), "/bin/sh", "on gex45 on 2026-11-10 a leased land check's clippy ran in the broker's own service, so its lease read 0.05 cores while its compiles held 7");
     assert_eq!(words[2..], ["/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/agent.slice/agent-capacity.slice/agent-capacity-44328cc608bb40a3880b26c9e0d73a21.scope/cgroup.procs", "/n/north", "depbox", "run", "--", "cargo", "clippy"]);
-    let open = super::broker::brokered(north, arguments, Some(OPEN_SCOPE));
+    let open = super::broker::brokered(north, arguments, &Peer::from(Some(OPEN_SCOPE)));
     assert_eq!(open.get_program(), "/n/north");
 }
 
@@ -515,20 +517,20 @@ fn a_brokered_safe_push_queues_in_its_caller_s_state_home_and_every_other_reques
     let own = || [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("HOME", "/home/a")].map(|(name, value)| (name.to_owned(), value.to_owned())).to_vec();
     let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
     let state = |homes: Vec<(String, String)>| homes.into_iter().filter(|(name, _)| name == "XDG_STATE_HOME" || name == "HOME").map(|(_, value)| value).collect::<Vec<_>>();
-    assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &sent, own())), ["/tmp/verify-north-x/state", "/home/a"], "a worker's brokered safe-push queued its ticket in the host's landing queue, so verify-north found none in its scratch state (north#1022)");
-    assert_eq!(state(super::request_env::request_homes(&words("depbox run -- cargo check"), Some(OPEN_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
-    assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), Some(LANE_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
+    assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), &Peer::from(Some(OPEN_SCOPE)), &sent, own())), ["/tmp/verify-north-x/state", "/home/a"], "a worker's brokered safe-push queued its ticket in the host's landing queue, so verify-north found none in its scratch state (north#1022)");
+    assert_eq!(state(super::request_env::request_homes(&words("depbox run -- cargo check"), &Peer::from(Some(OPEN_SCOPE)), &sent, own())), ["/home/a/.local/state", "/home/a"]);
+    assert_eq!(state(super::request_env::request_homes(&words("safe-push --to main"), &Peer::from(Some(LANE_SCOPE)), &sent, own())), ["/home/a/.local/state", "/home/a"]);
     let forged: Vec<(String, String)> = sent.iter().cloned().chain([("NORTH_VERDICT_CACHE_DIR", "/tmp/forged-passes"), ("AGENTS_ORCHESTRATION", "/tmp/forged.toml"), ("PATH", "/tmp/fakes:/usr/bin"), ("NORTH_LAND_NORTH", "/tmp/fakes/north"), ("SAFE_PUSH_LAND_OFFLOAD_HOST", "elsewhere"), ("RUSTC_WRAPPER", "/tmp/fakes/wrapper"), ("CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER", "true"), ("RUSTUP_TOOLCHAIN", "forged"), ("CC_x86_64_unknown_linux_gnu", "/tmp/fakes/cc"), ("LIBRARY_PATH", "/tmp/fakes/lib")].map(|(name, value)| (name.to_owned(), value.to_owned()))).collect();
-    let homes = super::request_env::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &forged, own());
+    let homes = super::request_env::request_homes(&words("safe-push --to main"), &Peer::from(Some(OPEN_SCOPE)), &forged, own());
     let broker = [("PATH", "/run/current-system/sw/bin"), ("RUSTC_WRAPPER", "sccache")].map(|(name, value)| (name.to_owned(), value.to_owned()));
     let chosen = super::request_env::landing_choices(&words("safe-push --to main"), Path::new("/home/a"), &broker, Path::new("/opt/broker/north"));
-    let environment = super::request_env::landing(super::request_env::environment(forged.clone(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes), chosen);
+    let environment = super::request_env::landing(super::request_env::environment(forged.clone(), &Peer::from(Some(OPEN_SCOPE)), Path::new("/run/user/1000"), &homes), chosen);
     let named = |wanted: &str| environment.iter().filter(|(name, _)| name == wanted).map(|(_, value)| value.as_str()).collect::<Vec<_>>();
     assert_eq!((named("NORTH_VERDICT_CACHE_DIR"), named("AGENTS_ORCHESTRATION")), (vec!["/home/a/.local/state/north/verdict-cache"], vec![]), "a brokered safe-push reused passes from a verdict store or read a policy file its caller named");
     assert_eq!((named("PATH"), named("NORTH_LAND_NORTH"), named("SAFE_PUSH_LAND_OFFLOAD_HOST")), (vec!["/run/current-system/sw/bin"], vec!["/opt/broker/north"], vec![]), "a brokered safe-push ran programs or placed its checks before queueing where its caller named");
     assert_eq!((named("RUSTC_WRAPPER"), named("CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER")), (vec!["sccache"], vec![]), "a brokered safe-push built or ran its checks before queueing with a compiler wrapper or test runner its caller named");
     assert_eq!((named("RUSTUP_TOOLCHAIN"), named("CC_x86_64_unknown_linux_gnu"), named("LIBRARY_PATH")), (vec![], vec![], vec![]), "a brokered safe-push built its checks before queueing on a toolchain, target compiler or library path its caller named");
-    let build = super::request_env::landing(super::request_env::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes), super::request_env::landing_choices(&words("depbox run -- cargo check"), Path::new("/home/a"), &broker, Path::new("/opt/broker/north")));
+    let build = super::request_env::landing(super::request_env::environment(forged, &Peer::from(Some(OPEN_SCOPE)), Path::new("/run/user/1000"), &homes), super::request_env::landing_choices(&words("depbox run -- cargo check"), Path::new("/home/a"), &broker, Path::new("/opt/broker/north")));
     assert_eq!(build.iter().filter(|(name, _)| name == "PATH").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/tmp/fakes:/usr/bin"]);
 }
 
@@ -553,7 +555,7 @@ fn review_pass_records_only_a_reviewer_session_s_accept_and_a_forged_session_nev
 
     let store = Accepts(root.path().join("accepts"));
     let accept = Accept { patch_id: PATCH.to_owned() };
-    let caller = |name: &str| super::hold_request::caller(&cgroup(name), &host).unwrap();
+    let caller = |name: &str| super::hold_request::caller(&Peer::from(Some(cgroup(name).as_str())), &host).unwrap();
     accept.serve(&store, &caller("north-reviewer"), 1).unwrap();
     assert_eq!(store.sessions(PATCH).unwrap().into_iter().collect::<Vec<_>>(), ["north-reviewer"]);
     assert!(accept.serve(&store, &caller("north-author"), 2).is_err(), "a worker-role session, the lane's author among them, records no review pass");
@@ -562,8 +564,8 @@ fn review_pass_records_only_a_reviewer_session_s_accept_and_a_forged_session_nev
     let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
     let forged: Vec<(String, String)> = [("NORTH_FLEET_SESSION", "north-reviewer"), ("NORTH_FLEET_SESSION_PROVED", "0")].map(|(name, value)| (name.to_owned(), value.to_owned())).to_vec();
     let enqueue = |scope: &str| {
-        let asker = super::request_env::asking_session(&words("safe-push --to main"), Some(scope), &host).unwrap();
-        super::request_env::speaking_as(super::request_env::environment_for(&words("safe-push --to main"), forged.clone(), Some(scope), Path::new("/run/user/1000"), &[], &[]), asker)
+        let asker = super::request_env::asking_session(&words("safe-push --to main"), &Peer::from(Some(scope)), &host).unwrap();
+        super::request_env::speaking_as(super::request_env::environment_for(&words("safe-push --to main"), forged.clone(), &Peer::from(Some(scope)), Path::new("/run/user/1000"), &[], &[]), asker)
     };
     let named = |variables: &[(String, String)], wanted: &str| variables.iter().filter(|(name, _)| name == wanted).map(|(_, value)| value.clone()).collect::<Vec<_>>();
     let author = enqueue(&cgroup("north-author"));
@@ -593,7 +595,7 @@ fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
     }
     let host = super::lane_grant::Host { fleet, home: root.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: root.path().join("cgroup") };
     let holds = Holds::of(&[("NORTH_VERDICT_CACHE_DIR".to_owned(), root.path().join("verdicts").display().to_string())], &host.home);
-    let caller = |name: &str| super::hold_request::caller(&cgroup(name), &host).unwrap();
+    let caller = |name: &str| super::hold_request::caller(&Peer::from(Some(cgroup(name).as_str())), &host).unwrap();
     let place = || Ask::Place { commit: commit.clone(), lane: "f-fix".to_owned(), host: None, why: "held for review".to_owned() };
     let lift = || Ask::Lift { commit: commit.clone(), why: "reviewed".to_owned() };
     let refusal = "proxy-session runs in the coordinator role, which neither places nor lifts a hold";
@@ -743,7 +745,7 @@ const SERVE_PROBE: &str = "NORTH_RUNTIME_BROKER_SERVE_PROBE";
 #[test]
 fn a_broker_on_a_socket_of_its_own_follows_the_runtime_its_canary_judges_and_the_shared_one_follows_current() {
     if std::env::var_os(SERVE_PROBE).is_some() {
-        let answer: super::broker::Answer = std::sync::Arc::new(|_: &Path, _: &std::os::unix::net::UnixStream, _: Option<&str>| -> Result<(), String> { Ok(()) });
+        let answer: super::broker::Answer = std::sync::Arc::new(|_: &Path, _: &std::os::unix::net::UnixStream, _: &Peer| -> Result<(), String> { Ok(()) });
         assert_ne!(super::broker::serve(Vec::new(), answer), std::process::ExitCode::SUCCESS);
         return;
     }

@@ -2,6 +2,7 @@
 
 use north_base::platform::review_accept::Accepts;
 
+use super::peer::Peer;
 use super::{MARK, broker, hold_request, lane_grant};
 use crate::runtime::review_accept::{self, Accept};
 use crate::runtime::review_hold::{self, Ask, Caller, Holds, now};
@@ -27,8 +28,8 @@ fn brokered(words: &[String], what: &str) -> Option<Result<String, String>> {
 }
 
 fn own_caller() -> Result<Caller, String> {
-    let cgroup = std::fs::read_to_string("/proc/self/cgroup").map_err(|error| format!("/proc/self/cgroup: {error}"))?;
-    hold_request::caller(&cgroup, &lane_grant::Host::own())
+    let peer = Peer::of(std::process::id());
+    hold_request::caller(&peer, &lane_grant::Host::own())
 }
 
 /// Places or lifts the hold `ask` names for the caller's own session; the line saying what was done, empty when the broker already told the caller.

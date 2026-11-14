@@ -71,7 +71,7 @@ pub(in super::super) fn a_listed_lead_starts_reads_and_stops_only_the_finish_pro
     std::fs::write(data.join("bin").join("eval-b.0123456789"), "runner").unwrap();
     let units = Recorded::default();
 
-    let told = serve(ask(&["eval-unit", "start", "finish-proof", "rel-1114-r10", "2"]), SCOPE, &lead, &units, &pin).unwrap();
+    let told = serve(ask(&["eval-unit", "start", "finish-proof", "rel-1114-r10", "2"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).unwrap();
     assert!(told.starts_with("eval-b-north-rel-1114-r10 started"), "{told}");
     let started = units.started.borrow();
     let unit = &started[0];
@@ -85,23 +85,23 @@ pub(in super::super) fn a_listed_lead_starts_reads_and_stops_only_the_finish_pro
 
     *units.description.borrow_mut() = unit.description.clone();
     *units.id.borrow_mut() = "eval-b-north-rel-1114-r10.service".to_owned();
-    assert_eq!(serve(ask(&["eval-unit", "state", "rel-1114-r10"]), SCOPE, &lead, &units, &pin).unwrap(), "eval-b-north-rel-1114-r10: active, result success");
-    serve(ask(&["eval-unit", "stop", "rel-1114-r10"]), SCOPE, &lead, &units, &pin).unwrap();
+    assert_eq!(serve(ask(&["eval-unit", "state", "rel-1114-r10"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).unwrap(), "eval-b-north-rel-1114-r10: active, result success");
+    serve(ask(&["eval-unit", "stop", "rel-1114-r10"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).unwrap();
     assert_eq!(*units.stopped.borrow(), ["eval-b-north-rel-1114-r10"]);
     *units.description.borrow_mut() = "a unit someone else started".to_owned();
-    assert!(serve(ask(&["eval-unit", "stop", "other"]), SCOPE, &lead, &units, &pin).is_err());
+    assert!(serve(ask(&["eval-unit", "stop", "other"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).is_err());
     *units.description.borrow_mut() = unit.description.clone();
     *units.id.borrow_mut() = "eval-b-north-elsewhere.service".to_owned();
-    assert!(serve(ask(&["eval-unit", "stop", "rel-1114-r10"]), SCOPE, &lead, &units, &pin).is_err());
+    assert!(serve(ask(&["eval-unit", "stop", "rel-1114-r10"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).is_err());
     assert_eq!(units.stopped.borrow().len(), 1, "a unit this request did not start was stopped");
 
     let other = Pin { commit: &base, built: "0123456789", digest: "x" };
-    let refused = serve(ask(&["eval-unit", "start", "finish-proof", "next", "2"]), SCOPE, &lead, &units, &other).unwrap_err();
+    let refused = serve(ask(&["eval-unit", "start", "finish-proof", "next", "2"]), &Peer::from(Some(SCOPE)), &lead, &units, &other).unwrap_err();
     assert!(refused.contains("sha256") && units.started.borrow().len() == 1, "{refused}");
 
     std::fs::write(main.join("evals/b/main.rs"), "two").unwrap();
     git(&main, &["commit", "-q", "-am", "two"]);
-    let refused = serve(ask(&["eval-unit", "start", "finish-proof", "next", "2"]), SCOPE, &lead, &units, &pin).unwrap_err();
+    let refused = serve(ask(&["eval-unit", "start", "finish-proof", "next", "2"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).unwrap_err();
     assert!(refused.contains("a runner build is a separate matter") && units.started.borrow().len() == 1, "{refused}");
 
     for words in [
@@ -128,9 +128,9 @@ fn only_a_lead_session_the_harness_lists_may_ask_for_an_eval_unit() {
     let units = Recorded::default();
     for (role, name, cgroup) in [("worker", LEAD_SESSION, SCOPE), ("lead", "another-lead", SCOPE), ("lead", LEAD_SESSION, "0::/user.slice/app.slice/session-3.scope\n")] {
         let host = host(&root, role, name, true);
-        let refused = serve(ask(&["eval-unit", "start", "finish-proof", "x", "2"]), cgroup, &host, &units, &Pin { commit: "0000000000", built: "0000000000", digest: "" }).unwrap_err();
+        let refused = serve(ask(&["eval-unit", "start", "finish-proof", "x", "2"]), &Peer::from(Some(cgroup)), &host, &units, &Pin { commit: "0000000000", built: "0000000000", digest: "" }).unwrap_err();
         assert!(refused.contains("lead session") || refused.contains("no session's scope"), "{role} {name}: {refused}");
-        assert!(serve(ask(&["eval-unit", "stop", "x"]), cgroup, &host, &units, &Pin { commit: "0000000000", built: "0000000000", digest: "" }).is_err());
+        assert!(serve(ask(&["eval-unit", "stop", "x"]), &Peer::from(Some(cgroup)), &host, &units, &Pin { commit: "0000000000", built: "0000000000", digest: "" }).is_err());
     }
     assert!(units.started.borrow().is_empty() && units.stopped.borrow().is_empty());
 }

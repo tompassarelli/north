@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use super::eval_start::{self, Start};
 use super::eval_units::{Label, Shown, Unit, UserManager, Units, plain, search_path};
 use super::lane_grant::{self, Host};
+use super::peer::Peer;
 use super::request_checkout;
 
 pub(super) const VERB: &str = "eval-unit";
@@ -87,9 +88,9 @@ fn named(word: &str) -> bool {
     !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// The name of the session whose own scope `cgroup` names when it may ask: a lead or the coordinator for a registered `script` start, else a lead on the harness list.
-fn asking(cgroup: &str, host: &Host, script: bool) -> Result<String, String> {
-    let (directory, record) = lane_grant::own_session(cgroup, host, "an eval unit is asked for by a lead session, and this caller runs in no session's scope")?;
+/// The name of the session the caller `peer` runs in, when it may ask: a lead or the coordinator for a registered `script` start, else a lead on the harness list.
+fn asking(peer: &Peer, host: &Host, script: bool) -> Result<String, String> {
+    let (directory, record) = lane_grant::own_session(peer, host, "an eval unit is asked for by a lead session, and this caller runs in no session's scope")?;
     let name = record["name"].as_str().filter(|name| named(name)).ok_or_else(|| format!("{} names no session", directory.display()))?;
     let role = record["role"].as_str();
     if script {
@@ -166,13 +167,13 @@ fn started(units: &dyn Units, label: &Label) -> Result<(String, Shown), String> 
     Err(format!("{name} is no unit an eval-unit request started"))
 }
 
-/// Does what `ask` names for the session whose own scope `cgroup` names on `host`, with the user manager `units` and the runner `pin`; the line saying what was done.
-pub(super) fn serve(ask: Ask, cgroup: &str, host: &Host, units: &dyn Units, pin: &Pin) -> Result<String, String> {
+/// Does what `ask` names for the session the caller `peer` runs in on `host`, with the user manager `units` and the runner `pin`; the line saying what was done.
+pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, units: &dyn Units, pin: &Pin) -> Result<String, String> {
     let recorded = match &ask {
         Ask::State(label) | Ask::Stop(label) => eval_start::recorded(label, host),
         Ask::Start(_) | Ask::Script(_) => None,
     };
-    let parent = asking(cgroup, host, matches!(ask, Ask::Script(_)) || recorded.is_some())?;
+    let parent = asking(peer, host, matches!(ask, Ask::Script(_)) || recorded.is_some())?;
     match (ask, recorded) {
         (Ask::Script(start), _) => eval_start::serve(start, &parent, host, units),
         (Ask::State(_), Some(record)) => eval_start::state(&record, units),
@@ -192,9 +193,9 @@ pub(super) fn serve(ask: Ask, cgroup: &str, host: &Host, units: &dyn Units, pin:
     }
 }
 
-/// Answers the eval-unit request `asked` from a caller whose `/proc/PID/cgroup` reads `cgroup`, telling the client on its standard output what was done; a refusal is told to the client and returned for the broker's log.
-pub(super) fn answer(asked: Result<Ask, String>, streams: Vec<OwnedFd>, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
-    super::hold_request::tell(asked.and_then(|ask| serve(ask, cgroup.unwrap_or_default(), host, &UserManager, &FINISH_PROOF_RUNNER)), streams, "an eval unit request")
+/// Answers the eval-unit request `asked` from the caller `peer`, telling the client on its standard output what was done; a refusal is told to the client and returned for the broker's log.
+pub(super) fn answer(asked: Result<Ask, String>, streams: Vec<OwnedFd>, peer: &Peer, host: &Host) -> Result<u8, String> {
+    super::hold_request::tell(asked.and_then(|ask| serve(ask, peer, host, &UserManager, &FINISH_PROOF_RUNNER)), streams, "an eval unit request")
 }
 
 #[cfg(test)]

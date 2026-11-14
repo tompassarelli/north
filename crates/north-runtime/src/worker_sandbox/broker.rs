@@ -21,6 +21,7 @@ use super::finish_request;
 use super::eval_unit_request;
 use super::hold_request;
 use super::lane_grant::{self, Host};
+use super::peer::Peer;
 use super::offload_request;
 pub(super) use super::offload_request::offload_refusal;
 use super::session_join;
@@ -305,20 +306,20 @@ pub(super) fn receive(stream: &UnixStream) -> Result<Option<(Request, Vec<OwnedF
     Ok(Some((serde_json::from_slice(&body).map_err(|error| error.to_string())?, streams)))
 }
 
-/// How a broker answers the one request on a stream from a caller whose `/proc/PID/cgroup` reads as given: what it serves is its starter's to say (`broker_start`).
-pub(super) type Answer = std::sync::Arc<dyn Fn(&Path, &UnixStream, Option<&str>) -> Result<(), String> + Send + Sync>;
+/// How a broker answers the one request on a stream from a caller: what it serves is its starter's to say (`broker_start`).
+pub(super) type Answer = std::sync::Arc<dyn Fn(&Path, &UnixStream, &Peer) -> Result<(), String> + Send + Sync>;
 
 fn handle(north: &Path, stream: UnixStream, answer: &Answer) -> Result<(), String> {
-    let peer = rustix::net::sockopt::get_socket_peercred(&stream).map_err(|error| error.to_string())?;
-    if peer.uid.as_raw() != rustix::process::getuid().as_raw() {
-        return Err(format!("refused a request from uid {}", peer.uid.as_raw()));
+    let credentials = rustix::net::sockopt::get_socket_peercred(&stream).map_err(|error| error.to_string())?;
+    if credentials.uid.as_raw() != rustix::process::getuid().as_raw() {
+        return Err(format!("refused a request from uid {}", credentials.uid.as_raw()));
     }
-    let cgroup = std::fs::read_to_string(format!("/proc/{}/cgroup", peer.pid.as_raw_nonzero().get())).ok();
-    answer(north, &stream, cgroup.as_deref())
+    let pid = u32::try_from(credentials.pid.as_raw_nonzero().get()).map_err(|error| error.to_string())?;
+    answer(north, &stream, &Peer::of(pid))
 }
 
-/// Answers the one request on `stream` from a caller whose `/proc/PID/cgroup` reads `cgroup` (`None` when unreadable), on `host`; a refused or failed request is answered 126 and its reason returned for the broker's log.
-pub(super) fn answer(north: &Path, stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<(), String> {
+/// Answers the one request on `stream` from the caller `peer`, on `host`; a refused or failed request is answered 126 and its reason returned for the broker's log.
+pub(super) fn answer(north: &Path, stream: &UnixStream, peer: &Peer, host: &Host) -> Result<(), String> {
     let Some((request, streams)) = receive(stream)? else { return Ok(()) };
     if request.arguments == [NAMESPACE] {
         return answer_namespaces(north, stream, &request);
@@ -328,63 +329,64 @@ pub(super) fn answer(north: &Path, stream: &UnixStream, cgroup: Option<&str>, ho
     {
         return (&*stream).write_all(&[u8::from(!permitted(asked))]).map_err(|error| error.to_string());
     }
-    let outcome = run(north, request, streams, stream, cgroup, host);
+    let outcome = run(north, request, streams, stream, peer, host);
     (&*stream).write_all(&[*outcome.as_ref().unwrap_or(&REFUSED)]).map_err(|error| error.to_string())?;
     outcome.map(|_| ())
 }
 
-fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
+fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStream, peer: &Peer, host: &Host) -> Result<u8, String> {
+    let cgroup = peer.cgroup();
     if !permitted(&request.arguments) {
         return Err(format!("{} is not a request the broker runs", request.arguments.join(" ")));
     }
     if reaches_ledger(&request.arguments) && cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup) {
         return Err("a lane-only session's command does not reach a ledger through the broker".to_owned());
     }
-    if let Err(why) = withdraw_request::refusal(&request.arguments, &request.directory, cgroup, host) {
+    if let Err(why) = withdraw_request::refusal(&request.arguments, &request.directory, peer, host) {
         return Err(refuse(streams, why));
     }
-    if let Some(cgroup) = cgroup.filter(|cgroup| !north_base::platform::session_scope::lane_only_cgroup(cgroup))
+    if cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::lane_only_cgroup(cgroup))
         && let Some(asked) = check_request::asked(&request.arguments)
     {
-        return run_check(north, asked, streams, stream, cgroup, host);
+        return run_check(north, asked, streams, stream, peer, host);
     }
     if let Some(asked) = crate::runtime::review_hold::Ask::asked(&request.arguments) {
-        return hold_request::answer(asked, streams, cgroup, host);
+        return hold_request::answer(asked, streams, peer, host);
     }
     if let Some(asked) = crate::runtime::review_accept::Accept::asked(&request.arguments) {
-        return hold_request::answer_accept(asked, streams, cgroup, host);
+        return hold_request::answer_accept(asked, streams, peer, host);
     }
     if let Some(asked) = eval_unit_request::Ask::asked(&request.arguments) {
-        return eval_unit_request::answer(asked, streams, cgroup, host);
+        return eval_unit_request::answer(asked, streams, peer, host);
     }
     let unrefused = |checkout: request_checkout::Checkout| offload_refusal(&request.arguments, cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup), north_offload::land_offload::reached_destination).map_or(Ok(checkout), Err);
-    let placed = asking_session(&request.arguments, cgroup, host).and_then(|asker| request_checkout::served(&host.code, &request_checkout::Slots::of(&host.environment, &host.home), &request.directory).and_then(unrefused).and_then(|checkout| Ok((offload_request::granted(&request.arguments, &checkout, &host.environment, &runtime(), &own_homes())?, checkout, asker))));
+    let placed = asking_session(&request.arguments, peer, host).and_then(|asker| request_checkout::served(&host.code, &request_checkout::Slots::of(&host.environment, &host.home), &request.directory).and_then(unrefused).and_then(|checkout| Ok((offload_request::granted(&request.arguments, &checkout, &host.environment, &runtime(), &own_homes())?, checkout, asker))));
     let (offload, checkout, asker) = match placed {
         Ok(placed) => placed,
         Err(why) => return Err(refuse(streams, why)),
     };
     if let Some(asked) = finish_request::asked(&request.arguments) {
-        return run_finish_check(north, asked, &checkout, streams, stream, cgroup, host);
+        return run_finish_check(north, asked, &checkout, streams, stream, peer, host);
     }
-    super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, cgroup)?;
+    super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, peer)?;
     let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();
-    let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &checkout.top, &request.directory, &request.environment, cgroup, &own_home)?;
+    let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &checkout.top, &request.directory, &request.environment, peer, &own_home)?;
     let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));
     }
-    if lane_grant::granted(&request.arguments, cgroup) {
-        return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
+    if lane_grant::granted(&request.arguments, peer) {
+        return run_granted(north, &request, [stdout, stderr], stream, peer, host);
     }
     if let Some(offload) = offload {
-        let offload = offload_request::Offload { environment: caller_session(urgency(offload.environment, cgroup, host), cgroup, host), ..offload };
-        let started = offload.start(|arguments| brokered(north, arguments, cgroup), [stdin, stdout, stderr]);
+        let offload = offload_request::Offload { environment: caller_session(urgency(offload.environment, peer, host), peer, host), ..offload };
+        let started = offload.start(|arguments| brokered(north, arguments, peer), [stdin, stdout, stderr]);
         return wait(started.map_err(|error| format!("{}: {error}", north.display()))?, stream);
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
-    let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
+    let homes = request_homes(&request.arguments, peer, &request.environment, own_homes());
     let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
-    let mut variables = caller_session(urgency(landing(environment_for(&request.arguments, request.environment, cgroup, &runtime(), &homes, &host.environment), chosen), cgroup, host), cgroup, host);
+    let mut variables = caller_session(urgency(landing(environment_for(&request.arguments, request.environment, peer, &runtime(), &homes, &host.environment), chosen), peer, host), peer, host);
     if let Some(path) = own_path(&request.arguments, &host.environment) {
         variables.retain(|(name, _)| name != "PATH");
         variables.push(path);
@@ -397,8 +399,8 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }
-    variables.extend(session_join::scope_for(&request.arguments, cgroup, &host.cgroups));
-    let child = brokered(north, confined(north, request.arguments.clone()), cgroup)
+    variables.extend(session_join::scope_for(&request.arguments, peer, &host.cgroups));
+    let child = brokered(north, confined(north, request.arguments.clone()), peer)
         .current_dir(&request.directory)
         .env_clear()
         .envs(variables)
@@ -412,14 +414,14 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
 }
 
 /// Runs the acceptance command `asked` names for the finish call of the caller's own session, in the lane the request was placed in (finish_request.rs), relaying its output to the client; the broker records the verdict from the command's exit code, never from a word of the request. A refusal is told to the client and logged.
-fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, checkout: &request_checkout::Checkout, streams: Vec<OwnedFd>, stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
-    let granted = match asked.and_then(|check| finish_request::granted(check, checkout, cgroup.unwrap_or_default(), host, &runtime(), &own_homes()).map(|granted| granted.joining(north))) {
+fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, checkout: &request_checkout::Checkout, streams: Vec<OwnedFd>, stream: &UnixStream, peer: &Peer, host: &Host) -> Result<u8, String> {
+    let granted = match asked.and_then(|check| finish_request::granted(check, checkout, peer, host, &runtime(), &own_homes()).map(|granted| granted.joining(north))) {
         Ok(granted) => granted,
         Err(why) => return Err(format!("refused a finish check: {}", refuse(streams, why))),
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: running the finish check of {}", granted.session);
-    let code = relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment.clone(), cgroup, host), [stdout, stderr], stream)?;
+    let code = relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment.clone(), peer, host), [stdout, stderr], stream)?;
     match granted.record(code, &host.environment, &host.home) {
         Ok(()) => eprintln!("north worker-sandbox broker: recorded the finish verdict of {} (exit {code})", granted.session),
         Err(why) => eprintln!("north worker-sandbox broker: {why}"),
@@ -435,9 +437,9 @@ pub(super) fn refuse(streams: Vec<OwnedFd>, why: String) -> String {
     why
 }
 
-/// The command that starts `north ARGUMENTS` for a caller whose `/proc/PID/cgroup` reads `cgroup`: inside the caller's capacity lease scope when it runs in one, so a leased build's depbox and the compiles it forks count against that lease and its host's admission. Started in the broker's own service, a leased land check's clippy and a session's depbox compiles ran outside every lease, and admission read 0.05 cores for a lease whose compiles held 7 (gex45, 2026-11-10, north#1036).
-pub(super) fn brokered(north: &Path, arguments: Vec<String>, cgroup: Option<&str>) -> Command {
-    let Some(scope) = cgroup.and_then(crate::capacity::gate::lease_cgroup) else {
+/// The command that starts `north ARGUMENTS` for the caller `peer`: inside the caller's capacity lease scope when it runs in one, so a leased build's depbox and the compiles it forks count against that lease and its host's admission. Started in the broker's own service, a leased land check's clippy and a session's depbox compiles ran outside every lease, and admission read 0.05 cores for a lease whose compiles held 7 (gex45, 2026-11-10, north#1036).
+pub(super) fn brokered(north: &Path, arguments: Vec<String>, peer: &Peer) -> Command {
+    let Some(scope) = peer.cgroup().and_then(crate::capacity::gate::lease_cgroup) else {
         let mut command = Command::new(north);
         command.args(arguments);
         return command;
@@ -448,8 +450,8 @@ pub(super) fn brokered(north: &Path, arguments: Vec<String>, cgroup: Option<&str
 }
 
 /// Runs a verb `lane_grant` grants a lane-only session in its own lane, with the broker's environment and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; a refusal is told to the client and logged.
-fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
-    let granted = lane_grant::session(cgroup.unwrap_or_default(), &host.fleet).and_then(|session| {
+fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream, peer: &Peer, host: &Host) -> Result<u8, String> {
+    let granted = lane_grant::session(peer, &host.fleet).and_then(|session| {
         let arguments = lane_grant::grant(&session, &request.arguments, &request.directory)?;
         let variables = lane_grant::environment(&session, host.environment.iter().cloned(), &host.home)?;
         Ok((session, arguments, variables))
@@ -462,18 +464,18 @@ fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], 
         }
     };
     eprintln!("north worker-sandbox broker: granted {} to {} ({})", arguments.iter().take(3).cloned().collect::<Vec<_>>().join(" "), session.name, session.task);
-    relayed(north, &arguments, &session.lane, urgency(variables, cgroup, host), [stdout, stderr], stream)
+    relayed(north, &arguments, &session.lane, urgency(variables, peer, host), [stdout, stderr], stream)
 }
 
-/// Runs the Done-when check `asked` names for a caller outside every lane-only scope whose `/proc/PID/cgroup` reads `cgroup` (check_request.rs), relaying the checker's output to the client; a refusal is told to the client and logged.
-fn run_check(north: &Path, asked: Result<check_request::Check, String>, streams: Vec<OwnedFd>, stream: &UnixStream, cgroup: &str, host: &Host) -> Result<u8, String> {
-    let granted = match asked.and_then(|check| check_request::granted(&check, cgroup, host, &runtime(), &own_homes())) {
+/// Runs the Done-when check `asked` names for a caller `peer` outside every lane-only scope (check_request.rs), relaying the checker's output to the client; a refusal is told to the client and logged.
+fn run_check(north: &Path, asked: Result<check_request::Check, String>, streams: Vec<OwnedFd>, stream: &UnixStream, peer: &Peer, host: &Host) -> Result<u8, String> {
+    let granted = match asked.and_then(|check| check_request::granted(&check, peer, host, &runtime(), &own_homes())) {
         Ok(granted) => granted,
         Err(why) => return Err(format!("refused a check: {}", refuse(streams, why))),
     };
     let [_, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     eprintln!("north worker-sandbox broker: checking {} for {}", granted.arguments.last().map(String::as_str).unwrap_or_default(), granted.session);
-    relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment, Some(cgroup), host), [stdout, stderr], stream)
+    relayed(north, &granted.arguments, &granted.directory, urgency(granted.environment, peer, host), [stdout, stderr], stream)
 }
 
 /// Starts `north ARGUMENTS` in `directory` with `variables` and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; its exit code.

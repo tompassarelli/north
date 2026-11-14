@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use super::super::peer::Peer;
 use super::{CHECKED, FLAG, Granted};
 use crate::foundation::shim::write_script;
 
@@ -54,6 +55,6 @@ fn a_finish_check_from_a_scope_nested_in_the_sessions_own_is_attributed_to_its_r
     std::fs::write(fleet.join("session.json"), serde_json::json!({ "name": "w-nested", "cwd": scratch.path().join("code/p/main") }).to_string()).unwrap();
     let host = super::lane_grant::Host { fleet: scratch.path().join("fleet"), home: scratch.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: scratch.path().join("cgroup") };
     let cgroup = "0::/user.slice/user@1000.service/app.slice/north-session-1352.scope/tool-7.scope\n";
-    let (directory, record) = super::lane_grant::own_session(cgroup, &host, "no session").unwrap();
+    let (directory, record) = super::lane_grant::own_session(&Peer::from(Some(cgroup)), &host, "no session").unwrap();
     assert_eq!((directory, record["name"].as_str()), (fleet, Some("w-nested")));
 }

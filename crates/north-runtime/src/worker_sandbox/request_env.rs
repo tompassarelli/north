@@ -6,6 +6,7 @@ use north_base::foundation::offload;
 use north_base::verdict_cache;
 use north_providers::providers::{opencode, pi};
 
+use super::peer::Peer;
 use super::lane_grant;
 use super::{CONFINED, HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
 
@@ -44,15 +45,15 @@ pub(super) fn own_path(arguments: &[String], own: &[(String, String)]) -> Option
     (arguments.first().is_some_and(|verb| ["lane", "home"].contains(&verb.as_str())) || super::broker::reaches_ledger(arguments)).then(|| ("PATH".to_owned(), absolute))
 }
 
-/// The variables that name the fleet session a brokered request speaks as, `None` for every other request: a gate or a need speaks as the session whose own scope the caller's `cgroup` names on `host` (lane_grant.rs), and a safe-push enqueues as it (`enqueuing_as`), never as a word or variable of the client's, since a gate's question and default answer reach its session's parent and come back into that session as its decision, a need is placed for its session's next try, and a ticket is queued under its session's name. A gate or need whose `--session` names any other session is refused, as is one from a caller in no session's scope.
-pub(super) fn asking_session(arguments: &[String], cgroup: Option<&str>, host: &lane_grant::Host) -> Result<Option<Vec<(String, String)>>, String> {
+/// The variables that name the fleet session a brokered request speaks as, `None` for every other request: a gate or a need speaks as the session the caller `peer` runs in on `host` (lane_grant.rs), and a safe-push enqueues as it (`enqueuing_as`), never as a word or variable of the client's, since a gate's question and default answer reach its session's parent and come back into that session as its decision, a need is placed for its session's next try, and a ticket is queued under its session's name. A gate or need whose `--session` names any other session is refused, as is one from a caller in no session's scope.
+pub(super) fn asking_session(arguments: &[String], peer: &Peer, host: &lane_grant::Host) -> Result<Option<Vec<(String, String)>>, String> {
     let flags = match arguments {
         [noun, verb, flags @ ..] if noun == "gate" && verb == "open" => flags,
         [noun, verb, ..] if noun == "fleet" && verb == "need" => &[][..],
-        [verb, ..] if verb == "safe-push" => return Ok(Some(enqueuing_as(cgroup, host))),
+        [verb, ..] if verb == "safe-push" => return Ok(Some(enqueuing_as(peer, host))),
         _ => return Ok(None),
     };
-    let (directory, record) = lane_grant::own_session(cgroup.unwrap_or_default(), host, "a gate or a need is asked from a fleet session's own scope, and this caller runs in none")?;
+    let (directory, record) = lane_grant::own_session(peer, host, "a gate or a need is asked from a fleet session's own scope, and this caller runs in none")?;
     let session = record["name"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| format!("{} names no session", directory.display()))?;
     if let Some([_, other]) = flags.chunks(2).find(|pair| matches!(pair, [flag, other] if flag == "--session" && other != session)) {
         return Err(format!("{session} asks as itself, not as {other}"));
@@ -60,9 +61,9 @@ pub(super) fn asking_session(arguments: &[String], cgroup: Option<&str>, host: &
     Ok(Some(vec![(lane_grant::SESSION_ENV.to_owned(), session.to_owned())]))
 }
 
-/// The variables a brokered `safe-push` enqueues under: the session whose own scope the caller's `cgroup` names on `host`, with `PROVED_ENV` set to say the broker read it there, or an empty session name from a caller in no session's scope, which the readers take as no session.
-fn enqueuing_as(cgroup: Option<&str>, host: &lane_grant::Host) -> Vec<(String, String)> {
-    let session = lane_grant::own_session(cgroup.unwrap_or_default(), host, "").ok().and_then(|(_, record)| record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned));
+/// The variables a brokered `safe-push` enqueues under: the session the caller `peer` runs in on `host`, with `PROVED_ENV` set to say the broker read it there, or an empty session name from a caller in no session's scope, which the readers take as no session.
+fn enqueuing_as(peer: &Peer, host: &lane_grant::Host) -> Vec<(String, String)> {
+    let session = lane_grant::own_session(peer, host, "").ok().and_then(|(_, record)| record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned));
     match session {
         Some(name) => vec![(lane_grant::SESSION_ENV.to_owned(), name), (lane_grant::PROVED_ENV.to_owned(), "1".to_owned())],
         None => vec![(lane_grant::SESSION_ENV.to_owned(), String::new())],
@@ -94,8 +95,8 @@ pub(super) fn own_homes() -> Vec<(String, String)> {
 }
 
 /// The homes a request's process gets: `own`, the broker's (`homes`), apart from a `safe-push` a caller outside every lane-only scope asked for, which keeps the XDG homes the caller set, since the state home holds the landing queue its ticket belongs in, as when it ran in place before it ran through the broker (north#1094): a verify-north worker's ticket went to the host's queue instead of its scratch one, and the walk found none (north#1022). A kept state home other than the broker's does not move the verdict store, which stays the broker's, since the checks before queueing reuse a pass they find there in place of running.
-pub(super) fn request_homes(arguments: &[String], cgroup: Option<&str>, sent: &[(String, String)], own: Vec<(String, String)>) -> Vec<(String, String)> {
-    let queues = arguments.first().is_some_and(|verb| verb == "safe-push") && !cgroup.is_none_or(session_scope::lane_only_cgroup);
+pub(super) fn request_homes(arguments: &[String], peer: &Peer, sent: &[(String, String)], own: Vec<(String, String)>) -> Vec<(String, String)> {
+    let queues = arguments.first().is_some_and(|verb| verb == "safe-push") && !peer.cgroup().is_none_or(session_scope::lane_only_cgroup);
     let client = |name: &str| sent.iter().find(|(sent, value)| sent == name && !value.is_empty()).map(|(_, value)| value.clone());
     let state = own.iter().find(|(name, _)| name == "XDG_STATE_HOME").map(|(_, value)| value.clone());
     let moved = queues && client("XDG_STATE_HOME").is_some_and(|kept| Some(kept) != state);
@@ -106,19 +107,19 @@ pub(super) fn request_homes(arguments: &[String], cgroup: Option<&str>, sent: &[
     }).chain(store).collect()
 }
 
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), the variables that name a file or store a guard on the landing path trusts (the verdict store, the orchestration policy, the privacy denylist's sources), the paid key an opencode or pi session's commands must not read, and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` are `homes`, the broker's own apart from a safe-push's state home (`request_homes`): a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
-pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)]) -> Vec<(String, String)> {
-    let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), the variables that name a file or store a guard on the landing path trusts (the verdict store, the orchestration policy, the privacy denylist's sources), the paid key an opencode or pi session's commands must not read, and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` are `homes`, the broker's own apart from a safe-push's state home (`request_homes`): a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows the caller `peer`'s cgroup, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
+pub(super) fn environment(sent: Vec<(String, String)>, peer: &Peer, runtime: &Path, homes: &[(String, String)]) -> Vec<(String, String)> {
+    let lane_only = peer.cgroup().is_none_or(session_scope::lane_only_cgroup);
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
     let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
     sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && name != "HOME" && !HOMES.iter().any(|(own, _)| *own == name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).chain(homes.iter().cloned()).collect()
 }
 
 /// The environment a request's process gets: for a worker's `capacity host status` or `backlog`, the broker's own `own` alone, without the sandbox's markers and with the broker's runtime directory and homes, since each reads and tidies the host's admission state where the broker's environment, never the client's, says it lives; for every other request, the client's `sent` as `environment` makes it.
-pub(super) fn environment_for(arguments: &[String], sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)], own: &[(String, String)]) -> Vec<(String, String)> {
+pub(super) fn environment_for(arguments: &[String], sent: Vec<(String, String)>, peer: &Peer, runtime: &Path, homes: &[(String, String)], own: &[(String, String)]) -> Vec<(String, String)> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     if !matches!(words.as_slice(), ["capacity", "host", "status" | "backlog"]) {
-        return environment(sent, cgroup, runtime, homes);
+        return environment(sent, peer, runtime, homes);
     }
     let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
     own.iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && name != "HOME" && !HOMES.iter().any(|(home, _)| *home == name)).cloned().chain([own_runtime]).chain(homes.iter().cloned()).collect()
@@ -132,15 +133,15 @@ pub(super) fn landing(variables: Vec<(String, String)>, chosen: Option<Vec<(Stri
     }
 }
 
-/// `variables` with the fleet session `NORTH_FLEET_SESSION` names taken from `cgroup`, the asking process's, never the client's word: the spool a brokered command may write (state.rs) and the session its rows and calls go out as belong to the session whose own scope or held unit the caller runs in ([`lane_grant::own_session`]), and a caller in none gets no session.
-pub(super) fn caller_session(variables: Vec<(String, String)>, cgroup: Option<&str>, host: &lane_grant::Host) -> Vec<(String, String)> {
-    let session = cgroup.and_then(|cgroup| lane_grant::own_session(cgroup, host, "").ok()).and_then(|(_, record)| record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned));
+/// `variables` with the fleet session `NORTH_FLEET_SESSION` names taken from the caller `peer`, the asking process's, never the client's word: the spool a brokered command may write (state.rs) and the session its rows and calls go out as belong to the session whose own scope or held unit the caller runs in ([`lane_grant::own_session`]), and a caller in none gets no session.
+pub(super) fn caller_session(variables: Vec<(String, String)>, peer: &Peer, host: &lane_grant::Host) -> Vec<(String, String)> {
+    let session = lane_grant::own_session(peer, host, "").ok().and_then(|(_, record)| record["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned));
     variables.into_iter().filter(|(name, _)| name != lane_grant::SESSION_ENV).chain(session.map(|name| (lane_grant::SESSION_ENV.to_owned(), name))).collect()
 }
 
-pub(super) fn urgency(variables: Vec<(String, String)>, cgroup: Option<&str>, host: &lane_grant::Host) -> Vec<(String, String)> {
+pub(super) fn urgency(variables: Vec<(String, String)>, peer: &Peer, host: &lane_grant::Host) -> Vec<(String, String)> {
     let places = crate::capacity::host::urgency::Places::beside(host.fleet.clone(), host.home.clone(), host.cgroups.clone());
-    let urgent = cgroup.is_some_and(|cgroup| places.cgroup(cgroup));
+    let urgent = peer.cgroup().is_some_and(|cgroup| places.cgroup(cgroup));
     variables.into_iter().filter(|(name, _)| name != offload::URGENT_ENV).chain(urgent.then(|| (offload::URGENT_ENV.to_owned(), "1".to_owned()))).collect()
 }
 

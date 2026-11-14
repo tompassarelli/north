@@ -10,6 +10,7 @@ use std::process::Command;
 use north_base::platform::finish_record::FinishRecords;
 
 use super::super::broker::{self, Request};
+use super::super::peer::Peer;
 use super::super::lane_grant::Host;
 use super::{OPEN_SCOPE, git};
 use crate::foundation::shim::write_script;
@@ -206,7 +207,7 @@ pub(super) fn ask(north: &Path, host: &Host, cgroup: &str, arguments: &[String],
     let stdin = File::open("/dev/null").unwrap();
     let request = Request { arguments: arguments.to_vec(), directory: directory.to_owned(), environment: Vec::new() };
     let code = std::thread::scope(|scope| {
-        scope.spawn(|| broker::answer(north, &server, Some(cgroup), host));
+        scope.spawn(|| broker::answer(north, &server, &Peer::from(Some(cgroup)), host));
         broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap()
     });
     drop((out_writer, err_writer));

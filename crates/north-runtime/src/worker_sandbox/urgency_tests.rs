@@ -9,6 +9,7 @@ use north_base::foundation::shim::write_executable;
 use north_base::platform::session_host_files;
 
 use super::super::broker::{self, Request};
+use super::super::peer::Peer;
 use super::super::lane_grant::Host;
 use crate::capacity::host::urgency::Places;
 
@@ -73,7 +74,7 @@ impl Fixture {
         let stdin = File::open("/dev/null").unwrap();
         let claimed = vec![(URGENT_ENV.to_owned(), "1".to_owned()), ("NORTH_FLEET_SESSION".to_owned(), "coordinated".to_owned())];
         std::thread::scope(|scope| {
-            let served = scope.spawn(|| broker::answer(&self.north, &server, Some(cgroup), &self.host));
+            let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host));
             let request = Request { arguments: words.split(' ').map(str::to_owned).collect(), directory: self.lane.clone(), environment: claimed };
             broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap();
             served.join().unwrap().unwrap_or_else(|why| panic!("{words} from {cgroup}: {why}"));

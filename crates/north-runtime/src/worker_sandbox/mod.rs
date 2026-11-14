@@ -21,6 +21,7 @@ mod lane_only;
 mod lane_session;
 mod offload_request;
 mod packed_refs;
+mod peer;
 pub use packed_refs::restore as restore_packed_refs;
 mod readable;
 mod request_checkout;

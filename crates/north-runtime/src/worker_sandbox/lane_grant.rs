@@ -10,6 +10,7 @@ use north_base::platform::{gh_shim, git_credential, session_host_files};
 use regex::Regex;
 use serde_json::Value;
 
+use super::peer::Peer;
 use super::{CONFINED, LANE_ONLY, MARK, SOCKETS_HIDDEN};
 
 const DESTINATION: &str = "main";
@@ -17,6 +18,7 @@ pub(super) const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 pub(super) const PROVED_ENV: &str = "NORTH_FLEET_SESSION_PROVED";
 const SHIM_DIRECTORIES: [&str; 2] = [".local/bin", ".local/share/north/bin"];
 pub(super) const GIT_HARDENING: [(&str, &str); 3] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("core.sshCommand", "false")];
+const ADOPTED_WINDOW: &str = "adopted window, process ";
 const COMMAND_KEYS: &str = r"^(filter\..+\.(clean|smudge|process)|core\.sshcommand)$";
 const WITHHELD: &str = "[token withheld]";
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}").expect("the token pattern compiles"));
@@ -56,14 +58,14 @@ pub(super) fn privileged(arguments: &[String]) -> bool {
     }
 }
 
-/// Whether the request `arguments` from a caller whose `/proc/PID/cgroup` reads `cgroup` (`None` when unreadable) is served by this module's grant: each verb it grants, apart from a `safe-push` from outside every lane-only session's scope. That caller (a Claude worker) holds its own token, and the broker runs its safe-push with its own environment, outside the Landlock domain that refuses the mount namespaces its checks before queueing build (north#1094).
-pub(super) fn granted(arguments: &[String], cgroup: Option<&str>) -> bool {
-    privileged(arguments) && (arguments.first().is_none_or(|verb| verb != "safe-push") || cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup))
+/// Whether the request `arguments` from the caller `peer` is served by this module's grant: each verb it grants, apart from a `safe-push` from outside every lane-only session's scope. That caller (a Claude worker) holds its own token, and the broker runs its safe-push with its own environment, outside the Landlock domain that refuses the mount namespaces its checks before queueing build (north#1094).
+pub(super) fn granted(arguments: &[String], peer: &Peer) -> bool {
+    privileged(arguments) && (arguments.first().is_none_or(|verb| verb != "safe-push") || peer.cgroup().is_none_or(north_base::platform::session_scope::lane_only_cgroup))
 }
 
-/// The fleet session whose scope `cgroup` (the caller's `/proc/PID/cgroup`) names, when it is a lane-only one.
-pub(super) fn session(cgroup: &str, fleet: &Path) -> Result<Session, String> {
-    let unit = cgroup
+/// The fleet session whose scope the caller `peer` runs in names, when it is a lane-only one.
+pub(super) fn session(peer: &Peer, fleet: &Path) -> Result<Session, String> {
+    let unit = peer.cgroup().unwrap_or_default()
         .lines()
         .filter_map(|line| line.rsplit('/').next())
         .find(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
@@ -99,11 +101,15 @@ pub(super) fn recorded(unit: &str, fleet: &Path) -> Result<(PathBuf, Value), Str
     Ok((directory, record))
 }
 
-/// The directory and record of the fleet session whose own unit the caller's `cgroup` names, or `absent` when it runs in none: a session scope this host's fleet started, or a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs). The caller chooses neither its unit nor what the launcher wrote, and a placed lane-only session is refused, since its held unit carries no lane-only mark to grant it by (north#1054).
-pub(super) fn own_session(cgroup: &str, host: &Host, absent: &str) -> Result<(PathBuf, Value), String> {
+/// The directory and record of the fleet session the caller `peer` runs in, or `absent` when it runs in none: a session scope this host's fleet started, else an adopted window whose process the caller is or descends from, or a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs). The caller chooses neither its unit nor what the launcher wrote, and a placed lane-only session is refused, since its held unit carries no lane-only mark to grant it by (north#1054).
+pub(super) fn own_session(peer: &Peer, host: &Host, absent: &str) -> Result<(PathBuf, Value), String> {
+    let cgroup = peer.cgroup().unwrap_or_default();
     let leaves = || cgroup.lines().flat_map(|line| line.split('/'));
     if let Some(unit) = leaves().find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")) {
         return recorded(unit, &host.fleet);
+    }
+    if let Some(adopted) = adopted_window(peer.pids(), &host.fleet) {
+        return Ok(adopted);
     }
     let (unit, conversation) = leaves().filter(|leaf| leaf.ends_with(".service")).find_map(|unit| Some((unit, bound_conversation(&host.home.join(session_host_files::HELD).join(unit))?))).ok_or(absent)?;
     let directory = host.fleet.join(session_host_files::PLACED).join(&conversation);
@@ -112,6 +118,15 @@ pub(super) fn own_session(cgroup: &str, host: &Host, absent: &str) -> Result<(Pa
         return Err(format!("{} is a lane-only session placed here by another host, and its held unit carries no lane-only mark to grant it by", record["name"].as_str().unwrap_or(unit)));
     }
     Ok((directory, record))
+}
+
+/// The directory and record of the adopted session whose window process is one of `pids`, the caller or an ancestor of it: an adopted record names the window process it bound in its placement (`adopted window, process N`), and a shell run in that window descends from it.
+fn adopted_window(pids: &[u32], fleet: &Path) -> Option<(PathBuf, Value)> {
+    std::fs::read_dir(fleet).into_iter().flatten().flatten().map(|entry| entry.path()).find_map(|directory| {
+        let record = read_record(&directory)?;
+        let process = record["placement"].as_str()?.strip_prefix(ADOPTED_WINDOW)?.parse::<u32>().ok()?;
+        (!record["adopted_ms"].is_null() && pids.contains(&process)).then_some((directory, record))
+    })
 }
 
 /// The placed sessions whose held unit runs here now, by directory and record: each held directory bound to a conversation whose CLI has not recorded its exit and whose unit has a cgroup under the host's, since a retired session's stopped unit never records an exit and its held directory and placed record stay behind.
