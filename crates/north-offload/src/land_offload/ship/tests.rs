@@ -21,6 +21,7 @@ const NORTH_SHIM: &str = r#"case "$1 $2 $3" in
 esac
 case "$1 $2" in
   "capacity deadline") shift; while [ "$1" != -- ]; do shift; done; shift; exec "$@" ;;
+  "depbox check") shift 3; echo "$*" >>"$HOME/depbox-checks"; exec "$@" ;;
   "capacity host")
     shift 2
     echo "lease $*" | sed 's/ -- .*//' >&2
@@ -764,7 +765,7 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
     let runtime = "0123456789abcdef0123456789abcdef01234567";
     let job = || {
         Command::new("sh")
-            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", runtime])
+            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", &carried_from(&[("SAFE_PUSH_LANDING", "after")]), "", runtime])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -784,6 +785,8 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
     north_base::foundation::shim::write_script(&shipped.join("north"), NORTH_SHIM);
     let ran = job();
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    let wrapped = fs::read_to_string(home.path().join("depbox-checks")).unwrap_or_default();
+    assert!(wrapped.contains("bash -euo pipefail"), "a land check run in a slot skipped north depbox check, so the bun it runs lost the variables and scratch its test set (north#1556): {wrapped:?}");
 }
 
 #[test]
