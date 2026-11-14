@@ -1,14 +1,10 @@
-use std::sync::LazyLock;
-
-use regex::Regex;
+use north_base::foundation::limit_clock::limit_reply;
 use serde_json::Value;
 
 use crate::fleet::model::UsageLimit;
 
-static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*you.ve hit your\b[^\n]*\blimit").expect("usage limit pattern"));
-
 pub(super) fn stop_text(text: &str) -> bool {
-    STOP.is_match(text)
+    limit_reply(text).is_some()
 }
 
 pub(super) fn rejected_window(frame: &Value) -> Option<UsageLimit> {

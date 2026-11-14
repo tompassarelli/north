@@ -12,10 +12,10 @@ use north_base::land_ticket::Lane;
 use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::limit::{UsageWait, park, recent, unknown_reset_ms};
-use super::model::{Delivery, LaunchRequest, Phase, Role, SessionRecord};
+use super::model::{Delivery, EntryKind, LaunchRequest, Phase, Role, SessionRecord};
 use crate::fleet::sender::Sender;
 use super::registry::Fleet;
-use super::waits::Run;
+use super::waits::{Run, Waits};
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 use crate::usage::decide::world::{
@@ -117,14 +117,19 @@ pub fn hand_over(
             done.lines.extend(proxy::advance(fleet, record, &to.0, family, take_over, now_ms));
             continue;
         }
-        if record.adopted() || !holds_work(record) {
+        let stopped = limit_stop(fleet, record, &waits);
+        if record.adopted() || !(stopped.is_some() || holds_work(record)) {
             continue;
         }
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("handed over from account {} to {}", record.account, to.0));
         let lane = lanes.get(&record.name).and_then(|held| held.iter().max_by_key(|lane| lane.queued_ms()));
         let request = LaunchRequest {
             account: to.0.clone(),
-            prompt: record.conversation.as_ref().map_or_else(|| brief(record, lane, &to.0), |_| proxy::resumed(record, &to.0)),
+            prompt: match (&record.conversation, &stopped) {
+                (Some(_), Some(stop)) => stop.resumed(record, &to.0),
+                (Some(_), None) => proxy::resumed(record, &to.0),
+                (None, _) => brief(record, lane, &to.0),
+            },
             placement: Some(format!("handed over from account {}", record.account)),
             resume: record.conversation.clone(),
             ..LaunchRequest::relaunching(record)
@@ -133,6 +138,9 @@ pub fn hand_over(
             Ok(_) => {
                 let _ = waits.clear_usage(&record.name);
                 done.lines.push(format!("{}: handed over from account {} to {} {}", record.name, record.account, to.0, lane.map_or_else(|| "with no lane".to_owned(), |lane| format!("with its lane {}", lane.branch))));
+                if let Some(stop) = &stopped {
+                    done.lines.extend(stop.page(fleet, record, &to.0));
+                }
             }
             Err(error) => {
                 let left = if fleet.session(&record.name).is_ok() { format!("it stays on account {}, and `north fleet revive {} --account {}` restarts it there", record.account, record.name, to.0) } else { "no session is left under the name".to_owned() };
@@ -150,6 +158,40 @@ pub fn hand_over(
         proxy::Desk::of(&fleet.root, &record.name).clear();
     }
     done
+}
+
+/// A session whose last turn was a usage-limit reply: that reply and the message it answered, which the reply left unread.
+struct LimitStop {
+    reply: String,
+    pending: Option<String>,
+}
+
+fn limit_stop(fleet: &Fleet, record: &SessionRecord, waits: &Waits) -> Option<LimitStop> {
+    waits.of(&record.name).iter().find(|wait| matches!(wait.run, Run::Usage { .. }))?;
+    let follower = fleet.follow_recent(&record.name).ok()?;
+    let transcript = follower.transcript();
+    let reply = transcript.limit.as_ref()?.message.clone()?;
+    let pending = transcript.entries.iter().rev().find(|entry| entry.kind == EntryKind::User).map(|entry| entry.text.clone());
+    Some(LimitStop { reply, pending })
+}
+
+impl LimitStop {
+    fn resumed(&self, record: &SessionRecord, to: &str) -> String {
+        let moved = format!("[north: account {from} answered your last message with its usage limit ({reply}), so `north fleet tick` moved {name} onto account {to}] This is the same conversation.", from = record.account, reply = self.reply, name = record.name);
+        match &self.pending {
+            Some(pending) => format!("{moved} That message went unread; it is re-delivered here:\n\n{pending}"),
+            None => format!("{moved} Carry on where it stopped."),
+        }
+    }
+
+    fn page(&self, fleet: &Fleet, record: &SessionRecord, to: &str) -> Vec<String> {
+        let line = format!("{} hit its usage limit on account {} ({}); moved to account {to} and its pending message re-delivered", record.name, record.account, self.reply);
+        let Some(proxy) = fleet.sessions().unwrap_or_default().into_iter().find(|session| session.role() == Role::Proxy) else { return vec![line] };
+        match fleet.send_signed(&Sender::fleet(), &proxy.name, &line, Delivery::Now) {
+            Ok(()) => vec![line],
+            Err(error) => vec![line, format!("{}: proxy {} was not paged: {}", record.name, proxy.name, error.user_message())],
+        }
+    }
 }
 
 fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {

@@ -353,7 +353,6 @@ fn observe_assistant_text(text: &str, transcript: &mut Transcript) {
 }
 
 fn observe_result(frame: &Value, transcript: &mut Transcript) {
-    let limited = limit::rate_limited_result(frame).is_some();
     if let Some(stopped) = limit::rate_limited_result(frame) {
         limit::record(stopped, &mut transcript.limit);
     }
@@ -364,15 +363,25 @@ fn observe_result(frame: &Value, transcript: &mut Transcript) {
     }
     let subtype = frame["subtype"].as_str().unwrap_or("result");
     let aborted = frame["terminal_reason"].as_str().is_some_and(|reason| reason.starts_with("aborted"));
-    if frame["is_error"] == true && !aborted {
-        let detail = frame["result"].as_str().unwrap_or(subtype);
-        push(transcript, EntryKind::Error, detail.to_owned());
-        if !limited && turns::credential_failure(frame).is_none() && !transcript.entries.iter().any(|entry| entry.kind == EntryKind::Refusal) {
-            attribution::record(&transcript.name, "provider", Cause::Harness(Harness::ProviderError), detail);
+    let replied = transcript.limit.as_ref().and_then(|held| held.message.clone()).filter(|_| !aborted);
+    if let Some(detail) = failure(frame, subtype, aborted, replied.as_deref()) {
+        push(transcript, EntryKind::Error, detail.clone());
+        if transcript.limit.is_none() && turns::credential_failure(frame).is_none() && !transcript.entries.iter().any(|entry| entry.kind == EntryKind::Refusal) {
+            attribution::record(&transcript.name, "provider", Cause::Harness(Harness::ProviderError), &detail);
         }
     }
-    let label = if aborted { "interrupted".to_owned() } else { subtype.to_owned() };
-    push(transcript, EntryKind::TurnEnd, label);
+    let label = if aborted { "interrupted" } else if replied.is_some() { "usage-limit" } else { subtype };
+    push(transcript, EntryKind::TurnEnd, label.to_owned());
+}
+
+fn failure(frame: &Value, subtype: &str, aborted: bool, replied: Option<&str>) -> Option<String> {
+    if aborted {
+        return None;
+    }
+    if frame["is_error"] == true {
+        return Some(frame["result"].as_str().unwrap_or(subtype).to_owned());
+    }
+    replied.map(str::to_owned)
 }
 
 fn resumes_after_result(frame: &Value, transcript: &Transcript) -> bool {
@@ -401,3 +410,6 @@ mod fleet_registry;
 #[cfg(test)]
 #[path = "checkpoint_tests.rs"]
 mod checkpoint;
+#[cfg(test)]
+#[path = "limit_reply_tests.rs"]
+mod limit_reply;

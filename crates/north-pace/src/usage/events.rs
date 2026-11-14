@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 
 use super::meter;
 use crate::foundation::clock::Timestamp;
+use crate::foundation::limit_clock::{limit_reply, reset_after, reset_on};
 
 const HEADERS: &str = "Messages response anthropic-ratelimit-unified headers on the account's setup token";
 const HEADER_WINDOWS: [&str; 2] = ["5h", "7d"];
@@ -9,8 +10,13 @@ const HEADER_WINDOWS: [&str; 2] = ["5h", "7d"];
 const FIVE_HOUR: (&str, u32) = ("session", 300);
 const WEEK: (&str, u32) = ("weekly_all", 10080);
 const STREAM: &str = "claude stream rate_limit_event";
+const REPLY: &str = "claude stream usage-limit reply";
+const UNNAMED_RESET_S: i64 = 3600;
 
 pub fn stream_rows(frame: &Value, at: f64) -> Vec<Value> {
+    if frame["type"] == "assistant" && frame["parent_tool_use_id"].is_null() {
+        return frame["message"]["content"][0]["text"].as_str().map(|text| reply_rows(text, at)).unwrap_or_default();
+    }
     if frame["type"] != "rate_limit_event" {
         return Vec::new();
     }
@@ -31,6 +37,19 @@ pub fn stream_rows(frame: &Value, at: f64) -> Vec<Value> {
         }
     }
     rows
+}
+
+/// The full window a model's own `You've hit your Fable limit · resets Nov 19, 9am` reply names, which the provider sends as an ordinary assistant turn, with its limit row.
+fn reply_rows(text: &str, at: f64) -> Vec<Value> {
+    let Some(named) = limit_reply(text) else { return Vec::new() };
+    let (name, minutes) = match meter::family(&named) {
+        Some(family) => (meter::scoped(family), Some(WEEK.1)),
+        None if named.contains("week") => (WEEK.0.to_owned(), Some(WEEK.1)),
+        None => (FIVE_HOUR.0.to_owned(), Some(FIVE_HOUR.1)),
+    };
+    let now_ms = (at * 1000.0) as u64;
+    let resets = reset_on(text, now_ms).or_else(|| reset_after(text, now_ms)).map_or(at as i64 + UNNAMED_RESET_S, |ms| (ms / 1000) as i64);
+    vec![window_row(None, &name, minutes, 1.0, Some(resets), REPLY, at), limit_row(None, &name, Some(resets), REPLY, at)]
 }
 
 pub fn window_of(key: &str) -> (String, Option<u32>) {
