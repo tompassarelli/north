@@ -4,7 +4,7 @@ use super::super::clippy_first;
 use super::super::judged;
 use super::super::verdict_key;
 use super::line_refusals::Refusals;
-use super::log::first_error;
+use super::log::{first_error, last_error};
 use super::{Arguments, Config, Environment, NO_NORTH, Stop, affected, block_on, run_added_avoiding, say, shared_build, steps, warn};
 use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 use north_base::platform::finish_record::acceptance_in_prequeue;
@@ -249,11 +249,13 @@ fn failed_output(outcome: &Path, command: &str) -> (Option<String>, String) {
     (own, failed.iter().map(|(failed, log)| format!("the check before queueing `{failed}` failed:\n{log}")).collect())
 }
 
-/// The first check the run recorded as failed with the first error line of its log, or how the run exited when the log holds none.
+/// The first check the run recorded as failed with the first error line of its log, or its last when the run reached no verdict, since a check that gives up says why last; how the run exited when the log holds none.
 fn failing_step(outcome: &Path, status: i32) -> Option<String> {
     let text = std::fs::read_to_string(outcome).unwrap_or_default();
     let (command, log) = text.lines().find_map(|line| line.strip_prefix("failed-step\t")?.split_once('\t'))?;
-    let first = first_error(&std::fs::read_to_string(log).unwrap_or_default()).unwrap_or_else(|| format!("exited {status}"));
+    let text = std::fs::read_to_string(log).unwrap_or_default();
+    let said = if status == NO_VERDICT_STATUS { last_error(&text) } else { first_error(&text) };
+    let first = said.unwrap_or_else(|| format!("exited {status}"));
     Some(format!("{FAILING}{command}`: {first}"))
 }
 
@@ -267,7 +269,10 @@ fn refusal(status: i32, (root, base, head): (&Path, &str, &str), failing: Option
         return QueueRefusal::Unjudged("the same checks of this head already wait or run on a build host, named above, so this run was refused rather than queued a second time; the lane is not queued uncompiled, so run safe-push again once they end".to_owned());
     }
     if status == NO_VERDICT_STATUS {
-        return QueueRefusal::Unjudged(format!("the checks before queueing reached no verdict {ATTEMPTS} times (exit 75: the host or its connection failed before they reported); the lane is not queued uncompiled, so run safe-push again"));
+        return QueueRefusal::Unjudged(match failing {
+            Some(step) => format!("the checks before queueing reached no verdict {ATTEMPTS} times, and the last run named the check that gave up{step}; the lane is not queued uncompiled, so run safe-push again once that check can decide"),
+            None => format!("the checks before queueing reached no verdict {ATTEMPTS} times (exit 75: the host or its connection failed before any check reported); the lane is not queued uncompiled, so run safe-push again"),
+        });
     }
     let rerun = if failing.as_deref().and_then(self::failing).is_some_and(|(command, _)| command.contains("cargo clippy")) {
         let crates = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.changed_arguments());

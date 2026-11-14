@@ -29,3 +29,17 @@ fn a_trust_boundary_lane_with_no_accept_is_judged_before_landing() {
         assert!(queued.iter().any(|command| command.contains(scan)), "a trust-boundary lane runs `{scan}` among its checks before queueing, which every road to the lander runs: {queued:#?}");
     }
 }
+
+#[test]
+fn no_verdict_names_its_failing_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let (log, outcome) = (dir.path().join("check.log"), dir.path().join("outcome.tsv"));
+    let gave_up = "head-north: refused, no whole runtime at /home/tom/.local/state/north/runtimes/2091ad2751 after waiting, and an offload slot never builds north from the tree it checks";
+    fs::write(&log, format!("error: an earlier warning that is not the reason\n{gave_up}\n{{\"decision\":\"COMMAND_EXITED\",\"exitCode\":75}}\n")).unwrap();
+    fs::write(&outcome, format!("failed-step\t./bin/head-north --code src/cli/ land lint\t{}\n", log.display())).unwrap();
+    let status = north_base::foundation::exit::NO_VERDICT_STATUS;
+    let named = format!("{:?}", super::refusal(status, (dir.path(), "", ""), super::failing_step(&outcome, status)));
+    assert!(named.contains("land lint") && named.contains(gave_up) && !named.contains("host or its connection"), "a check that gave up inside the slot was blamed on the host or its connection instead of naming itself and its own last line (north#1578, 2026-11-15): {named}");
+    let dropped = format!("{:?}", super::refusal(status, (dir.path(), "", ""), super::failing_step(&dir.path().join("no-outcome"), status)));
+    assert!(dropped.contains("host or its connection"), "a run whose connection dropped before any check reported was not named as one: {dropped}");
+}

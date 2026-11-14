@@ -17,17 +17,25 @@ pub(super) fn log_findings(text: &str) -> std::collections::BTreeSet<String> {
     if found.is_empty() { first_error(text).into_iter().collect() } else { found }
 }
 
+pub(super) fn last_error(text: &str) -> Option<String> {
+    text.lines().map(str::trim).rfind(|line| !line.is_empty() && !line.starts_with('{')).map(bounded)
+}
+
 pub(super) fn first_error(text: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
     let line = lines.iter().find(|line| {
         let lower = line.to_lowercase();
         ERROR_WORDS.iter().any(|word| lower.contains(word))
     }).or_else(|| lines.last())?;
+    Some(bounded(line))
+}
+
+fn bounded(line: &str) -> String {
     let mut cut = line.len().min(FIRST_ERROR_BOUND);
     while !line.is_char_boundary(cut) {
         cut -= 1;
     }
-    Some(line[..cut].to_owned())
+    line[..cut].to_owned()
 }
 
 fn log_directory() -> Option<PathBuf> {
