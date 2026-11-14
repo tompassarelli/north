@@ -260,19 +260,9 @@ pub fn records_path(spool: &Path) -> PathBuf {
     spool.with_file_name("spool-records.db")
 }
 
-/// Puts the records database at `records` in WAL mode, which keeps its log between commits: a rollback journal is deleted at each commit, and a sandboxed worker may write beside its spool but not remove there.
-fn write_ahead(records: &Path) -> NorthResult<()> {
-    if let Some(parent) = records.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    rusqlite::Connection::open(records).and_then(|db| db.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))).map_err(|error| NorthError::State(format!("the spool records at {}: {error}", records.display())))
-}
-
 impl Client {
     fn spool_records(&self) -> NorthResult<Spool> {
-        let records = records_path(&self.spool);
-        write_ahead(&records)?;
-        Spool::open(&self.spool, &records, (self.clock)())
+        Spool::open(&self.spool, &records_path(&self.spool), (self.clock)())
     }
 
     fn queue_spooled(&self, path: &Path, contents: &[u8], mode: u32, cause: &str) -> NorthResult<()> {
@@ -345,21 +335,19 @@ impl Client {
         self.send_queued(dest, err, budget, usage)
     }
 
-    /// Sends the spool after any flush already holding it, because that flush may have found the host down just before it came back; one waiter covers every call made while it waits, so a later one leaves.
+    /// Sends the spool unless another call flushes it, which sends every write queued by the time it ends; a flush that finds writes queued behind its own send goes round again, so a caller that returns at once leaves none waiting.
     fn flush_spool_in_turn(&self, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
         if !self.spool.is_dir() {
             return Ok(Flush::Clear);
         }
-        let next = File::create(self.spool.join(".next"))?;
-        match next.try_lock() {
-            Ok(()) => {}
-            Err(std::fs::TryLockError::WouldBlock) => return Ok(Flush::Busy),
-            Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+        loop {
+            let Some(lock) = self.spool_lock()? else { return Ok(Flush::Clear) };
+            let flush = self.send_queued(dest, err, None, Usage::Send)?;
+            drop(lock);
+            if flush != Flush::Clear || !self.spool_pending()? {
+                return Ok(flush);
+            }
         }
-        let lock = File::create(self.spool.join(".lock"))?;
-        lock.lock()?;
-        drop(next);
-        self.send_queued(dest, err, None, Usage::Send)
     }
 
     /// Sends the queued writes in order, claims and releases ahead of every other write, which reads none of the rows an ingest carries, and every usage-only batch held back to go last as one ingest, so a queued claim never waits behind rows.

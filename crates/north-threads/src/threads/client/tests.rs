@@ -29,7 +29,7 @@ printf '%s\n' "$*" >> "$ROOT/ssh.log"
 [ -f "$ROOT/stall" ] && { : > "$ROOT/stalled"; exec sleep 30; }
 [ -f "$ROOT/refusal" ] && case "$last" in *"threads $(awk '{print $6}' "$ROOT/refusal")"*) cat "$ROOT/refusal" >&2; exit 126 ;; esac
 case "$last" in
-  *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
+  *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/hold" ] && while [ ! -f "$ROOT/go" ]; do sleep 0.1; done; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
   "north threads snapshot-pages") cat > "$ROOT/manifest"; cat "$ROOT/pages" ;;
   "north fleet row put") { cat; echo; } >> "$ROOT/rows.log" ;;
 esac
@@ -185,7 +185,7 @@ fn a_spooled_batch_whose_flush_times_out_is_split_set_aside_after_three_timeouts
 
 /// At 3:40 PM on 2026-11-06 every fleet launch's 2 s `holder` read sent the spooled usage batches first, each holding the ledger host 4 to 5 s, so the read timed out and the claim check was skipped.
 #[test]
-fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
+fn a_claim_leaves_the_spool_to_a_detached_flush_that_sends_it_one_flusher_at_a_time_and_waits_out_a_records_database_another_writer_holds() {
     let mut rig = rig(&[]);
     let started = rig.root.join("background.log");
     rig.client.background = Some(vec!["/bin/sh".into(), "-c".into(), format!("printf '%s\\n' \"$*\" >> '{}'", started.display()).into(), "north".into(), "threads".into()]);
@@ -202,6 +202,38 @@ fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
     assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
     assert!(spooled(&rig).is_empty());
     assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
+
+    let spool_rig = self::rig(&[]);
+    let records = spool::records_path(&spool_rig.client.spool);
+    let (held, holding) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let db = rusqlite::Connection::open(records).unwrap();
+        db.execute_batch("BEGIN IMMEDIATE").unwrap();
+        held.send(()).unwrap();
+        north_base::platform::wait::until(Duration::from_secs(5), || false);
+        db.execute_batch("COMMIT").unwrap();
+    });
+    holding.recv().unwrap();
+    spool_rig.client.write_spool(b"{\"n\": 2}\n", "test").unwrap();
+    assert_eq!(call(&spool_rig, &["spool-flush", "ledger-host"], b"").0, 0);
+    holder.join().unwrap();
+    assert_eq!(log(&spool_rig, "ingest.log"), ["{\"n\": 2}"]);
+
+    fs::write(spool_rig.root.join("hold"), "").unwrap();
+    spool_rig.client.write_spool(b"{\"n\": 3}\n", "test").unwrap();
+    let (ended, returned) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..7 {
+            let ended = ended.clone();
+            let spool_rig = &spool_rig;
+            scope.spawn(move || ended.send(call(spool_rig, &["spool-flush", "ledger-host"], b"").0).unwrap());
+        }
+        let mut codes: Vec<i32> = (0..6).map(|_| returned.recv_timeout(Duration::from_secs(60)).expect("six flushers return while the seventh sends")).collect();
+        fs::write(spool_rig.root.join("go"), "").unwrap();
+        codes.push(returned.recv_timeout(Duration::from_secs(60)).unwrap());
+        assert_eq!(codes, [0; 7]);
+    });
+    assert_eq!(log(&spool_rig, "ingest.log")[1..], ["{\"n\": 3}"]);
 }
 
 /// On 2026-11-07 every usage ingest forced a snapshot pull, so whiterabbit and gex45 pulled about 3 times a minute and
