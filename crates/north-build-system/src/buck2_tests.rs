@@ -59,6 +59,12 @@ fn a_buck2_host_builds_a_tree_s_north_with_buck2_and_calls_the_tree_broken_only_
     assert_eq!(invocation.words, ["buck2", "build", "--remote-only", "//:north", "--out", "/tree/buck-out/north/dev/north"]);
     assert_eq!(binary, Path::new("/tree/buck-out/north/dev/north"));
     assert!(side.broken(Some(3), "") && !side.broken(Some(2), "") && !side.broken(None, ""), "only exit 3, Buck2's user error, blames the tree; an engine or daemon failure gives no verdict");
+    let (tree, target) = (Path::new("/tree"), Path::new("/tree/target/build-time-x"));
+    let build = side.build(&crate::Build { root: tree, profile: crate::Profile::Dev, binary: None, programs: &[], jobs: None, resolution: crate::Resolution::OPEN, shell: crate::Shell::Inherited, output: Some(target), uncached: true, timings: true });
+    let line = build.words.join(" ");
+    assert!(line.contains(&format!("'buck2' 'uquery' '{}'", super::WORKSPACE_TARGETS)) && line.ends_with("buck2 build --remote-only --materializations=none --no-remote-cache --build-report /tree/buck-out/north/dev/build-report.json"), "the build-time request builds the workspace's libraries and binaries in one uncached Buck2 build that writes its report: {line}");
+    let tests = side.tests(&crate::Tests { root: tree, step: crate::Step::Compile, selection: crate::Selection::Default, resolution: crate::Resolution::OPEN, shell: crate::Shell::Inherited, output: Some(target), uncached: true, coverage: None });
+    assert_eq!(tests.words, ["buck2", "build", "--remote-only", "--materializations=none", "//...", "--no-remote-cache"], "the test binaries compile on Buck2 before the host runs its tests there");
 
     let tree = tempfile::tempdir().unwrap();
     let out = tree.path().join("buck-out/north/dev");

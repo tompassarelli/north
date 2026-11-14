@@ -14,7 +14,7 @@ pub(crate) mod test_record;
 
 /// Buck2 over the generated BUCK targets (north#1115): the root package is `//:north`, a workspace crate `//crates/NAME:NAME`
 /// with its tests beside it. A host chooses it with `build_system = "buck2"`. Until the host also sets `buck2_tests`, this side
-/// lists the test targets itself and leaves compiling and running them to Cargo, since box 5's verdicts are not yet equal.
+/// lists and compiles the test targets itself and leaves running them to Cargo, since box 5's verdicts are not yet equal.
 /// Every line runs under the isolation directory of the shared store's generation, where the host has one.
 pub struct Buck2 {
     pub tests: bool,
@@ -121,15 +121,28 @@ const GATE_ORIGIN: [&str; 6] = ["lint", ".buckconfig", ".buckconfig.local", ".bu
 /// The toolchain buckconfig the tree's `.buckconfig` includes, which may hold any section: the flake's shell hook links it into the checkout from the store, untracked.
 const TOOLCHAIN_LINK: &str = ".buckconfig.flake";
 const NIX_STORE: &str = "/nix/store";
+/// The workspace's own libraries and binaries: `north_rust_test` builds each test binary as a `rust_binary` with `--test` (build/rust_test.bzl), and a dependency outside the workspace is built only as a dependency.
+const WORKSPACE_TARGETS: &str = r#"kind("^rust_(binary|library)$", //... - //third-party/...) - attrfilter(rustc_flags, "--test", //...)"#;
 
 impl Buck2 {
     /// The build of the one program `binary`: Buck2's `--out` copies a target's one output onto the path itself, so each program is its own build and the path names the file, never its directory.
     fn build_words(&self, request: &Build, out: &Path, binary: &str) -> Vec<String> {
-        let mut words = self.words(&["build", REMOTE_ONLY]);
-        words.extend((request.profile == Profile::Release).then(|| "@mode/release".to_owned()));
-        words.push(format!("//:{binary}"));
+        let mut words = self.words(&["build", REMOTE_ONLY, &format!("//:{binary}"), "--out", &out.join(binary).display().to_string()]);
+        words.extend(self.settings(request));
+        words
+    }
+
+    /// The build of the workspace's own libraries and binaries, what Cargo builds for a request that names none: one build, so its report covers it whole, copying nothing out and leaving its outputs in the store.
+    fn workspace_words(&self, request: &Build) -> Vec<String> {
+        let query = self.words(&["uquery", WORKSPACE_TARGETS]).iter().map(|word| quoted(word)).collect::<Vec<_>>().join(" ");
+        let build = self.words(&["build", REMOTE_ONLY, UNMATERIALISED]).into_iter().chain(self.settings(request));
+        let script = format!("set -eo pipefail; labels=$({query}); \"$@\" $labels");
+        ["bash", "-c", &script, "bash"].map(str::to_owned).into_iter().chain(build).collect()
+    }
+
+    fn settings(&self, request: &Build) -> Vec<String> {
+        let mut words: Vec<String> = (request.profile == Profile::Release).then(|| "@mode/release".to_owned()).into_iter().collect();
         words.extend(request.jobs.into_iter().flat_map(|jobs| ["--num-threads".to_owned(), jobs.to_string()]));
-        words.extend(["--out".to_owned(), out.join(binary).display().to_string()]);
         words.extend(request.uncached.then(|| "--no-remote-cache".to_owned()));
         words.extend(request.timings.then(|| ["--build-report".to_owned(), self.timings(request).display().to_string()]).into_iter().flatten());
         words
@@ -503,7 +516,7 @@ impl BuildSystem for Buck2 {
         }
         let words = match request.binary {
             Some(binary) => self.build_words(request, &out, binary),
-            None if request.programs.is_empty() => ["sh", "-c", UNCLEARED, "sh", "it names no binary and no programs"].map(str::to_owned).to_vec(),
+            None if request.programs.is_empty() => self.workspace_words(request),
             None => {
                 let each = request.programs.iter().map(|program| self.build_words(request, &out, program).iter().map(|word| quoted(word)).collect::<Vec<_>>().join(" ")).collect::<Vec<_>>();
                 ["sh", "-c", &each.join(" && ")].map(str::to_owned).to_vec()
@@ -553,11 +566,9 @@ impl BuildSystem for Buck2 {
         if let Some(line) = self.listing_line(request) {
             return line;
         }
-        if !self.tests {
-            return Cargo.tests(request);
-        }
         let mut words = match &request.step {
-            Step::Compile => self.words(&["build", REMOTE_ONLY, UNMATERIALISED]),
+            Step::Compile if request.coverage.is_none() => self.words(&["build", REMOTE_ONLY, UNMATERIALISED]),
+            _ if !self.tests => return Cargo.tests(request),
             _ => self.words(&["test", REMOTE_ONLY, ON_WORKERS]),
         };
         words.extend(targets(&request.selection));
