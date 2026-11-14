@@ -33,6 +33,11 @@ pub const PRUNE: &str = r#"for h in "$0"/*.service; do
     rm -f "$h/in" "$h/out" "$h/err" "$h/status" "$h/attach" "$h/feed" "$h/nonce" "$h/limit" "$h/retire" "$h/conversation" && rmdir "$h"
 done"#;
 
+pub const RETIRE: &str = r#"systemctl --user stop "$1" 2>/dev/null
+[ -d "$0" ] || exit 0
+[ ! -d "$0/bound" ] || { chmod 700 "$0/bound" && rm -f "$0/bound/binding" && rmdir "$0/bound"; }
+rm -f "$0/in" "$0/out" "$0/err" "$0/status" "$0/attach" "$0/feed" "$0/nonce" "$0/binding" "$0/limit" "$0/retire" "$0/conversation" && rmdir "$0""#;
+
 /// The session's unit, named for reading and suffixed with a digest of the launching host and the
 /// exact session name, so neither sanitised look-alikes nor another launching host share it.
 pub fn unit(key: &str) -> String {

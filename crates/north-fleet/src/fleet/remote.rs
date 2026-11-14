@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use north_session_host::held::{HOLD, PRUNE, unit};
+use north_session_host::held::{HOLD, PRUNE, RETIRE, unit};
 
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process::try_run_command_within;
@@ -251,6 +251,37 @@ pub(super) fn launch_script(spec: &HostSpec, held: &Path, starting: &Starting, d
     launch
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeldOn {
+    pub destination: String,
+    pub unit: String,
+    pub dir: PathBuf,
+}
+
+impl HeldOn {
+    pub fn of(record: &SessionRecord, held_unit: Option<&str>, home: &Path) -> Option<Self> {
+        let machine = record.machine.as_ref()?;
+        let unit = held_unit.or(record.held_unit.as_deref()).map_or_else(|| unit(&record.name), str::to_owned);
+        Some(Self { destination: machine.session_login().to_owned(), dir: held_dir(&machine.session_path(home, home), &unit), unit })
+    }
+}
+
+pub fn held_on(record: &SessionRecord, held_unit: Option<&str>) -> Option<HeldOn> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
+    HeldOn::of(record, held_unit, Path::new(&home))
+}
+
+pub fn retire(ssh: &Path, held: &HeldOn) -> NorthResult<()> {
+    let script = format!("sh -c {} {} {}", quote(RETIRE), quote(&held.dir.to_string_lossy()), quote(&held.unit));
+    let mut command = Command::new(ssh);
+    command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &held.destination, "--", &script]);
+    match try_run_command_within(command, None, SSH_WAIT)? {
+        Some(output) if output.status.success() => Ok(()),
+        Some(output) => Err(NorthError::Rejected(format!("{} did not retire {}: {}", held.destination, held.unit, String::from_utf8_lossy(&output.stderr).trim()))),
+        None => Err(NorthError::State(format!("{} did not answer within {} s, so {} may still run there", held.destination, SSH_WAIT.as_secs(), held.unit))),
+    }
+}
+
 pub fn leave_record(record: &SessionRecord, placed: &Path) {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from).unwrap_or_default();
     if let Err(error) = mirror_through(&binary("ssh"), record, placed, &home) {
@@ -260,11 +291,10 @@ pub fn leave_record(record: &SessionRecord, placed: &Path) {
 
 /// Mirrors `record` to the machine it runs on, then binds the held unit its CLI runs in there to its conversation, in that unit's own directory under `home`, so the outside broker there takes a caller in that unit for this session and no other (north#1054).
 pub(super) fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, home: &Path) -> NorthResult<()> {
-    let (Some(machine), Some(conversation)) = (&record.machine, &record.conversation) else { return Ok(()) };
+    let (Some(machine), Some(conversation), Some(HeldOn { dir: held, .. })) = (&record.machine, &record.conversation, HeldOn::of(record, None, home)) else { return Ok(()) };
     let record = &SessionRecord { cwd: machine.session_path(&record.cwd, home), ..record.clone() };
     let directory = machine.session_path(&placed.join(conversation), home);
     let file = record_file(&directory).to_string_lossy().into_owned();
-    let held = held_dir(&machine.session_path(home, home), &record.held_unit.as_deref().map_or_else(|| unit(&record.name), str::to_owned));
     let bound = held.join(BOUND_CONVERSATION).to_string_lossy().into_owned();
     let script = format!(
         "mkdir -p {} && cat > {} && mv {} {} && {{ ! [ -d {} ] || {{ printf %s {} > {} && mv {} {}; }}; }}",

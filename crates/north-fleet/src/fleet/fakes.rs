@@ -144,6 +144,10 @@ impl Runtime for Stream {
         Roster { accounts: vec![super::model::Account { provider: self.provider(), label: "a".into(), home: home.into(), token_file: None, api: None }], ..Roster::default() }
     }
 
+    fn account_on(&self, home: &Path, _policy: &Path, label: &str, _machine: &super::model::Machine) -> NorthResult<super::model::Account> {
+        Ok(super::model::Account { provider: self.provider(), label: label.into(), home: home.into(), token_file: None, api: None })
+    }
+
     fn assign_conversation(&self) -> NorthResult<Option<String>> {
         new_uuid().map(Some)
     }

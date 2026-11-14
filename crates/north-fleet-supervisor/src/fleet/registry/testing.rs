@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::HeldUnits;
 use super::lanes::RemoteLanes;
 use super::{Fleet, FleetBooks, Runtimes};
 use crate::error::NorthResult;
@@ -37,6 +38,11 @@ impl Fleet {
 
     pub fn freeing_lanes(mut self, lanes: Arc<dyn RemoteLanes>) -> Self {
         self.remote_lanes = lanes;
+        self
+    }
+
+    pub fn retiring_held(mut self, held: Arc<dyn HeldUnits>) -> Self {
+        self.held_units = held;
         self
     }
 

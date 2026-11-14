@@ -318,18 +318,60 @@ mod launch_tests {
         }
     }
 
-    /// On 2026-11-14 a fresh launch began to register beside its claims, and a launch the ledger refused because a live session on another host held its name released that session's claims.
+    struct Target(std::path::PathBuf);
+
+    impl crate::fleet::registry::HeldUnits for Target {
+        fn retire(&self, held: &crate::fleet::remote::HeldOn) -> NorthResult<()> {
+            let unit = self.0.join(&held.unit);
+            let pid = std::fs::read_to_string(unit.join("pid"))?;
+            std::process::Command::new("kill").args(["-KILL", pid.trim()]).status()?;
+            std::fs::remove_dir_all(unit)?;
+            Ok(())
+        }
+    }
+
+    fn sleeping(pids: &std::path::Path) -> u32 {
+        use std::io::Write;
+        use std::os::unix::process::CommandExt;
+        let pid = std::process::Command::new("sleep").arg("300").process_group(0).spawn().unwrap().id();
+        std::fs::OpenOptions::new().create(true).append(true).open(pids).unwrap().write_all(format!("{pid}\n").as_bytes()).unwrap();
+        pid
+    }
+
+    fn target_host(dir: &std::path::Path, spec: &crate::fleet::runtime::HostSpec, provider: &ProviderName, idle: Option<std::time::Duration>, served_by: &str) -> NorthResult<u32> {
+        let root = dir.parent().unwrap();
+        let unit = root.join("target").join(north_session_host::held::unit(&spec.key));
+        std::fs::create_dir_all(&unit)?;
+        std::fs::write(unit.join("pid"), sleeping(&root.join("pids")).to_string())?;
+        super::super::fixtures::standing_host(dir, spec, provider, idle, served_by)?;
+        let link = sleeping(&root.join("pids"));
+        std::fs::write(north_base::platform::session_host_files::pid_path(dir), link.to_string())?;
+        Ok(link)
+    }
+
+    fn alive(pid: &str) -> bool {
+        std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output().is_ok_and(|ps| ps.status.success() && !String::from_utf8_lossy(&ps.stdout).trim_start().starts_with('Z'))
+    }
+
     #[test]
-    fn a_launch_the_ledger_refuses_for_a_name_live_elsewhere_keeps_that_names_claims() {
+    fn a_launch_refused_after_placement_leaves_no_unit_held_directory_or_process_on_the_target_host() {
         let home = tempfile::tempdir().unwrap();
         let claims = Arc::new(Held::default());
-        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap().registering(Arc::new(HeldElsewhere));
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap().registering(Arc::new(HeldElsewhere)).arming(|_| Ok(())).starting_hosts(target_host);
+        let target = fleet.root.join("target");
+        let fleet = fleet.retiring_held(Arc::new(Target(target.clone())));
         claims.hold("north#1042", "north-1042-d0525", &BTreeSet::new()).unwrap();
+        let placed = LaunchRequest { machine: Some(crate::fleet::model::Machine { name: "cpx62".into(), ssh: "tom@cpx62.invalid".into(), agent_ssh: None }), ..request(home.path()) };
 
-        let launched = fleet.launch(&request(&home.path().join("no-such-directory")));
+        let launched = fleet.launch(&placed);
 
         let error = launched.unwrap_err().user_message();
         assert!(claims.0.lock().unwrap().iter().all(|(kind, _, _)| *kind != "release"), "the refused launch released the claims of the session holding its name: {error}");
+        let left: Vec<_> = std::fs::read_dir(&target).unwrap_or_else(|_| panic!("the launch never placed its host: {error}")).flatten().map(|entry| entry.file_name()).collect();
+        assert!(left.is_empty(), "the refused launch left held units {left:?} on its target: {error}");
+        let pids = std::fs::read_to_string(fleet.root.join("pids")).unwrap();
+        let running: Vec<_> = pids.lines().filter(|pid| alive(pid)).collect();
+        assert!(running.is_empty(), "the refused launch left processes {running:?} running: {error}");
     }
 }
 

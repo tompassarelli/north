@@ -22,7 +22,9 @@ use super::runtimes::Runtimes;
 use super::store::{Registrar, SPOOL_DIR};
 use super::usage_sink::{NoUsage, UsageSink};
 pub use super::watch::TurnWatch;
+use held_units::OverSshHeld;
 use lanes::OverSshLanes;
+pub use held_units::HeldUnits;
 pub use lanes::{RemoteLane, RemoteLanes};
 
 mod adopting;
@@ -41,6 +43,7 @@ mod hand_in;
 mod handoff;
 mod inheriting;
 mod interactive;
+mod held_units;
 mod kept;
 mod lanes;
 mod relaunching;
@@ -117,6 +120,7 @@ pub struct Fleet {
     usage: Arc<dyn UsageSink>,
     recording: Arc<dyn RunRecording>,
     remote_lanes: Arc<dyn RemoteLanes>,
+    held_units: Arc<dyn HeldUnits>,
     desk: Arc<dyn ProxyDesk>,
     reckon: Arc<dyn Reckon>,
     spools_as: Option<String>,
@@ -151,7 +155,7 @@ impl Fleet {
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         let kept = root.join(lanes::KEPT_LANES);
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), spools_as: None, starts: spooled::start_spooled, hosts: starting::start_host };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), held_units: Arc::new(OverSshHeld), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), spools_as: None, starts: spooled::start_spooled, hosts: starting::start_host };
         fleet.adopt_journals()?;
         Ok(fleet)
     }

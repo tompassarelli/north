@@ -13,7 +13,7 @@ use crate::fleet::hops;
 use crate::fleet::model::{Account, LaunchRequest, ProviderName, SessionRecord};
 use crate::fleet::prompt::{PromptInputs, prompt_sha, render};
 use crate::fleet::records::{CLAIMS_RELEASED, PLACED, write_record};
-use crate::fleet::remote::{self, HooksCheck};
+use crate::fleet::remote::{self, HeldOn, HooksCheck};
 use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, now_ms};
 use crate::fleet::spares::Taken;
 use crate::fleet::transcript::{session_stream_path, stream_len};
@@ -73,7 +73,8 @@ impl Fleet {
         }
         hops::record(&trace, &hops::Span { session: record.name.clone(), hop: hops::Hop::HostOpen, start_ms: since_ms, end_ms: now_ms() });
         let held_unit = spare.map(|taken| taken.running.unit.clone());
-        Ok(OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit })
+        let held = remote::held_on(record, held_unit.as_deref());
+        Ok(OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit, held })
     }
 
     pub(super) fn go_live(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost) -> NorthResult<Settling> {
@@ -93,7 +94,7 @@ impl Fleet {
 
     /// Records the opened host live for the session, before its claims and its hooks verdict are in, so the host and its link count as up the moment they are; nothing reaches the provider but the handshake until [`Self::open_conversation`] has both.
     fn record_live(&self, record: &mut SessionRecord, opened: OpenedHost) -> NorthResult<LiveHost> {
-        let OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit } = opened;
+        let OpenedHost { runtime, instructions, sha, trace, host_dir, host, started, since_ms, held_unit, held: _ } = opened;
         record.held_unit = held_unit;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
@@ -185,6 +186,7 @@ pub(super) struct OpenedHost {
     started: bool,
     since_ms: u64,
     held_unit: Option<String>,
+    pub(super) held: Option<HeldOn>,
 }
 
 impl OpenedHost {

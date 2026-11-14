@@ -10,7 +10,7 @@ use crate::fleet::hops;
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
-use crate::fleet::remote::{self, HooksCheck};
+use crate::fleet::remote::{self, HeldOn, HooksCheck};
 use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, Predicted, Role, SessionRecord, Status};
 use crate::fleet::sender::Sender;
 use crate::fleet::runtime::{Opening, new_uuid, now_ms};
@@ -122,7 +122,7 @@ impl Fleet {
                 })?;
                 match self.settled(&record, brought, registered) {
                     Ok(()) => Ok(self.launched(request, record)),
-                    Err(error) => Err(self.discarded(session_dir, error)),
+                    Err(error) => Err(self.discarded(session_dir, remote::held_on(&record, None), error)),
                 }
             });
             if launched.is_err() {
@@ -149,8 +149,9 @@ impl Fleet {
         record
     }
 
-    fn discarded(&self, session_dir: &Path, error: NorthError) -> NorthError {
-        match self.discard_failed_launch(session_dir) {
+    fn discarded(&self, session_dir: &Path, held: Option<HeldOn>, error: NorthError) -> NorthError {
+        let discarded = self.discard_failed_launch(session_dir);
+        match discarded.and(self.retire_held(held)) {
             Ok(()) => error,
             Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
         }
@@ -186,7 +187,11 @@ impl Fleet {
     pub(super) fn abandon_early(&self, opened: Option<NorthResult<OpenedHost>>, session_dir: &Path) {
         let Some(opened) = opened else { return };
         let ended = match opened {
-            Ok(opened) => opened.abandon().and_then(|()| self.discard_failed_launch(session_dir)),
+            Ok(opened) => {
+                let held = opened.held.clone();
+                let ended = opened.abandon().and_then(|()| self.discard_failed_launch(session_dir));
+                ended.and(self.retire_held(held))
+            }
             Err(_) => self.remove_launch_dir(session_dir),
         };
         if let Err(error) = ended {
@@ -227,6 +232,10 @@ impl Fleet {
 
     fn join_launch_task(&self, record: &SessionRecord) -> NorthResult<()> {
         record.task_ref.as_deref().map_or(Ok(()), |task_ref| self.ledger.join_task(task_ref, &record.name))
+    }
+
+    fn retire_held(&self, held: Option<HeldOn>) -> NorthResult<()> {
+        held.map_or(Ok(()), |held| self.held_units.retire(&held))
     }
 
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.
