@@ -4,6 +4,7 @@
 //! target (`pressure_target`). Placement skips a host with a backlog at launch so the pile does not deepen while another
 //! host idles, and alerts on a stalled fleet read the same signals through `Saturation::refusal`.
 use super::admission::{self, Class, default_mib as default};
+use super::agent_load::SEAT_STALL_LIMIT;
 use north_base::platform::disk_line::Line;
 use north_base::platform::pushed_token::FRESH_SECONDS;
 
@@ -21,11 +22,8 @@ pub const QUEUED_LIMIT: u32 = 4;
 /// `north capacity host backlog`, which a host on an older runtime leaves empty, then the token mark and the seconds since the App token the laptop pushes to the host was written, which a host that mints its own token leaves empty.
 pub const PROBE: &str = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk / | tail -1; echo '#backlog'; \"$HOME/.local/state/north/current/tree/bin/north\" capacity host backlog 2>/dev/null; echo '#token'; t=\"$HOME/.local/state/north/gh-write-token\"; [ -f \"$t\" ] && echo $(($(date +%s) - $(stat -L -c %Y \"$t\"))); true";
 
-/// The CPU stall, in avg10 basis points, of a host's unleased agent work past which a load over its threads keeps a new session off it.
-pub const STALL_LIMIT: f64 = 1000.0;
-
-/// What waits on a host: jobs queued in admission, the one-minute load average against its threads, and the CPU stall
-/// of the agent work no lease caps, which a host on an older runtime does not report.
+/// What waits on a host: jobs queued in admission, the one-minute load average against its threads, and the stall of
+/// Tom's seat (the worse of its CPU and disk pressure), which a host on an older runtime does not report.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Backlog {
     pub queued: u32,
@@ -42,14 +40,13 @@ impl Backlog {
         Some(Self { queued: words.next()?.parse().ok()?, load: words.next()?.parse().ok()?, threads: words.next()?.parse().ok()?, stall: words.next().and_then(|word| word.parse().ok()) })
     }
 
-    /// A load over the host's threads keeps a session off only while the work a session runs beside stalls, since capped leases raise the load without taking a session's CPU.
+    /// A stalled seat keeps a session off; the load average does not once the seat's stall is reported, since on this kernel a quota-throttled agent task counts in the load while taking no CPU from anyone.
     fn refusal(&self, host: &str) -> Option<String> {
         let queue = (self.queued >= QUEUED_LIMIT).then(|| format!("{} jobs queued in machine-capacity admission (limit {QUEUED_LIMIT})", self.queued));
-        let stalled = self.stall.is_none_or(|stall| stall > STALL_LIMIT);
-        let load = (self.load > f64::from(self.threads) && stalled).then(|| match self.stall {
-            Some(stall) => format!("load {:.0} on {} threads with unleased agent work stalled {:.0}% of the time", self.load, self.threads, stall / 100.0),
-            None => format!("load {:.0} on {} threads", self.load, self.threads),
-        });
+        let load = match self.stall {
+            Some(stall) => (stall > SEAT_STALL_LIMIT).then(|| format!("its seat stalled {:.0}% of the time", stall / 100.0)),
+            None => (self.load > f64::from(self.threads)).then(|| format!("load {:.0} on {} threads", self.load, self.threads)),
+        };
         let causes: Vec<String> = queue.into_iter().chain(load).collect();
         (!causes.is_empty()).then(|| format!("{host} skipped: {}", causes.join(", ")))
     }

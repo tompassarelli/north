@@ -96,6 +96,8 @@ pub struct State {
     pub heat: Vec<Heat>,
     #[serde(default)]
     pub hot: bool,
+    #[serde(default)]
+    pub disk_relief: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

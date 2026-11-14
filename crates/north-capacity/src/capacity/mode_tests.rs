@@ -44,6 +44,15 @@ fn agent_slice_quota_is_the_12_cpu_bound_at_the_desk_and_22_only_while_away() {
     mode::write(&dir, &mode::release(&mode::read(&dir), 1_080)).unwrap();
     assert_eq!(quotas(&tick(root.path(), Some(false), 1_090)), Vec::<String>::new(), "releasing the hold at the desk stays at 12");
     assert_eq!(quotas(&tick(root.path(), Some(true), 1_120)), [BUILD_HOST_QUOTA], "leaving the desk returns 22");
+
+    let home = std::env::var("HOME").unwrap();
+    let pressure = |some: f64| fs::write(root.path().join("cgroup/app.slice/io.pressure"), format!("some avg10={some:.2} avg60=0.00 avg300=0.00 total=1\nfull avg10={some:.2} avg60=0.00 avg300=0.00 total=1\n")).unwrap();
+    let limits_touched = |calls: Vec<String>| calls.into_iter().filter(|call| call.contains("Bandwidth") || call.contains("CPUQuota=")).collect::<Vec<_>>();
+    pressure(51.49);
+    let relief = format!("systemctl --user set-property --runtime agent.slice IOReadBandwidthMax={home} 52428800 IOWriteBandwidthMax={home} 52428800");
+    assert_eq!(limits_touched(tick(root.path(), Some(true), 1_150)), [relief], "app.slice disk pressure over the seat limit caps agent disk and leaves the CPU quota alone");
+    pressure(0.0);
+    assert_eq!(limits_touched(tick(root.path(), Some(true), 1_180)), [format!("systemctl --user set-property --runtime agent.slice IOReadBandwidthMax= IOWriteBandwidthMax={home} 209715200")]);
 }
 
 #[test]

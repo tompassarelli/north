@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use super::agent_load::{self, Host};
+use super::agent_load::{self, Host, SeatPressure};
 use super::game_reserve;
 use super::mode::{Effects, Heat, Limits, Observation, State, cpu_split, enforced_split, now, read, record, state_dir, step, write};
 
@@ -43,8 +43,8 @@ fn avg10(path: &Path) -> Option<f64> {
     line.split_whitespace().find_map(|field| field.strip_prefix("avg10="))?.parse().ok()
 }
 
-fn protected_psi(cgroup: &Path) -> Option<f64> {
-    ["session.slice", "native.slice"].iter().filter_map(|slice| avg10(&cgroup.join(slice).join("cpu.pressure"))).reduce(f64::max)
+fn protected_psi(cgroup: &Path, seat: SeatPressure) -> Option<f64> {
+    seat.cpu.map(|basis_points| basis_points / 100.0).into_iter().chain(avg10(&cgroup.join("native.slice").join("cpu.pressure"))).reduce(f64::max)
 }
 
 fn host_cpus() -> u32 {
@@ -64,11 +64,12 @@ pub fn tick(host: &Host, seat_idle: Option<bool>, power: Power) -> Applied {
 pub fn tick_in(host: &Host, seat_idle: Option<bool>, power: Power, mut reserve: game_reserve::Settings, dir: &Path, now: u64) -> Applied {
     let limits = Limits::bundled();
     let previous = read(dir);
+    let seat = SeatPressure::read(&reserve.cgroup);
     let seen = Observation {
         now,
         game_running: game_reserve::playing(&reserve),
         seat_idle,
-        protected_psi: protected_psi(&reserve.cgroup),
+        protected_psi: protected_psi(&reserve.cgroup, seat),
     };
     let (mut state, stepped) = step(&previous, &seen, &limits);
     let adjustment = stepped.adjustment;
@@ -97,6 +98,16 @@ pub fn tick_in(host: &Host, seat_idle: Option<bool>, power: Power, mut reserve: 
                 state.agent_quota_percent = Some(quota);
             }
             Err(error) => eprintln!("north capacity mode: agent.slice CPUQuota {quota}%: {error}"),
+        }
+    }
+    let relieve_disk = seat.disk_starved();
+    if state.disk_relief != relieve_disk {
+        match game_reserve::set_agent_disk_relief(&reserve, relieve_disk) {
+            Ok(()) => {
+                lines.push(format!("capacity mode: agent.slice disk relief {} at seat disk pressure {:.1}%", if relieve_disk { "on" } else { "off" }, seat.io.unwrap_or(0.0) / 100.0));
+                state.disk_relief = relieve_disk;
+            }
+            Err(error) => eprintln!("north capacity mode: agent.slice disk relief: {error}"),
         }
     }
     if let Err(error) = write(dir, &state) {
