@@ -92,11 +92,11 @@ impl Fleet {
             let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
             let registered = self.register_beside(scope, &row, claim)?;
-            let launched = self.succeed(&request.name, claim, |predecessor| {
+            let launched = self.succeed(&request.name, claim, |seat| {
+                let (predecessor, tasks, claimed_first) = self.claim_then_retire(seat, request, &mut record, &tasks, verification)?;
                 record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
-                let tasks = predecessor.as_ref().filter(|predecessor| predecessor.carries_for(&request.tasks())).map_or_else(|| tasks.clone(), |predecessor| predecessor.carry_into(&mut record));
                 let brought = std::thread::scope(|beside| {
-                    let claiming = beside.spawn(|| self.claim_before_start(request, &tasks, verification));
+                    let claiming = beside.spawn(|| if claimed_first { Ok(()) } else { self.claim_before_start(request, &tasks, verification) });
                     let claimed = || claiming.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
                     let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
                     Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))))
@@ -296,10 +296,14 @@ impl Fleet {
         if placement.is_some() {
             record.placement = placement;
         }
-        if session_running(&record) {
+        let host = Host::new(record.host_dir.clone());
+        if session_running(&record) && !host.closed() {
             return Ok(record);
         }
         self.refuse_beside_interactive(&record)?;
+        if session_running(&record) {
+            host.terminate()?;
+        }
         let conversation = record
             .conversation
             .clone()
