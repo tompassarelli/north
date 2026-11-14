@@ -76,6 +76,7 @@ fn fails_first_runs(arguments: &[String]) -> u8 {
 }
 
 const LAND: &[(&str, Run)] = &[
+    ("adopt", super::super::land_adopt::run),
     ("abandon", |arguments| land_abandon::abandon(arguments, &super::super::abandon_witness::FleetWitness)),
     ("actions", land_actions::run),
     ("fails-first-runs", fails_first_runs),

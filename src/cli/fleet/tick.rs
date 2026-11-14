@@ -26,6 +26,8 @@ const USAGE: &str = "Usage: north fleet tick";
 const BESIDE: Duration = Duration::from_secs(20);
 pub(super) const QUEUE_ENTRY: &str = "NORTH_FLEET_QUEUE_ENTRY";
 const QUEUE_RETRY_MS: u64 = 3 * 60 * 1000;
+const ADOPT_STAMP: &str = "north/land/adopt.stamp";
+const ADOPT_EVERY: Duration = Duration::from_secs(300);
 type Refresh = (Option<Result<shared_config::Stamp, String>>, Instant, Duration);
 
 fn always_pulled(fleet: &Fleet) -> Vec<FarHost> {
@@ -63,6 +65,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         let (stamp, cpu) = metered(|| shared_config::refresh_if_due(&home(), shared_config::now()));
         (stamp, Instant::now(), cpu)
     });
+    adopt_when_due();
     let ledger = open_ledger(|| Ok(Ledger));
     let probes = Probes::here(fleet);
     if probes == Probes::Registry {
@@ -160,6 +163,17 @@ fn start(queued: &QueuedLaunch) -> Result<(), String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
     let spawned = Command::new(north).args(["fleet", "launch"]).args(&queued.words).env(QUEUE_ENTRY, &queued.name).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
     spawned.map(drop).map_err(|error| error.to_string())
+}
+
+fn adopt_when_due() {
+    let stamp = crate::land::lander::state_home().join(ADOPT_STAMP);
+    let due = std::fs::metadata(&stamp).and_then(|metadata| metadata.modified()).ok().and_then(|at| at.elapsed().ok()).is_none_or(|age| age >= ADOPT_EVERY);
+    if !due || stamp.parent().is_none_or(|parent| std::fs::create_dir_all(parent).is_err()) || std::fs::write(&stamp, "").is_err() {
+        return;
+    }
+    let Ok(north) = std::env::current_exe() else { return };
+    let path = format!("--setenv=PATH={}", std::env::var("PATH").unwrap_or_default());
+    let _ = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--unit=north-land-adopt", &path, "--"]).arg(north).args(["land", "adopt"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
 
 fn late_beside(ticked: &mut Ticked, name: &'static str, why: &str, began: Instant) -> Vec<String> {

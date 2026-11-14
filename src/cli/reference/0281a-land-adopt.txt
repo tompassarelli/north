@@ -1,0 +1,1 @@
+  land adopt [--dry-run]                        Land each finished lane (its last finish call passed on its tree, nothing uncommitted) whose session has ended: rebase it onto main and safe-push it, or file why not on its issue; each head once

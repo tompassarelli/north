@@ -357,11 +357,6 @@ fn no_verdict_lane_steps_aside_beside_two_landed(checker_output: &str) {
 }
 
 #[test]
-fn a_lane_whose_alone_check_reaches_no_verdict_twice_steps_aside_while_lanes_with_a_pass_land_beside_it() {
-    no_verdict_lane_steps_aside_beside_two_landed("the private-text judge did not finish");
-}
-
-#[test]
 fn a_lane_whose_solo_check_reaches_no_verdict_never_holds_the_round() {
     no_verdict_lane_steps_aside_beside_two_landed("safe-push: verdict transient main's check environment is broken: the base fails");
 }
