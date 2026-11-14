@@ -140,7 +140,6 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_concerns::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
             ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
-            ProbeJob { name: "probes.settle.class_review", own: None, run: Box::new(|fleet| said(super::class_review::tick(&fleet, i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
         ];
         let published = vec![
             ProbeJob { name: "probes.records_mirror", own: None, run: Box::new(|_| said(crate::runtime::mirror::publish())) },

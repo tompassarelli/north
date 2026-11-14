@@ -1004,7 +1004,6 @@ dependencies = [
  "north-timers",
  "north-tui",
  "north-tune",
- "north-unblocks",
  "percent-encoding",
  "ratatui",
  "regex",
@@ -1590,7 +1589,6 @@ dependencies = [
  "north-pace",
  "north-strategy-types",
  "north-threads",
- "north-unblocks",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
@@ -2043,7 +2041,6 @@ dependencies = [
  "north-providers",
  "north-runtime-follow",
  "north-trusted-mirror",
- "north-unblocks",
  "percent-encoding",
  "regex",
  "rusqlite",
@@ -2196,18 +2193,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml_edit",
-]
-
-[[package]]
-name = "north-unblocks"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-github-mirror",
- "north-threads",
- "rusqlite",
- "serde",
- "serde_json",
 ]
 
 [[package]]

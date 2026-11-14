@@ -951,17 +951,3 @@ command = "north graph ask affected --json 3bfbb61365~1 3bfbb61365 | jq -e '.alw
 review = "2026-11-15"
 owner = "tompassarelli/north#1247"
 lead = "f-buck-side-4"
-
-[[experiment]]
-id = "north-unblocks"
-change = "the coordinator's manual unblocks are counted by class in the new crate north-unblocks, which refuses the second of one class within a day unless it names an owned class-fix issue, and holds the coordinator's turn while an hourly harness-loss class seen twice has no owner (north#1577)"
-landed = "be0ff18529"
-crates = ["north-unblocks"]
-metric = "none"
-measure = "the unblock ledger ~/.local/state/north/unblocks.jsonl over the 14 days after landing: classes with three or more unblocks in one day, each of which got past the refusal by naming an issue; keep the refusal when fewer than one such class a week shows, and record the count on north#1577"
-direction = "down"
-bar = 2.0
-min_n = 0
-after = ["2026-11-15", "2026-11-29"]
-review = "2026-12-01"
-owner = "tompassarelli/north#1577"

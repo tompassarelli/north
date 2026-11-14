@@ -31,7 +31,7 @@ pub(crate) struct Clearing {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Trip {
+pub(crate) struct Trip {
     pub head: String,
     pub run: Option<String>,
     pub cases: Vec<(String, String)>,
@@ -64,19 +64,19 @@ fn exists(path: &Path) -> Result<bool, String> {
     path.try_exists().map_err(|error| format!("{} cannot be checked: {error}", path.display()))
 }
 
-pub struct Trips(pub PathBuf);
+pub(crate) struct Trips(pub PathBuf);
 
 impl Trips {
     pub(crate) fn here() -> Self {
         Self(dir())
     }
 
-    pub fn cleared(&self, head: &str) -> Result<bool, String> {
+    pub(crate) fn cleared(&self, head: &str) -> Result<bool, String> {
         exists(&self.0.join(format!("{head}.{CLEARED}")))
     }
 
     /// The trip record of `head`, whether or not it is cleared; a record that cannot be read is an error naming it, since a trip that cannot be read must not let its head through.
-    pub fn read(&self, head: &str) -> Result<Option<Trip>, String> {
+    pub(crate) fn read(&self, head: &str) -> Result<Option<Trip>, String> {
         let path = self.0.join(format!("{head}.{TRIP}"));
         if !exists(&path)? {
             return Ok(None);
@@ -96,7 +96,7 @@ impl Trips {
     }
 
     /// Writes the trip record of `trip`: the run that concluded red, then its failed cases, which may be none when its log cannot be read.
-    pub fn write(&self, trip: &Trip) -> Result<(), String> {
+    pub(crate) fn write(&self, trip: &Trip) -> Result<(), String> {
         let path = self.0.join(format!("{}.{TRIP}", trip.head));
         fs::create_dir_all(&self.0).map_err(|error| format!("{} cannot be created: {error}", self.0.display()))?;
         let mut file = OpenOptions::new().write(true).create_new(true).open(&path).map_err(|error| format!("{} cannot be created: {error}", path.display()))?;
@@ -165,7 +165,7 @@ impl Trips {
     }
 
     /// Clears the open trip on `head`, recording who cleared it and why.
-    pub fn clear(&self, head: &str, by: &str, why: &str, at: u64) -> Result<String, String> {
+    pub(crate) fn clear(&self, head: &str, by: &str, why: &str, at: u64) -> Result<String, String> {
         if !exists(&self.0.join(format!("{head}.{TRIP}")))? {
             return Err(format!("no Buck2 trip stands on {head}"));
         }

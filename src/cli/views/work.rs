@@ -7,14 +7,13 @@ use crate::fleet::runtime::now_ms;
 use crate::fleet::store::SessionRow;
 use crate::foundation::clock::Timestamp;
 use crate::router::moment::Moment;
-use north_unblocks::review::{self, ClassLoss, Owners, classes, mirror_closed, threads_db};
 
 pub struct Work {
     pub text: String,
     pub json: Value,
 }
 
-const USAGE: &str = "usage: north work [--since DURATION] [--json] | north work own CLASS --issue REPO#N";
+const USAGE: &str = "usage: north work [--since DURATION] [--json]";
 
 pub fn run(arguments: &[String]) -> u8 {
     let (mut window, mut json) = ("24h", false);
@@ -55,29 +54,6 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-/// `north work own CLASS --issue REPO#N`: records the open, owned issue that owns a harness-loss class (north#1577).
-pub fn own(arguments: &[String]) -> u8 {
-    let [class, flag, issue] = arguments else {
-        eprintln!("{USAGE}");
-        return 2;
-    };
-    if flag != "--issue" {
-        eprintln!("{USAGE}");
-        return 2;
-    }
-    let now = u64::try_from(Timestamp::now().unix_seconds()).unwrap_or_default();
-    match Owners::here().record(class, issue, now, &north_unblocks::GitHub) {
-        Ok(line) => {
-            println!("{line}");
-            0
-        }
-        Err(why) => {
-            eprintln!("north work own: {why}");
-            1
-        }
-    }
-}
-
 pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
     let window_ms = super::duration_ms(window)?;
     let now = now_ms();
@@ -93,8 +69,7 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
     let report = super::report::lines();
     let lanes = crate::flow::work_rows();
     let lane_lines = crate::flow::work_lines(&lanes);
-    let losses = harness_losses(window_ms, now);
-    let text = text(window, &digest, &sessions, &tree, &report, &lane_lines, &losses);
+    let text = text(window, &digest, &sessions, &tree, &report, &lane_lines);
     let json = json!({
         "at": at.iso(),
         "now_ms": now,
@@ -106,10 +81,6 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
         "report": report,
         "lane_flow": lanes,
         "lane_lines": lane_lines,
-        "harness_losses": match &losses {
-            Ok(found) => Value::Array(found.iter().map(|class| json!({"class": class.class, "runs": class.runs, "usd": class.usd, "owner": class.owner})).collect()),
-            Err(why) => json!({"unread": why}),
-        },
     });
     Ok(Work { text, json })
 }
@@ -122,7 +93,7 @@ fn recommended(options: &[String], number: usize) -> String {
     number.checked_sub(1).and_then(|index| options.get(index)).map_or_else(|| "none".to_owned(), |option| format!("{number}. {option}"))
 }
 
-fn text(window: &str, digest: &str, sessions: &[SessionRow], tree: &[String], report: &[String], lanes: &[String], losses: &Result<Vec<ClassLoss>, String>) -> String {
+fn text(window: &str, digest: &str, sessions: &[SessionRow], tree: &[String], report: &[String], lanes: &[String]) -> String {
     let mut out = format!("Work: last {window}\n\n{digest}\n");
     out.push_str(&format!("Session list: {}\n", sessions.len()));
     for row in sessions {
@@ -153,12 +124,6 @@ fn text(window: &str, digest: &str, sessions: &[SessionRow], tree: &[String], re
     for line in lanes {
         out.push_str(&format!("  {line}\n"));
     }
-    out.push_str("\nHarness losses, costliest first:\n");
-    match losses {
-        Ok(found) if found.is_empty() => out.push_str("  none\n"),
-        Ok(found) => found.iter().for_each(|class| out.push_str(&format!("  {}\n", class.line()))),
-        Err(why) => out.push_str(&format!("  unread: {why}\n")),
-    }
     out
 }
 
@@ -176,10 +141,4 @@ fn branch(rows: &[SessionRow], row: &SessionRow, depth: usize, lines: &mut Vec<S
     for child in rows.iter().filter(|child| child.parent.as_deref() == Some(row.name.as_str())) {
         branch(rows, child, depth + 1, lines);
     }
-}
-
-/// The harness-loss classes of the window, each with the issue that owns it (north#1577).
-fn harness_losses(window_ms: u64, now_ms: u64) -> Result<Vec<ClassLoss>, String> {
-    let reading = review::since(&threads_db(), i64::try_from(now_ms.saturating_sub(window_ms) / 1000).unwrap_or_default())?;
-    classes(&reading, &Owners::here(), &mirror_closed)
 }

@@ -2,5 +2,5 @@
 name = "north-guard"
 layer = 3
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-github-mirror", "north-graph-ground", "north-code-health", "north-unblocks"]
+may_use = ["north-dispatch", "north-github-mirror", "north-graph-ground", "north-code-health"]
 

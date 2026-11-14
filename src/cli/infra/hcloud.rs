@@ -58,4 +58,9 @@ mod tests {
         assert_eq!(servers[0].price, None);
         assert_eq!(servers[0].status, "off");
     }
+
+    #[test]
+    fn an_answer_without_a_servers_list_is_an_error_rather_than_an_empty_infra() {
+        assert!(servers(&json!({"error": "nope"})).is_err());
+    }
 }
