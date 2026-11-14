@@ -234,7 +234,11 @@ brief=$(mktemp "${TMPDIR:-/tmp}/north-canary-verify.XXXXXX")
 trap 'rm -f "$brief"' EXIT
 printf 'Surface: shell\nNeeds: laptop\n' > "$brief"
 placed=$("$north" config agents plan --place "$brief")
+readable=$(sed -nE '/5h unread/d; s/^ *claude:([^: ]+) available.*/\1/p' <<<"$placed")
 account=$(grep -o 'target [^ ]* claude:[^ ]*' <<<"$placed" | head -n 1 | sed 's/.*claude://' || true)
+if ! grep -qx "$account" <<<"$readable"; then
+  account=$(head -n 1 <<<"$readable")
+fi
 if [ -z "$account" ]; then
   echo "no Claude account can place the verify-north worker here: $placed" >&2
   exit 75

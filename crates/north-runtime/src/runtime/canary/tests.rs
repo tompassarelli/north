@@ -607,30 +607,16 @@ fn a_probe_worker_follows_the_judged_runtime_while_the_link_still_names_the_live
     fs::create_dir_all(state.join("runtimes/1111111111111111111111111111111111111111")).unwrap();
     symlink("runtimes/1111111111111111111111111111111111111111", state.join("current")).unwrap();
     for program in ["north", "verify-north"] {
-        north_base::foundation::shim::write_executable(&judged.join(program), "#!/bin/sh\necho \"wr.md: target whiterabbit claude:$(basename \"$(readlink \"$NORTH_RUNTIME_LINK\")\")\"\n");
+        north_base::foundation::shim::write_executable(&judged.join(program), "#!/bin/sh\nname=$(basename \"$(readlink \"$NORTH_RUNTIME_LINK\")\")\necho \"  claude:$name available: 5h 7%\"\necho \"wr.md: target whiterabbit claude:$name\"\n");
     }
     let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, false, true, None);
     let workers: Vec<&Probe> = plan.probes.iter().filter(|probe| probe.name.contains("verify-north") || probe.name.contains("first turn")).collect();
     assert_eq!(workers.len(), 2, "{:?}", plan.probes.iter().map(|probe| &probe.name).collect::<Vec<_>>());
     for probe in workers {
         let output = Command::new(bash_program()).arg("-c").arg(&probe.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap();
-        assert!(String::from_utf8_lossy(&output.stdout).trim() == format!("wr.md: target whiterabbit claude:{PROMOTED}"), "{}: the session hosts it starts would follow {:?}, not the judged runtime; {}", probe.name, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).lines().last() == Some(format!("wr.md: target whiterabbit claude:{PROMOTED}").as_str()), "{}: the session hosts it starts would follow {:?}, not the judged runtime; {}", probe.name, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         assert!(output.status.success(), "{}: {}", probe.name, String::from_utf8_lossy(&output.stderr));
     }
-}
-
-#[test]
-fn the_verify_north_probe_reads_all_of_the_placement_listing_before_judging_it() {
-    let home = tempfile::tempdir().unwrap();
-    let judged = home.path().join(".local/state/north/runtimes").join(PROMOTED);
-    fs::create_dir_all(&judged).unwrap();
-    let north = "#!/bin/sh\nif [ \"$1\" = config ]; then\n  echo 'claude:a available'\n  sleep 1\n  echo 'claude:b available'\n  echo 'wr.md: target whiterabbit claude:a'\nfi\n";
-    north_base::foundation::shim::write_executable(&judged.join("north"), north);
-    north_base::foundation::shim::write_executable(&judged.join("verify-north"), "#!/bin/sh\nexit 0\n");
-    let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, false, true, None);
-    let walk = plan.probes.iter().find(|probe| probe.name.contains("verify-north")).unwrap();
-    let output = Command::new(bash_program()).arg("-c").arg(&walk.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap();
-    assert!(output.status.success(), "grep -q closed the listing's pipe at its first line and the writer died on it, exit {:?}: {}", output.status.code(), String::from_utf8_lossy(&output.stderr));
 }
 
 #[test]
@@ -664,4 +650,26 @@ fn a_candidate_that_keeps_a_probes_name_and_weakens_its_script_is_printed_as_cha
     plan.probes[0].script = "true".to_owned();
     let weakened = listing::against_live("nexus", PROMOTED, &plan, Some(PREVIOUS), &fleet);
     assert!(weakened.contains(&format!("probes added: none; probes removed: none; probes changed: `{}`", plan.probes[0].name)), "a probe emptied under its old name read as the same probe: {weakened}");
+}
+
+#[test]
+fn a_canary_that_cannot_place_its_probe_is_not_judged() {
+    let home = tempfile::tempdir().unwrap();
+    let judged = home.path().join(".local/state/north/runtimes").join(PROMOTED);
+    fs::create_dir_all(&judged).unwrap();
+    let ran = home.path().join("ran");
+    north_base::foundation::shim::write_executable(&judged.join("verify-north"), format!("#!/bin/sh\necho \"$@\" > {}\n", ran.display()));
+    let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, false, true, None);
+    let walk = plan.probes.iter().find(|probe| probe.name.contains("verify-north")).unwrap();
+    let run = |listing: &str| {
+        let (first, rest) = listing.split_once('\n').unwrap();
+        north_base::foundation::shim::write_executable(&judged.join("north"), format!("#!/bin/sh\ncat <<'EOF'\n{first}\nEOF\nsleep 1\ncat <<'EOF'\n{rest}\nEOF\n"));
+        Command::new(bash_program()).arg("-c").arg(&walk.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap()
+    };
+    let unread = run("  claude:a available: 5h unread, week 40% (60% headroom)\nwr.md: target whiterabbit claude:a");
+    assert_eq!(unread.status.code(), Some(75), "the probe placed its worker on an account whose 5h window reads unread: {}", String::from_utf8_lossy(&unread.stderr));
+    assert!(!ran.exists());
+    let other = run("  claude:a available: 5h unread, week 40% (60% headroom)\n  claude:c available: 5h 7%, week 1% (93% headroom)\nwr.md: target whiterabbit claude:a");
+    assert!(other.status.success(), "{}", String::from_utf8_lossy(&other.stderr));
+    assert!(fs::read_to_string(&ran).unwrap().contains("--claude-account c"));
 }
