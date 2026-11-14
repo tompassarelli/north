@@ -14,7 +14,7 @@ fn git_in(directory: &Path, arguments: &[&str]) -> String {
         .args(arguments)
         .output()
         .unwrap();
-    assert!(output.status.success(), "git {arguments:?}");
+    assert!(output.status.success(), "git {arguments:?} in {} exited {}: {}", directory.display(), output.status, String::from_utf8_lossy(&output.stderr));
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
