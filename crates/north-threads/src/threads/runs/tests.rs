@@ -121,7 +121,7 @@ fn earliest(batch: &[Json]) -> Timestamp {
 const RUN_COSTS: &str = "SELECT * FROM run_costs ORDER BY account, started, ended, agent";
 
 #[test]
-fn a_usage_batch_rewrites_only_the_intervals_its_rows_fall_in_and_leaves_run_costs_as_a_full_recompute_does() {
+fn a_usage_batch_re_prices_only_the_intervals_from_its_rows_through_the_next_rise_and_leaves_run_costs_as_a_full_recompute_does() {
     let batches = recorded_batches();
     let full = recorded_ledger(&RECORDED_PRICES);
     full.ingest(&batches.concat());
@@ -152,12 +152,21 @@ fn a_usage_batch_rewrites_only_the_intervals_its_rows_fall_in_and_leaves_run_cos
     assert!(expected.len() > 50, "{}", expected.len());
     assert_eq!(incremental.rows(RUN_COSTS), expected);
 
+    let late_reading = vec![json!({"type": "usage", "ts": "2026-11-05T12:05:30Z", "provider": "claude", "account": "a", "kind": "window", "name": "weekly_all", "used_pct": 55.0, "resets_at": "2026-11-12T02:00:00Z"})];
+    let mark = "UPDATE run_costs SET cost_usd = -1 WHERE rowid = (SELECT min(rowid) FROM run_costs WHERE account = 'claude-a' AND ended BETWEEN ?1 AND ?2)";
+    let marked = |from: &str, to: &str| incremental.rows(&format!("SELECT count(*) FROM run_costs WHERE cost_usd = -1 AND ended BETWEEN '{from}' AND '{to}'"));
+    let db = Connection::open(&incremental.path).unwrap();
+    assert_eq!(db.execute(mark, ["2026-11-05T12:14:33Z", "2026-11-05T12:14:33Z"]).unwrap() + db.execute(mark, ["2026-11-05T12:15Z", "2026-11-06"]).unwrap(), 2);
+    incremental.ingest(&late_reading);
+    assert_eq!(marked("2026-11-05T12:14:33Z", "2026-11-05T12:14:33Z"), [[Value::Integer(0)]], "a late reading re-prices the interval its plateau ends in");
+    assert_eq!(marked("2026-11-05T12:15Z", "2026-11-06"), [[Value::Integer(1)]], "a late reading leaves the intervals after the next rise as stored");
+
     let repriced = [("claude-a", 120.0), ("claude-c", 200.0)];
     let late = vec![json!({"id": "run-0", "account": "claude-a", "telemetry_only": true, "usage_samples": [{"request": "req-late", "ts": "2026-11-05T12:49:59Z", "weight": 1.0}]})];
     incremental.outside.prices = repriced.to_vec();
     incremental.ingest(&late);
     let full = recorded_ledger(&repriced);
-    full.ingest(&[batches.concat(), late].concat());
+    full.ingest(&[batches.concat(), late_reading, late].concat());
     assert_eq!(incremental.rows(RUN_COSTS), full.rows(RUN_COSTS), "a price change re-prices every interval at the next batch");
 }
 

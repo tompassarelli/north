@@ -21,12 +21,19 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS run_cost_prices(account TEXT PR
                       CREATE INDEX IF NOT EXISTS run_usage_account ON run_usage(account, ts); \
                       CREATE INDEX IF NOT EXISTS usage_window_time ON usage(provider, kind, name, ts)";
 
-/// Where each account's priced intervals may have changed: the earliest moment an ingest's new
-/// readouts and usage samples fall at, keyed by account as run_costs keys it, and the runs it recorded.
+/// Where each account's priced intervals may have changed: the earliest and latest moments an
+/// ingest's new readouts and usage samples fall at, keyed by account as run_costs keys it, and the
+/// runs it recorded.
 #[derive(Default)]
 pub struct Touched {
-    since: HashMap<String, Timestamp>,
+    spans: HashMap<String, Span>,
     runs: Vec<Sql>,
+}
+
+#[derive(Clone, Copy)]
+struct Span {
+    since: Timestamp,
+    until: Timestamp,
 }
 
 impl Touched {
@@ -37,7 +44,9 @@ impl Touched {
             return Err(Failure::Refused(format!("a usage timestamp is not written in UTC as YYYY-MM-DDTHH:MM:SSZ: {ts}")));
         }
         let at = moment(ts)?;
-        self.since.entry(account).and_modify(|earliest| *earliest = (*earliest).min(at)).or_insert(at);
+        let span = self.spans.entry(account).or_insert(Span { since: at, until: at });
+        span.since = span.since.min(at);
+        span.until = span.until.max(at);
         Ok(())
     }
 
@@ -123,24 +132,28 @@ impl Costs {
     }
 }
 
-/// Re-prices the intervals of each touched account that end at or after its touch, or every interval
-/// when the prices differ from the ones the stored intervals were priced at, then the cost_usd of each
+/// Re-prices the intervals of each touched account that end from its earliest touch through the first
+/// rise or reset after its latest one, or every interval when the prices differ from the ones the
+/// stored intervals were priced at, then the cost_usd of each
 /// run those intervals or the ingest touched, writing only rows whose value changed. A run whose session reported
 /// its cost keeps that cost, and a run on the free model has no interval and costs its price, 0.
 pub fn allocate(db: &mut Connection, prices: &BTreeMap<String, f64>, touched: &Touched) -> Result<(), Failure> {
     let tx = immediate(db)?;
     let total = &format!("coalesce(session_usd, (SELECT SUM(cost_usd) FROM run_costs WHERE agent = runs.agent), CASE WHEN model = '{FREE_MODEL}' THEN 0 END)");
     if repriced(&tx, prices)? {
-        let fresh = intervals(&tx, prices, None)?;
+        let fresh = every_interval(&tx, prices)?;
         let stored: Vec<Key> = tx.prepare("SELECT account, started, ended, agent FROM run_costs")?.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?.collect::<Result<_, _>>()?;
         replace(&tx, &stored, &fresh)?;
         tx.execute(&format!("UPDATE runs SET cost_usd = {total} WHERE cost_usd IS NOT {total}"), [])?;
         return Ok(tx.commit()?);
     }
     let mut priced = BTreeSet::new();
-    for (account, &since) in &touched.since {
-        let fresh = intervals(&tx, prices, Some((account, since)))?;
-        let stored = stored_since(&tx, account, since)?;
+    for (account, &span) in &touched.spans {
+        let (fresh, through) = match prices.get(account) {
+            Some(&price) => account_intervals(&tx, account, span, price)?,
+            None => (Costs::default(), None),
+        };
+        let stored = stored_within(&tx, account, span.since, through)?;
         replace(&tx, &stored, &fresh)?;
         priced.extend(stored.into_iter().chain(fresh.order.into_iter().map(|(key, _)| key)).map(|(_, _, _, agent)| agent));
     }
@@ -167,14 +180,17 @@ fn repriced(tx: &Transaction, prices: &BTreeMap<String, f64>) -> Result<bool, Fa
     Ok(true)
 }
 
-/// The account's stored intervals that end at or after `since`.
-fn stored_since(tx: &Transaction, account: &str, since: Timestamp) -> Result<Vec<Key>, Failure> {
-    let mut query = tx.prepare("SELECT started, ended, agent FROM run_costs WHERE account = ? AND ended >= ?")?;
-    let rows = query.query_map(params![account, minute_bound(since)], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
+/// The account's stored intervals that end at or after `since`, and through `through` when there is one.
+fn stored_within(tx: &Transaction, account: &str, since: Timestamp, through: Option<Timestamp>) -> Result<Vec<Key>, Failure> {
+    let mut bound = vec![Sql::Text(account.to_owned()), Sql::Text(minute_bound(since))];
+    bound.extend(through.map(|through| Sql::Text(minute_after(through))));
+    let mut query = tx.prepare(&format!("SELECT started, ended, agent FROM run_costs WHERE account = ? AND ended >= ?{}", if through.is_some() { " AND ended < ?" } else { "" }))?;
+    let rows = query.query_map(params_from_iter(bound), |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
     let mut stored = Vec::new();
     for row in rows {
         let (started, ended, agent) = row?;
-        if moment(&ended)? >= since {
+        let at = moment(&ended)?;
+        if at >= since && through.is_none_or(|through| at <= through) {
             stored.push((account.to_owned(), started, ended, agent));
         }
     }
@@ -212,6 +228,12 @@ fn utc(ts: &str) -> bool {
 /// A text bound every UTC ledger timestamp at or after `at` sorts above: the minute before it.
 fn minute_bound(at: Timestamp) -> String {
     Timestamp::from_unix_nanos(at.unix_nanos() - 60_000_000_000).iso_minute()
+}
+
+/// A text bound every UTC ledger timestamp at or before `at` sorts below, and every timestamp from
+/// the second minute after it sorts above.
+fn minute_after(at: Timestamp) -> String {
+    Timestamp::from_unix_nanos(at.unix_nanos() + 60_000_000_000).iso_minute()
 }
 
 fn same_window(a: Option<&str>, b: Option<&str>) -> Result<bool, Failure> {
@@ -254,13 +276,26 @@ fn readings_filter(account: Option<&str>) -> (String, Vec<Sql>) {
     (sql, bound)
 }
 
-/// The cost-window readouts in rowid order, with `only` one account's, from the given moment on when there is one.
-fn readings_query(only: Option<(&str, Option<Timestamp>)>) -> (String, Vec<Sql>) {
+/// The moments one account's readings are loaded between: from the minute before `from` and through
+/// the minute after `through`, each unbounded when absent.
+#[derive(Clone, Copy, Default)]
+struct Range {
+    from: Option<Timestamp>,
+    through: Option<Timestamp>,
+}
+
+/// The cost-window readouts in rowid order, with `only` one account's within its range.
+fn readings_query(only: Option<(&str, Range)>) -> (String, Vec<Sql>) {
     let (filter, mut bound) = readings_filter(only.map(|(account, _)| account));
     let mut sql = format!("SELECT provider, account, ts, used_pct, resets_at {filter}");
-    if let Some(since) = only.and_then(|(_, since)| since) {
+    let range = only.map(|(_, range)| range).unwrap_or_default();
+    if let Some(from) = range.from {
         sql += " AND ts >= ?";
-        bound.push(Sql::Text(minute_bound(since)));
+        bound.push(Sql::Text(minute_bound(from)));
+    }
+    if let Some(through) = range.through {
+        sql += " AND ts < ?";
+        bound.push(Sql::Text(minute_after(through)));
     }
     sql += " ORDER BY rowid";
     (sql, bound)
@@ -284,20 +319,51 @@ fn last_change(db: &Connection, account: &str, at: Timestamp, used: f64) -> Resu
     changed.map(|ts| moment(&ts)).transpose()
 }
 
-fn rising(readings: &[Reading]) -> Result<bool, Failure> {
-    for pair in readings.windows(2) {
-        if matches!(step(&pair[0], &pair[1])?, Step::Rise(_)) {
-            return Ok(true);
+/// The first reading after `until` at another level than the reading that follows `until`: a rise or
+/// a drop, so the scan has started a new plateau by then.
+fn next_change(db: &Connection, account: &str, until: Timestamp) -> Result<Option<Timestamp>, Failure> {
+    let (filter, bound) = readings_filter(Some(account));
+    let after = Sql::Text(until.iso());
+    let next: Option<f64> = db.query_row(&format!("SELECT used_pct {filter} AND ts > ? ORDER BY ts LIMIT 1"), params_from_iter(bound.iter().chain([&after])), |row| row.get(0)).optional()?;
+    let Some(used) = next else { return Ok(None) };
+    let changed: Option<String> = db.query_row(&format!("SELECT min(ts) {filter} AND ts > ? AND used_pct IS NOT ?"), params_from_iter(bound.iter().chain([&after, &Sql::Real(used)])), |row| row.get(0))?;
+    changed.map(|ts| moment(&ts)).transpose()
+}
+
+/// Where the readings first leave their level: by a rise, or by a reset at the given index.
+enum Turn {
+    Rise,
+    Reset(usize),
+}
+
+fn first_turn(readings: &[Reading]) -> Result<Option<Turn>, Failure> {
+    for after in 1..readings.len() {
+        match step(&readings[after - 1], &readings[after])? {
+            Step::Level => {}
+            Step::Rise(_) => return Ok(Some(Turn::Rise)),
+            Step::Reset => return Ok(Some(Turn::Reset(after))),
         }
     }
-    Ok(false)
+    Ok(None)
+}
+
+/// The first reading after the one that follows `until` that the scan starts a new plateau at: every
+/// interval from it on is priced from readings and samples later than `until` alone.
+fn settled(readings: &[Reading], until: Timestamp) -> Result<Option<usize>, Failure> {
+    let first = readings.partition_point(|reading| reading.at <= until) + 1;
+    for after in first..readings.len() {
+        if !matches!(step(&readings[after - 1], &readings[after])?, Step::Level) {
+            return Ok(Some(after));
+        }
+    }
+    Ok(None)
 }
 
 /// Each account's readings sorted by time, the last reading at a timestamp replacing earlier ones in
-/// place; with `only`, that one account's readings, from the given moment on when there is one.
-fn windows(db: &Connection, only: Option<(&str, Option<Timestamp>)>) -> Result<Vec<(String, Vec<Reading>)>, Failure> {
+/// place; with `only`, that one account's readings within its range.
+fn windows(db: &Connection, only: Option<(&str, Range)>) -> Result<Vec<(String, Vec<Reading>)>, Failure> {
     let (sql, bound) = readings_query(only);
-    let since = only.and_then(|(_, since)| since);
+    let since = only.and_then(|(_, range)| range.from);
     let mut query = db.prepare(&sql)?;
     let rows = query.query_map(params_from_iter(bound), |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, f64>(3)?, row.get::<_, Option<String>>(4)?)))?;
     let mut accounts: Vec<(String, Vec<Reading>)> = Vec::new();
@@ -328,16 +394,30 @@ fn windows(db: &Connection, only: Option<(&str, Option<Timestamp>)>) -> Result<V
     Ok(accounts)
 }
 
-/// Each account's usage samples sorted by time; with `only`, that one account's samples from the given moment on.
-fn samples(db: &Connection, only: Option<(&str, Timestamp)>) -> Result<HashMap<String, Vec<Sample>>, Failure> {
+/// Each account's usage samples sorted by time; with `only`, that one account's samples within its range.
+fn samples(db: &Connection, only: Option<(&str, Range)>) -> Result<HashMap<String, Vec<Sample>>, Failure> {
     let mut by_account: HashMap<String, Vec<Sample>> = HashMap::new();
-    let filter = if only.is_some() { " WHERE account = ?1 AND ts >= ?2" } else { "" };
-    let bound: Vec<Sql> = only.map_or_else(Vec::new, |(account, since)| vec![Sql::Text(account.to_owned()), Sql::Text(minute_bound(since))]);
+    let range = only.map(|(_, range)| range).unwrap_or_default();
+    let mut clauses = Vec::new();
+    let mut bound = Vec::new();
+    if let Some((account, _)) = only {
+        clauses.push("account = ?");
+        bound.push(Sql::Text(account.to_owned()));
+    }
+    if let Some(from) = range.from {
+        clauses.push("ts >= ?");
+        bound.push(Sql::Text(minute_bound(from)));
+    }
+    if let Some(through) = range.through {
+        clauses.push("ts < ?");
+        bound.push(Sql::Text(minute_after(through)));
+    }
+    let filter = if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) };
     let mut query = db.prepare(&format!("SELECT account, ts, agent, weight FROM run_usage{filter} ORDER BY rowid"))?;
     for row in query.query_map(params_from_iter(bound), |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, f64>(3)?)))? {
         let (account, ts, agent, weight) = row?;
         let at = moment(&ts)?;
-        if only.is_none_or(|(_, since)| at >= since) {
+        if range.from.is_none_or(|from| at >= from) && range.through.is_none_or(|through| at <= through) {
             by_account.entry(account).or_default().push(Sample { at, agent, weight });
         }
     }
@@ -347,25 +427,51 @@ fn samples(db: &Connection, only: Option<(&str, Timestamp)>) -> Result<HashMap<S
     Ok(by_account)
 }
 
-/// The priced intervals of every account, or with `only` those of one account that end at or after
-/// the given moment.
-fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str, Timestamp)>) -> Result<Costs, Failure> {
+/// The priced intervals of every account.
+fn every_interval(db: &Connection, prices: &BTreeMap<String, f64>) -> Result<Costs, Failure> {
     let mut fresh = Costs::default();
-    let Some((account, since)) = only else {
-        let by_account = samples(db, None)?;
-        for (account, readings) in windows(db, None)? {
-            if let Some(&price) = prices.get(&account) {
-                rises(&mut fresh, &account, &readings, by_account.get(&account).map_or(&[][..], Vec::as_slice), price)?;
+    let by_account = samples(db, None)?;
+    for (account, readings) in windows(db, None)? {
+        if let Some(&price) = prices.get(&account) {
+            rises(&mut fresh, &account, &readings, by_account.get(&account).map_or(&[][..], Vec::as_slice), price)?;
+        }
+    }
+    Ok(fresh)
+}
+
+/// The priced intervals of one account that end from `span.since` on, and the moment past which its
+/// intervals are priced from readings and samples later than `span.until` alone, so stand as stored;
+/// the intervals stop there when there is one.
+fn account_intervals(db: &Connection, account: &str, span: Span, price: f64) -> Result<(Costs, Option<Timestamp>), Failure> {
+    let mut fresh = Costs::default();
+    let since = span.since;
+    let next = next_change(db, account, span.until)?;
+    let load = |from: Option<Timestamp>| -> Result<(Vec<Reading>, Option<usize>), Failure> {
+        let read = |through| -> Result<Vec<Reading>, Failure> { Ok(windows(db, Some((account, Range { from, through })))?.into_iter().find(|(name, _)| name == account).map(|(_, readings)| readings).unwrap_or_default()) };
+        if next.is_some() {
+            let readings = read(next)?;
+            if let Some(end) = settled(&readings, span.until)? {
+                return Ok((readings, Some(end)));
             }
         }
-        return Ok(fresh);
+        let readings = read(None)?;
+        let end = settled(&readings, span.until)?;
+        Ok((readings, end))
     };
-    let Some(&price) = prices.get(account) else { return Ok(fresh) };
-    let account_readings = |cut| -> Result<Vec<Reading>, Failure> { Ok(windows(db, Some((account, cut)))?.into_iter().find(|(name, _)| name == account).map(|(_, readings)| readings).unwrap_or_default()) };
     let latest = latest_before(db, account, since)?;
-    let near = account_readings(Some(latest.map_or(since, |(at, _)| at)))?;
-    if !rising(&near[near.partition_point(|reading| reading.at < since).saturating_sub(1)..])? {
-        return Ok(fresh);
+    let (near, end) = load(Some(latest.map_or(since, |(at, _)| at)))?;
+    let near = &near[..end.map_or(near.len(), |end| end + 1)];
+    let through = end.map(|_| near[near.len() - 1].at);
+    let tail = near.partition_point(|reading| reading.at < since).saturating_sub(1);
+    match first_turn(&near[tail..])? {
+        None => return Ok((fresh, through)),
+        Some(Turn::Reset(at)) => {
+            let readings = &near[tail + at..];
+            let by_account = samples(db, Some((account, Range { from: Some(readings[0].at), through })))?;
+            rises(&mut fresh, account, readings, by_account.get(account).map_or(&[][..], Vec::as_slice), price)?;
+            return Ok((fresh, through));
+        }
+        Some(Turn::Rise) => {}
     }
     let changed = match latest {
         Some((at, used)) => last_change(db, account, at, used)?.map(|at| Timestamp::from_unix_nanos(at.unix_nanos() - 60_000_000_000)),
@@ -378,21 +484,22 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str
             cuts.push(cut);
         }
     }
-    let (readings, start) = 'found: {
+    let (readings, start, end) = 'found: {
         for cut in cuts {
-            let readings = account_readings(Some(cut))?;
+            let (readings, end) = load(Some(cut))?;
             if let Some(start) = plateau(&readings, since, false)? {
-                break 'found (readings, start);
+                break 'found (readings, start, end);
             }
         }
-        let readings = account_readings(None)?;
+        let (readings, end) = load(None)?;
         let start = plateau(&readings, since, true)?.unwrap_or_default();
-        (readings, start)
+        (readings, start, end)
     };
-    let Some(initial) = readings.get(start) else { return Ok(fresh) };
-    let by_account = samples(db, Some((account, initial.at)))?;
+    let readings = &readings[..end.map_or(readings.len(), |end| end + 1)];
+    let Some(initial) = readings.get(start) else { return Ok((fresh, through)) };
+    let by_account = samples(db, Some((account, Range { from: Some(initial.at), through })))?;
     rises(&mut fresh, account, &readings[start..], by_account.get(account).map_or(&[][..], Vec::as_slice), price)?;
-    Ok(fresh)
+    Ok((fresh, through))
 }
 
 /// Where the scan's plateau stands when it reaches the first reading at or after `since`: the first of

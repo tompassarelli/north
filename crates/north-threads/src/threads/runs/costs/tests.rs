@@ -14,7 +14,7 @@ fn ledger() -> Connection {
 }
 
 fn plan(db: &Connection, account: &str) -> Vec<String> {
-    let (sql, bound) = readings_query(Some((account, Some(Timestamp::parse("2026-11-06T10:00:00Z").unwrap()))));
+    let (sql, bound) = readings_query(Some((account, super::Range { from: Some(Timestamp::parse("2026-11-06T10:00:00Z").unwrap()), through: None })));
     db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap().query_map(params_from_iter(bound), |row| row.get(3)).unwrap().collect::<Result<_, _>>().unwrap()
 }
 
