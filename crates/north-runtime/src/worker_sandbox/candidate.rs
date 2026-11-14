@@ -13,6 +13,8 @@ const WRITTEN_STATE: [&str; 1] = [".local/state/depbox"];
 const READ_STATE: [&str; 1] = [".local/state/north/runtime-artifacts"];
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
 const LIVE: &str = ".local/state/north/current";
+/// The pinned checkouts of other projects an offloaded check reads beside its own (north-offload ship/beside.rs), which its check lines name instead of `~/code/PROJECT/main`.
+const BESIDE: &str = "NORTH_OFFLOAD_BESIDE";
 
 /// Where a candidate's land check runs and what it may write.
 pub struct Candidate {
@@ -53,6 +55,11 @@ impl Candidate {
         let dot = self.checkout.join(".git");
         if dot.exists() {
             words.bind("--ro-bind", &dot, &dot);
+        }
+        let beside = std::env::var_os(BESIDE).map(PathBuf::from).filter(|beside| beside.is_absolute() && beside.is_dir());
+        let besides: Vec<PathBuf> = beside.iter().flat_map(|beside| std::fs::read_dir(beside).into_iter().flatten().flatten().map(|entry| entry.path())).collect();
+        for read in beside.iter().cloned().chain(besides.iter().filter_map(|entry| git_dirs(entry)).flat_map(|(git_dir, common)| [common, git_dir])) {
+            words.bind("--ro-bind", &read, &read);
         }
         if let Some((git_dir, common)) = git_dirs(&self.checkout) {
             for directory in [common, git_dir] {
