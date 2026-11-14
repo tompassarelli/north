@@ -4,7 +4,7 @@ use std::process::Command;
 
 use crate::workspace::{HostCase, Kind, Package, Target, Workspace};
 
-/// The one reviewed list of host cases, `BINARY_ID CASE` a line and `#` a comment. A land check reads it from the landing base, never from the lane, so a case enters the class only by a change to this file that has landed; a tree without it has none.
+/// The one reviewed list of host cases, `BINARY_ID CASE` a line and `#` a comment. A land check reads it from the landing base, never from the lane, so a case of an existing test enters the class only by a change to this file that has landed, and a case of a test new in the lane by that lane's own copy (`admitted`); a tree without it has none.
 pub const LIST: &str = "build/host-cases.list";
 
 /// The variable a land check names the commit of main it judges the lane against in.
@@ -72,6 +72,32 @@ pub fn skipped(package: &Package, target: &Target, unittest: bool) -> Vec<String
     package.host_cases.iter().filter(runs_here).map(|case| case.name.clone()).collect()
 }
 
+/// The class the lane's manifest host cases are held to: `base`'s list, and each line of `own`, the lane's copy, whose test function `base` does not define. A test new in the lane has no landed list for its case to enter first, and the generated `BUCK` file that skips it changes with it, so Cargo tests that lane in full; no lane takes an existing test off every run.
+pub fn admitted(workspace: &Workspace, base: Option<&str>, own: &BTreeSet<Member>) -> Result<BTreeSet<Member>, String> {
+    let mut listed = reviewed(&workspace.root, base)?;
+    let Some(base) = base else { return Ok(listed) };
+    let mut fresh = Vec::new();
+    for (binary, case) in own.difference(&listed) {
+        let package = binary.split_once("::").map_or(binary.as_str(), |(package, _)| package);
+        let function = case.rsplit("::").next().unwrap_or(case);
+        let Some(held) = workspace.packages.iter().find(|candidate| candidate.name == package) else { continue };
+        if !defined_at(&workspace.root, base, &held.dir, function)? {
+            fresh.push((binary.clone(), case.clone()));
+        }
+    }
+    listed.extend(fresh);
+    Ok(listed)
+}
+
+fn defined_at(root: &Path, base: &str, dir: &str, function: &str) -> Result<bool, String> {
+    let found = Command::new("git").arg("-C").arg(root).args(["grep", "-q", "-F", &format!("fn {function}("), base, "--", &format!(":(top){dir}")]).output().map_err(|why| format!("{LIST}: git grep at {base}: {why}"))?;
+    match found.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(format!("{LIST}: git grep at {base}: {}", String::from_utf8_lossy(&found.stderr).trim())),
+    }
+}
+
 /// Refuses a manifest host case that `listed`, the class of the landing base, lacks or that `own`, the lane's own copy of the list, lacks, a case whose test target the package lacks, and each line of `own` whose test the tree no longer defines. A listed case no manifest names yet is one whose list line landed first, and its manifest entry follows in a later lane; a case leaves the list only after its manifest entry, in the same or an earlier change.
 pub fn check(workspace: &Workspace, listed: &BTreeSet<Member>, own: &BTreeSet<Member>) -> Result<(), String> {
     for package in &workspace.packages {
@@ -81,7 +107,7 @@ pub fn check(workspace: &Workspace, listed: &BTreeSet<Member>, own: &BTreeSet<Me
             }
             let (binary, name) = member(&package.name, case.test.as_deref(), &case.name);
             if !listed.contains(&(binary.clone(), name.clone())) {
-                return Err(format!("{}: host case {name} of {binary} is not in the reviewed list {LIST} of the landing base; a case enters the class by a change to that list alone, and its manifest entry follows once that change has landed", package.name));
+                return Err(format!("{}: host case {name} of {binary} is not in the reviewed list {LIST} of the landing base, and its test is not new in the lane; a case of an existing test enters the class by a change to that list alone, and its manifest entry follows once that change has landed", package.name));
             }
             if !own.contains(&(binary.clone(), name.clone())) {
                 return Err(format!("{}: host case {name} of {binary} is in the landing base's {LIST} but not in the lane's own copy; a lane that drops a case from the list takes its manifest entry out in the same or an earlier change", package.name));

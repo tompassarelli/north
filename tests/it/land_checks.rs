@@ -820,14 +820,27 @@ fn the_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refuses_cargo
     let logged = fs::read_to_string(fixture.path("state/north/gates/buck-targets-drift.jsonl")).unwrap_or_default();
     assert!(logged.contains(r#""would_refuse":true"#) && logged.contains("float_roundtrip"), "the shadow decision was not logged: {logged}");
 
+
     fs::create_dir_all(fixture.repo.join("build")).unwrap();
+    fs::create_dir_all(fixture.repo.join("crates/alpha/src")).unwrap();
+    fs::write(fixture.repo.join("crates/alpha/src/lib.rs"), "fn a() {}\nfn d() {}\n").unwrap();
     fs::write(fixture.repo.join("build/host-cases.list"), "alpha t::a\n").unwrap();
-    git(&fixture.repo, &["add", "build/host-cases.list"]);
+    git(&fixture.repo, &["add", "build/host-cases.list", "crates/alpha/src/lib.rs"]);
     git(&fixture.repo, &["commit", "-qm", "list"]);
     let base = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    fs::write(fixture.repo.join("build/host-cases.list"), "# none\n").unwrap();
-    let alpha = serde_json::json!({"id": "alpha", "name": "alpha", "version": "0.1.0", "manifest_path": fixture.repo.join("crates/alpha/Cargo.toml"), "features": {}, "targets": [{"name": "alpha", "kind": ["lib"], "src_path": fixture.repo.join("crates/alpha/src/lib.rs"), "edition": "2024"}], "metadata": {"north": {"buck": {"host-cases": [{"name": "t::a", "reason": "needs openat2"}]}}}});
-    fs::write(&metadata, serde_json::json!({"packages": [alpha], "workspace_members": ["alpha"], "workspace_root": fixture.repo, "resolve": {"nodes": [{"id": "alpha", "deps": [], "features": []}]}}).to_string()).unwrap();
-    let dropped = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", &path).env("XDG_STATE_HOME", fixture.path("state")).env("SAFE_PUSH_LAND_BASE", &base).output().unwrap();
-    assert!(text(&dropped).contains("alpha: host case t::a of alpha is in the landing base's build/host-cases.list but not in the lane's own copy"), "a list line dropped while its manifest entry stays was not refused: {}", text(&dropped));
+    let lane = |listed: &str, cases: &[&str]| {
+        fs::write(fixture.repo.join("build/host-cases.list"), listed).unwrap();
+        let cases: Vec<_> = cases.iter().map(|name| serde_json::json!({"name": name, "reason": "needs openat2"})).collect();
+        let alpha = serde_json::json!({"id": "alpha", "name": "alpha", "version": "0.1.0", "manifest_path": fixture.repo.join("crates/alpha/Cargo.toml"), "features": {}, "targets": [{"name": "alpha", "kind": ["lib"], "src_path": fixture.repo.join("crates/alpha/src/lib.rs"), "edition": "2024"}], "metadata": {"north": {"buck": {"host-cases": cases}}}});
+        fs::write(&metadata, serde_json::json!({"packages": [alpha], "workspace_members": ["alpha"], "workspace_root": fixture.repo, "resolve": {"nodes": [{"id": "alpha", "deps": [], "features": []}]}}).to_string()).unwrap();
+        text(&Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", &path).env("XDG_STATE_HOME", fixture.path("state")).env("SAFE_PUSH_LAND_BASE", &base).output().unwrap())
+    };
+    let dropped = lane("# none\n", &["t::a"]);
+    assert!(dropped.contains("alpha: host case t::a of alpha is in the landing base's build/host-cases.list but not in the lane's own copy"), "a list line dropped while its manifest entry stays was not refused: {dropped}");
+
+    fs::write(fixture.repo.join("crates/alpha/src/lib.rs"), "fn a() {}\nfn d() {}\nfn b() {}\n").unwrap();
+    let added = lane("alpha t::a\nalpha t::b\nalpha t::d\n", &["t::a", "t::b", "t::d"]);
+    assert!(!added.contains("host case t::b of alpha is not in the reviewed list") && added.contains("host case t::d of alpha is not in the reviewed list"), "a host case of a test new in the lane was refused, or one of a test the base has was let in by the lane's own list: {added}");
+    let stale = lane("alpha t::a\nalpha t::b\nalpha t::c\n", &["t::a", "t::b"]);
+    assert!(stale.contains("`alpha t::c` names a test the tree no longer has"), "a list line naming no test in the tree was not refused: {stale}");
 }
