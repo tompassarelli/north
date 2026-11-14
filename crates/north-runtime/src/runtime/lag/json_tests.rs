@@ -1,5 +1,4 @@
-use super::behind::{Process, Seen, objects};
-use crate::runtime::live::Swap;
+use super::behind::{Pin, Process, Seen, objects};
 use super::page::{Pager, conclude};
 use super::samples;
 use serde_json::json;
@@ -11,14 +10,6 @@ const LATEST: &str = "dddddddd4444444444444444444444444444dddd";
 
 fn process(pid: u32, kind: &str, name: &str, runtime: Option<&str>) -> Process {
     Process { pid, kind: kind.to_owned(), process: name.to_owned(), runtime: runtime.map(str::to_owned) }
-}
-
-fn took(runtime: &str, at: i64) -> Option<Swap> {
-    Some(Swap { runtime: runtime.to_owned(), at, estimated: true, rollback: false })
-}
-
-fn unheld(_: &Seen) -> Option<String> {
-    None
 }
 
 fn rank(sha: &str) -> u8 {
@@ -57,62 +48,63 @@ impl Pager for Recorder {
 
 #[test]
 fn runtime_lag_json_reports_seconds_behind_for_every_process_and_pages_each_episode() {
+    let pin = Pin { at: 2_000, sha: NEWEST.to_owned() };
     let seen = vec![
-        Seen { host: "laptop".to_owned(), swap: took(NEWEST, 2_000), processes: Ok(vec![process(1, "land serve", "land serve all repositories", Some(NEWEST)), process(2, "session-host", "session-host worker-1", Some(MIDDLE)), process(3, "fleet watchdog", "fleet watchdog worker-1", None)]) },
-        Seen { host: "nexus".to_owned(), swap: took(NEWEST, 2_000), processes: Ok(vec![process(4, "offload taker", "offload taker", Some(OLD))]) },
-        Seen { host: "gone".to_owned(), swap: None, processes: Err("no answer within 60s".to_owned()) },
+        Seen { host: "laptop".to_owned(), processes: Ok(vec![process(1, "land serve", "land serve all repositories", Some(NEWEST)), process(2, "session-host", "session-host worker-1", Some(MIDDLE)), process(3, "fleet watchdog", "fleet watchdog worker-1", None)]) },
+        Seen { host: "nexus".to_owned(), processes: Ok(vec![process(4, "offload taker", "offload taker", Some(OLD))]) },
+        Seen { host: "gone".to_owned(), processes: Err("no answer within 60s".to_owned()) },
     ];
     let holds = |landed: &str, runtime: &str| rank(runtime) >= rank(landed);
-    let found = objects(&seen, 2_700, holds, unheld);
+    let found = objects(&seen, Some(&pin), 2_500, holds);
     assert_eq!(
         found,
         vec![
-            json!({"host": "laptop", "kind": "land serve", "process": "land serve all repositories", "runtime": NEWEST, "linked": NEWEST, "seconds": 0}),
-            json!({"host": "laptop", "kind": "session-host", "process": "session-host worker-1", "runtime": MIDDLE, "linked": NEWEST, "seconds": 700}),
-            json!({"host": "laptop", "kind": "fleet watchdog", "process": "fleet watchdog worker-1", "runtime": null, "linked": NEWEST, "seconds": 700}),
-            json!({"host": "nexus", "kind": "offload taker", "process": "offload taker", "runtime": OLD, "linked": NEWEST, "seconds": 700}),
+            json!({"host": "laptop", "kind": "land serve", "process": "land serve all repositories", "runtime": NEWEST, "seconds": 0}),
+            json!({"host": "laptop", "kind": "session-host", "process": "session-host worker-1", "runtime": MIDDLE, "seconds": 500}),
+            json!({"host": "laptop", "kind": "fleet watchdog", "process": "fleet watchdog worker-1", "runtime": null, "seconds": 500}),
+            json!({"host": "nexus", "kind": "offload taker", "process": "offload taker", "runtime": OLD, "seconds": 500}),
             json!({"host": "gone", "process": null, "runtime": null, "seconds": null, "unread": "no answer within 60s"}),
         ]
     );
 
     let state = tempfile::tempdir().unwrap();
     let mut refused = Recorder::new(false);
-    conclude(state.path(), &found, 2_690, &mut refused);
-    assert_eq!(refused.lags.len(), 2, "both services over 10 min are each tried, a session 10 min behind is not, and a refused page is tried again");
+    conclude(state.path(), &found, 2_490, &mut refused);
+    assert_eq!(refused.lags.len(), 2, "both services over 5 min are each tried, a session 5 min behind is not, and a refused page is tried again");
 
     let mut pager = Recorder::new(true);
-    conclude(state.path(), &found, 2_700, &mut pager);
-    assert_eq!(pager.lags.len(), 2, "one page for each host service over 10 min: {:?}", pager.lags);
-    assert!(pager.lags.iter().any(|(key, text)| key == "runtime-lag:nexus:offload taker" && text.contains("offload taker on nexus") && text.contains("700s")), "{:?}", pager.lags);
-    conclude(state.path(), &found, 2_760, &mut pager);
+    conclude(state.path(), &found, 2_500, &mut pager);
+    assert_eq!(pager.lags.len(), 2, "one page for each host service over 5 min: {:?}", pager.lags);
+    assert!(pager.lags.iter().any(|(key, text)| key == "runtime-lag:nexus:offload taker" && text.contains("offload taker on nexus") && text.contains("500s")), "{:?}", pager.lags);
+    conclude(state.path(), &found, 2_560, &mut pager);
     assert_eq!(pager.lags.len(), 2, "an episode that was paged is not paged again while it lasts");
 
-    let earlier = vec![Seen { host: "laptop".to_owned(), swap: took(MIDDLE, 1_000), processes: seen[0].processes.clone() }];
-    let recovered = objects(&earlier, 1_100, holds, unheld);
+    let earlier = Pin { at: 1_000, sha: MIDDLE.to_owned() };
+    let recovered = objects(&seen[..1], Some(&earlier), 1_100, holds);
     conclude(state.path(), &recovered, 1_100, &mut pager);
-    assert_eq!(pager.clears, ["runtime-lag:laptop:fleet watchdog worker-1", "runtime-lag:nexus:offload taker"], "a service back under 10 min, or on a host that no longer reports it, ends its episode with a cleared notice");
-    conclude(state.path(), &found, 2_800, &mut pager);
-    assert_eq!(pager.lags.len(), 4, "lag that falls under 10 min ends the episode, so the next one pages again");
+    assert_eq!(pager.clears, ["runtime-lag:laptop:fleet watchdog worker-1", "runtime-lag:nexus:offload taker"], "a service back under 5 min, or on a host that no longer reports it, ends its episode with a cleared notice");
+    conclude(state.path(), &found, 2_600, &mut pager);
+    assert_eq!(pager.lags.len(), 4, "lag that falls under 5 min ends the episode, so the next one pages again");
     let sampled = samples::read(state.path());
     assert_eq!(sampled.len(), 5);
-    assert_eq!(samples::worst_in(&sampled, 2_000, 3_000), Some((700.0, 4)));
+    assert_eq!(samples::worst_in(&sampled, 2_000, 3_000), Some((500.0, 4)));
 }
 
 #[test]
 fn a_session_pages_only_a_slot_behind_the_pin() {
-    let swapped = |now: i64| if now >= 10_800 { took(LATEST, 10_800) } else { took(NEWEST, 2_000) };
+    let pinned = |now: i64| if now >= 10_800 { Pin { at: 10_800, sha: LATEST.to_owned() } } else { Pin { at: 2_000, sha: NEWEST.to_owned() } };
     let holds = |landed: &str, runtime: &str| rank(runtime) >= rank(landed);
-    let reading = |now: i64, broker: &str, session: &str| vec![Seen { host: "laptop".to_owned(), swap: swapped(now), processes: Ok(vec![process(1, "session-host", "session-host worker-1", Some(session)), process(2, "broker", "broker", Some(broker))]) }];
+    let reading = |broker: &str, session: &str| vec![Seen { host: "laptop".to_owned(), processes: Ok(vec![process(1, "session-host", "session-host worker-1", Some(session)), process(2, "broker", "broker", Some(broker))]) }];
     let state = tempfile::tempdir().unwrap();
     let mut pager = Recorder::new(true);
-    let steps = [(10_700, NEWEST, NEWEST), (10_750, NEWEST, NEWEST), (11_000, NEWEST, NEWEST), (11_300, NEWEST, NEWEST), (11_450, NEWEST, NEWEST), (11_500, LATEST, NEWEST), (11_600, NEWEST, NEWEST), (25_000, NEWEST, NEWEST), (25_300, NEWEST, NEWEST), (25_400, NEWEST, NEWEST)];
+    let steps = [(10_700, NEWEST, NEWEST), (10_750, NEWEST, NEWEST), (11_000, NEWEST, NEWEST), (11_200, NEWEST, NEWEST), (11_300, NEWEST, NEWEST), (11_400, LATEST, NEWEST), (11_500, NEWEST, NEWEST), (25_000, NEWEST, NEWEST), (25_300, NEWEST, NEWEST), (25_400, NEWEST, NEWEST)];
     for (now, broker, session) in steps {
-        conclude(state.path(), &objects(&reading(now, broker, session), now, holds, unheld), now, &mut pager);
-        if now < 11_400 {
-            assert!(pager.lags.is_empty(), "a swap under 10 min old pages nothing at {now}: {:?}", pager.lags);
+        conclude(state.path(), &objects(&reading(broker, session), Some(&pinned(now)), now, holds), now, &mut pager);
+        if now < 11_100 {
+            assert!(pager.lags.is_empty(), "a landing 5 min old or a promotion under 5 min old pages nothing at {now}: {:?}", pager.lags);
         }
         if now < 25_200 {
-            assert!(pager.lags.iter().all(|(key, _)| key != "runtime-lag"), "a session behind its host's swap by less than a promotion slot pages nothing at {now}: {:?}", pager.lags);
+            assert!(pager.lags.iter().all(|(key, _)| key != "runtime-lag"), "a session behind the pin by less than a promotion slot pages nothing at {now}: {:?}", pager.lags);
         }
     }
     let broker_pages: Vec<&String> = pager.lags.iter().filter(|(key, _)| key == "runtime-lag:laptop:broker").map(|(_, text)| text).collect();
@@ -121,30 +113,4 @@ fn a_session_pages_only_a_slot_behind_the_pin() {
     assert_eq!(pager.clears, ["runtime-lag:laptop:broker"]);
     assert_eq!(pager.lags.iter().filter(|(key, _)| key == "runtime-lag").count(), 1, "the session a whole slot behind pages once");
     assert_eq!(samples::read(state.path()).len(), 10);
-}
-
-#[test]
-fn a_service_pages_only_when_behind_since_its_host_took_the_new_runtime_for_10_minutes_and_a_held_host_never() {
-    let holds = |landed: &str, runtime: &str| rank(runtime) >= rank(landed);
-    let held = |seen: &Seen| (seen.host == "gex45").then(|| "aaaaaaaa of the lane eval, held on gex45 by release-evals-lead".to_owned());
-    let reading = |broker: &str, taker: &str| {
-        vec![
-            Seen { host: "cpx62".to_owned(), swap: took(LATEST, 10_000), processes: Ok(vec![process(1, "broker", "broker", Some(broker)), process(2, "offload taker", "offload taker", Some(taker))]) },
-            Seen { host: "gex45".to_owned(), swap: took(OLD, 1_000), processes: Ok(vec![process(3, "land serve", "land serve all repositories", None)]) },
-        ]
-    };
-    let state = tempfile::tempdir().unwrap();
-    let mut pager = Recorder::new(true);
-    for (now, broker, taker) in [(10_300, NEWEST, NEWEST), (10_500, NEWEST, LATEST), (10_590, NEWEST, LATEST)] {
-        conclude(state.path(), &objects(&reading(broker, taker), now, holds, held), now, &mut pager);
-    }
-    assert!(pager.lags.is_empty(), "a service under 10 min behind its host's swap pages nothing, and one restarted 500 s after the swap never pages: {:?}", pager.lags);
-    let late = objects(&reading(NEWEST, LATEST), 10_700, holds, held);
-    conclude(state.path(), &late, 10_700, &mut pager);
-    assert_eq!(pager.lags.len(), 1, "only the broker still behind 700 s after its host took the new runtime pages: {:?}", pager.lags);
-    let (key, text) = &pager.lags[0];
-    assert_eq!(key, "runtime-lag:cpx62:broker");
-    assert!(text.starts_with("north runtime lag: broker on cpx62 has stayed on cccccccc 700s since cpx62 took dddddddd"), "{text}");
-    let gex45 = late.iter().find(|object| object["host"] == "gex45").unwrap();
-    assert_eq!((gex45["seconds"].as_i64(), gex45["held"].as_bool()), (Some(0), Some(true)), "a host a recorded hold keeps on an old runtime reads 0 and never pages, 9700 s after its swap: {gex45}");
 }

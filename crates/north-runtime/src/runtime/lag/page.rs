@@ -1,5 +1,5 @@
 //! One reading of the fleet's lag: the `--json` objects, a scoreboard sample and the proxy pages per episode.
-use super::behind::{self, Seen, serves_host};
+use super::behind::{self, serves_host};
 use super::samples::{self, Sample};
 use north_offload::land_offload;
 use crate::runtime::failure::{Failure, failed};
@@ -17,7 +17,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const KEY: &str = "runtime-lag";
-pub(super) const PAGE_AFTER_S: i64 = 600;
+pub(super) const PAGE_AFTER_S: i64 = 300;
 
 /// How long a host an order left out reads as held rather than behind: past it the host's real lag pages again, so a forgotten `--except` cannot hide an old broker.
 const HELD_SILENCE_S: i64 = 6 * 60 * 60;
@@ -86,15 +86,7 @@ fn send(key: &str, text: &str, cleared: bool) -> bool {
 
 pub(super) fn objects(layout: &Layout, probed: &[Value]) -> Vec<Value> {
     let checkout = update::checkout();
-    let store = update::trusted_store().ok();
-    let pinned = super::ask::pin(layout);
-    let built_on = |linked: &str, runtime: &str| linked == runtime || crate::runtime::settle::ancestor(&checkout, linked, runtime);
-    let held = |seen: &Seen| {
-        let (store, pinned, swap) = (store.as_ref()?, pinned.as_ref()?, seen.swap.as_ref()?);
-        let took_pin = built_on(pinned, &swap.runtime);
-        if took_pin { None } else { crate::runtime::settle::holding(store, pinned, &seen.host) }
-    };
-    let mut objects = behind::objects(&super::ask::seen(layout, probed), pin::now(), built_on, held);
+    let mut objects = behind::objects(&super::ask::seen(layout, probed), super::ask::pin(layout).as_ref(), pin::now(), |landed, runtime| landed == runtime || crate::runtime::settle::ancestor(&checkout, landed, runtime));
     let events = pin::read(&layout.state);
     let now = pin::now();
     let held: Vec<(&str, i64)> = pin::held(&events).into_iter().filter_map(|event| match event {
@@ -174,17 +166,16 @@ fn service_key((host, process): &(String, String)) -> String {
 }
 
 fn session_text(worst: &Value, over: usize) -> String {
-    format!("{}; {over} session process{} over {}s; north runtime lag --json lists them", behind_since_swap(worst), if over == 1 { "" } else { "es" }, session_page_after_s())
+    format!("{}; {over} session process{} over {}s; north runtime lag --json lists them", reading(worst), if over == 1 { "" } else { "es" }, session_page_after_s())
 }
 
 fn service_text(object: &Value) -> String {
-    format!("{}; a host service over {PAGE_AFTER_S}s; north runtime lag --json lists every process", behind_since_swap(object))
+    format!("{}; a host service over {PAGE_AFTER_S}s; north runtime lag --json lists every process", reading(object))
 }
 
-fn behind_since_swap(object: &Value) -> String {
-    let short = |key: &str, unnamed: &str| object[key].as_str().map_or_else(|| unnamed.to_owned(), |sha| layout::short(sha).to_owned());
-    let host = object["host"].as_str().unwrap_or_default();
-    format!("north runtime lag: {} on {host} has stayed on {} {}s since {host} took {}", object["process"].as_str().unwrap_or_default(), short("runtime", "an older runtime"), object["seconds"], short("linked", "its linked runtime"))
+fn reading(object: &Value) -> String {
+    let runtime = object["runtime"].as_str().map_or_else(|| "an older runtime".to_owned(), |sha| layout::short(sha).to_owned());
+    format!("north runtime lag: {} on {} runs {runtime}, {}s older than the pinned runtime", object["process"].as_str().unwrap_or_default(), object["host"].as_str().unwrap_or_default(), object["seconds"])
 }
 
 /// One sample of the lag and its pages, run by the settling host's fleet tick in a scope of its own.

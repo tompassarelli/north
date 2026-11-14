@@ -94,11 +94,6 @@ pub(super) fn live_runtime(shell: &Shell) -> Option<String> {
     linked_sha(Path::new(link.trim())).map(str::to_owned)
 }
 
-/// The runtime a host's link names and when the link last swapped to it, from `readlink` and `stat -c %Y` of that link.
-pub(super) fn host_swap(link: &str, swapped: &str) -> Option<Swap> {
-    Some(Swap { runtime: linked_sha(Path::new(link.trim()))?.to_owned(), at: swapped.trim().parse().ok()?, estimated: true, rollback: false })
-}
-
 pub(super) fn facts(shell: &Shell) -> Facts {
     let host = shell.name().to_owned();
     let sections = match shell.run(&facts_script()) {
@@ -117,8 +112,8 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         north: sections.get("north").map(|north| NorthProcesses::read(north, section("held"), linked_sha(Path::new(section("runtime").trim())), default_number("north_process_leak_window_sec") as u64)),
         ..Facts::default()
     };
-    if let (true, Some(swap)) = (facts.swaps.is_empty(), host_swap(section("runtime"), section("swapped"))) {
-        facts.swaps.push(swap);
+    if let (true, Some(runtime), Some(at)) = (facts.swaps.is_empty(), facts.runtime.clone(), facts.swapped_at) {
+        facts.swaps.push(Swap { runtime, at: at as i64, estimated: true, rollback: false });
     }
     let mut registered: Vec<(String, String)> = Vec::new();
     for (name, body) in sections.iter().filter_map(|(name, body)| Some((name.strip_prefix("settings ")?, body))) {
