@@ -22,6 +22,8 @@ const DANGLING: [&str; 14] = ["a", "an", "and", "at", "by", "for", "from", "in",
 const SCAN_WAIT: Duration = Duration::from_secs(20);
 const PROPOSED: &str = "proposed";
 const REFUSED: &str = "refused";
+const JUDGE_MESSAGE: &str = "--judge-message";
+const BRIEF_TRAILERS: &str = "--brief-trailers";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Verdict {
@@ -103,35 +105,44 @@ fn capitalized(text: &str) -> String {
 /// returns, `Refused` when the scan refused it, and `Unasked` when nothing was judged. A launch of a `brief` first keeps
 /// the brief's trailers for `session` (north#1367); a verification launch passes None and keeps none.
 pub fn judge(brief: Option<&str>, message: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Verdict {
-    if let Some(brief) = brief {
-        keep_trailers(brief, session, cwd, north, machine);
-    }
-    match ask("--judge-message", session, message, cwd, north, machine).as_deref() {
+    let kept = brief.map(|brief| trailers(brief).unwrap_or_default());
+    match ask(kept.as_deref(), session, message, cwd, north, machine).as_deref() {
         Some(PROPOSED) => Verdict::Asked(message.to_owned()),
         Some(REFUSED) => Verdict::Refused,
         _ => Verdict::Unasked,
     }
 }
 
-/// Runs `north finish --brief-trailers` in `cwd`'s lane, which keeps the brief's item, box and Done-when command for `session`, replacing what an earlier launch kept, and clearing it for a brief that names no item, so its finish and hand-in messages take them (north#1367).
-fn keep_trailers(brief: &str, session: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) {
-    ask("--brief-trailers", session, &trailers(brief).unwrap_or_default(), cwd, north, machine);
-}
-
-fn ask(flag: &str, session: &str, input: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Option<String> {
-    let mut command = match machine {
+/// Runs `north finish --judge-message` on `message` in `cwd`'s lane, first running `north finish --brief-trailers` on
+/// `kept` when given, which keeps the brief's item, box and Done-when command for `session`, replacing what an earlier
+/// launch kept, and clearing it for a brief that names no item, so its finish and hand-in messages take them
+/// (north#1367). On a build host both run in one ssh call, so a launch there pays one connection and not two.
+fn ask(kept: Option<&str>, session: &str, message: &str, cwd: &Path, north: &Path, machine: Option<&Machine>) -> Option<String> {
+    let command = match machine {
         None => {
-            let mut local = Command::new(north);
-            local.args(["finish", flag, session]).current_dir(cwd);
-            local
+            let local = |flag: &str| {
+                let mut local = Command::new(north);
+                local.args(["finish", flag, session]).current_dir(cwd);
+                local
+            };
+            if let Some(kept) = kept {
+                first_line(local(BRIEF_TRAILERS), kept);
+            }
+            local(JUDGE_MESSAGE)
         }
         Some(machine) => {
+            let finish = |flag: &str| format!("{} finish {flag} {}", quote(&north.to_string_lossy()), quote(session));
+            let keep = kept.map_or_else(String::new, |kept| format!("printf %s {} | {} >/dev/null; ", quote(kept), finish(BRIEF_TRAILERS)));
+            let script = format!("cd {} || exit 1; {keep}{}", quote(&cwd.to_string_lossy()), finish(JUDGE_MESSAGE));
             let mut ssh = Command::new(super::runtime::binary("ssh"));
-            let script = format!("cd {} && {} finish {flag} {}", quote(&cwd.to_string_lossy()), quote(&north.to_string_lossy()), quote(session));
             ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.session_login(), "--", &script]);
             ssh
         }
     };
+    first_line(command, message)
+}
+
+fn first_line(mut command: Command, input: &str) -> Option<String> {
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     let written = child.stdin.take().is_some_and(|mut stdin| stdin.write_all(input.as_bytes()).is_ok());
     let output = child.stdout.take().filter(|_| written)?;
