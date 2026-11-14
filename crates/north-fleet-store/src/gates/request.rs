@@ -88,5 +88,6 @@ impl Ask {
 
 pub(super) fn opened_notice(label: &str, request: &GateRequest) -> String {
     let default = if request.has_default() { format!("default: {}", request.options.get(request.default.saturating_sub(1)).map_or("", String::as_str)) } else { "for Tom: only the work this gate holds waits for his answer; keep working on everything else".to_owned() };
-    format!("[gate {label} from {}] {} ({default})", request.session, request.question.replace('\n', " "))
+    let mark = if request.verification { "test data: " } else { "" };
+    format!("{mark}[gate {label} from {}] {} ({default})", request.session, request.question.replace('\n', " "))
 }

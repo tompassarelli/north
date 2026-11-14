@@ -58,14 +58,6 @@ fn request() -> GateRequest {
 }
 
 #[test]
-fn a_cost_question_recommending_a_bare_yes_takes_no_default_unless_it_names_ask_once() {
-    let bare = |recommend: usize, ask_once: Option<&str>, default: usize| GateRequest { default, default_after_ms: if default > 0 { 60_000 } else { 0 }, ask_once: ask_once.map(str::to_owned), recommend, question: "Pay for the GPU box?".into(), options: vec!["yes".into(), "no".into()], ..request() };
-    assert!(bare(1, None, 1).validate().unwrap_err().user_message().contains("--ask-once cost"), "a cost question recommending yes takes no default, however bare its options");
-    assert!(bare(1, Some("cost"), 0).validate().is_ok(), "--ask-once with no default is accepted");
-    assert!(bare(2, None, 2).validate().is_ok(), "a default that declines the cost commits to nothing");
-}
-
-#[test]
 fn a_gate_without_a_default_names_the_ask_once_category_of_its_recommended_option() {
     let gate = |question: &str, options: [&str; 2], recommend: usize, ask_once: Option<&str>| GateRequest { question: question.into(), options: options.map(String::from).to_vec(), recommend, default: 0, default_after_ms: 0, ask_once: ask_once.map(str::to_owned), ..request() };
     let widening = ["keep the read-only token", "widen the token's access"];
@@ -80,6 +72,10 @@ fn a_gate_without_a_default_names_the_ask_once_category_of_its_recommended_optio
     assert!(paid.validate().unwrap_err().user_message().contains("--ask-once cost"), "a recommended option that spends money waits for Tom");
     let both = GateRequest { default: 1, default_after_ms: 60_000, ..gate("Widen access for the worker?", widening, 2, Some("credentials")) };
     assert!(both.validate().is_err(), "a category and a default contradict each other");
+    let bare = |recommend: usize, ask_once: Option<&str>, default: usize| GateRequest { default, default_after_ms: if default > 0 { 60_000 } else { 0 }, ask_once: ask_once.map(str::to_owned), recommend, question: "Pay for the GPU box?".into(), options: vec!["yes".into(), "no".into()], ..request() };
+    assert!(bare(1, None, 1).validate().unwrap_err().user_message().contains("--ask-once cost"), "a cost question recommending yes takes no default, however bare its options");
+    assert!(bare(1, Some("cost"), 0).validate().is_ok(), "--ask-once with no default is accepted");
+    assert!(bare(2, None, 2).validate().is_ok(), "a default that declines the cost commits to nothing");
 }
 
 #[test]
@@ -156,4 +152,18 @@ fn an_overdue_gate_defaults_exactly_once_and_only_an_ask_once_gate_opens_without
         let defaulted = GateRequest { default: 1, default_after_ms: 60_000, ..gate };
         assert!(defaulted.validate().is_err(), "{question} must not carry a default");
     }
+}
+
+#[test]
+fn a_gate_opened_by_a_test_session_never_reaches_the_owner_as_real() {
+    let book = Book::default();
+    let mut notices = Vec::new();
+    let test = GateRequest { verification: true, ..request() };
+    open(&book, &test, Some("lead"), None, 1_000, |_, text| notices.push(text.to_owned())).unwrap();
+    open(&book, &request(), Some("lead"), None, 1_000, |_, text| notices.push(text.to_owned())).unwrap();
+    assert!(notices[0].starts_with("test data"), "{}", notices[0]);
+    assert!(notices[1].starts_with("[gate"), "{}", notices[1]);
+    let owner = decisions(book.gates(0).unwrap());
+    assert_eq!(owner.len(), 1);
+    assert!(!owner[0].request.verification);
 }
