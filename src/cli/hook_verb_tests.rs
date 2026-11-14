@@ -98,6 +98,7 @@ fn sends_between_reads_do_not_refill_one_messages_looks() {
     let judge = |lines: &[String], last: &Value| crate::guard::proxy_role::budget_verdict(&super::read_streak(&lines.join("\n"), last, |_, _| false), &budgets);
     assert_eq!(judge(&lines[..lines.len() - 2], &hook("r24", "uptime # 24")), Verdict::Allow, "the 25th look runs");
     assert!(matches!(judge(&lines, &hook("r25", "uptime # 25")), Verdict::Deny(reason) if reason.contains("26 read-only calls")), "the 26th look is stopped");
+    assert_eq!(judge(&lines, &hook("a", "north fleet adopt --name proxy")), Verdict::Allow, "adopting the window records it, so a spent budget never stops it");
     let mut next = lines.clone();
     next.push(prompt("and the cost table?"));
     assert_eq!(judge(&next, &hook("r26", "uptime")), Verdict::Allow, "Tom's next message refills the budget");
