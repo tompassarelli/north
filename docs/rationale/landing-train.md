@@ -1069,6 +1069,7 @@ Recorded, not reopened:
   workers end their turn at `Done: queued`. It is light, so the gaming hold defers only local-only
   checks while heavy checks run on gex45's warm slots. A sleeping laptop pauses the queue, but no
   worker waits on it. This supersedes D2 for the lander host; Nexus stays a later option (B17).
+- **D5 (Tom, 2026-11-15, north#1572).** The lander runs on the control-plane holder, a build host (gex45) by default, moved to the laptop and back only by `north control-plane move` under one exclusive lease. This supersedes D4 for the lander host; the plan and its reverts are in docs/rationale/laptop-runs-the-screen.md.
 
 Only Tom can act (his GitHub session):
 
