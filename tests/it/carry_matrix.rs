@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use sha1::{Digest, Sha1};
 use std::process::{Command, Output};
 
-const TOOLS: [&str; 46] = [
-    "sh", "bash", "env", "git", "printenv", "realpath", "readlink", "dirname", "basename", "sha256sum", "cut", "mkdir", "find", "touch", "id", "cat", "xargs", "ln", "rm", "bwrap", "timeout", "setsid", "flock", "du", "df", "awk",
+const TOOLS: [&str; 47] = [
+    "sh", "bash", "env", "git", "printenv", "realpath", "readlink", "dirname", "basename", "sha256sum", "cksum", "cut", "mkdir", "find", "touch", "id", "cat", "xargs", "ln", "rm", "bwrap", "timeout", "setsid", "flock", "du", "df", "awk",
     "date", "tr", "sleep", "grep", "sed", "head", "tail", "wc", "ls", "mv", "cp", "chmod", "mktemp", "stat", "sort", "kill", "true", "false", "uname", "ssh-keygen",
 ];
 
