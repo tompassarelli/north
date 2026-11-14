@@ -1,5 +1,5 @@
-//! The tracked files a repository's own build writes: the ones `harness/merge-sets.toml` declares as regenerated from
-//! per-unit sources. A lane may not commit them, so a build on a slot rewrites them from the lane's sources, and the
+//! The tracked files a repository's own build writes: the ones `harness/merge-sets.toml` declares as regenerated with
+//! `built = true`. A lane may not commit them, so a build on a slot rewrites them from the lane's sources, and the
 //! slot's tree check leaves out exactly these and no other tracked file. The declaration is read at the base the run
 //! names, never at the shipped commit: a lane that declares a file regenerated gets that only once it has landed, so no
 //! lane can excuse a file its own run rewrites.
@@ -24,5 +24,6 @@ fn declared(text: &str) -> Vec<String> {
     let Ok(document) = text.parse::<toml_edit::DocumentMut>() else { return Vec::new() };
     let sets = document.get("set").and_then(toml_edit::Item::as_array_of_tables);
     let field = |set: &toml_edit::Table, key: &str| set.get(key).and_then(toml_edit::Item::as_str).map(str::to_owned);
-    sets.into_iter().flatten().filter(|set| field(set, "kind").as_deref() == Some("regenerate")).filter_map(|set| field(set, "path")).collect()
+    let built = |set: &toml_edit::Table| set.get("built").and_then(toml_edit::Item::as_bool) == Some(true);
+    sets.into_iter().flatten().filter(|set| field(set, "kind").as_deref() == Some("regenerate") && built(set)).filter_map(|set| field(set, "path")).collect()
 }

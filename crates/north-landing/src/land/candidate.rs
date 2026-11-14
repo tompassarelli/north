@@ -196,7 +196,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     let stack_cherry = git(worktree, &["cherry", &picked_onto, &ticket.head])?;
     let unlanded: Vec<&str> = stack_cherry.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
     let picked = output(worktree, &["cherry-pick", "--allow-empty", "--empty=drop", &format!("{base}..{}", ticket.head)])?;
-    let resolved = picked.status.success() || merge_continue::finish_at(worktree, &picked_onto).is_ok();
+    let resolved = picked.status.success() || merge_continue::finish_at(worktree, base).is_ok();
     case.picked_clean = Some(resolved);
     if !resolved {
         let files = git(worktree, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default().lines().collect::<Vec<_>>().join(",");
@@ -243,10 +243,10 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
             return refuse(logs, name, "regenerate", &format!("could not read the regenerate rules: {error}; NOT landed."));
         }
     }
-    if let Err(failed) = merge_continue::refresh(worktree, &picked_onto) {
+    if let Err(failed) = merge_continue::refresh(worktree, base, &picked_onto) {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         let kind = if failed.no_verdict { format!("regenerate.{}", north_base::foundation::exit::NO_VERDICT_KIND) } else { "regenerate".to_owned() };
-        return refuse(logs, name, &kind, &format!("could not regenerate an index the lane leaves stale: {}; NOT landed.", failed.message));
+        return refuse(logs, name, &kind, &format!("could not regenerate a derived file the lane leaves stale: {}; NOT landed.", failed.message));
     }
     let found = match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
         Ok(found) => found,

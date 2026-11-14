@@ -8,7 +8,7 @@ use north_core::agent_catalog::initial_catalog;
 use crate::error::{NorthError, NorthResult};
 use crate::platform::harness;
 
-pub const USAGE: &str = "usage: north config operator init DIR | init --check DIR";
+pub const USAGE: &str = "usage: north config operator init DIR | init --check DIR | init --sync DIR";
 
 const TEMPLATE: &[(&str, &str)] = &[
     ("agents/AGENTS.md", include_str!("template/agents/AGENTS.md")),
@@ -32,6 +32,7 @@ const TEMPLATE: &[(&str, &str)] = &[
 pub fn run(arguments: &[String]) -> NorthResult<()> {
     match arguments {
         [flag, directory] if flag == "--check" => check(Path::new(directory)),
+        [flag, directory] if flag == "--sync" => sync(Path::new(directory)),
         [directory] if directory != "--check" => write(Path::new(directory)),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
@@ -55,6 +56,25 @@ fn write(directory: &Path) -> NorthResult<()> {
     }
     commit_first_revision(directory)?;
     println!("wrote {} files under {}", files.len(), directory.display());
+    Ok(())
+}
+
+fn sync(directory: &Path) -> NorthResult<()> {
+    let files = render()?;
+    let mut present = Vec::new();
+    if directory.is_dir() {
+        list_files(directory, directory, &mut present)?;
+    }
+    for path in present.iter().filter(|path| files.iter().all(|(relative, _)| relative != *path)) {
+        fs::remove_file(directory.join(path))?;
+    }
+    for (relative, content) in &files {
+        let path = directory.join(relative);
+        fs::create_dir_all(path.parent().unwrap_or(directory))?;
+        if fs::read_to_string(&path).ok().as_deref() != Some(content.as_str()) {
+            fs::write(&path, content)?;
+        }
+    }
     Ok(())
 }
 

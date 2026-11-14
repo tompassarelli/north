@@ -21,7 +21,7 @@ mod workspace;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north buck targets [--check] [--root DIR] | north buck host-cases --filter [PACKAGE...] | north buck compare-cases NAME...";
+const USAGE: &str = "usage: north buck targets [--check [--third-party]] [--root DIR] | north buck host-cases --filter [PACKAGE...] | north buck compare-cases NAME...";
 
 pub use cases::{CaseReader, Sides};
 
@@ -50,31 +50,40 @@ pub fn run(arguments: &[String], cargo: &Cargo, sides: &Sides, state: &Path) -> 
     if let Some(("host-cases", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) {
         return host_cases(rest);
     }
-    let Some(("targets", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {
+    let Some(Targets { check, drift, root }) = arguments.split_first().filter(|(verb, _)| *verb == "targets").and_then(|(_, rest)| Targets::parse(rest)) else {
         eprintln!("{USAGE}");
         return 2;
     };
-    let mut check = false;
-    let mut root = PathBuf::from(".");
-    let mut rest = rest.iter();
-    while let Some(argument) = rest.next() {
-        match (argument.as_str(), argument == "--root") {
-            ("--check", _) => check = true,
-            (_, true) if let Some(dir) = rest.next() => root = PathBuf::from(dir),
-            _ => {
-                eprintln!("{USAGE}");
-                return 2;
-            }
-        }
-    }
     let base = host_class::landing_base();
-    let outcome = if check { compare(&root, base.as_deref(), cargo, state) } else { generate(&root, base.as_deref(), cargo.manifests).and_then(|planned| write(&planned.files)) };
+    let outcome = if check { compare(&root, base.as_deref(), cargo, state, drift) } else { generate(&root, base.as_deref(), cargo.manifests).and_then(|planned| write(&planned.files)) };
     match outcome {
         Ok(code) => code,
         Err(why) => {
             eprintln!("north buck targets: {why}");
             if why.contains(INFRASTRUCTURE) { INFRASTRUCTURE_STATUS } else { 1 }
         }
+    }
+}
+
+struct Targets {
+    check: bool,
+    drift: bool,
+    root: PathBuf,
+}
+
+impl Targets {
+    fn parse(arguments: &[String]) -> Option<Self> {
+        let mut targets = Self { check: false, drift: true, root: PathBuf::from(".") };
+        let mut rest = arguments.iter();
+        while let Some(argument) = rest.next() {
+            match argument.as_str() {
+                "--check" => targets.check = true,
+                "--third-party" => targets.drift = false,
+                "--root" => targets.root = PathBuf::from(rest.next()?),
+                _ => return None,
+            }
+        }
+        Some(targets)
     }
 }
 
@@ -97,7 +106,7 @@ fn host_cases(arguments: &[String]) -> u8 {
     }
 }
 
-fn compare(root: &Path, base: Option<&str>, cargo: &Cargo, state: &Path) -> Result<u8, String> {
+fn compare(root: &Path, base: Option<&str>, cargo: &Cargo, state: &Path, drift: bool) -> Result<u8, String> {
     let (planned, features) = std::thread::scope(|scope| {
         let features = scope.spawn(|| (cargo.features)(root, PLATFORM));
         (generate(root, base, cargo.manifests), features.join())
@@ -105,7 +114,8 @@ fn compare(root: &Path, base: Option<&str>, cargo: &Cargo, state: &Path) -> Resu
     let planned = planned?;
     let features = features.map_err(|_| "the read of Cargo's resolved features panicked".to_owned())??;
     let lagging = third_party::lag(&planned.root, &features, &planned.labels);
-    Ok(report_drift(&planned.files)?.max(gate::decide(&planned.root, state, &lagging)))
+    let drifted = if drift { report_drift(&planned.files)? } else { 0 };
+    Ok(drifted.max(gate::decide(&planned.root, state, &lagging)))
 }
 
 pub struct Generated {

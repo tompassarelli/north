@@ -86,7 +86,8 @@ fn confined(generator: Command, confinement: Confinement) -> Result<Command, Str
     Ok(jailed)
 }
 
-/// Why an index could not be regenerated, and whether its generator exited `NO_VERDICT`, so the step reached no verdict on the lane.
+/// Why a derived file could not be regenerated, and whether its generator exited `NO_VERDICT`, so the step reached no verdict on the lane.
+#[derive(Debug)]
 pub struct Unrefreshed {
     pub message: String,
     pub no_verdict: bool,
@@ -101,7 +102,8 @@ impl From<String> for Unrefreshed {
 fn generate(worktree: &Path, command: &str, code: &[String], built: Option<&Path>, confinement: Confinement) -> Result<(), Unrefreshed> {
     let output = confined(generator(worktree, command, code, built)?, confinement)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
     if !output.status.success() {
-        return Err(Unrefreshed { message: format!("{command} failed: {}", String::from_utf8_lossy(&output.stderr).trim()), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS) });
+        let said = [&output.stdout, &output.stderr].map(|text| String::from_utf8_lossy(text).trim().to_owned()).into_iter().filter(|text| !text.is_empty()).collect::<Vec<_>>().join("\n");
+        return Err(Unrefreshed { message: format!("{command} failed ({}): {said}", output.status), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS) });
     }
     Ok(())
 }
@@ -114,7 +116,7 @@ fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation, 
     }
     let mut commands = Vec::new();
     for path in &conflicted {
-        match rules.iter().find(|rule| rule.path == *path).map(|rule| &rule.kind) {
+        match rules.iter().find(|rule| rule.regenerates(path)).map(|rule| &rule.kind) {
             Some(Kind::Regenerate { command, generator, .. }) if !commands.iter().any(|(known, _)| *known == command) => commands.push((command, generator)),
             Some(Kind::Regenerate { .. }) => {}
             _ => return Err(format!("{path} conflicts and is not a regenerated file")),
@@ -166,7 +168,7 @@ pub fn generator_moved(worktree: &Path, base: &str, picked_onto: &str) -> Result
     if base == picked_onto {
         return Ok(None);
     }
-    let rules = rules_at(worktree, picked_onto)?;
+    let rules = rules_at(worktree, base)?;
     let (ahead, pick) = (names(worktree, &format!("{base}..{picked_onto}"))?, names(worktree, &format!("{picked_onto}..HEAD"))?);
     Ok(merge_set::generator_moved(&rules, &ahead, &pick))
 }
@@ -216,31 +218,42 @@ fn built_ahead(worktree: &Path, tree: &str) -> Result<PathBuf, Unrefreshed> {
     String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim())).filter(|path| !path.as_os_str().is_empty()).ok_or_else(|| Unrefreshed::from(format!("no north built ahead for tree {tree}: build-ahead printed no path")))
 }
 
-pub fn refresh(worktree: &Path, picked_onto: &str) -> Result<Vec<String>, Unrefreshed> {
-    let rules = rules_at(worktree, picked_onto)?;
+/// Runs, once each, the generator of every derived file the list at `base` names whose file, inputs or generator code
+/// the commit at HEAD changes since `picked_onto`, confined to the candidate, and folds what they write into that commit;
+/// a commit that changes none runs none. The list is read at the candidate's base, never at `picked_onto`, which holds the
+/// lanes picked before this one and not yet landed.
+pub fn refresh(worktree: &Path, base: &str, picked_onto: &str) -> Result<Vec<String>, Unrefreshed> {
+    let rules = rules_at(worktree, base)?;
     let changed = stdout(worktree, &["diff", "--name-only", "-z", picked_onto, "HEAD"])?;
     let changed = changed.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();
-    let stale: Vec<(&merge_set::Rule, &String, &Vec<String>)> = rules
+    let due: Vec<(&merge_set::Rule, &String, &Vec<String>)> = rules
         .iter()
         .filter_map(|rule| match &rule.kind {
-            Kind::Regenerate { command, sources, generator } if changed.iter().any(|path| *path == rule.path || sources.iter().any(|source| path.starts_with(source.as_str()))) => Some((rule, command, generator)),
+            Kind::Regenerate { command, sources, generator, .. } if changed.iter().any(|path| merge_set::covers(&rule.path, path) || sources.iter().chain(generator).any(|input| merge_set::covers(input, path))) => Some((rule, command, generator)),
             _ => None,
         })
         .collect();
-    if stale.is_empty() {
+    if due.is_empty() {
         return Ok(Vec::new());
     }
-    let built = if stale.iter().any(|(_, command, _)| command.split_whitespace().next() == Some("north")) {
+    let built = if due.iter().any(|(_, command, _)| command.split_whitespace().next() == Some("north")) {
         let tree = stdout(worktree, &["rev-parse", "HEAD^{tree}"])?.trim().to_owned();
         Some(built_ahead(worktree, &tree)?)
     } else {
         None
     };
+    let mut ran: Vec<&String> = Vec::new();
+    for (_, command, generator) in &due {
+        if !ran.contains(command) {
+            generate(worktree, command, generator, built.as_deref(), Confinement::Candidate)?;
+            ran.push(command);
+        }
+    }
     let mut refreshed = Vec::new();
-    for (rule, command, generator) in stale {
-        generate(worktree, command, generator, built.as_deref(), Confinement::Candidate)?;
-        if !stdout(worktree, &["status", "--porcelain", "--", &rule.path])?.is_empty() {
-            stdout(worktree, &["add", "--", &rule.path])?;
+    for (rule, _, _) in due {
+        let spec = merge_set::pathspec(&rule.path, &[]);
+        if !stdout(worktree, &["status", "--porcelain", "--", &spec])?.is_empty() {
+            stdout(worktree, &["add", "-A", "--", &spec])?;
             refreshed.push(rule.path.clone());
         }
     }
@@ -249,3 +262,7 @@ pub fn refresh(worktree: &Path, picked_onto: &str) -> Result<Vec<String>, Unrefr
     }
     Ok(refreshed)
 }
+
+#[cfg(test)]
+#[path = "merge_continue_tests.rs"]
+mod tests;

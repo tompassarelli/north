@@ -78,13 +78,20 @@ fn commit(root: &Path, message: &str) -> String {
     run(root, &["rev-parse", "HEAD"])
 }
 
+/// The repository's merge-set list without the entries whose generators need a real Cargo registry or a north verb this
+/// fixture's stand-in does not serve.
+fn runnable_sets(list: &str) -> String {
+    let unserved = ["command = \"cargo ", "command = \"north buck ", "command = \"north config operator ", "command = \"north docs readme\""];
+    list.split("\n[[set]]\n").filter(|entry| !unserved.iter().any(|command| entry.contains(command))).collect::<Vec<_>>().join("\n[[set]]\n")
+}
+
 fn main_repo(root: &Path) -> std::path::PathBuf {
     let (origin, main) = (root.join("origin.git"), root.join("proj/main"));
     fs::create_dir_all(main.parent().unwrap()).unwrap();
     run(root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
     run(root, &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
     write(&main, ".gitattributes", include_str!("../../../../.gitattributes"));
-    write(&main, "harness/merge-sets.toml", &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness/merge-sets.toml")).unwrap());
+    write(&main, "harness/merge-sets.toml", &runnable_sets(&fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness/merge-sets.toml")).unwrap()));
     for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n"), (CAPACITY_PATH, CAPACITY), ("crates/north-a/Cargo.toml", member("a").as_str()), ("crates/north-a/src/lib.rs", ""), ("crates/north-b/Cargo.toml", member("b").as_str()), ("crates/north-b/src/lib.rs", "")] {
         write(&main, path, text);
     }

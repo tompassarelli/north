@@ -17,6 +17,7 @@ const KINDS: [&str; 6] = ["lines", "block", "toml-array", "line-inserts", "table
 static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
 static REPORTED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 pub const DEFAULT_CONFIG: &str = "harness/merge-sets.toml";
+const LAND_CONFIG: &str = ".safe-push";
 const PLACEHOLDER: char = '\u{1}';
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,7 +53,7 @@ pub enum Kind {
     Lines(Identity),
     Block { start: String, end: String, sorted: bool },
     Text { arrays: Vec<String>, inserts: Vec<Insert> },
-    Regenerate { command: String, sources: Vec<String>, generator: Vec<String> },
+    Regenerate { command: String, sources: Vec<String>, generator: Vec<String>, check: Option<String>, filled: bool, built: bool },
 }
 
 #[derive(Debug)]
@@ -341,14 +342,51 @@ fn report_unknown(kind: &str, config: &Path) {
     }
 }
 
-fn touches(paths: &[String], prefixes: &[String]) -> bool {
-    paths.iter().any(|path| prefixes.iter().any(|prefix| path.starts_with(prefix.as_str())))
+fn touches(paths: &[String], patterns: &[String]) -> bool {
+    paths.iter().any(|path| patterns.iter().any(|pattern| covers(pattern, path)))
+}
+
+/// Whether `pattern` names `path`: a pattern with a `*` matches path segments, `**` any run of them and `*` part of
+/// one; any other pattern is a path prefix.
+pub fn covers(pattern: &str, path: &str) -> bool {
+    if !pattern.contains('*') {
+        return path.starts_with(pattern);
+    }
+    segments(&pattern.split('/').collect::<Vec<_>>(), &path.split('/').collect::<Vec<_>>())
+}
+
+fn segments(pattern: &[&str], path: &[&str]) -> bool {
+    match (pattern.split_first(), path.split_first()) {
+        (None, None) => true,
+        (Some((&"**", rest)), _) => segments(rest, path) || path.split_first().is_some_and(|(_, tail)| segments(pattern, tail)),
+        (Some((word, rest)), Some((name, tail))) => segment(word, name) && segments(rest, tail),
+        _ => false,
+    }
+}
+
+fn segment(word: &str, name: &str) -> bool {
+    let Some((head, tail)) = word.split_once('*') else { return word == name };
+    name.strip_prefix(head).is_some_and(|rest| rest.char_indices().map(|(at, _)| at).chain([rest.len()]).any(|at| segment(tail, &rest[at..])))
+}
+
+/// `pattern` as a git pathspec with `magic` (such as `exclude`), adding `glob` when it holds a `*`.
+pub fn pathspec(pattern: &str, magic: &[&str]) -> String {
+    let glob = pattern.contains('*').then_some("glob");
+    let words = magic.iter().copied().chain(glob).collect::<Vec<_>>();
+    if words.is_empty() { pattern.to_owned() } else { format!(":({}){pattern}", words.join(",")) }
+}
+
+impl Rule {
+    /// Whether this rule regenerates `path`, the whole file, so a conflict in it is settled by running its generator.
+    pub fn regenerates(&self, path: &str) -> bool {
+        matches!(self.kind, Kind::Regenerate { filled: false, .. }) && covers(&self.path, path)
+    }
 }
 
 pub fn generator_moved(rules: &[Rule], ahead: &[String], pick: &[String]) -> Option<String> {
     rules.iter().find_map(|rule| {
         let Kind::Regenerate { sources, generator, .. } = &rule.kind else { return None };
-        let regenerated = pick.contains(&rule.path) || touches(pick, sources);
+        let regenerated = pick.iter().any(|path| covers(&rule.path, path)) || touches(pick, sources);
         (touches(ahead, generator) && regenerated).then(|| format!("a lane ahead of it in this candidate changes the generator of {}, which this running lander cannot regenerate with", rule.path))
     })
 }
@@ -369,7 +407,12 @@ fn text_rule<'a>(rules: &'a mut Vec<Rule>, path: &str) -> (&'a mut Vec<String>, 
 
 pub fn load_rules(config: &Path) -> Result<Vec<Rule>, String> {
     let text = fs::read_to_string(config).map_err(|error| format!("{}: {error}", config.display()))?;
-    read_rules(&text, config)
+    let rules = read_rules(&text, config)?;
+    let land_config = config.parent().and_then(Path::parent).map(|root| root.join(LAND_CONFIG));
+    if let Some(text) = land_config.and_then(|path| fs::read_to_string(path).ok()) {
+        compared_files_listed(&rules, &text).map_err(|error| format!("{}: {error}", config.display()))?;
+    }
+    Ok(rules)
 }
 
 pub fn read_rules(text: &str, config: &Path) -> Result<Vec<Rule>, String> {
@@ -407,6 +450,9 @@ pub fn read_rules(text: &str, config: &Path) -> Result<Vec<Rule>, String> {
                 command: command.to_owned(),
                 sources: string_array(table, "sources").ok_or_else(|| format!("{path}: a regenerate entry needs a sources array of path prefixes"))?,
                 generator: string_array(table, "generator").unwrap_or_default(),
+                check: field("check").map(str::to_owned),
+                filled: table.get("filled").and_then(toml_edit::Item::as_bool).unwrap_or(false),
+                built: table.get("built").and_then(toml_edit::Item::as_bool).unwrap_or(false),
             },
             (Some(kind), _, _) if !KINDS.contains(&kind) => {
                 report_unknown(kind, config);
@@ -417,6 +463,24 @@ pub fn read_rules(text: &str, config: &Path) -> Result<Vec<Rule>, String> {
         rules.push(Rule { path, kind });
     }
     Ok(rules)
+}
+
+/// Every check in the repository's `.safe-push` that compares a file with its generator's output (a `--check` run) names
+/// the `check` of a regenerate entry, so the lander writes each file a check compares; and every entry's `check` runs in
+/// some line, which proves after each landing that the lander wrote the file.
+pub fn compared_files_listed(rules: &[Rule], land_config: &str) -> Result<(), String> {
+    let commands: Vec<&str> = land_config.lines().filter_map(|line| line.split_once(" :: ").map(|(_, command)| command)).collect();
+    let checks: Vec<(&str, &str)> = rules.iter().filter_map(|rule| match &rule.kind {
+        Kind::Regenerate { check: Some(check), .. } => Some((rule.path.as_str(), check.as_str())),
+        _ => None,
+    }).collect();
+    if let Some(command) = commands.iter().find(|command| command.split_whitespace().any(|word| word == "--check") && !checks.iter().any(|(_, check)| command.contains(check))) {
+        return Err(format!("{LAND_CONFIG} compares a file with its generator's output in `{command}`, which no regenerate entry names as its check, so the lander would never write that file; list the file with its generator and inputs"));
+    }
+    match checks.iter().find(|(_, check)| !commands.iter().any(|command| command.contains(check))) {
+        Some((path, check)) => Err(format!("{path}: its check `{check}` runs in no {LAND_CONFIG} line, so nothing proves the lander regenerated it")),
+        None => Ok(()),
+    }
 }
 
 fn merge_text(kind: &Kind, base: &str, ours: &str, theirs: &str) -> Result<String, String> {

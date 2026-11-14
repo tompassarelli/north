@@ -1093,7 +1093,7 @@ fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
 fn a_run_keeps_its_verdict_when_its_build_rewrites_a_declared_generated_file_and_loses_it_when_any_other_tracked_file_changes() {
     let (dir, _, _) = repository_with_two_commits();
     fs::create_dir_all(dir.path().join("harness")).unwrap();
-    let declared = "[[set]]\npath = \"listed.rs\"\nkind = \"lines\"\n\n[[set]]\npath = \"registry.txt\"\nkind = \"regenerate\"\ncommand = \"north docs index\"\nsources = [\"registry/\"]\n";
+    let declared = "[[set]]\npath = \"listed.rs\"\nkind = \"lines\"\n\n[[set]]\npath = \"registry.txt\"\nkind = \"regenerate\"\ncommand = \"north docs index\"\nsources = [\"registry/\"]\nbuilt = true\n";
     fs::write(dir.path().join("harness/merge-sets.toml"), declared).unwrap();
     for file in ["registry.txt", "listed.rs", "tracked.rs", "source.rs"] {
         fs::write(dir.path().join(file), "committed\n").unwrap();

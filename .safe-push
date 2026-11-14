@@ -24,7 +24,8 @@
 	budget = harness.yml 80 600
 [land]
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets ${SAFE_PUSH_LAND_CHANGED:---workspace} --locked --offline -- -D warnings
-	check = @enqueue,Cargo.toml,Cargo.lock,crates/,BUCK,build/,third-party/,toolchains/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-buck/src/,crates/north-build-system/src/,src/cli/ --no-build buck targets --check
+	check = @enqueue,Cargo.toml,Cargo.lock,crates/,BUCK,build/,third-party/,toolchains/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-buck/src/,crates/north-build-system/src/,src/cli/ --no-build buck targets --check --third-party
+	check = Cargo.toml,Cargo.lock,crates/,BUCK,build/,third-party/,toolchains/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-buck/src/,crates/north-build-system/src/,src/cli/ --no-build buck targets --check
 	check = @enqueue,@lane,harness/gates.toml,.safe-push :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/gate_shadow.rs,src/cli/ --no-build land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = Cargo.lock,:(glob)**/BUCK,:(glob)**/*.bzl,build/,third-party/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-checks/src/,crates/north-build-system/src/,src/cli/ --no-build land graph-build
 	check = src/,crates/ :: CARGO_TARGET_DIR=target ./bin/head-north land scan tool-removal ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
@@ -52,7 +53,7 @@
 	check = src/cli/verbs.rs,src/cli/verbs/,crates/north-docs/src/docs.rs,crates/north-docs/src/verbs_index.rs,crates/north-registries/src/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/docs.rs,crates/north-docs/src/verbs_index.rs,crates/north-registries/src/ --no-build docs verbs-index --check
 	check = structure.toml,structure/,crates/north-docs/src/docs.rs,crates/north-docs/src/structure_index.rs,crates/north-registries/src/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/docs.rs,crates/north-docs/src/structure_index.rs,crates/north-registries/src/ --no-build docs structure-index --check
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/docs.rs,crates/north-docs/src/rationale_index.rs --no-build docs rationale-index --check
-	check = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/ --no-build docs readme --check
+	check = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/ --no-build docs readme --check
 	check = @enqueue,flake.lock,harness/nix/lock-allow.toml :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/doctor_nix/,src/cli/ --no-build check nix --lock flake.lock --allow harness/nix/lock-allow.toml
 	check = "@enqueue,@lane,src/,crates/,tests/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/ --no-build land scan test-admission kills --remote-north \"CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/\" ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 	check = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ --no-build check citations --root $PWD
