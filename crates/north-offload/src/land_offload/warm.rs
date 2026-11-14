@@ -1,6 +1,6 @@
 //! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
 //! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue or a lease in the capacity queue, the lease reaper (the laptop-auto tick on the laptop) starts
-//! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
+//! one warm job: it takes the unlocked slot not warmed at its repository's origin/main whose checkout is nearest that head, by files changed, so the warm build is short enough to finish between queued checks and the next check finds a slot near main (a land check that left a
 //! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line and the slots their
 //! land_offload budget with one more of the largest target here, the lander's reserved one among them (its pick-time rebase compile and revert runs build there), checks it out at
 //! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
@@ -36,6 +36,7 @@ struct Slot {
     name: String,
     repo: PathBuf,
     at: String,
+    checkout: String,
     cold: bool,
 }
 
@@ -119,10 +120,10 @@ pub fn run() -> u8 {
         .filter(|slot| !slot.cold || cold_fits)
         .filter_map(|slot| {
             let head = heads.entry(slot.repo.clone()).or_insert_with(|| main_head(&slot.repo)).clone()?;
-            (slot.at != head).then(|| (changed_files(&slot.repo, &slot.at, &head), slot, head))
+            (slot.at != head).then(|| (changed_files(&slot.repo, &slot.checkout, &head), slot, head))
         })
         .collect();
-    stale.sort_by_key(|(distance, _, _)| std::cmp::Reverse(*distance));
+    stale.sort_by_key(|(distance, slot, _)| (slot.cold, *distance));
     for (_, slot, head) in stale {
         let Some(_held) = slot_lock::take(&root.join(format!("{}.lock", slot.name))) else {
             println!("warm: {} is held by a run, skipped", slot.name);
@@ -143,7 +144,8 @@ fn slots(root: &Path) -> Vec<Slot> {
             let gitdir = fs::read_to_string(path.join(".git")).ok()?;
             let repo = PathBuf::from(gitdir.strip_prefix("gitdir:")?.trim()).ancestors().nth(3)?.to_path_buf();
             let at = fs::read_to_string(root.join(format!("{name}{WARMED}"))).map(|warmed| warmed.trim().to_owned()).unwrap_or_default();
-            Some(Slot { name, repo, at, cold: !path.join("target").is_dir() })
+            let checkout = git(&path, &["rev-parse", "HEAD"]).unwrap_or_else(|| at.clone());
+            Some(Slot { name, repo, at, checkout, cold: !path.join("target").is_dir() })
         })
         .collect()
 }
