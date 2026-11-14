@@ -34,7 +34,7 @@ const BARS: &str = "[[experiment]]\nbar = 1\n";
 const MORE_BARS: &str = "[[experiment]]\nbar = 1\n\n[[experiment]]\nbar = 2\n";
 
 #[test]
-fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases_enter_only_by_a_list_change_alone_read_from_the_landing_base_north_1287() {
+fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases_enter_only_by_a_list_change_alone_read_from_the_landing_base_north_1287_and_a_batch_is_judged_lane_by_lane_north_1415() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();
     git_in(repo, &["init", "-q", "-b", "main"]);
@@ -58,6 +58,14 @@ fn a_lane_outside_a_turns_scope_is_recorded_as_a_would_be_refusal_and_host_cases
     git_in(repo, &["reset", "-q", "--hard", &base]);
     let other = commit(repo, &[("src/a.rs", "c\n")]);
     assert_eq!(check(repo, &base, &other), Ok(()));
+
+    git_in(repo, &["reset", "-q", "--hard", &base]);
+    let turn = commit(repo, &[(TURNS, TWO)]);
+    let workflow = commit(repo, &[(".github/workflows/buck2.yml", "on: push\n")]);
+    assert_eq!((check(repo, &base, &turn), check(repo, &turn, &workflow)), (Ok(()), Ok(())));
+    assert_eq!(judge(repo, &format!("{base}..{workflow}"), "", false), Ok(()));
+    assert!(judge(repo, &format!("{base}..{workflow}"), "", true).unwrap_err().contains("also changes .github/workflows/buck2.yml"));
+    git_in(repo, &["reset", "-q", "--hard", &other]);
     let state = tempfile::tempdir().unwrap();
     let mut out = Vec::new();
     assert_eq!(scan(repo, &format!("{base}..{code}"), state.path(), &mut out), 0);

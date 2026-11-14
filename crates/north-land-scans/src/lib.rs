@@ -18,6 +18,7 @@ pub mod host_cases;
 pub(crate) mod host_paths;
 pub mod incident_guard;
 pub mod language;
+mod lanes;
 pub mod leftovers;
 pub mod nix_entry;
 pub mod outgoing;

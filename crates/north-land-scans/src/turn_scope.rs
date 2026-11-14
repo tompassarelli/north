@@ -1,7 +1,9 @@
 use std::io::Write;
 use std::path::Path;
 
-use crate::{Range, git, holdlist};
+use north_base::foundation::offload::{ONE_LANE_ENV, TIPS_ENV};
+
+use crate::{Range, git, holdlist, lanes};
 
 const SELF: &str = "turn-scope";
 const TURNS: &str = "docs/rationale/discovery-turns.toml";
@@ -48,12 +50,30 @@ pub fn check(directory: &Path, base: &str, head: &str) -> Result<(), String> {
     }
 }
 
+pub fn judge(directory: &Path, range: &str, tips: &str, whole: bool) -> Result<(), String> {
+    let parts = lanes::ranges(directory, range, tips, whole).unwrap_or_else(|| vec![range.to_owned()]);
+    let refusals: Vec<String> = parts
+        .iter()
+        .filter_map(|part| {
+            let Range { base, head } = Range::parse(part)?;
+            let refusal = check(directory, base, head).err()?;
+            Some(if parts.len() > 1 { refusal.lines().map(|line| format!("{part}: {line}")).collect::<Vec<_>>().join("\n") } else { refusal })
+        })
+        .collect();
+    match refusals.is_empty() {
+        true => Ok(()),
+        false => Err(refusals.join("\n")),
+    }
+}
+
 pub fn scan(directory: &Path, range: &str, state: &Path, out: &mut impl Write) -> u8 {
     let Some(Range { base, head }) = Range::parse(range) else {
         let _ = writeln!(out, "{SELF}: expected BASE..HEAD, got {range}");
         return 2;
     };
-    let outcome = check(directory, base, head);
+    let tips = std::env::var(TIPS_ENV).unwrap_or_default();
+    let whole = std::env::var(ONE_LANE_ENV).is_ok_and(|flag| flag == "1");
+    let outcome = judge(directory, range, &tips, whole);
     let enforce = holdlist::enforcing(directory, SELF, [&git::merge_base(directory, base, head), head]);
     if !enforce {
         holdlist::record(state, SELF, head, outcome.as_ref().err().map(String::as_str));
