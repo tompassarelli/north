@@ -8,6 +8,7 @@ use super::launch::{LEAD_ON_TRUSTED, Launch, Overrides, Placed, brief_text, fami
 use super::recent;
 use super::refusal::Refusal;
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::hops::timed;
 use crate::fleet::model::{LaunchRequest, Role};
 use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
@@ -21,7 +22,7 @@ use north_strategy_types::placement::{self as record, Case};
 #[derive(Clone, Copy)]
 pub struct Placer<'a> {
     pub fleet: &'a Fleet,
-    pub spend_now: fn(&Roster) -> Result<crate::spend::View, String>,
+    pub spend_now: fn(&Fleet, &Roster) -> Result<crate::spend::View, String>,
     pub harness_cap: fn(&Fleet, &LaunchRequest) -> Result<(), String>,
 }
 
@@ -45,16 +46,16 @@ impl Placer<'_> {
             return Ok(harness_host(&host, super::saturation_reading(&host).ok().as_ref()));
         }
         let overrides = &Overrides { urgent: request.urgent, ..overrides.clone() };
-        let text = super::needs::with_needs(&gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref()), needs);
+        let text = timed("placement brief", || brief_text(request.system_prompt.as_deref(), &request.prompt).map(|brief| super::needs::with_needs(&gate::anchored(&brief, Some(&request.cwd), request.task().as_deref()), needs)))?;
         let repository = gate::launch_repository(Some(&request.cwd), request.task().as_deref());
         let model = request.model.as_deref();
         let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()), lead: is_lead(request), role: request.role(), model, family: family_of(model), operator, repository: &repository };
         if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
             return Ok(Err(Refusal::Final(why)));
         }
-        let (roster, load) = (fleet.roster(), machine_load(fleet)?);
+        let (roster, load) = (timed("placement roster", || fleet.roster()), timed("placement machine load", || machine_load(fleet))?);
         let (placed, view) = std::thread::scope(|scope| {
-            let view = scope.spawn(|| (self.spend_now)(&roster));
+            let view = scope.spawn(|| timed("placement spend view", || (self.spend_now)(fleet, &roster)));
             let placed = check(&launch, &text, overrides, &load, &roster, report);
             (placed, view.join().unwrap_or_else(|_| Err("its read panicked".to_owned())))
         });
@@ -128,8 +129,8 @@ pub fn with_room(chosen: &str, accounts: &[&str], admits: impl Fn(&str) -> Resul
 pub fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster, report: bool) -> NorthResult<Result<Placed, Refusal>> {
     let ask = case::Ask { launch: recorded_launch(launch, overrides), brief: text, fleet_load, roster };
     let mut case = case::gather(&ask).map_err(configuration)?;
-    let turn = recent::Turn::take();
-    recent::charge(&mut case);
+    let turn = timed("placement turn", recent::Turn::take);
+    timed("placement recent", || recent::charge(&mut case));
     let (decided, decide_us) = decision_log::timed(|| {
         decide(&case, launch, overrides).map(|decision| {
             let settled = settle(&decision, launch, text, overrides);
@@ -143,7 +144,7 @@ pub fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BT
             eprintln!("  {line}");
         }
     }
-    decision_log::record(decision_log::Entry { kind: Kind::Placement, at: case.at, follows: None, case: &case, decision: &recorded_decision(&decision, &settled), decide_us });
+    timed("placement decision log", || decision_log::record(decision_log::Entry { kind: Kind::Placement, at: case.at, follows: None, case: &case, decision: &recorded_decision(&decision, &settled), decide_us }));
     drop(turn);
     Ok(settled)
 }

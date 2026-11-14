@@ -101,7 +101,7 @@ fn list_json(fleet: &Fleet, all: bool) -> NorthResult<()> {
 }
 
 /// This host's sessions; `all` adds its past sessions and those the fleet table holds for other hosts, a session once.
-fn listing(fleet: &Fleet, all: bool) -> NorthResult<Value> {
+pub(super) fn listing(fleet: &Fleet, all: bool) -> NorthResult<Value> {
     let waits = fleet.waits();
     let records = fleet.sessions()?;
     let mut sessions: Vec<Value> = records.iter().map(|record| session_json(record, fleet.status(record), &waits)).collect();

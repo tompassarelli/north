@@ -10,6 +10,7 @@ use super::room::{self, Basis, Rank};
 use super::{local, strings};
 use crate::capacity::saturation::Saturation;
 use crate::capacity::{agent_load, laptop_auto, mode};
+use crate::fleet::hops::timed;
 use crate::fleet::roster::Roster;
 use crate::usage::decide::world::ModelFamily;
 use crate::usage::meter;
@@ -36,10 +37,10 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
     let text = std::fs::read_to_string(crate::platform::orchestration::path()).map_err(|error| error.to_string())?;
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| storage::seconds(&s)).unwrap_or_else(storage::now);
-    let (gate, usage) = usage(at);
+    let (gate, usage) = timed("placement usage", || usage(at));
     let unprobed: Vec<Machine> = gate::machines(&cfg).into_iter().map(|machine| machine.for_launch(&cfg, &ask.launch.repository, ask.launch.operator)).collect();
-    super::keeper::wanted();
-    let surveyed = hosts::surveyed(&unprobed, ask.launch.cwd.as_deref());
+    timed("placement keeper", super::keeper::wanted);
+    let surveyed = timed("placement survey", || hosts::surveyed(&unprobed, ask.launch.cwd.as_deref()));
     let machines = unprobed.iter().zip(surveyed).map(|(machine, facts)| recorded(machine, facts, ask.fleet_load)).collect();
     let credit_name = credit::credit_name(&cfg);
     Ok(Case {
@@ -47,14 +48,14 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
         launch: ask.launch.clone(),
         brief: ask.brief.to_owned(),
         config: config(&cfg, crate::platform::decision_log::sha256_hex(text.as_bytes())),
-        credit: credit::credit_case(&credit_name),
+        credit: timed("placement credit", || credit::credit_case(&credit_name)),
         roster: gate::standings(&gate, ask.roster),
         usage,
         machines,
-        here: here(),
-        github: crate::platform::github_quota::seen(at),
-        grants: grant_sources(ask.roster, at),
-        line_waits: if line_wait::counts(ask.launch.role.as_deref()) { hosts::surveyed_lines(&cfg, &local(), unprobed) } else { Vec::new() },
+        here: timed("placement here", here),
+        github: timed("placement github quota", || crate::platform::github_quota::seen(at)),
+        grants: timed("placement grants", || grant_sources(ask.roster, at)),
+        line_waits: if line_wait::counts(ask.launch.role.as_deref()) { timed("placement line waits", || hosts::surveyed_lines(&cfg, &local(), unprobed)) } else { Vec::new() },
     })
 }
 

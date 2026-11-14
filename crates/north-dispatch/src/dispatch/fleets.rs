@@ -265,13 +265,12 @@ pub fn reached(cfg: &DocumentMut, here: &str, command: &[&str], limit: Duration,
     reached_via(cfg, here, command, notes, &|_, ssh| remote_json_within(Some(ssh), command, limit))
 }
 
-/// [`everywhere`] for a launch's spend view: this host's listing read now, and each other host's from the one another launch
-/// recorded under `SHARED_SECONDS` ago, else asked by the one launch holding that host's turn, which launches starting
-/// meanwhile wait for and then read; a decider may rank on a reading up to 30 s old (docs/rationale/placement.md).
-pub fn everywhere_shared(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+/// [`everywhere`] for a launch's spend view, but for this host, whose listing the launch reads in its own process: each other
+/// host's from the one another launch recorded under `SHARED_SECONDS` ago, else asked by the one launch holding that host's
+/// turn, which launches starting meanwhile wait for and then read; a decider may rank on a reading up to 30 s old (docs/rationale/placement.md).
+pub fn elsewhere_shared(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let records = record::directory().join("shared");
-    let mut found = here_listing(here, command, limit, notes);
-    found.extend(laptop_copy(cfg, here, kind, at, notes));
+    let mut found = laptop_copy(cfg, here, kind, at, notes);
     found.extend(reached_via(cfg, here, command, notes, &|host, ssh| shared_read(&records, &format!("{kind}-{host}"), || remote_json_within(Some(ssh), command, limit))));
     found
 }
@@ -299,7 +298,7 @@ pub(super) fn record_shared(path: &Path, listing: &Value) {
     let _ = std::fs::write(&written, serde_json::json!({"at": taken, "listing": listing}).to_string()).and_then(|()| std::fs::rename(&written, path));
 }
 
-/// Asks every ssh host its `command` listing now and records it for [`everywhere_shared`], outside the host's turn so no launch
+/// Asks every ssh host its `command` listing now and records it for [`elsewhere_shared`], outside the host's turn so no launch
 /// waits on it; the survey keeper runs it every few seconds while launches place work, which keeps each answer under `SHARED_SECONDS` old.
 pub fn refresh_shared(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, limit: Duration) {
     let records = record::directory().join("shared");

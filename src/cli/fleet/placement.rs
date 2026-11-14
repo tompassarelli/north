@@ -5,11 +5,12 @@ use std::path::PathBuf;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Machine, Role};
 use crate::fleet::registry::Fleet;
+use crate::fleet::roster::Roster;
 pub(super) use crate::pacing::placement::launch::{Launch, Overrides, Placed, brief_text, machine_load};
 pub(super) use crate::pacing::placement::place::check;
 use crate::pacing::placement::place::Placer;
 pub(super) use crate::pacing::placement::refusal::Refusal;
-use crate::spend::Starter;
+use crate::spend::{Starter, View};
 
 /// Whether this launch comes from the operator, never a confined caller: outside every worker sandbox, not a queue replay, whose original caller is unproven, not a lead's spooled launch, which the fleet tick runs outside every session scope for a sandboxed lead, and judged by the launcher's own cgroup (`Fleet::operator_caller`).
 pub(super) fn operator_launcher(fleet: &Fleet, caller: Option<&str>, queued: Option<&str>) -> bool {
@@ -23,7 +24,13 @@ fn operator_launch(queued: bool, spooled: bool, confined: bool, outside_every_sc
 }
 
 pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, written: &str, needs: &[String], overrides: &Overrides, report: bool, operator: bool) -> NorthResult<Result<Placed, Refusal>> {
-    Placer { fleet, spend_now: crate::dispatch::spend_now, harness_cap }.placed(request, written, needs, overrides, report, operator)
+    Placer { fleet, spend_now, harness_cap }.placed(request, written, needs, overrides, report, operator)
+}
+
+/// The spend view with this host's sessions listed in this process, never a `north fleet list --json` child, whose process start grows with the host's load (north#1531).
+pub(in crate::cli) fn spend_now(fleet: &Fleet, roster: &Roster) -> Result<View, String> {
+    let here = crate::fleet::hops::timed("placement here listing", || super::list::listing(fleet, false));
+    crate::dispatch::spend_now(roster, here.ok())
 }
 
 fn harness_cap(fleet: &Fleet, request: &LaunchRequest) -> Result<(), String> {
@@ -38,7 +45,7 @@ fn harness_cap(fleet: &Fleet, request: &LaunchRequest) -> Result<(), String> {
 /// Whether the spend rule admits one more session on the request's own account: what a tick's hand-over checks before it starts a session elsewhere.
 pub(super) fn spend_admits(fleet: &Fleet, request: &LaunchRequest) -> NorthResult<()> {
     let starter = if request.role == Some(Role::Proxy) { Starter::Reserved } else { Starter::Worker };
-    let view = crate::dispatch::spend_now(&fleet.roster()).map_err(|why| NorthError::Saturated(format!("spend view unread: {why}")))?;
+    let view = spend_now(fleet, &fleet.roster()).map_err(|why| NorthError::Saturated(format!("spend view unread: {why}")))?;
     let account = format!("{}:{}", request.provider.label(), request.account);
     view.admit(&account, starter).map_err(|refusal| NorthError::Saturated(refusal.to_string()))
 }

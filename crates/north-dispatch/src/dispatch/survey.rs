@@ -220,11 +220,12 @@ fn spend_view(cfg: &DocumentMut, roster: &Roster, here: &str, rules: &Rules, ses
 }
 
 /// The spend view as a dispatch survey reads it, for `north fleet launch`: every reached host's
-/// active worker sessions.
-pub fn spend_now(roster: &Roster) -> Result<View, String> {
+/// active worker sessions, this host's from `here_listing`, the `north fleet list --json` its caller read in its own process.
+pub fn spend_now(roster: &Roster, here_listing: Option<Value>) -> Result<View, String> {
     let cfg = placement::config()?;
     let (here, at, rules) = (crate::platform::host::name(), placement::now(), Rules::configured());
-    let listings = fleets::everywhere_shared(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut Vec::new());
+    let mut listings: Vec<(String, Value)> = here_listing.map(|listing| (here.clone(), listing)).into_iter().collect();
+    listings.extend(fleets::elsewhere_shared(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut Vec::new()));
     let sessions: Vec<(Session, String)> = listings.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     Ok(spend_view(&cfg, roster, &here, &rules, &sessions, at))
 }

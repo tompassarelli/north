@@ -11,7 +11,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    let read = super::fleet::roster().map_err(|error| error.user_message()).and_then(|roster| crate::dispatch::spend_now(&roster));
+    let read = super::fleet::open_fleet().map_err(|error| error.user_message()).and_then(|fleet| super::fleet::spend_now(&fleet, &fleet.roster()));
     let view = match read {
         Ok(read) => read,
         Err(why) => {
