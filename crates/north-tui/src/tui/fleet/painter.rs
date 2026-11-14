@@ -92,7 +92,7 @@ fn paint_user(text: &str, width: usize, style: Style, lines: &mut Vec<Line<'stat
 
 fn paint_markdown(text: &str, width: usize, lines: &mut Vec<Line<'static>>) {
     let mut started = false;
-    for line in markdown_lines(text, width.saturating_sub(2)) {
+    for line in markdown_lines(&expand_tabs(text), width.saturating_sub(2)) {
         let blank = line.spans.iter().all(|span| span.content.trim().is_empty());
         if !started && blank {
             continue;
@@ -129,6 +129,31 @@ fn prefixed(text: &str, style: Style) -> Vec<Line<'static>> {
         .enumerate()
         .map(|(index, line)| Line::from(Span::styled(format!("{}{line}", if index == 0 { "• " } else { "  " }), style)))
         .collect()
+}
+
+const TAB_WIDTH: usize = 8;
+
+fn expand_tabs(text: &str) -> String {
+    let mut expanded = String::with_capacity(text.len());
+    let mut column = 0;
+    for character in text.chars() {
+        match character {
+            '\t' => {
+                let stop = TAB_WIDTH - column % TAB_WIDTH;
+                expanded.extend(std::iter::repeat_n(' ', stop));
+                column += stop;
+            }
+            '\n' => {
+                expanded.push('\n');
+                column = 0;
+            }
+            _ => {
+                expanded.push(character);
+                column += 1;
+            }
+        }
+    }
+    expanded
 }
 
 pub fn one_line(text: &str, width: usize) -> String {

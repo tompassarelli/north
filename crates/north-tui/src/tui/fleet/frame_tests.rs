@@ -1,14 +1,16 @@
 use std::path::PathBuf;
 
-use crate::fleet::model::{ProviderName, Report, SessionPhase, SessionRecord, Status, Account};
+use crate::fleet::model::{Account, Entry, EntryKind, ProviderName, Report, SessionPhase, SessionRecord, Status};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
 
 use super::desk::SessionSummary;
 use super::help_panel::Tab;
-use super::painter::TranscriptPainter;
+use super::painter::{TranscriptPainter, paint};
 use super::screen::Screen;
 use super::view::draw;
 
@@ -116,4 +118,14 @@ fn help_shows_the_proxys_account_and_log_path_and_closes_when_its_slash_is_backs
     assert!(screen.composer.is_empty());
     assert_eq!(screen.help.tab(), None);
     assert_eq!(help_fact(&mut screen, "Available Commands"), "");
+}
+
+#[test]
+fn a_reply_with_tabs_keeps_its_columns_apart() {
+    let entries = [Entry { kind: EntryKind::Assistant, text: "name\tstatus\tage".into() }];
+    let lines = paint(&entries, &[], 80);
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 1));
+    buffer.set_line(0, 0, &lines[0], 80);
+    let row: String = buffer.content().iter().map(|cell| cell.symbol()).collect::<String>().trim_end().to_owned();
+    assert_eq!(row, "• name    status  age");
 }
