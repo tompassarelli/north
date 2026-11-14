@@ -87,6 +87,7 @@ impl Fixture {
         git(&repo, &["add", "file.txt"]);
         git(&repo, &["commit", "-qm", "base"]);
         let base = git(&repo, &["rev-parse", "HEAD"]);
+        git(&repo, &["update-ref", "refs/remotes/origin/main", &base]);
         fs::write(repo.join("file.txt"), "changed\n").unwrap();
         for (key, value) in settings {
             git(&repo, &["config", "--file", ".safe-push", "--add", key, value]);
