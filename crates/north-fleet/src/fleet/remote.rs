@@ -225,6 +225,7 @@ pub fn leave_record(record: &SessionRecord, placed: &Path) {
 /// Mirrors `record` to the machine it runs on, then binds the held unit its CLI runs in there to its conversation, in that unit's own directory under `home`, so the outside broker there takes a caller in that unit for this session and no other (north#1054).
 pub(super) fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, home: &Path) -> NorthResult<()> {
     let (Some(machine), Some(conversation)) = (&record.machine, &record.conversation) else { return Ok(()) };
+    let record = &SessionRecord { cwd: machine.session_path(&record.cwd, home), ..record.clone() };
     let directory = machine.session_path(&placed.join(conversation), home);
     let file = record_file(&directory).to_string_lossy().into_owned();
     let held = held_dir(&machine.session_path(home, home), &record.held_unit.as_deref().map_or_else(|| unit(&record.name), str::to_owned));

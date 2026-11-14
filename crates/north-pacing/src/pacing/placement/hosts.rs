@@ -505,8 +505,16 @@ impl Machine {
     }
 }
 
+fn staged(name: &str, login: &Login<'_>, directory: &str) -> String {
+    let machine = crate::fleet::model::Machine { name: name.to_owned(), ssh: String::new(), agent_ssh: login.agent.then(|| login.destination.to_owned()) };
+    let operator = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    machine.session_path(Path::new(directory), &operator).to_string_lossy().into_owned()
+}
+
 fn fetch(name: &str, login: Login<'_>, cwd: Option<&str>, asked: Asked) -> Facts {
     let destination = login.destination;
+    let staged_cwd = cwd.map(|directory| staged(name, &login, directory));
+    let cwd = staged_cwd.as_deref();
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let has_cwd = cwd.map(|_| load(Path::new(&path))[name]["has_cwd"].as_bool().unwrap_or(false));
         let saturation = saturation(name, destination);

@@ -174,9 +174,9 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     let held_on_agent = Link::parse(&placed.argv[2..]).unwrap().dir;
     assert!(held_on_agent.starts_with("/home/agent/.local/state/north/held/"), "{held_on_agent}");
     let (ssh, sent) = (root.path().join("ssh"), root.path().join("sent"));
-    crate::foundation::shim::write_script(&ssh, &format!("cat >/dev/null\nfor word; do script=$word; done\nprintf %s \"$script\" > '{}'\n", sent.display()));
+    crate::foundation::shim::write_script(&ssh, &format!("cat > '{}'\nfor word; do script=$word; done\nprintf %s \"$script\" > '{}'\n", root.path().join("record").display(), sent.display()));
     let record: crate::fleet::model::SessionRecord = serde_json::from_value(serde_json::json!({
-        "name": "agent-first-turn", "provider": "claude", "account": "e", "cwd": "/home/agent/code/north/main", "model": null, "created_ms": 0,
+        "name": "agent-first-turn", "provider": "claude", "account": "e", "cwd": "/home/tom/code/north/main", "model": null, "created_ms": 0,
         "conversation": "conversation-one", "machine": {"name": "cpx62", "ssh": "tom@cpx62", "agent_ssh": "agent@cpx62"}
     }))
     .unwrap();
@@ -185,6 +185,8 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     assert!(script.contains("/home/agent/.local/state/north/fleet/placed/conversation-one/"), "the record is not written under the agent's fleet root: {script}");
     assert!(script.contains("/home/agent/.local/state/north/held/north-fleet-agent-first-turn-"), "the bound conversation is not written in the agent's held unit: {script}");
     assert!(!script.contains("/home/tom"), "the agent login was sent a path under the operator's home: {script}");
+    let mirrored: serde_json::Value = serde_json::from_slice(&fs::read(root.path().join("record")).unwrap()).unwrap();
+    assert_eq!(mirrored["cwd"], "/home/agent/code/north/main", "the record mirrored to an agent login named the operator's checkout, which the host's finish broker serves no project of (north#1508)");
     let (runtime, said) = (root.path().join("runtime"), root.path().join("said"));
     fs::create_dir_all(runtime.join("north-links")).unwrap();
     let _standing = std::os::unix::net::UnixListener::bind(runtime.join("north-links/agent_far")).unwrap();
