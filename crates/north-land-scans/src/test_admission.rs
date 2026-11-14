@@ -13,6 +13,7 @@ use super::test_file::is_test_file;
 use super::{Range, git};
 use crate::landing::fails_first;
 use north_base::foundation::exit::NO_VERDICT;
+use north_base::foundation::offload::{ONE_LANE_ENV, TIPS_ENV};
 
 mod kills;
 mod limits;
@@ -352,8 +353,25 @@ fn claims_a_bug(directory: &Path, base: &str, head: &str, patch: &[u8]) -> bool 
 pub use kills::run as kills;
 
 pub fn fail_to_pass(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
-    let Some(Range { base, head }) = Range::parse(range) else {
+    let tips = std::env::var(TIPS_ENV).unwrap_or_default();
+    let whole = kills::one_lane(std::env::var(ONE_LANE_ENV).ok().as_deref());
+    let Some(parts) = crate::lanes::ranges(directory, range, &tips, whole) else {
         eprintln!("usage: north land scan test-admission run BASE..HEAD");
+        return 64;
+    };
+    let mut worst = 0;
+    for part in &parts {
+        match fail_to_pass_lane(directory, part, out) {
+            0 => {}
+            1 => return 1,
+            code => worst = code,
+        }
+    }
+    worst
+}
+
+fn fail_to_pass_lane(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
+    let Some(Range { base, head }) = Range::parse(range) else {
         return 64;
     };
     let base = git::merge_base(directory, base, head);
@@ -374,10 +392,10 @@ pub fn fail_to_pass(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     let guards: Vec<&str> = passing.iter().filter(|(_, passes)| !**passes).map(|(name, _)| name.as_str()).collect();
     let idle: Vec<&str> = passing.iter().filter(|(_, passes)| **passes).map(|(name, _)| name.as_str()).collect();
     if idle.is_empty() {
-        let _ = writeln!(out, "fail-to-pass: ✓ all {} added test(s) fail on base with the lane's code changes reverted: {}", guards.len(), guards.join(", "));
+        let _ = writeln!(out, "fail-to-pass: ✓ all {} added test(s) of {} fail on base with the lane's code changes reverted: {}", guards.len(), &head[..head.len().min(12)], guards.join(", "));
         return 0;
     }
-    let _ = writeln!(out, "after-landing: ✗ fail-to-pass: these added tests pass with the lane's non-test changes reverted, so none guards the change: {}; make each fail without the change, or put a line `{}` in the commit message of a behavior-preserving change.", idle.join(", "), fails_first::MARK);
+    let _ = writeln!(out, "after-landing: ✗ fail-to-pass: in lane {}, these added tests pass with the lane's non-test changes reverted, so none guards the change: {}; make each fail without the change, or put a line `{}` in the commit message of a behavior-preserving change.", &head[..head.len().min(12)], idle.join(", "), fails_first::MARK);
     1
 }
 

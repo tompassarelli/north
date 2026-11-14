@@ -68,7 +68,7 @@ pub fn run(directory: &Path, arguments: &[String], out: &mut impl Write) -> u8 {
     code
 }
 
-fn one_lane(flag: Option<&str>) -> bool {
+pub(super) fn one_lane(flag: Option<&str>) -> bool {
     flag == Some("1")
 }
 
