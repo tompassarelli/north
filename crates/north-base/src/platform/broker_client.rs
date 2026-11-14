@@ -120,7 +120,12 @@ fn connect_shared(system: &Path, agent: &Path) -> Result<Option<UnixStream>, Str
 
 fn start_user_broker(socket: &Path) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
-    let north = std::env::current_exe().map_err(|error| format!("cannot find the north binary: {error}"))?;
+    let state = std::env::var_os("XDG_STATE_HOME").filter(|state| !state.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")));
+    let promoted = state.map(|state| state.join("north/current/north")).filter(|north| north.exists());
+    let north = match promoted {
+        Some(north) => north,
+        None => std::env::current_exe().map_err(|error| format!("cannot find the north binary: {error}"))?,
+    };
     let directory = socket.parent().ok_or_else(|| format!("{} has no directory", socket.display()))?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
     let log = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(directory.join("broker.log")).map_err(|error| format!("cannot open the broker log: {error}"))?;

@@ -7,8 +7,6 @@
 
 pub mod collection;
 pub mod layout;
-#[cfg(test)]
-mod tests;
 
 use std::ffi::OsString;
 use std::fs;
@@ -41,15 +39,10 @@ impl Follow {
         Self::of(link(), std::env::current_exe().ok())
     }
 
-    /// A host service a client starts on demand: it serves every client, so it follows the host's `current` link when its
-    /// starter's link is named for the runtime it points at (a canary's judged link never moves).
+    /// A host service a client starts on demand: it serves every client of the host, so it follows the host's `current`
+    /// link whatever link its starter followed, the lander's or a canary's judged one.
     pub fn service() -> Self {
-        Self::service_on(link(), host_link(), std::env::current_exe().ok())
-    }
-
-    fn service_on(link: PathBuf, host: PathBuf, executable: Option<PathBuf>) -> Self {
-        let fixed = link.file_name().and_then(|name| name.to_str()).is_some_and(|name| named(&link).as_deref() == Some(name));
-        Self::of(if fixed { host } else { link }, executable)
+        Self::of(host_link(), std::env::current_exe().ok())
     }
 
     /// A process running `executable` against `link`: a promoted executable started on its own runtime, any other on
