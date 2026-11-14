@@ -15,7 +15,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsE
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -31,16 +31,18 @@ const HANDED_WITHIN: Duration = Duration::from_millis(500);
 const EXIT_MARK: &str = "north-spare-exit";
 const WAITING: &str = r#"exec sh -c 'echo ready; IFS= read -r n && c=$(dd bs=1 count="$n" 2>/dev/null) && eval "$c"'"#;
 
-/// A spare's two pipes, handed to the caller: what it writes to `input` reaches the remote shell's standard input, and `output` carries that shell's standard output until it exits.
+/// A spare's pipes, handed to the caller: what it writes to `input` reaches the remote shell's standard input, `output` carries that shell's standard output until it exits, and `error` its standard error when the holder kept it.
 pub struct Taken {
     pub input: File,
     pub output: File,
+    pub error: Option<File>,
 }
 
 struct Spare {
     child: Child,
     input: ChildStdin,
     output: ChildStdout,
+    error: Option<ChildStderr>,
 }
 
 /// Runs `script` on `destination` through a spare and returns its exit status and standard output, or None when no spare
@@ -58,8 +60,8 @@ pub fn run_bytes(destination: &str, script: &str, within: Duration) -> Option<(i
 /// Starts `script` on `destination` through a spare and returns its standard output to read as it comes, or None when
 /// no spare was ready; the remote shell runs the script to its end whether or not the caller reads it all.
 pub fn started(destination: &str, script: &str) -> Option<File> {
-    let Taken { mut input, output } = take(destination)?;
-    input.write_all(framed(script).as_bytes()).ok()?;
+    let Taken { mut input, output, .. } = take(destination)?;
+    input.write_all(framed(&format!("exec 2>/dev/null\n{script}")).as_bytes()).ok()?;
     Some(output)
 }
 
@@ -143,12 +145,12 @@ fn holding(dir: &Path, destination: &str, open: impl Fn() -> io::Result<Child> +
         for _ in 0..prune(&mut pool) {
             refill(&opened, &open);
         }
-        let Some(Spare { mut child, input, output }) = pool.pop() else { continue };
+        let Some(Spare { mut child, input, output, error }) = pool.pop() else { continue };
         last = Instant::now();
-        if hand(&stream, &input, &output).is_err() {
+        if hand(&stream, &input, &output, error.as_ref()).is_err() {
             let _ = child.kill();
         }
-        drop((input, output));
+        drop((input, output, error));
         std::thread::spawn(move || child.wait());
         refill(&opened, &open);
     }
@@ -203,12 +205,14 @@ fn waiting(mut child: Child) -> Option<Spare> {
         let _ = child.wait();
         return None;
     }
-    Some(Spare { child, input, output })
+    let error = child.stderr.take();
+    Some(Spare { child, input, output, error })
 }
 
-fn hand(stream: &UnixStream, input: &ChildStdin, output: &ChildStdout) -> io::Result<()> {
-    let fds = [input.as_fd(), output.as_fd()];
-    let mut space = [0; rustix::cmsg_space!(ScmRights(2))];
+/// Hands the error pipe first, so a caller that pops only the last two takes input and output.
+fn hand(stream: &UnixStream, input: &ChildStdin, output: &ChildStdout, error: Option<&ChildStderr>) -> io::Result<()> {
+    let fds: Vec<_> = error.map(AsFd::as_fd).into_iter().chain([input.as_fd(), output.as_fd()]).collect();
+    let mut space = [0; rustix::cmsg_space!(ScmRights(3))];
     let mut control = SendAncillaryBuffer::new(&mut space);
     if !control.push(SendAncillaryMessage::ScmRights(&fds)) {
         return Err(io::Error::other("the hand-over message had no room for the spare's pipes"));
@@ -220,7 +224,7 @@ fn hand(stream: &UnixStream, input: &ChildStdin, output: &ChildStdout) -> io::Re
 fn received(stream: &UnixStream) -> Option<Taken> {
     stream.set_read_timeout(Some(HANDED_WITHIN)).ok()?;
     let mut byte = [0];
-    let mut space = [0; rustix::cmsg_space!(ScmRights(2))];
+    let mut space = [0; rustix::cmsg_space!(ScmRights(3))];
     let mut control = RecvAncillaryBuffer::new(&mut space);
     recvmsg(stream, &mut [IoSliceMut::new(&mut byte)], &mut control, RecvFlags::CMSG_CLOEXEC).ok()?;
     let mut fds: Vec<OwnedFd> = control.drain().filter_map(|message| match message {
@@ -229,12 +233,12 @@ fn received(stream: &UnixStream) -> Option<Taken> {
     }).flatten().collect();
     let output = fds.pop()?;
     let input = fds.pop()?;
-    Some(Taken { input: File::from(input), output: File::from(output) })
+    Some(Taken { input: File::from(input), output: File::from(output), error: fds.pop().map(File::from) })
 }
 
 fn finished(taken: Taken, script: &str, within: Duration) -> Option<(i32, Vec<u8>)> {
-    let Taken { mut input, mut output } = taken;
-    let body = format!("{script}\nprintf '\\n{EXIT_MARK} %s\\n' \"$?\"\n");
+    let Taken { mut input, mut output, .. } = taken;
+    let body = format!("exec 2>/dev/null\n{script}\nprintf '\\n{EXIT_MARK} %s\\n' \"$?\"\n");
     input.write_all(framed(&body).as_bytes()).ok()?;
     drop(input);
     let (send, receive) = mpsc::channel();
@@ -254,7 +258,7 @@ fn finished(taken: Taken, script: &str, within: Duration) -> Option<(i32, Vec<u8
 
 fn spawn(words: &[OsString]) -> io::Result<Child> {
     let (program, arguments) = words.split_first().ok_or_else(|| io::Error::other("no ssh command"))?;
-    Command::new(program).args(arguments).arg("--").arg(WAITING).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+    Command::new(program).args(arguments).arg("--").arg(WAITING).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
 }
 
 fn start_holder(destination: &str) {

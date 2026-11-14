@@ -12,7 +12,8 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::process::{ChildStdin, Command};
+use tokio::net::unix::pipe;
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -76,6 +77,7 @@ pub struct Link {
 enum Connection {
     Ended(u8),
     Lost { attached: bool },
+    Unheard,
     Gone,
     Closed,
     Stopped,
@@ -156,10 +158,16 @@ impl Link {
     pub async fn relay(&self, input: mpsc::UnboundedReceiver<Vec<u8>>, output: &mut (impl AsyncWrite + Unpin), stop: impl Future<Output = ()>) -> NorthResult<u8> {
         let mut stream = Stream { unsent: Unsent::default(), received: 0, began_ms: now_ms(), unit_ms: None, client_seen: false, input, output };
         tokio::pin!(stop);
-        let (mut launched, mut retry) = (false, RETRY_FIRST);
+        let (mut launched, mut retry, mut held) = (false, RETRY_FIRST, true);
         loop {
-            let ended = match self.connect(launched, &mut stream, stop.as_mut()).await? {
+            let connected = self.connect(launched, held, &mut stream, stop.as_mut()).await?;
+            held = false;
+            let ended = match connected {
                 Connection::Ended(code) => return Ok(code),
+                Connection::Unheard => {
+                    launched = true;
+                    None
+                }
                 Connection::Gone => {
                     eprintln!("north session-link: {} no longer holds this session's CLI", self.destination);
                     return Ok(1);
@@ -195,14 +203,20 @@ impl Link {
         }
     }
 
-    async fn connect<O: AsyncWrite + Unpin>(&self, launched: bool, stream: &mut Stream<'_, O>, mut stop: Pin<&mut impl Future<Output = ()>>) -> NorthResult<Connection> {
+    async fn connect<O: AsyncWrite + Unpin>(&self, launched: bool, held: bool, stream: &mut Stream<'_, O>, mut stop: Pin<&mut impl Future<Output = ()>>) -> NorthResult<Connection> {
         let attach = self.attach(if launched { stream.received } else { 0 });
         let command = if launched { attach } else { format!("{}; {attach}", self.launch) };
-        let mut child = self.ssh(&command).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
-        let missing = || NorthError::State("ssh pipe was not captured".into());
-        let to_remote = forward(child.stdin.take().ok_or_else(missing)?);
         let (sender, mut from_remote) = mpsc::unbounded_channel();
-        tokio::spawn(read_chunks(child.stdout.take().ok_or_else(missing)?, sender));
+        let (to_remote, mut child) = match if held { self.over_held(&command, sender.clone()).await } else { None } {
+            Some(to_remote) => (to_remote, None),
+            None => {
+                let mut child = self.ssh(&command).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
+                let missing = || NorthError::State("ssh pipe was not captured".into());
+                let to_remote = forward(child.stdin.take().ok_or_else(missing)?);
+                tokio::spawn(read_chunks(child.stdout.take().ok_or_else(missing)?, sender));
+                (to_remote, Some(child))
+            }
+        };
         let (mut head, mut header) = (Vec::new(), None::<Header>);
         let (mut status, mut drained_by) = (None, None::<Instant>);
         loop {
@@ -238,23 +252,36 @@ impl Link {
                         let _ = to_remote.send(bytes);
                     }
                 }
-                exited = child.wait(), if status.is_none() => {
+                exited = exit_of(child.as_mut()), if status.is_none() => {
                     status = Some(exited?);
                     drained_by = Some(Instant::now() + DRAIN);
                 }
                 () = drain => break,
             }
         }
-        let code = match status {
-            Some(status) => status.code(),
-            None => tokio::time::timeout(DRAIN, child.wait()).await.ok().transpose()?.and_then(|status| status.code()),
+        let code = match (status, child.as_mut()) {
+            (Some(status), _) => status.code(),
+            (None, Some(child)) => tokio::time::timeout(DRAIN, child.wait()).await.ok().transpose()?.and_then(|status| status.code()),
+            (None, None) => None,
         };
         Ok(match (header, code) {
             (None, _) => Connection::Lost { attached: false },
+            (Some(_), _) if child.is_none() => Connection::Unheard,
             (Some(header), Some(code)) if code != TRANSPORT_FAILED_STATUS && header.cli != 0 => Connection::Ended(u8::try_from(code).unwrap_or(1)),
             (Some(header), Some(code)) if header.cli == 0 && stream.received >= header.output => Connection::Ended(u8::try_from(code).unwrap_or(1)),
             (Some(_), _) => Connection::Lost { attached: true },
         })
+    }
+
+    /// Sends `command` down a shell `north ssh-spare` holds open to the destination, one round trip where a channel of the standing master costs an open, an exec and the answer; None when no held shell is ready or its holder keeps no error pipe, and the caller opens a channel.
+    async fn over_held(&self, command: &str, sender: mpsc::UnboundedSender<Vec<u8>>) -> Option<mpsc::UnboundedSender<Vec<u8>>> {
+        let destination = self.destination.clone();
+        let north_ssh_spare::Taken { input, output, error: Some(mut error) } = tokio::task::spawn_blocking(move || north_ssh_spare::take(&destination)).await.ok()?? else { return None };
+        let (mut input, output) = (pipe::Sender::from_file(input).ok()?, pipe::Receiver::from_file(output).ok()?);
+        input.write_all(north_ssh_spare::framed(command).as_bytes()).await.ok()?;
+        std::thread::spawn(move || std::io::copy(&mut error, &mut std::io::stderr()));
+        tokio::spawn(read_chunks(output, sender));
+        Some(forward(input))
     }
 
     fn mark_unit<O>(&self, stream: &mut Stream<'_, O>) {
@@ -353,7 +380,14 @@ fn parse_header(line: &str) -> Option<(u64, Header)> {
     }
 }
 
-fn forward(mut stdin: ChildStdin) -> mpsc::UnboundedSender<Vec<u8>> {
+async fn exit_of(child: Option<&mut Child>) -> std::io::Result<std::process::ExitStatus> {
+    match child {
+        Some(child) => child.wait().await,
+        None => std::future::pending().await,
+    }
+}
+
+fn forward(mut stdin: impl AsyncWrite + Unpin + Send + 'static) -> mpsc::UnboundedSender<Vec<u8>> {
     let (sender, mut writes) = mpsc::unbounded_channel::<Vec<u8>>();
     tokio::spawn(async move {
         while let Some(bytes) = writes.recv().await {

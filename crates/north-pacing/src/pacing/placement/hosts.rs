@@ -153,7 +153,7 @@ pub(in crate::pacing) fn hold_spares(arguments: &[String]) -> u8 {
 
 fn ssh_words(destination: &str, command: &[&str]) -> Vec<String> {
     let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    let options = [&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination][..], command].concat();
+    let options = [&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", destination][..], command].concat();
     let argv = crate::platform::ssh::argv(&["ssh".into()], &env, &options);
     let mut words: Vec<String> = argv.iter().map(|word| word.to_string_lossy().into_owned()).collect();
     if let Some(at) = words.iter().position(|word| word == "-F") {
