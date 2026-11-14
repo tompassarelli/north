@@ -107,7 +107,11 @@ impl Desk {
     }
 
     fn issue(&self, number: u32, state: &str) {
-        std::fs::write(self.scratch.join(format!("gh-state/{number}")), format!("{state}\n")).unwrap();
+        std::fs::write(self.scratch.join(format!("gh-state/{number}")), match state {
+            "CLOSED" => "COMPLETED\n".to_owned(),
+            "OPEN" => String::new(),
+            other => format!("{other}\n"),
+        }).unwrap();
     }
 
     fn read(&self, relative: &str) -> String {
@@ -301,6 +305,12 @@ fn a_follows_line_releases_on_its_own_tier_gate_issue_commit_or_subject_and_not_
     desk.queue(24, &format!("{origin_main} the predecessor commit"), "claude:opus-medium");
     desk.follows_release(None);
     assert_eq!(desk.sent(24), 1);
+
+    desk.issue(52, "NOT_PLANNED");
+    desk.queue(27, "north#52", "claude:opus-medium");
+    desk.clear_started();
+    desk.follows_release(None);
+    assert_eq!(desk.sent(27), 0);
 
     desk.queue(26, "Unrelated change (#50)", "claude:opus-medium");
     desk.clear_started();
