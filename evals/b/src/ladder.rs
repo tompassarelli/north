@@ -30,6 +30,7 @@ pub struct Plan {
     pub effort: String,
     pub provider: String,
     pub route: Option<String>,
+    pub issue: Option<String>,
     pub arm: String,
     pub checks_on: Option<String>,
 }
@@ -81,9 +82,11 @@ fn launch_words(plan: &Plan, task: &Value, account: &str, branch: &str, name: &s
     let tier_reason = plan.route.as_ref().map_or_else(|| format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort), |route| format!("Eval B routes {route} for the whole ladder"));
     let pick: Vec<&str> = plan.route.as_ref().map_or_else(|| vec!["--model", &plan.model, "--effort", &plan.effort], |route| vec!["--route", route]);
     let pin = format!("Eval B runs every arm on {}", plan.hosts[0]);
+    let task: Vec<&str> = plan.route.as_ref().and(plan.issue.as_deref()).map_or_else(Vec::new, |issue| vec!["--task", issue]);
     ["--provider", plan.provider.as_str(), "--account", account]
         .into_iter()
         .chain(pick)
+        .chain(task)
         .chain(["--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north", "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &cwd, "--gates-aside", "--no-wait", &text])
         .map(str::to_owned)
         .collect()
@@ -260,4 +263,22 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
         let _ = handle.join();
     }
     done
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan(route: Option<&str>) -> Plan {
+        Plan { level: 1, tasks: Vec::new(), accounts: vec!["d".to_owned()], parent: "p".to_owned(), hosts: vec!["h".to_owned()], work: PathBuf::new(), burst: None, model: PINNED_MODEL.to_owned(), effort: PINNED_EFFORT.to_owned(), provider: "claude".to_owned(), route: route.map(str::to_owned), issue: route.map(|_| "tompassarelli/north#1509".to_owned()), arm: "north".to_owned(), checks_on: None }
+    }
+
+    #[test]
+    fn a_routed_launch_names_its_issue_and_a_pinned_one_does_not() {
+        let task = json!({"id": "t1", "text": "Do it.", "check": "true"});
+        let routed = launch_words(&plan(Some("haiku:medium,opus:medium")), &task, "d", "b", "n");
+        let at = routed.iter().position(|word| word == "--task").expect("routed launch has --task");
+        assert_eq!(routed[at + 1], "tompassarelli/north#1509");
+        assert!(!launch_words(&plan(None), &task, "d", "b", "n").iter().any(|word| word == "--task"));
+    }
 }
