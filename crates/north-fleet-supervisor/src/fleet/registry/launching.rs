@@ -24,6 +24,15 @@ use super::takeover::{Predecessor, Seat};
 use super::starting::{OpenedHost, Settling};
 use super::{Fleet, efforts, session_running};
 
+/// What a launch settles before it registers, which [`Fleet::launch_prompted`] then starts from.
+struct Prelude {
+    account: Account,
+    runtime: std::sync::Arc<dyn crate::fleet::runtime::Runtime>,
+    hooks: HooksCheck,
+    tasks: Vec<String>,
+    record: SessionRecord,
+}
+
 impl Fleet {
     pub fn launch(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
         self.launch_as(request, Claim::Fresh)
@@ -71,8 +80,51 @@ impl Fleet {
         })
     }
 
-    /// Launches `request` while `shown` builds its first prompt from the launch's own directory, which a spare's lane at the same commit reads alike; a lane a spare took over is removed once that prompt is built.
+    /// Launches `request` while `shown` builds its first prompt from the launch's own directory, which a spare's lane at the same commit reads alike; a lane a spare took over is removed once that prompt is built. The record registers before the spare take, which then runs beside that registration.
     fn launch_prompted(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path, verification: bool, shown: ScopedJoinHandle<'_, (String, Option<Predicted>)>) -> NorthResult<SessionRecord> {
+        let Prelude { account, runtime, hooks, tasks, mut record } = self.prelude(request, verification)?;
+        let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
+        let reads = remote::ProfileReads::shared();
+        std::thread::scope(|registering| {
+            let registered = self.register_beside(registering, &row, claim)?;
+            let (spare, served, built) = self.take_into(request, &mut record, &account, runtime.as_ref(), claim, shown);
+            let request = &*served;
+            let conversation = record.conversation.clone();
+            let unrecorded = record.clone();
+            std::thread::scope(|scope| {
+                let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| {
+                    let _reads = reads.map(remote::LaunchReads::enter);
+                    self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())
+                }));
+                let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
+                let launched = self.succeed(&request.name, claim, |seat| {
+                    let (tasks, claimed_first) = self.claim_for(seat, request, &mut record, &tasks, verification)?;
+                    if held_in_window(&record) && seat.held().is_some() && request.resume.is_none() {
+                        self.take_over_in_window(seat, &mut record, &account, fresh_opening(request, conversation.as_deref()), &built().0, hooks)?;
+                        return self.settled(&record, Ok(()), registered).map(|()| record);
+                    }
+                    let predecessor = seat.hand_to(&mut record)?;
+                    let brought = std::thread::scope(|beside| {
+                        let claiming = beside.spawn(|| if claimed_first { Ok(()) } else { self.claim_before_start(request, &tasks, verification) });
+                        let claimed = || claiming.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+                        let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
+                        Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), built)))
+                    })?;
+                    match self.settled(&record, brought, registered) {
+                        Ok(()) => Ok(self.launched(request, record)),
+                        Err(error) => Err(self.discarded(session_dir, remote::held_on(&record, None), error)),
+                    }
+                });
+                if launched.is_err() {
+                    self.abandon_early(joined(), session_dir);
+                }
+                launched
+            })
+        })
+    }
+
+    /// What a launch settles before it registers: its account, runtime, started hooks check, claim keys and the record it registers. A fresh conversation is a new id, which no interactive window can hold, so only a resumed one is checked against the windows.
+    fn prelude(&self, request: &LaunchRequest, verification: bool) -> NorthResult<Prelude> {
         let account = hops::timed("account", || self.account(request))?;
         let caller = north_base::platform::session_scope::reserve_caller();
         reserve::refusal(&reserve::declared(&self.policy), &account, request.role(), request.parent.as_deref(), caller.as_deref()).map_or(Ok(()), |line| Err(NorthError::Refused(line)))?;
@@ -83,53 +135,18 @@ impl Fleet {
         }
         let effort = efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort, &request.name)?;
         let conversation = match &request.resume {
-            Some(kept) => Some(kept.clone()),
+            Some(kept) => {
+                hops::timed("window check", || self.refuse_on_window(Some(kept)))?;
+                Some(kept.clone())
+            }
             None => hops::timed("conversation", || runtime.assign_conversation())?,
         };
-        hops::timed("window check", || self.refuse_on_window(conversation.as_deref()))?;
         let tasks = crate::fleet::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
-        let spare = (claim == Claim::Fresh).then(|| hops::timed("spare take", || self.take_spare(request, &account, runtime.as_ref(), effort))).flatten();
-        let conversation = spare.as_ref().map_or(conversation, |taken| Some(taken.conversation.clone()));
-        let left = spare.as_ref().filter(|taken| taken.cwd != request.cwd).and(request.machine.clone()).map(|machine| (machine, request.cwd.clone()));
-        let built = super::spares::built_then_left(shown, left);
-        let request = &*super::spares::served(request, spare.as_ref());
-        let mut record = request.record(effort, conversation.clone(), verification, now_ms());
+        let mut record = request.record(effort, conversation, verification, now_ms());
         record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();
         record.reserve_caller = caller;
-        let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
-        let unrecorded = record.clone();
-        let reads = remote::ProfileReads::shared();
-        std::thread::scope(|scope| {
-            let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| {
-                let _reads = reads.map(remote::LaunchReads::enter);
-                self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())
-            }));
-            let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
-            let registered = self.register_beside(scope, &row, claim)?;
-            let launched = self.succeed(&request.name, claim, |seat| {
-                let (tasks, claimed_first) = self.claim_for(seat, request, &mut record, &tasks, verification)?;
-                if held_in_window(&record) && seat.held().is_some() && request.resume.is_none() {
-                    self.take_over_in_window(seat, &mut record, &account, fresh_opening(request, conversation.as_deref()), &built().0, hooks)?;
-                    return self.settled(&record, Ok(()), registered).map(|()| record);
-                }
-                let predecessor = seat.hand_to(&mut record)?;
-                let brought = std::thread::scope(|beside| {
-                    let claiming = beside.spawn(|| if claimed_first { Ok(()) } else { self.claim_before_start(request, &tasks, verification) });
-                    let claimed = || claiming.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
-                    let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
-                    Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), built)))
-                })?;
-                match self.settled(&record, brought, registered) {
-                    Ok(()) => Ok(self.launched(request, record)),
-                    Err(error) => Err(self.discarded(session_dir, remote::held_on(&record, None), error)),
-                }
-            });
-            if launched.is_err() {
-                self.abandon_early(joined(), session_dir);
-            }
-            launched
-        })
+        Ok(Prelude { account, runtime, hooks, tasks, record })
     }
 
     /// Takes over `seat` with a successor held in a window: the window opens before the seat retires, so one that never opens leaves the seat as it was, and the name moves to the successor only once its window is up.

@@ -7,10 +7,23 @@ use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Predicted, Ro
 use crate::fleet::hops;
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid};
 use crate::fleet::spares::{self, Place, Taken};
+use crate::fleet::store::Claim;
 
 use super::{Fleet, efforts, reserve};
 
 impl Fleet {
+    /// A spare for a fresh launch, taken once its record is registering so the take runs beside that registration, with `record` moved onto the spare's conversation and directory; with it the request as the spare serves it, and `shown`'s first prompt, after which a lane the spare took over is removed.
+    pub(super) fn take_into<'a, 's>(&self, request: &'a LaunchRequest, record: &mut SessionRecord, account: &Account, runtime: &dyn Runtime, claim: Claim, shown: ScopedJoinHandle<'s, (String, Option<Predicted>)>) -> (Option<Taken>, std::borrow::Cow<'a, LaunchRequest>, impl FnOnce() -> (String, Option<Predicted>) + 's) {
+        let spare = (claim == Claim::Fresh).then(|| hops::timed("spare take", || self.take_spare(request, account, runtime, record.effort))).flatten();
+        let left = spare.as_ref().filter(|taken| taken.cwd != request.cwd).and(request.machine.clone()).map(|machine| (machine, request.cwd.clone()));
+        let served = served(request, spare.as_ref());
+        if let Some(taken) = &spare {
+            record.conversation = Some(taken.conversation.clone());
+            record.cwd.clone_from(&served.cwd);
+        }
+        (spare, served, built_then_left(shown, left))
+    }
+
     /// A spare on the request's build host whose spec is the one this launch would start, taken and bound to the launch's name; None for any launch a spare cannot serve, and when none fits.
     pub(super) fn take_spare(&self, request: &LaunchRequest, account: &Account, runtime: &dyn Runtime, effort: Option<Effort>) -> Option<Taken> {
         let machine = request.machine.as_ref().filter(|_| request.role() == Role::Worker && request.resume.is_none())?;

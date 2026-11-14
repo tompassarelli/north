@@ -108,10 +108,13 @@ pub fn declared(path: &Path, home: &Path) -> Profiles {
     profiles(&policy, &open_grants(path, home), home, &crate::platform::host::name())
 }
 
-/// The account `label` on `machine`; an api account takes the key file `machine` declares, which this host cannot read.
+/// The account `label` on `machine`; an api account takes the key file `machine` declares, which this host cannot read. Only an api label reads the ledger for its credit grants, a read of the whole ledger that held a subscription launch's prelude up to a second (north#1531).
 pub fn on_machine(provider: &ProviderName, path: &Path, home: &Path, label: &str, machine: &Machine) -> NorthResult<Account> {
     let policy: DocumentMut = std::fs::read_to_string(path).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let keyed = profiles(&policy, &open_grants(path, home), home, &machine.name);
+    let keyed_label = label.split_once(':').map_or(label, |(keyed, _)| keyed);
+    let keyed_here = policy.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_keys")).and_then(|keys| keys.get(keyed_label)).and_then(|hosts| hosts.get(&machine.name)).is_some();
+    let grants = if keyed_here { open_grants(path, home) } else { BTreeMap::new() };
+    let keyed = profiles(&policy, &grants, home, &machine.name);
     let marks = home.join(".local/state/north/api-exhausted");
     let (api, spent) = api_accounts(provider, &marks, &keyed, |_: &Path| true);
     if let Some((account, _)) = api.into_iter().find(|(account, _)| account.label == label) {
