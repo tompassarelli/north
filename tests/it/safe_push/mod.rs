@@ -24,12 +24,6 @@ case "$1" in
       exit 0
     fi
     ;;
-  denylist)
-    if [ "$2" = attest ]; then
-      printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ATTEST_TRACE:-/dev/null}"
-      exit "${SAFE_PUSH_TEST_ATTEST_STATUS:-0}"
-    fi
-    ;;
   land)
     case "$2" in
       clean) [ -z "${SAFE_PUSH_TEST_NORTH_TRACE:-}" ] || exit 0 ;;
@@ -308,15 +302,6 @@ impl Real {
 
     pub fn remote_state(&self) -> String {
         remote_state(&self.remote)
-    }
-
-    pub fn remote_ref(&self, name: &str) -> Option<String> {
-        let found = Command::new("git").current_dir(&self.remote).args(["rev-parse", "-q", "--verify", name]).output().unwrap();
-        found.status.success().then(|| String::from_utf8_lossy(&found.stdout).trim().to_owned())
-    }
-
-    pub fn commit_all(&self, message: &str) {
-        git(&self.repo, &["commit", "-qam", message]);
     }
 }
 

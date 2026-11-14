@@ -203,6 +203,7 @@ passed in, so tests are properties over the pure functions plus recorded scenari
   pure snapshot parse, outgoing range, lease and fast-forward rule (from `safe_push_plan.rs`).
   `run.rs` captures identity, runs the gates, revalidates and pushes through `Origin`. It uses
   `request`, `gates`, `session`, `report` and `shell`.
+  - Changed on 2026-11-14: a public origin carries no branch beside its default one. Fleet workers had pushed sixteen `scratch/*` and `finish-overlap-*` branches to the public north origin through `safe-push --to BRANCH`, which the guard also offers in place of `git push origin HEAD:BRANCH`, and nothing deleted them. `shell/github.rs` `private_destination` now refuses such a push, and `--restore` to a public origin, before any check runs (a visibility gh cannot answer counts as public for a github.com origin), naming the private routes: `north capacity offload run` hands a commit to a build host as a bundle, a lane keeps unlanded work, and a private remote holds what must leave the machine. Only the lander pushes to a public origin. The deny-list attest of `claude/*` pushes for Autoland went with it, because it ran only on a public origin and Autoland no longer lands anything.
 - `landing/`: the default branch.
   - `route.rs`: `decide(&LanderSettings, host, &Request) -> Route { Lander, SouthLedger, Refused }`.
     Pure, moved from `land/route.rs`; `LanderSettings::read` stays in north-landing.

@@ -22,9 +22,10 @@ Read this to write or change workflows, dispatch or wait on runs, or run many ag
 ## Dispatching and cleanup
 
 - Count queued and running jobs before large dispatches with `gh api repos/OWNER/REPO/actions/runs/ID/jobs`, counting a missing `runner_name` as waiting, and wait or shrink dispatches near the account limit, because queued jobs still hold the pool.
-- Join an existing queued or running same-workflow run on the commit, and never dispatch or push a scratch branch for a duplicate run, because duplicates double the cost.
+- Join an existing queued or running same-workflow run on the commit, and never dispatch a duplicate run, because duplicates double the cost.
+- Push no branch beside main to a public repository: `safe-push --to BRANCH` refuses it, because only the lander pushes there. Check a commit on a build host with `north capacity offload run --base HEAD --head HEAD`, and keep unlanded work in its lane or on a private remote.
 - Cancel superseded pushes, abandoned experiments and unnecessary fields with `gh run cancel ID`, and never cancel a landing-queue run, because landing runs carry other agents' work.
-- Register scratch-branch deletion at creation through a trap, finally or workflow cleanup, because cleanup added later is skipped on failure.
+- On a private repository, register scratch-branch deletion at creation through a trap, finally or workflow cleanup, because cleanup added later is skipped on failure.
 
 ## Waiting and rate limits
 

@@ -9,9 +9,8 @@ use crate::publication::plan;
 use crate::report::terminal::cancelled_line;
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
-use crate::session::identity::Identity;
 use crate::session::output_log::claim;
-use crate::shell::Shell;
+use crate::shell::{Shell, github};
 use crate::shell::files::Pushed;
 use crate::shell::origin::{Hooks, Push};
 
@@ -76,6 +75,11 @@ impl Publisher<'_> {
             eprint!("{}", request::Refusal::Usage(format!("invalid destination branch '{to}'")).stderr());
             return Err(Refused(2));
         }
+        let public = git.push_url().is_some_and(|url| self.shell.github.public(&url));
+        github::private_destination(public, &to, &default).map_err(|refusal| {
+            eprint!("{refusal}");
+            Refused(1)
+        })?;
         Ok(to)
     }
 
@@ -146,7 +150,6 @@ impl Publisher<'_> {
         if self.shell.files.record_push(&record).is_err() {
             eprintln!("safe-push: could not record push timing");
         }
-        self.attest(&outgoing.identity, to);
         Ok(Published { head: outgoing.head, to: to.to_owned(), nothing: false })
     }
 
@@ -200,35 +203,6 @@ impl Publisher<'_> {
             return Err(Refused(1));
         }
         outgoing.revalidate(self.shell, root)
-    }
-
-    fn attest(&self, identity: &Identity, to: &str) {
-        if !to.starts_with("claude/") {
-            return;
-        }
-        let git = &*self.shell.git;
-        if git.setting(&format!("refs/remotes/origin/{}", git.default_branch()), "landing.queue") != "autoland" {
-            return;
-        }
-        let south = &self.shell.settings.south;
-        if !self.shell.files.is_directory(south) || !self.shell.github.public(&identity.origin_url) {
-            return;
-        }
-        let slug = identity.origin_url.trim_end_matches(".git").rsplit(['/', ':']).take(2).collect::<Vec<_>>();
-        let [name, owner] = slug.as_slice() else {
-            return;
-        };
-        let arguments = ["denylist", "attest", "--south", &south.to_string_lossy(), "--repo", &format!("{owner}/{name}"), "--branch", to];
-        match self.shell.processes.exit_code("north", &arguments).unwrap_or(127) {
-            0 => {}
-            1 => println!("safe-push: ✗ the deny-list attester refused {to}, so Autoland will not test this tip; reword the deny-listed text and push again."),
-            3 => println!(
-                "safe-push: ✓ the deny-list scan of {to} is clean, but this host's GitHub token cannot post commit statuses; the nexus denylist-attest timer posts the status and dispatches Autoland within about five minutes, with nothing for you to run."
-            ),
-            status => println!(
-                "safe-push: ⚠ the deny-list attest for {to} failed (exit {status}); the push stands and the nexus denylist-attest timer retries within about five minutes."
-            ),
-        }
     }
 
     fn terminal(&self, outcome: Step<Published>) -> u8 {

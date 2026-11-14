@@ -21,8 +21,10 @@ Options:
                and refuses any other host, a landing.queue other than lander,
                and --direct; the lander checks, squashes and pushes the queued
                lane and reports the landing;
-               a BRANCH other than origin's default (farm/*, scratch) publishes
-               directly: no lock, no queue and no rebase (an
+               a BRANCH other than origin's default is refused when origin is
+               public (only the lander pushes there; check on a build host with
+               north capacity offload run, or push to a private remote); on a
+               private origin it publishes directly: no lock, no queue and no rebase (an
                origin BRANCH that is not an ancestor of HEAD is refused), and
                the hook runs in its own push
                (.safe-push land.check entries replace the hook; with
@@ -69,7 +71,7 @@ Options:
 On the default branch, plain "safe-push" lands it as --to that branch. On
 any other branch, plain "safe-push" (no --to/--tag) is refused —
 one-branch-main doctrine: origin carries the default branch only. Publish
-with --to main, or --to another branch as a deliberate escape hatch.
+with --to main, or on a private origin --to another branch.
 
 Generated records opt in through committed .safe-push:
   [generated "path/to/record"]

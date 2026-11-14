@@ -53,7 +53,6 @@ impl Processes for ChecksPass {
 fn shell(lane: &Path, state: &Path) -> Shell {
     let settings = Settings {
         state_home: state.to_path_buf(),
-        south: state.join("south"),
         mirrors: state.join("mirrors"),
         safe_push: "safe-push".to_owned(),
         fleet_session: String::new(),

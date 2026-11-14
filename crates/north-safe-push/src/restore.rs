@@ -86,6 +86,7 @@ fn restore(shell: &Shell, request: &Request) -> Step {
         return Err(say(format!("safe-push: --restore never touches origin's default branch {default}")));
     }
     let origin = git.push_url().ok_or_else(|| say("safe-push: origin push URL unavailable"))?;
+    crate::shell::github::private_destination(shell.github.public(&origin), &request.branch, &default).map_err(|refusal| say(refusal.trim_end()))?;
     let listing = shell.origin.symref(&origin, &destination_ref).ok_or_else(|| say(format!("safe-push: cannot read origin {destination_ref}")))?;
     match snapshot(&listing, &destination_ref) {
         Ok(Snapshot::Absent) => {}
