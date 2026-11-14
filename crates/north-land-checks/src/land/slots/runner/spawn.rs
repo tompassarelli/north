@@ -8,7 +8,7 @@ use north_base::foundation::offload::ONE_LANE_ENV;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
-use crate::land::slots::select::Placement;
+use crate::land::slots::select::{Config, Placement};
 use crate::land::slots::{lint_gate, listed_crates, unit_reuse, verdict_key};
 use north_base::verdict_cache::reuse_log;
 use crate::landing::check_timings::outcomes::{CrateSplit, Outcome as CheckOutcome, Record, Records};
@@ -146,9 +146,9 @@ impl Shared {
         verdict_key::selection_environment(self.scope.as_ref(), self.it.as_deref(), self.selected_paths.as_deref())
     }
 
-    /// Whether this run checks a lander's candidate before it lands: the lander marks the checks it starts, and a run after a landing checks code already on main.
-    fn checks_a_candidate(&self) -> bool {
-        !self.arguments.after && std::env::var_os(SERVING_ENV).is_some_and(|serving| serving == "1")
+    /// Whether `command` runs outside the candidate confinement: only a step of an after-landing run whose line the landing's base names machine-bound, as it reads this host's checkouts, user manager and agent state the confinement hides, and a landing cannot add to its base's list (south#138).
+    fn machine_bound_after_landing(&self, command: &str) -> bool {
+        self.arguments.after && !self.arguments.base.is_empty() && Config::load(&self.root, &self.arguments.base).machine_bound_reason(command).is_some()
     }
 
     fn land_runner(&self) -> String {
@@ -271,7 +271,8 @@ impl Shared {
             under_capacity(capacity, shell_deadline(&environment.north, timeout + OFFLOAD_GRACE, &offload))
         } else {
             let observed = self.wrapped(&unit_reuse::quote(&environment.north), command);
-            let local = if self.checks_a_candidate() { confined_step(&environment.north, observed) } else { local_step(&environment.north, observed) };
+            let confined = std::env::var_os(SERVING_ENV).is_some_and(|serving| serving == "1") && !self.machine_bound_after_landing(command);
+            let local = if confined { confined_step(&environment.north, observed) } else { local_step(&environment.north, observed) };
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(&environment.north, timeout, &local))
         };
