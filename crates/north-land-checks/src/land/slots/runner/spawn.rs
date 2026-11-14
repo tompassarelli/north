@@ -8,7 +8,7 @@ use north_base::foundation::offload::ONE_LANE_ENV;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
-use crate::land::slots::select::Placement;
+use crate::land::slots::select::{Config, Placement};
 use crate::land::slots::{lint_gate, listed_crates, unit_reuse, verdict_key};
 use north_base::verdict_cache::reuse_log;
 use crate::landing::check_timings::outcomes::{CrateSplit, Outcome as CheckOutcome, Record, Records};
@@ -102,6 +102,12 @@ fn confined_to_candidate(north: &str, argv: Vec<String>) -> Vec<String> {
     std::iter::once(north.to_owned()).chain(CANDIDATE.map(str::to_owned)).chain(argv).collect()
 }
 
+/// The words that run the check command `observed` on this host: inside the candidate confinement whenever the lander started the run, `serving` being its mark, unless it is a machine-bound step after landing, so the lane code a check runs before its lane lands or just after cannot write the landing queue and its `.trees` records, the post-land ledger, the runtimes, the trusted mirror or the logins (south#138).
+fn local_step(north: &str, observed: String, serving: Option<&std::ffi::OsStr>) -> Vec<String> {
+    let local: Vec<String> = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), north.to_owned(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed].into();
+    if serving.is_some_and(|serving| serving == "1") { confined_to_candidate(north, local) } else { local }
+}
+
 pub(super) fn under_capacity(capacity: &str, argv: Vec<String>) -> Vec<String> {
     if capacity.is_empty() {
         return argv;
@@ -136,9 +142,9 @@ impl Shared {
         verdict_key::selection_environment(self.scope.as_ref(), self.it.as_deref(), self.selected_paths.as_deref())
     }
 
-    /// Whether this run checks a lander's candidate before it lands: the lander marks the checks it starts, and a run after a landing checks code already on main.
-    fn checks_a_candidate(&self) -> bool {
-        !self.arguments.after && std::env::var_os(SERVING_ENV).is_some_and(|serving| serving == "1")
+    /// Whether `command` runs outside the candidate confinement: only a step of an after-landing run whose line the landing's base names machine-bound, as it reads this host's checkouts, user manager and agent state the confinement hides, and a landing cannot add to its base's list (south#138).
+    fn machine_bound_after_landing(&self, command: &str) -> bool {
+        self.arguments.after && !self.arguments.base.is_empty() && Config::load(&self.root, &self.arguments.base).machine_bound_reason(command).is_some()
     }
 
     fn land_runner(&self) -> String {
@@ -261,8 +267,8 @@ impl Shared {
             under_capacity(capacity, shell_deadline(&environment.north, timeout + OFFLOAD_GRACE, &offload))
         } else {
             let observed = self.wrapped(&unit_reuse::quote(&environment.north), command);
-            let local: Vec<String> = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), environment.north.clone(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed].into();
-            let local = if self.checks_a_candidate() { confined_to_candidate(&environment.north, local) } else { local };
+            let serving = std::env::var_os(SERVING_ENV).filter(|_| !self.machine_bound_after_landing(command));
+            let local = local_step(&environment.north, observed, serving.as_deref());
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(&environment.north, timeout, &local))
         };

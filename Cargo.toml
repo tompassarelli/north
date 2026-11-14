@@ -197,7 +197,7 @@ reason = "starts the dependency box or a worker sandbox, which a remote worker c
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
-name = "worker_sandbox::a_candidate_check_cannot_read_the_logins_or_write_the_trusted_mirror_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138"
+name = "worker_sandbox::a_candidate_check_or_after_landing_step_cannot_read_the_logins_or_write_the_trusted_mirror_the_lander_queue_records_or_runtimes_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138"
 reason = "runs a candidate check's jail in a bwrap fixture a remote worker cannot set up: bwrap 0.12 opens every parent of a mount point for reading, and a remote worker's build directory parents (/var/lib/buildbarn/worker 0751, its build 0711) are search-only for the runner user, so the fixture home under the build directory cannot be bound: Can't mkdir parents ... Permission denied; and the runner unit's ProtectKernelTunables refuses the proc mount of the new pid namespace the jail and the fixture both make: Can't mount proc on /proc"
 test = "it"
 

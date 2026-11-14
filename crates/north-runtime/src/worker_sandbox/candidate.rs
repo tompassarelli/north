@@ -66,6 +66,8 @@ impl Candidate {
                 words.bind("--ro-bind", &directory, &directory);
             }
         }
+        words.add(&["--chdir"]);
+        words.0.push(self.checkout.clone().into());
         words.0
     }
 

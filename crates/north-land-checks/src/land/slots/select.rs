@@ -187,8 +187,13 @@ impl Config {
         reason(&self.host_inputs, command).map(|inputs| inputs.split_whitespace().map(str::to_owned).collect()).unwrap_or_default()
     }
 
+    /// Why `command` needs this host's own checkouts, user manager or agent state, which the candidate confinement hides, when its line names it machine-bound.
+    pub fn machine_bound_reason(&self, command: &str) -> Option<&str> {
+        reason(&self.machine_bound, command)
+    }
+
     pub fn off_actions_reason(&self, command: &str) -> Option<&str> {
-        self.local_reason(command).or_else(|| reason(&self.machine_bound, command))
+        self.local_reason(command).or_else(|| self.machine_bound_reason(command))
     }
 
     pub fn publish_ref(&self, head: &str) -> Option<String> {
