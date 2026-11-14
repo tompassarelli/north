@@ -47,9 +47,14 @@ impl Failure {
 pub fn log_line(line: &str) -> &str {
     let line = line.rsplit('\t').next().unwrap_or(line);
     match line.split_once(' ') {
-        Some((stamp, rest)) if stamp.len() >= 20 && stamp.as_bytes()[4] == b'-' && stamp.ends_with('Z') => rest,
+        Some((stamp, rest)) if stamped(stamp) => rest,
         _ => line,
     }
+}
+
+fn stamped(word: &str) -> bool {
+    let word = word.strip_prefix('[').and_then(|inner| inner.strip_suffix(']')).unwrap_or(word);
+    word.len() >= 20 && word.as_bytes()[4] == b'-' && word.as_bytes()[10] == b'T'
 }
 
 pub fn log_text(line: &str) -> &str {
