@@ -2,6 +2,7 @@ use toml_edit::DocumentMut;
 
 use std::path::Path;
 
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
 
@@ -120,7 +121,10 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     assert!(checkout_of(repo, &second).is_some(), "on 2026-11-12 the live case's sweep could not run because building north from the tree rewrote a tracked generated file in the slot; a checkout at the head is enough (north#1254)");
     let before = snapshot(repo);
     let sweeps = tempfile::tempdir().unwrap();
-    let tree = OwnTree::of(repo, &second, sweeps.path()).unwrap();
+    let git_dir = repo.join(".git");
+    let writable = std::fs::metadata(&git_dir).unwrap().permissions();
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let tree = OwnTree::of(repo, &second, sweeps.path()).expect("on 2026-11-14 every offloaded sweep ran in the depbox jail, which binds the git directory read-only, so git worktree add failed and every lane adding a test reached no verdict (north#1537)");
     let own = tree.root().to_path_buf();
     let modified = |path: &Path| std::fs::metadata(path).unwrap().modified().unwrap();
     assert_eq!(std::fs::read_to_string(own.join("crates/a/src/lib.rs")).unwrap(), committed, "the sweep's tree holds the head's content of a file the check's checkout changed");
@@ -144,6 +148,7 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     assert!(!left.exists(), "on 2026-11-12 a sweep killed at its check's deadline left its tree and copied build on a build host whose disk ran short; the next sweep removes the tree its record names (north#1254)");
     assert!(!git_in(repo, &["worktree", "list"]).contains(&left.display().to_string()));
     assert_eq!(snapshot(repo), before, "on 2026-11-12 a sweep mutated and rebuilt in place in the slot its check built, which another run then took; a sweep now writes nothing into the checkout or build directory of its check (north#1254)");
+    std::fs::set_permissions(&git_dir, writable).unwrap();
 }
 
 fn snapshot(root: &Path) -> Vec<(std::path::PathBuf, Vec<u8>, std::time::SystemTime)> {
