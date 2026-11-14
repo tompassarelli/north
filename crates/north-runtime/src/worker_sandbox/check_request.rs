@@ -4,6 +4,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use north_base::platform::lead_assignment::{self, Checkable};
 use rustix::fs::{FlockOperation, flock};
 
 use super::lane_grant::{self, Host};
@@ -33,10 +34,10 @@ pub(super) struct Granted {
     _turn: File,
 }
 
-/// The fleet session that asks: its name, the issue it was launched for and its directory among the fleet's records, which no session's domain writes.
+/// The fleet session that asks: its name, the issues whose boxes it may ask a check of and its directory among the fleet's records, which no session's domain writes.
 struct Asking {
     name: String,
-    task: String,
+    checkable: Checkable,
     directory: PathBuf,
 }
 
@@ -61,8 +62,8 @@ fn issue(reference: &str) -> Option<(String, String, u64)> {
 pub(super) fn granted(check: &Check, peer: &Peer, host: &Host, runtime: &Path, homes: &[(String, String)]) -> Result<Granted, String> {
     let asking = session(peer, host)?;
     let reference = format!("{}/{}#{}", check.owner, check.repository, check.number);
-    if !lane_grant::same_issue(&reference, &asking.task) {
-        return Err(format!("{} was launched for {}, and a session asks for the check of a box of its own task issue only, not of {reference}", asking.name, asking.task));
+    if let Checkable::Issues(issues) = &asking.checkable && !issues.iter().any(|issue| lane_grant::same_issue(&reference, issue)) {
+        return Err(format!("{} holds {}, and a session asks for the check of a box of its own task issue or one the coordinator assigned it only, not of {reference}", asking.name, if issues.is_empty() { "no issue".to_owned() } else { issues.join(", ") }));
     }
     let environment = environment(&asking.name, offload_request::environment(&host.environment, runtime, homes, None)?, &host.home)?;
     let directory = main_checkout(check, &host.code, &environment)?;
@@ -81,8 +82,8 @@ fn session(peer: &Peer, host: &Host) -> Result<Asking, String> {
     let (directory, record) = lane_grant::own_session(peer, host, "a check is asked from a fleet session's own scope, and this caller runs in none")?;
     let field = |key: &str| record[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
     let name = field("name").ok_or_else(|| format!("{} names no session", directory.display()))?;
-    let task = field("task_ref").ok_or_else(|| format!("{name} was launched with no --task, so it has no issue of its own whose box it could ask a check of"))?;
-    Ok(Asking { name, task, directory })
+    let checkable = lead_assignment::checkable(&directory, &record);
+    Ok(Asking { name, checkable, directory })
 }
 
 /// The one check `asking` runs at a time: an exclusive lock on a file in its fleet directory, held until the returned file is dropped.

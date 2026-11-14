@@ -71,6 +71,7 @@ pub mod terminal;
 pub mod session_binding;
 pub mod session_scope;
 pub mod session_host_files;
+pub mod lead_assignment;
 pub mod pystats;
 pub mod replay_verdict;
 pub mod trials;

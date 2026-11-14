@@ -238,7 +238,18 @@ impl Claims for ThreadsCli {
 }
 
 /// `north fleet hold REPO#N` adds the issue to the calling session's record and claim; `--release REPO#N` drops both, so dispatch staffs it again.
+/// `north fleet hold --for LEAD [--release] REPO#N` from the coordinator assigns the issue to LEAD, so its launches and box checks on it are granted.
 pub(super) fn hold(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    if let ["--for", lead, rest @ ..] = words {
+        let (task, release) = match rest {
+            [task] => (task, false),
+            ["--release", task] => (task, true),
+            _ => return Err(super::usage::usage()),
+        };
+        let row = fleet.assign_task(lead, task, release)?;
+        println!("spooled HOLD row {}: this host's fleet tick applies it to {lead}'s assignment of {task} once it reads it from the coordinator's spool", row.id);
+        return Ok(());
+    }
     let session = std::env::var(SESSION_ENV).ok().filter(|name| !name.is_empty()).ok_or_else(|| NorthError::Usage(format!("north fleet hold REPO#N: ${SESSION_ENV} is unset, so no session holds it")))?;
     match words {
         [task] => fleet.hold_task(&session, task),

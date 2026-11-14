@@ -376,6 +376,8 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     assert!(!roots.iter().chain(&written).any(|path| records.starts_with(path) || path.starts_with(&records)), "a worker may write or remove a build slot's record under {}, which tells the broker the project a request from that slot is served as", records.display());
     let rewrites = north_base::foundation::stale_rewrites::file(&context.home);
     assert!(!roots.iter().chain(&written).any(|path| rewrites.starts_with(path) || path.starts_with(&rewrites)), "a worker may write the 24-hour closer's rewrites record {}, which widens a lead's launch grant", rewrites.display());
+    let assignment = state.join("north/fleet/scoreboard-lead").join(north_base::platform::lead_assignment::FILE);
+    assert!(!super::state::writable(&state, Some("scoreboard-lead")).iter().any(|path| assignment.starts_with(path)), "a worker may write {}, the coordinator's assignment a lead's launches and box checks are granted by", assignment.display());
 }
 
 #[test]

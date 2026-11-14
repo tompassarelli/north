@@ -10,7 +10,8 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::{SESSION_ENV, SPOOLED_ENV, binary, new_uuid};
 use crate::fleet::sender::Sender;
-use crate::fleet::store::{FleetRow, RowKind};
+use crate::fleet::store::{FleetRow, RowKind, Spool};
+use north_base::platform::lead_assignment;
 
 use super::{Fleet, HandedIn};
 
@@ -65,6 +66,23 @@ impl Fleet {
         Ok(row)
     }
 
+    pub fn assign_task(&self, lead: &str, task: &str, release: bool) -> NorthResult<FleetRow> {
+        let caller = self.caller().ok_or_else(|| NorthError::Usage("north fleet hold --for LEAD REPO#N: no calling session, so no coordinator assigns it".into()))?;
+        let holding = if release { Holding::Drop } else { Holding::Take };
+        let row = self.new_row(RowKind::Hold, lead, &format!("{} {task}", holding.word()), &Sender::Session(caller.clone()))?;
+        Spool::of(&self.root, &caller)?.put(&row)?;
+        Ok(row)
+    }
+
+    fn assign_here(&self, lead: &str, verb: &str, task: &str) -> NorthResult<()> {
+        let held = match verb {
+            "hold" => true,
+            "release" => false,
+            other => return Err(NorthError::Usage(format!("a coordinator's HOLD row for {lead} asks for {other}, not hold or release"))),
+        };
+        lead_assignment::assign(&self.session_dir(lead)?, task, held).map_err(|error| NorthError::State(format!("{lead}'s assignment of {task}: {error}")))
+    }
+
     /// Spools `words`, the arguments after the verb of a `north fleet launch` (`kind` LAUNCH) or `north fleet revive` (`kind` REVIVE) by `caller`, for this host's fleet tick to run as the lead-only grant of `lead_grant.rs` allows.
     pub fn spool_verb(&self, kind: RowKind, caller: &str, words: &[String]) -> NorthResult<FleetRow> {
         let text = serde_json::to_string(&SpooledVerb { words: words.to_vec() })?;
@@ -85,8 +103,11 @@ impl Fleet {
 
     pub(super) fn apply_hold(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         let (verb, task) = row.text.split_once(' ').ok_or_else(|| NorthError::Usage(format!("HOLD row {} names no task", row.id)))?;
+        if row.spooled_by.as_deref().is_some_and(|writer| writer != row.to && self.coordinates(writer)) {
+            return self.journaled(row, || self.assign_here(&row.to, verb, task));
+        }
         if row.spooled_by.as_deref() != Some(row.to.as_str()) {
-            eprintln!("north fleet: refused HOLD row {}: only the spool of the session it holds for may carry it", row.id);
+            eprintln!("north fleet: refused HOLD row {}: only the spool of the session it holds for, or the coordinator's, may carry it", row.id);
             return self.journaled(row, || Ok(()));
         }
         if let Some(why) = self.refused_hold(&row.to, task) {

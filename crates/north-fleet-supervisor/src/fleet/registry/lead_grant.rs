@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use north_base::platform::lead_assignment;
+
 use crate::fleet::model::{Role, SessionRecord};
 use crate::fleet::records::write_record;
 
@@ -25,6 +27,7 @@ pub struct Granted {
 struct Lead {
     record: SessionRecord,
     parent_tasks: Vec<String>,
+    assigned: Vec<String>,
     main: PathBuf,
 }
 
@@ -54,6 +57,10 @@ impl Fleet {
         self.lead(writer).err()
     }
 
+    pub(super) fn coordinates(&self, writer: &str) -> bool {
+        self.record(writer).is_ok_and(|record| record.role() == Role::Proxy)
+    }
+
     fn lead(&self, writer: &str) -> Result<Lead, String> {
         let record = self.record(writer).map_err(|_| format!("{writer} has no session record on this host, so its spool carries no fleet verb here"))?;
         if record.role() != Role::Lead {
@@ -64,7 +71,8 @@ impl Fleet {
         }
         let main = own_main(writer, &record.cwd, &self.home.join("code"))?;
         let parent_tasks = record.parent.as_deref().and_then(|parent| self.record(parent).ok()).map(|parent| parent.tasks().map(str::to_owned).collect()).unwrap_or_default();
-        Ok(Lead { record, parent_tasks, main })
+        let assigned = lead_assignment::assigned(&self.session_dir(writer).map_err(|error| error.user_message())?);
+        Ok(Lead { record, parent_tasks, assigned, main })
     }
 
     /// Adds the launch's `--task` to `lead`'s record when the record holds no such issue but the 24-hour closer recorded it as the successor of one it holds, directly or through later rewrites.
@@ -196,9 +204,9 @@ fn flag_value<'a>(lead: &Lead, word: &str, value: Option<&'a str>) -> Result<&'a
 fn own_task(lead: &Lead, value: &str) -> Result<(), String> {
     own_project(lead, value)?;
     let issue = |task: &str| task.rsplit('/').next().unwrap_or(task).to_owned();
-    let held: Vec<&str> = lead.record.tasks().chain(lead.parent_tasks.iter().map(String::as_str)).collect();
+    let held: Vec<&str> = lead.record.tasks().chain(lead.parent_tasks.iter().chain(&lead.assigned).map(String::as_str)).collect();
     if !held.iter().any(|held| issue(held) == issue(value)) {
-        return Err(format!("fleet launch --task {value} is not granted to {}: a lead launches workers only for an issue its own record or its parent's holds ({})", lead.record.name, held.join(", ")));
+        return Err(format!("fleet launch --task {value} is not granted to {}: a lead launches workers only for an issue its own record or its parent's holds or the coordinator assigned it ({})", lead.record.name, held.join(", ")));
     }
     Ok(())
 }
@@ -251,6 +259,8 @@ mod tests {
     use super::super::fixtures::fleet;
     use super::super::rewritten::Rewrites;
     use super::*;
+    use crate::fleet::sender::Sender;
+    use crate::fleet::store::{RowKind, Spool};
 
     struct Closer;
 
@@ -291,5 +301,34 @@ mod tests {
         assert_eq!(revived.arguments, ["revive", "sb-lookup", "--account", "e"]);
         assert!(outside.contains("--task north#259 is not granted to scoreboard-lead"), "a rewrite row naming north#259 in the lead's own spool or the threads ledger, which sandboxed sessions write, or in a stranger's comment, widens nothing: {outside}");
         assert!(successor.is_ok() && fleet.record("scoreboard-lead").unwrap().tasks().any(|task| task == "north#1521"), "the successor the closer recorded for the lead's closed issue, through a second rewrite, is granted and joins its record: {successor:?}");
+    }
+
+    #[test]
+    fn a_lead_launches_and_checks_a_box_on_an_issue_the_coordinator_assigned_it_and_the_coordinator_checks_any_box_and_an_unassigned_issue_stays_refused() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        std::fs::create_dir_all(fleet.home.join("code/north/main")).unwrap();
+        recorded(&fleet, "proxy", serde_json::json!({"role": "proxy"}));
+        recorded(&fleet, "scoreboard-lead", serde_json::json!({"role": "lead", "parent": "proxy", "task_ref": "tompassarelli/north#35"}));
+        recorded(&fleet, "sb-lookup", serde_json::json!({"role": "worker", "parent": "scoreboard-lead", "task_ref": "tompassarelli/north#35"}));
+        let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+
+        let spooled = |writer: &str, sender: &str, text: &str| Spool::of(&fleet.root, writer).unwrap().put(&fleet.new_row(RowKind::Hold, "scoreboard-lead", text, &Sender::Session(sender.into())).unwrap()).unwrap();
+        spooled("proxy", "proxy", "hold tompassarelli/north#1540");
+        spooled("sb-lookup", "sb-lookup", "hold tompassarelli/north#1542");
+        spooled("sb-lookup", "proxy", "hold tompassarelli/north#1542");
+        spooled("scoreboard-lead", "scoreboard-lead", "hold tompassarelli/north#1488");
+        fleet.claims.hold("tompassarelli/north#1542", "scoreboard-lead", &Default::default()).unwrap();
+        for row in Spool::at(&fleet.root).pending().unwrap() {
+            fleet.deliver_row(&row).unwrap();
+        }
+        let assigned = fleet.granted_launch("scoreboard-lead", &words(&["--name", "n1540-child", "--task", "north#1540", "brief"])).unwrap();
+        let unassigned = fleet.granted_launch("scoreboard-lead", &words(&["--name", "n1542-child", "--task", "north#1542", "brief"])).unwrap_err();
+        let checkable = |name: &str| lead_assignment::checkable(&fleet.root.join(name), &serde_json::from_slice(&std::fs::read(fleet.root.join(name).join("session.json")).unwrap()).unwrap());
+
+        assert_eq!(assigned.name, "n1540-child");
+        assert!(unassigned.contains("--task north#1542 is not granted to scoreboard-lead"), "a hold in a worker's own spool, one claiming the coordinator from it, or a threads claim granted north#1542: {unassigned}");
+        assert_eq!(checkable("scoreboard-lead"), lead_assignment::Checkable::Issues(vec!["tompassarelli/north#35".into(), "tompassarelli/north#1540".into()]));
+        assert_eq!(checkable("proxy"), lead_assignment::Checkable::Any);
     }
 }
