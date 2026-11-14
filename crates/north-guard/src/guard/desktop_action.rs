@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-const DENIAL: &str = "No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.";
+const DENIAL: &str = "No. Tom is using the desktop. Use the private desktop or wait until he is idle.";
 const CONTEXT: &str = "desktop action guard: wrapped the desktop command to read the focused window when it runs and refocus that window on exit.";
 const WRAPPERS: &[&str] = &[
     "env", "command", "exec", "sudo", "doas", "nohup", "setsid", "timeout", "nice", "stdbuf",
@@ -188,7 +188,7 @@ fn private_target(assignments: &BTreeMap<String, String>, name: &str) -> bool {
         valid && value(assignments, "WAYLAND_SOCKET").is_empty()
     }
 }
-fn quiet_close(args: &[String], assignments: &BTreeMap<String, String>) -> bool {
+fn closes_own_or_quiet(args: &[String], assignments: &BTreeMap<String, String>) -> bool {
     let mut window = None;
     for (i, arg) in args.iter().enumerate() {
         if arg == "--id" && args.get(i + 1).is_some() {
@@ -203,12 +203,11 @@ fn quiet_close(args: &[String], assignments: &BTreeMap<String, String>) -> bool 
     else {
         return false;
     };
-    let Ok(mut output) = tempfile::tempfile() else {
-        return false;
-    };
-    let Ok(stdout) = output.try_clone() else {
-        return false;
-    };
+    niri_windows(assignments).is_some_and(|windows| closable(&windows, window, &ancestors()))
+}
+fn niri_windows(assignments: &BTreeMap<String, String>) -> Option<Value> {
+    let mut output = tempfile::tempfile().ok()?;
+    let stdout = output.try_clone().ok()?;
     let mut command = Command::new("niri");
     command
         .args(["msg", "-j", "windows"])
@@ -217,31 +216,44 @@ fn quiet_close(args: &[String], assignments: &BTreeMap<String, String>) -> bool 
     if let Some(ipc) = assignments.get("NIRI_SOCKET") {
         command.env("NIRI_SOCKET", ipc);
     }
-    let Ok(mut child) = command.spawn() else {
-        return false;
-    };
+    let mut child = command.spawn().ok()?;
     match north_base::platform::process::child_within(&mut child, Duration::from_secs(5)) {
         Ok(Some(status)) if status.success() => {}
-        _ => return false,
+        _ => return None,
     }
     use std::io::{Read, Seek};
     let mut bytes = Vec::new();
     if output.rewind().is_err() || output.read_to_end(&mut bytes).is_err() {
-        return false;
+        return None;
     }
-    serde_json::from_slice::<Value>(&bytes)
-        .ok()
-        .and_then(|v| {
-            v.as_array().map(|items| {
-                items.iter().any(|item| {
-                    item.is_object()
-                        && item["id"] == window
-                        && item["app_id"] == "quiet.spawn"
-                        && item["is_focused"] == false
-                })
-            })
-        })
-        .unwrap_or(false)
+    serde_json::from_slice(&bytes).ok()
+}
+fn ancestors() -> Vec<u32> {
+    let mut chain = Vec::new();
+    let mut pid = parent_of_self().unwrap_or(1);
+    while pid > 1 && !chain.contains(&pid) {
+        chain.push(pid);
+        let Some((parent, _, _)) = process(pid) else {
+            break;
+        };
+        pid = parent;
+    }
+    chain
+}
+fn closable(windows: &Value, id: u64, ancestors: &[u32]) -> bool {
+    let Some(items) = windows.as_array() else {
+        return false;
+    };
+    let Some(window) = items.iter().find(|item| item["id"] == id) else {
+        return false;
+    };
+    if window["app_id"] == "quiet.spawn" && window["is_focused"] == false {
+        return true;
+    }
+    window["pid"].as_u64().is_some_and(|pid| {
+        ancestors.iter().any(|a| u64::from(*a) == pid)
+            && items.iter().filter(|item| item["pid"] == pid).count() == 1
+    })
 }
 fn substitutions(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
@@ -387,7 +399,7 @@ fn dangerous(text: &str, inherited: &BTreeMap<String, String>) -> bool {
                     a.starts_with("focus-")
                         || a.starts_with("fullscreen-")
                         || a.starts_with("move-")
-                        || (a == "close-window" && !quiet_close(&args[i + 2..], &assignments))
+                        || (a == "close-window" && !closes_own_or_quiet(&args[i + 2..], &assignments))
                 })
         } else {
             false

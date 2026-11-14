@@ -160,9 +160,9 @@ fn fixture_denial_preserves_both_provider_inputs_and_first_message() {
         let mut output = Vec::new();
         process(bytes, &mut output, &[guard("", |input| {
             assert!(input.command().unwrap().starts_with("wtype hi"));
-            Verdict::Deny("No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.".into())
+            Verdict::Deny("No. Tom is using the desktop. Use the private desktop or wait until he is idle.".into())
         }), guard("", |_| panic!("ran after deny"))], "PreToolUse").unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&output).unwrap(), json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first."}}));
+        assert_eq!(serde_json::from_slice::<Value>(&output).unwrap(), json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "No. Tom is using the desktop. Use the private desktop or wait until he is idle."}}));
     }
 }
 
