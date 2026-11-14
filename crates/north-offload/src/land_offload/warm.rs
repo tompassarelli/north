@@ -17,7 +17,6 @@ use north_base::foundation::offload;
 
 use rustix::fs::{FlockOperation, flock};
 
-use super::ship::{SLOTS, slot_ports};
 use super::slot_lock;
 use crate::offload_cache::{Disk, closing, disk_of, land_slots_take};
 use north_base::platform::disk_budget::DiskBudget;
@@ -35,7 +34,6 @@ const GIB: f64 = (1u64 << 30) as f64;
 
 struct Slot {
     name: String,
-    checkout: String,
     repo: PathBuf,
     at: String,
     cold: bool,
@@ -144,9 +142,8 @@ fn slots(root: &Path) -> Vec<Slot> {
             let path = entry.path();
             let gitdir = fs::read_to_string(path.join(".git")).ok()?;
             let repo = PathBuf::from(gitdir.strip_prefix("gitdir:")?.trim()).ancestors().nth(3)?.to_path_buf();
-            let checkout = (1..SLOTS).find_map(|index| name.strip_suffix(&format!("-{index}"))).unwrap_or(&name).to_owned();
             let at = fs::read_to_string(root.join(format!("{name}{WARMED}"))).map(|warmed| warmed.trim().to_owned()).unwrap_or_default();
-            Some(Slot { name, checkout, repo, at, cold: !path.join("target").is_dir() })
+            Some(Slot { name, repo, at, cold: !path.join("target").is_dir() })
         })
         .collect()
 }
@@ -193,16 +190,13 @@ fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
     let _ = git(&path, &["clean", "-ffdxq", "-e", "/target"]);
     let holder = root.join(format!("{}.holder", slot.name));
     let _ = fs::write(&holder, format!("{} warming\n", &head[..head.len().min(12)]));
-    let port = slot_ports(&slot.checkout).into_iter().find(|(name, _)| *name == slot.name).map(|(_, port)| port.to_string());
     let share = std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).max(1)).to_string();
     let north = north_base::platform::north_binary::north_binary();
     let mut child = Command::new("nice");
     child.args(["-n", "19"]).arg(&north).args(["capacity", "host", "run", "--class", "heavy", "--owner", "land-offload", "--timeout-seconds", &DEADLINE.as_secs().to_string(), "--"]);
     child.arg(&north).args(["capacity", "dev-shell", "run", "--dir"]).arg(&path).args(["--", "bash", "-euo", "pipefail", "-c", &command]);
     child.current_dir(&path).env("SCCACHE_BASEDIRS", &path).env("CARGO_BUILD_JOBS", &share).stdin(Stdio::null()).process_group(0);
-    if let Some(port) = port {
-        child.env("SCCACHE_SERVER_PORT", port);
-    }
+    child.env("SCCACHE_SERVER_UDS", root.join(format!("{}.sccache", slot.name)));
     let started = Instant::now();
     let status = match child.spawn() {
         Ok(mut running) => loop {

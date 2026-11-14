@@ -1,4 +1,4 @@
-use super::{BESIDE_MISSING, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TARGET_KEEP_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, quote};
+use super::{BESIDE_MISSING, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TARGET_KEEP_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, quote};
 
 /// Minutes a run whose client lost its connection keeps going with no client reattached, so a caller killed on purpose does not leave the run holding its slot to its deadline; the runner reattaches within `REATTACH_WINDOW`, which is shorter.
 const REATTACH_MINUTES: u32 = 3;
@@ -331,9 +331,8 @@ date +%s%N >"$served/$name"
 rm -f "$ticket"
 exec 8>&-
 slot=$root/$s
-# sccache keys hold absolute paths, so every slot names its own directory as the base its keys are relative to, and serves it on its own port.
-case $s in @SLOT_PORTS@ esac
-SCCACHE_BASEDIRS=$slot; export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
+# sccache keys hold absolute paths, so every slot names its own directory as the base its keys are relative to, and serves it on a socket beside it, never on a TCP port a confined land check could dial.
+SCCACHE_BASEDIRS=$slot SCCACHE_SERVER_UDS=$root/$s.sccache; export SCCACHE_BASEDIRS SCCACHE_SERVER_UDS
 printf '%s%s since %s\n' "${holding:+kind=hold }" "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
 placed=$HOME/@SLOT_RECORDS@
@@ -470,6 +469,7 @@ leased() {
 }
 checked() {
   if ! confined_here; then
+    if [ -n "${runtime:-}" ] && [ "$lease_owner" = land-check ] && [ -z "${holding:-}" ]; then leased "$runtime_dir/north" --worker-sandbox --candidate -- "$runtime_dir/north" depbox check -- bash -euo pipefail -c "$(cat "$script")"; return; fi
     if [ -n "${SAFE_PUSH_LAND_HEAD:-}" ] && [ -n "${runtime:-}" ]; then leased "$runtime_dir/north" depbox check -- bash -euo pipefail "$script"; return; fi
     leased bash -euo pipefail "$script"; return
   fi
@@ -684,17 +684,6 @@ pub fn is_lander_slot(slot: &str) -> bool {
     slot.strip_suffix(&format!("-{}", SLOTS - 1)).is_some_and(|checkout| !checkout.is_empty())
 }
 
-fn slot_name(name: &str, index: u32) -> String {
-    if index == 0 { name.to_owned() } else { format!("{name}-{index}") }
-}
-
-/// One block of `SLOTS` sccache ports per checkout, picked by FNV-1a of its name, so the build host's script needs no hashing program.
-pub(crate) fn slot_ports(name: &str) -> Vec<(String, u32)> {
-    let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
-    let block = u32::try_from(hash % u64::from(SCCACHE_PORTS / SLOTS)).unwrap_or(0) * SLOTS;
-    (0..SLOTS).map(|index| (slot_name(name, index), SCCACHE_FIRST_PORT + block + index)).collect()
-}
-
 /// The shell `case` arms that set `lock_wait` to the line wait limit of each slot rank, which the capacity crate owns.
 pub(super) fn deadlines() -> String {
     (0..=BACKGROUND_RANK).map(|rank| format!("{rank}) lock_wait={} ;; ", north_capacity_host::capacity::line_wait::deadline(rank))).collect()
@@ -704,12 +693,11 @@ fn settle_seconds() -> u64 {
     north_capacity_host::capacity::pressure_target::settle_seconds().round() as u64
 }
 
-pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
+pub(super) fn remote_script(class: SlotClass) -> String {
     let (slots, background) = match class {
         SlotClass::LandCheck => (SLOTS, ""),
         SlotClass::Background => (1, "1"),
     };
-    let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
     format!("{}{VERIFY}{TIMED_LINE}{}{}{}", slot_part(), hold_part(), beside_part(), run_part())
         .replace("@JOBS@", &jobs_part())
         .replace("@ADMIT@", ADMIT)
@@ -717,7 +705,6 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
         .replace("@DEADLINES@", &deadlines())
         .replace("@LINE_WITHIN_ENV@", north_base::foundation::carry::LINE_WITHIN)
         .replace("@SETTLE@", &settle_seconds().to_string())
-        .replace("@SLOT_PORTS@", &ports)
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@POLL@", POLL_SECONDS)
         .replace("@SLOTS@", &slots.to_string())

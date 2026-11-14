@@ -22,6 +22,8 @@ use super::steps;
 use super::lane_scope;
 
 const STORE_SYNC: std::time::Duration = std::time::Duration::from_secs(90);
+const CANDIDATE: [&str; 3] = ["--worker-sandbox", "--candidate", "--"];
+const SERVING_ENV: &str = "NORTH_LAND_SERVING";
 
 #[derive(Clone, Copy)]
 pub(super) struct Attempt {
@@ -95,6 +97,11 @@ pub(super) fn shell_deadline(north: &str, seconds: u64, argv: &[String]) -> Vec<
     command
 }
 
+/// `argv` run by `north` confined to the candidate checkout it runs in, where the lane code a land check runs cannot write the project's trusted mirror, a main checkout, the agent state or the logins (south#138).
+fn confined_to_candidate(north: &str, argv: Vec<String>) -> Vec<String> {
+    std::iter::once(north.to_owned()).chain(CANDIDATE.map(str::to_owned)).chain(argv).collect()
+}
+
 pub(super) fn under_capacity(capacity: &str, argv: Vec<String>) -> Vec<String> {
     if capacity.is_empty() {
         return argv;
@@ -127,6 +134,11 @@ impl Shared {
 
     pub(super) fn scope_environment(&self) -> Vec<(&'static str, String)> {
         verdict_key::selection_environment(self.scope.as_ref(), self.it.as_deref(), self.selected_paths.as_deref())
+    }
+
+    /// Whether this run checks a lander's candidate before it lands: the lander marks the checks it starts, and a run after a landing checks code already on main.
+    fn checks_a_candidate(&self) -> bool {
+        !self.arguments.after && std::env::var_os(SERVING_ENV).is_some_and(|serving| serving == "1")
     }
 
     fn land_runner(&self) -> String {
@@ -249,7 +261,8 @@ impl Shared {
             under_capacity(capacity, shell_deadline(&environment.north, timeout + OFFLOAD_GRACE, &offload))
         } else {
             let observed = self.wrapped(&unit_reuse::quote(&environment.north), command);
-            let local = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), environment.north.clone(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
+            let local: Vec<String> = ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), environment.north.clone(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed].into();
+            let local = if self.checks_a_candidate() { confined_to_candidate(&environment.north, local) } else { local };
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(&environment.north, timeout, &local))
         };

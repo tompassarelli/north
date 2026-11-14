@@ -49,7 +49,8 @@ impl Input {
         match self {
             Self::Host => {
                 let calls = HOST_CALL.captures_iter(file.code()).filter_map(|found| found.get(1)).map(|found| (found.start(), found.as_str().to_owned()));
-                let files = HOST_FILE.captures_iter(file.commentless()).filter_map(|found| found.get(1)).map(|found| (found.start(), found.as_str().to_owned()));
+                let text = file.commentless();
+                let files = HOST_FILE.captures_iter(text).filter(|found| !text[..found.get(0).map_or(0, |whole| whole.start())].trim_end().ends_with("\"--proc\",")).filter_map(|found| found.get(1)).map(|found| (found.start(), found.as_str().to_owned()));
                 file.in_tests(calls.chain(files))
             }
             Self::Clock => file.in_tests(CLOCK.captures_iter(file.code()).filter_map(|found| {

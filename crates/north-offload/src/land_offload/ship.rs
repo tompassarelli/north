@@ -16,8 +16,6 @@ const WAITED: &str = "offload: waited ";
 const RUNNING: &str = "offload: running ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 pub const SLOTS: u32 = 6;
-const SCCACHE_FIRST_PORT: u32 = 20000;
-const SCCACHE_PORTS: u32 = 20000;
 const POLL_SECONDS: &str = "0.2";
 const TARGET_CAP_MIB: u32 = 40 * 1024;
 const TARGET_FLOOR_MIB: u32 = 30 * 1024;
@@ -146,7 +144,7 @@ pub(super) mod beside;
 mod script;
 pub(super) use script::jobs_part;
 pub use script::{SlotClass, is_lander_slot};
-pub(crate) use script::{fill_part, slot_ports};
+pub(crate) use script::fill_part;
 use script::remote_script;
 mod bundle;
 mod held;
@@ -224,7 +222,7 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let reference = job_ref(&land.head);
     let bundle = bundle(land, &reference, held).map_err(|why| unreached(&why))?;
     let name = land.class.slot_name(name);
-    let script = remote_script(&name, land.class);
+    let script = remote_script(land.class);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
     let red_fix = match std::env::var(RED_FIX_ENV) {

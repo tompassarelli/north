@@ -775,6 +775,7 @@ north_rust_test(
         "depbox_broker::dependency_code_in_depbox_cannot_connect_to_the_broker_socket",
         "land_checks::a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_not_rerun_on_base",
         "landing_targets::each_checkout_runs_its_own_binary_even_when_its_sources_predate_another_checkouts_build",
+        "worker_sandbox::a_candidate_check_cannot_read_the_logins_or_write_the_trusted_mirror_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138",
         "worker_sandbox::a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state",
         "worker_sandbox::a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime_that_run_a_lane_build_north_1020",
         "worker_sandbox::a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_directory_north_706",

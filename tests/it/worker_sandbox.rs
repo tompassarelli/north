@@ -90,8 +90,11 @@ impl Home {
     fn outer(&self, directory: &Path) -> Command {
         let home = self.path();
         let mut outer = Command::new("bwrap");
-        outer.args(["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/dev/shm", "--tmpfs"]);
-        outer.arg(format!("/run/user/{}", rustix::process::getuid().as_raw()));
+        outer.args(["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/dev/shm"]);
+        let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
+        if runtime.is_dir() {
+            outer.arg("--tmpfs").arg(runtime);
+        }
         outer.arg("--bind").arg(home).arg(home).arg("--chdir").arg(directory);
         outer.args(["--clearenv", "--setenv", "PATH"]).arg(std::env::var_os("PATH").unwrap()).arg("--setenv").arg("HOME").arg(home).args(["--setenv", "SHELL", "bash", "--setenv", "NORTH_FLEET_ROLE", "worker"]);
         outer.arg("--setenv").arg(CHILD).arg(home);
@@ -613,4 +616,42 @@ fn a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker() {
     assert_eq!(std::fs::read_to_string(main.join("flake.lock")).unwrap(), "moved");
     let status = Command::new("git").arg("-C").arg(&main).args(["status", "--porcelain"]).output().unwrap();
     assert!(status.stdout.is_empty(), "{}", String::from_utf8_lossy(&status.stdout));
+}
+
+#[test]
+fn a_candidate_check_cannot_read_the_logins_or_write_the_trusted_mirror_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138() {
+    let home = Home::new();
+    let root = home.path();
+    let main = root.join("code/p/main");
+    let mirror = root.join("code/p/trusted/repo.git");
+    git(root, &["clone", "-q", "--bare", main.to_str().unwrap(), mirror.to_str().unwrap()]);
+    let candidate = root.join("code/p/trusted/worktrees/lander");
+    git(&mirror, &["worktree", "add", "-q", "--detach", candidate.to_str().unwrap(), "HEAD"]);
+    for cache in [".cargo/registry", ".cache/sccache", ".local/state/north/fleet"] {
+        std::fs::create_dir_all(root.join(cache)).unwrap();
+    }
+    file(&root.join(".bashrc"));
+    std::fs::create_dir_all(root.join(".ssh")).unwrap();
+    std::fs::write(root.join(".ssh/id_ed25519"), "login-key-material").unwrap();
+    std::fs::create_dir_all(root.join(".config/gh")).unwrap();
+    std::fs::write(root.join(".config/gh/hosts.yml"), "gh-token-material").unwrap();
+    let refused = ["code/p/trusted/repo.git/HEAD", "code/p/trusted/repo.git/forged", "code/p/trusted/repo.git/worktrees/lander/HEAD", "code/p/trusted/worktrees/lander/.git", "code/p/main/src.rs", "code/p/worktrees/lane/work.rs", ".local/state/north/fleet/session.json", ".bashrc"];
+    let written = ["code/p/trusted/worktrees/lander/new.txt", "code/p/trusted/worktrees/lander/target/debug/out", ".cargo/registry/crate", ".cache/sccache/entry"];
+    let before: Vec<Option<String>> = refused.iter().map(|relative| std::fs::read_to_string(root.join(relative)).ok()).collect();
+    let mut script = "cat \"$HOME/.ssh/id_ed25519\"; cat \"$HOME/.config/gh/hosts.yml\"; ".to_owned();
+    script.push_str(&refused.iter().map(|relative| format!("printf x >> \"$HOME/{relative}\"; ")).collect::<String>());
+    script.push_str("mkdir -p target/debug; ");
+    script.push_str(&written.iter().map(|relative| format!("printf x >> \"$HOME/{relative}\" && ")).collect::<String>());
+    script.push_str("printf x > /tmp/scratch && printf x > \"$TMPDIR/scratch\" && bwrap --ro-bind / / --dev /dev true && echo all-written");
+    let output = home.outer(&candidate).args(["--unshare-pid", "--proc", "/proc"]).arg("--").arg(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--candidate", "--", "bash", "-c", &script]).output().unwrap();
+    let (stdout, stderr) = (String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    for (relative, before) in refused.iter().zip(before) {
+        assert_eq!(std::fs::read_to_string(root.join(relative)).ok(), before, "a candidate check wrote {relative}: {stderr}");
+    }
+    assert!(!stdout.contains("login-key-material") && !stdout.contains("gh-token-material"), "a candidate check read a login under the home directory: {stdout}");
+    assert!(stderr.contains("code/p/trusted/repo.git/forged: Read-only file system"), "a write into the trusted mirror did not fail as a refused write: {stderr}");
+    for relative in written {
+        assert!(std::fs::read_to_string(root.join(relative)).is_ok_and(|content| content.ends_with('x')), "a candidate check could not write {relative}: {stderr}");
+    }
+    assert!(stdout.contains("all-written"), "a candidate check could not write its scratch or build a namespace of its own, as depbox does: {stderr}");
 }

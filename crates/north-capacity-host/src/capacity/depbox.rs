@@ -28,9 +28,9 @@ const UNSHARE: &str = "/run/current-system/sw/bin/unshare";
 const NORTH_HAND_OFF: &str = "/.north-hand-off";
 const WORKER_SANDBOX: &str = "--worker-sandbox";
 const HAND_OFF: &str = "--hand-off";
-const CACHES: [&str; 4] = [".bun/install/cache", ".cargo/registry", ".cargo/git", ".cache/nix"];
-const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
-const READS: [&str; 14] = [
+pub const CACHES: [&str; 4] = [".bun/install/cache", ".cargo/registry", ".cargo/git", ".cache/nix"];
+pub const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
+pub const READS: [&str; 14] = [
     ".cargo/bin", ".rustup", ".gitconfig", ".config/git", ".nix-profile", ".local/bin", ".local/share/north", ".local/state/north/runtimes", ".local/state/north/dev-shells", ".local/state/nix/profile", ".local/state/nix/profiles", ".local/lib/firn/cli", "code/nixos-config/pins", "code/north/pins",
 ];
 
@@ -328,7 +328,7 @@ impl Sandbox {
 }
 
 /// The other paths where `home` shows up: one directory can sit at two paths (two mounts of one btrfs subvolume put `/home/USER` also at `/nix/USER`), and the read-only bind of `/` would carry the second one into the sandbox with the logins under it.
-fn aliases(home: &Path) -> Vec<PathBuf> {
+pub fn aliases(home: &Path) -> Vec<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let identity = |path: &Path| std::fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()));
     let Some(own) = identity(home) else { return Vec::new() };
@@ -400,7 +400,7 @@ fn on_path(program: &str) -> Option<PathBuf> {
 }
 
 /// `path` with every link resolved, its missing tail kept as written.
-fn resolved(path: &Path) -> PathBuf {
+pub fn resolved(path: &Path) -> PathBuf {
     let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
     let mut existing = absolute.as_path();
     let mut tail = Vec::new();

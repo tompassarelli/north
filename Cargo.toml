@@ -196,13 +196,18 @@ reason = "starts the dependency box or a worker sandbox, which a remote worker c
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
+name = "worker_sandbox::a_candidate_check_cannot_read_the_logins_or_write_the_trusted_mirror_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138"
+reason = "runs a candidate check's jail in a bwrap fixture a remote worker cannot set up: bwrap 0.12 opens every parent of a mount point for reading, and a remote worker's build directory parents (/var/lib/buildbarn/worker 0751, its build 0711) are search-only for the runner user, so the fixture home under the build directory cannot be bound: Can't mkdir parents ... Permission denied; and the runner unit's ProtectKernelTunables refuses the proc mount of the new pid namespace the jail and the fixture both make: Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
 name = "worker_sandbox::a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state"
-reason = "runs a command under north --worker-sandbox, whose bwrap namespace a remote worker cannot set up: Can't mkdir parents for /run/user/995"
+reason = "runs a command under north --worker-sandbox in a bwrap fixture a remote worker cannot set up: bwrap 0.12 opens every parent of a mount point for reading, and a remote worker's build directory parents (/var/lib/buildbarn/worker 0751, its build 0711) are search-only for the runner user, so the fixture home under the build directory cannot be bound: Can't mkdir parents ... Permission denied"
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
 name = "worker_sandbox::a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime_that_run_a_lane_build_north_1020"
-reason = "runs a command under north --worker-sandbox, whose bwrap namespace a remote worker cannot set up: Can't mkdir parents for /run/user/995"
+reason = "runs a command under north --worker-sandbox in a bwrap fixture a remote worker cannot set up: bwrap 0.12 opens every parent of a mount point for reading, and a remote worker's build directory parents (/var/lib/buildbarn/worker 0751, its build 0711) are search-only for the runner user, so the fixture home under the build directory cannot be bound: Can't mkdir parents ... Permission denied"
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
@@ -212,7 +217,7 @@ test = "it"
 
 [[package.metadata.north.buck.host-cases]]
 name = "worker_sandbox::a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_that_hides_every_older_lane_north_1033"
-reason = "runs a command under north --worker-sandbox, whose bwrap namespace a remote worker cannot set up: Can't mkdir parents for /run/user/995"
+reason = "runs a command under north --worker-sandbox in a bwrap fixture a remote worker cannot set up: bwrap 0.12 opens every parent of a mount point for reading, and a remote worker's build directory parents (/var/lib/buildbarn/worker 0751, its build 0711) are search-only for the runner user, so the fixture home under the build directory cannot be bound: Can't mkdir parents ... Permission denied"
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]

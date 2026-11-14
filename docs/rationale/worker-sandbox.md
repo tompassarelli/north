@@ -68,6 +68,10 @@ A confinement step that cannot apply refuses the command with exit 126 and says 
 
 A lane-only session's shell runs in the broker's fresh `--lane` child, not in the session's own scope, so a `safe-push` from it comes from a caller the broker cannot name. The command refuses at once instead, before its checks, with `lane-only session: end with Done: <worktree> <branch> <sha>; the review-and-land loop lands it`: the worker commits in its lane, reports that line, and dispatch's review job lands the commit through safe-push, itself or through the Sonnet reviewer it launches when sampling picks the commit, while the lander ticks the box from the commit's `Item:` and `Box:` lines (north#1020). A direct caller in the session's own scope still reaches the broker grant of north#1056. The DeepSeek overlay and every DeepSeek worker brief carry the same order.
 
+## Lander candidate checks (south#138)
+
+Lane code in a lander's candidate checks runs confined, under `north --worker-sandbox --candidate` inside the slot the check already holds (crates/north-runtime/src/worker_sandbox/candidate.rs). The wrapper is a bubblewrap mount namespace rather than this Landlock domain, because Landlock refuses mount(2) to every process in a domain and a land check runs tests that start namespaces of their own.
+
 ## Rollout
 
 Landlock has no permissive mode, so a shadow run cannot log a would-be refusal without refusing. The `worker-sandbox` gate in harness/gates.toml lands in shadow, where only a canary launch made with `NORTH_WORKER_SANDBOX=1` carries the prefix. In enforce, `claude_env` adds it to every launch (crates/north-providers/src/providers/claude/session_env.rs). The review counts canary runs and the "Permission denied" removals in their Bash tool results. The gate enforces from 2026-11-08, on the canary review recorded in harness/gates.toml.
