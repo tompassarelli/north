@@ -144,6 +144,7 @@ Commands:
   graph validate [--db PATH]  Check the graph is sound
   work brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
   work brief pack [--issue REF]... PATH...   Print, in at most 3,000 characters, each path's public items with lines, its structure.toml module and what it may use, the files that changed with it most in 90 days with any revert within 48 h, and the nextest filter for the tests that reach it
+  work split TASKFILE --task ID --out PLAN [--root REPO]   Split one frozen large task into a first box (the shared interface) and parts along module edges whose file sets are pairwise disjoint, from the base checkout, its structure.toml modules, the context pack of the paths the task names and one planning call, written to PLAN as TOML; an overlapping answer is retried once naming the overlap, then exits 1; a tightly coupled task yields an interface and zero parts
   config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   config proxy role                              Print the proxy role table of harness/defaults.toml: what the proxy does itself and what it launches a worker for
   check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary

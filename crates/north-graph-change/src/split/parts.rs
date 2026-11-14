@@ -55,7 +55,7 @@ impl Split {
     }
 }
 
-fn manifest(path: &str) -> bool {
+pub(crate) fn manifest(path: &str) -> bool {
     path == LOCK || path.rsplit('/').next() == Some("Cargo.toml")
 }
 
@@ -140,7 +140,11 @@ impl<'p> Planned<'p> {
     fn depend(&self, part: &str, edit: &Edit, shared: &mut Shared, refused: &mut Vec<String>) {
         let Some(user) = self.crate_of(&edit.path) else { return };
         for symbol in &edit.uses {
-            for owner in self.owners(symbol).iter().filter_map(|file| self.crate_of(file)).filter(|owner| *owner != user && !self.base.sees(user, owner)) {
+            let owners: BTreeSet<&str> = self.owners(symbol).iter().filter_map(|file| self.crate_of(file)).collect();
+            if owners.iter().any(|owner| *owner == user || self.base.sees(user, owner)) {
+                continue;
+            }
+            for owner in owners {
                 if self.base.sees(owner, user) {
                     refused.push(format!("part {part} uses {} from {owner} in {}, but {owner} depends on {user}, so the dependency would be a cycle", symbol.shown(), edit.path));
                 } else {
@@ -174,10 +178,12 @@ impl<'p> Planned<'p> {
 
     fn closed(&self, edits: &[Edit]) -> BTreeSet<String> {
         let mut files: BTreeSet<String> = edits.iter().map(|edit| edit.path.clone()).filter(|path| !manifest(path)).collect();
-        for symbol in edits.iter().flat_map(|edit| &edit.changes) {
-            let defining = self.base.defining(symbol);
+        for (edit, symbol) in edits.iter().flat_map(|edit| edit.changes.iter().map(move |symbol| (edit, symbol))) {
+            let everywhere = self.base.defining(symbol);
+            let here: BTreeSet<String> = everywhere.iter().filter(|file| self.base.crate_of(file) == self.base.crate_of(&edit.path)).cloned().collect();
+            let defining = if here.is_empty() { everywhere } else { here };
             let owners: BTreeSet<&str> = defining.iter().filter_map(|file| self.base.crate_of(file)).collect();
-            let referring = self.base.referring(symbol);
+            let referring = self.base.referring(symbol, &defining);
             let reached = referring.into_iter().filter(|file| self.base.crate_of(file).is_some_and(|user| owners.iter().any(|owner| self.base.sees(user, owner))));
             files.extend(reached.chain(defining.iter().cloned()));
         }

@@ -6,11 +6,11 @@ use crate::timers::oneshot::{self, Ask};
 
 const PLANNING_LIMIT: Duration = Duration::from_secs(600);
 
-fn admits(repository: &str) -> bool {
+pub(super) fn admits(repository: &str) -> bool {
     crate::platform::orchestration::snapshot().is_ok_and(|policy| crate::pacing::placement::gate::public(repository, &policy))
 }
 
-fn ask(question: &Question) -> Result<Answer, String> {
+pub(super) fn ask(question: &Question) -> Result<Answer, String> {
     let Question { model, effort, system, input } = *question;
     let access = crate::cli::agents::claude_access();
     let measured = oneshot::ask_claude_measured(&Ask { model, effort, system, input }, PLANNING_LIMIT, &access, &mut |line| eprintln!("north graph split: {line}"))?;

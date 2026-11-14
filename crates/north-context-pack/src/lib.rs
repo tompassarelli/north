@@ -8,9 +8,13 @@ mod pack;
 mod placement;
 mod tests_reaching;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MOST_CHARACTERS: usize = 3_000;
+
+pub fn pack(root: &Path, paths: &[String]) -> String {
+    pack::render(root, paths, &[], MOST_CHARACTERS)
+}
 
 pub fn run(arguments: &[String]) -> u8 {
     let mut issues = Vec::new();

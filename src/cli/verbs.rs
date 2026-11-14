@@ -196,5 +196,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("work close", Bookkeeping),
     ("work release", Bookkeeping),
     ("work review", Diagnosis),
+    ("work split", Brief),
     ("work", Status),
 ]);

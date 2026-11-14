@@ -3,6 +3,7 @@ pub mod boxes;
 pub mod parts;
 pub mod plan;
 pub mod prompt;
+pub mod task;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

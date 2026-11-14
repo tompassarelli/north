@@ -157,7 +157,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("task", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
     ("gate", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
     ("work", |_, rest| match rest.first().map(String::as_str) {
-        Some("brief" | "review") => Command::Tool(Tool::Work, rest),
+        Some("brief" | "review" | "split") => Command::Tool(Tool::Work, rest),
         _ => Command::Work(rest),
     }),
     ("accounts", |_, rest| Command::Accounts(rest)),

@@ -123,6 +123,8 @@ fn overlap_keeps_disjoint_cones_apart_and_no_always_test_links_them_while_a_spli
     assert_eq!(found.always.into_iter().collect::<Vec<_>>(), vec![id("north-lander", "unrecorded")]);
     let tree = Tree(&["crates/a/src/lib.rs", "crates/a/src/x.rs", "crates/a/src/y.rs", "crates/a/src/z.rs"]);
     let answer = |y: &str| format!(r#"{{"parts": [{{"name": "x", "files": [{{"path": "crates/a/src/lib.rs"}}, {{"path": "crates/a/src/x.rs"}}]}}, {{"name": "y", "files": [{{"path": "{y}"}}, {{"path": "crates/a/src/y.rs"}}]}}, {{"name": "z", "files": [{{"path": "crates/a/src/z.rs"}}]}}]}}"#);
+    let shared = Plan::parse(&answer("crates/a/src/lib.rs")).unwrap().0;
+    assert_eq!(crate::split::task::overlaps(&shared, &tree).unwrap_err().line(), "parts x and y both name crates/a/src/lib.rs; each file belongs to exactly one part");
     let split = parts::split(&Plan::parse(&answer("crates/a/src/lib.rs")).unwrap().0, &tree).unwrap();
     let names: Vec<Vec<String>> = split.parts.iter().map(|part| part.names.clone()).collect();
     assert_eq!(names, vec![vec!["x".to_owned(), "y".to_owned()], vec!["z".to_owned()]]);
@@ -157,7 +159,7 @@ impl Base for Tree {
         std::collections::BTreeSet::new()
     }
 
-    fn referring(&self, _: &Symbol) -> std::collections::BTreeSet<String> {
+    fn referring(&self, _: &Symbol, _: &std::collections::BTreeSet<String>) -> std::collections::BTreeSet<String> {
         std::collections::BTreeSet::new()
     }
 }

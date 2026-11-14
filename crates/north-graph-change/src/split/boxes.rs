@@ -28,7 +28,7 @@ fn check(crates: &[&str]) -> String {
     format!("cargo clippy{packages} --all-targets -- -D warnings && cargo nextest run{packages}")
 }
 
-fn first(split: &Split, named: &Named) -> String {
+pub(crate) fn first(split: &Split, named: &Named) -> String {
     let shared = &split.shared;
     let stub = stub(named.id);
     let mut text = format!("- [ ] Split {}, first box (lands alone, before every part): lay the skeleton and nothing else. Files: {}.", named.id, listed(&shared.files));
@@ -47,7 +47,7 @@ fn first(split: &Split, named: &Named) -> String {
     text
 }
 
-fn part(index: usize, count: usize, part: &Part, named: &Named) -> String {
+pub(crate) fn part(index: usize, count: usize, part: &Part, named: &Named) -> String {
     let crates: Vec<&str> = part.crates.iter().map(String::as_str).collect();
     let summary = part.summaries.iter().filter(|summary| !summary.is_empty()).cloned().collect::<Vec<_>>().join(" ");
     format!(

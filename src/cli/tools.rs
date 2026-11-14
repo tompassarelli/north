@@ -2,6 +2,7 @@ use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
 use self::graph::graph;
+use self::work_split::work_split;
 use self::subverbs::{Run, code_health, home, lane, land, ledger_verb, ops, runner, runtime};
 pub(super) use self::subverbs::ledger_runner;
 use crate::timers::{self, Timer};
@@ -12,6 +13,7 @@ use crate::{
 
 mod graph;
 mod subverbs;
+mod work_split;
 
 struct HostLedger;
 
@@ -269,6 +271,7 @@ fn work(arguments: &[String]) -> u8 {
             Some((noun, paths)) if noun == "pack" => north_context_pack::run(paths),
             _ => crate::guard::brief_skeleton::run(rest),
         },
+        Some((verb, rest)) if verb == "split" => work_split(rest),
         Some((_, rest)) => review_items(rest),
         None => 2,
     }

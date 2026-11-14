@@ -18,7 +18,7 @@ pub trait Base {
     fn manifest_of(&self, name: &str) -> Option<String>;
     fn sees(&self, user: &str, owner: &str) -> bool;
     fn defining(&self, symbol: &Symbol) -> BTreeSet<String>;
-    fn referring(&self, symbol: &Symbol) -> BTreeSet<String>;
+    fn referring(&self, symbol: &Symbol, defining: &BTreeSet<String>) -> BTreeSet<String>;
 }
 
 pub struct Tree {
@@ -95,6 +95,15 @@ impl Tree {
         files
     }
 
+    fn module_word(&self, file: &str) -> Option<String> {
+        let path = Path::new(file);
+        match path.file_stem()?.to_str()? {
+            "lib" | "main" => self.crate_of(file).map(|name| name.replace('-', "_")),
+            "mod" => path.parent()?.file_name()?.to_str().map(str::to_owned),
+            stem => Some(stem.to_owned()),
+        }
+    }
+
     fn owned(&self, symbol: &Symbol, files: BTreeSet<String>) -> BTreeSet<String> {
         match &symbol.owner {
             Some(owner) => files.intersection(&self.mentioning(owner)).cloned().collect(),
@@ -137,8 +146,16 @@ impl Base for Tree {
         self.owned(symbol, self.grep(&["-E", "-e", &pattern]))
     }
 
-    fn referring(&self, symbol: &Symbol) -> BTreeSet<String> {
-        self.owned(symbol, self.grep(&["-w", "-F", "-e", &symbol.name]))
+    fn referring(&self, symbol: &Symbol, defining: &BTreeSet<String>) -> BTreeSet<String> {
+        let mut reaching = defining.clone();
+        for file in defining {
+            let module = file.strip_suffix("/mod.rs").or_else(|| file.strip_suffix(".rs")).unwrap_or(file);
+            reaching.extend(self.paths.iter().filter(|path| path.strip_prefix(module).is_some_and(|rest| rest.starts_with('/'))).cloned());
+            if let Some(word) = self.module_word(file) {
+                reaching.extend(self.mentioning(&word));
+            }
+        }
+        self.owned(symbol, self.grep(&["-w", "-F", "-e", &symbol.name])).into_iter().filter(|file| reaching.contains(file)).collect()
     }
 }
 
