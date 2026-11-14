@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Gatherer, default_number, default_text};
+use super::{Gatherer, default_number};
 use crate::detectors::followed_source::{self, Facts, Moved, Reading, Source};
 use crate::flow::write_atomic;
 
@@ -80,14 +80,13 @@ impl Gatherer<'_> {
     }
 
     pub fn followed_sources(&self, now: f64) -> Facts {
-        let owner = Some(default_text("detector_followed_source_owner"));
-        let Ok(text) = fs::read_to_string(self.places.checkout(SOURCE_REPO).join(WATCH_TOML)) else { return Facts { owner, readings: Vec::new() } };
+        let Ok(text) = fs::read_to_string(self.places.checkout(SOURCE_REPO).join(WATCH_TOML)) else { return Facts { readings: Vec::new() } };
         let path = self.places.flow().join(READINGS);
         let mut saved: BTreeMap<String, Read> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
         let readings = followed_source::sources(&text).into_iter().filter_map(|source| Some(Reading { moved: self.source_read(&source, &mut saved, now)?, source })).collect();
         if self.profiling {
             self.save_source_reads(&path, &saved);
         }
-        Facts { owner, readings }
+        Facts { readings }
     }
 }

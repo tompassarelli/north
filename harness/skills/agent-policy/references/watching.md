@@ -8,7 +8,7 @@ each has a cited entry in docs/references.md.
 
 ## When a source comes due
 
-The `followed-source` detector (`north ledger flow detect`) files one box on `detector_followed_source_owner` per source and last reviewed commit when the source is due: 30 days after its `last_reviewed` once its followed path has new non-merge commits, or at 10 of them, and `cadence = "monthly"` drops the 10-commit trigger. The box names the source and the `record` its entry in `south:agents/watch.toml` points to, which the cycle starts from; the box stays filed until step 7 moves `last_commit`. The daily `north watch-review` timer launches only a session per held `[[recheck]]` entry whose date has come; that session runs the cycle below for the recheck.
+The `followed-source` detector (`north ledger flow detect`) files one issue of its own per source and last reviewed commit when the source is due, holding one box: 30 days after its `last_reviewed` once its followed path has new non-merge commits, or at 10 of them, and `cadence = "monthly"` drops the 10-commit trigger. The box names the source and the `record` its entry in `south:agents/watch.toml` points to, which the cycle starts from; the issue stays open until step 7 moves `last_commit` and the cycle's landing ticks its box, and a later reading while it is open is commented there. The daily `north watch-review` timer launches only a session per held `[[recheck]]` entry whose date has come; that session runs the cycle below for the recheck.
 
 ## One cycle per source
 

@@ -23,9 +23,9 @@ impl Detector {
     pub const ALL: [Self; 15] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck, Self::CrateHeadroom, Self::MachineFix, Self::MachineRefusal, Self::SkillReview, Self::CodeHealthReview, Self::FollowedSource, Self::MechanismDiscovery];
 
     /// Whether the detector files each finding as an issue of its own rather than as a box on a standing owner: the
-    /// daily mechanism-discovery turn, so no issue has to stay open to hold it.
+    /// daily mechanism-discovery turn and a due followed source, so no issue has to stay open to hold them.
     pub fn files_own_issue(self) -> bool {
-        matches!(self, Self::MechanismDiscovery)
+        matches!(self, Self::MechanismDiscovery | Self::FollowedSource)
     }
 
     pub fn name(self) -> &'static str {

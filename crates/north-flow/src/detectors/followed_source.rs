@@ -39,7 +39,6 @@ pub struct Reading {
 
 #[derive(Default)]
 pub struct Facts {
-    pub owner: Option<String>,
     pub readings: Vec<Reading>,
 }
 
@@ -96,7 +95,7 @@ pub fn due(facts: &Facts, now: f64) -> Vec<Finding> {
             Finding {
                 detector: Detector::FollowedSource,
                 key: format!("followed-source:{id}:{last}"),
-                owner: facts.owner.clone(),
+                owner: None,
                 title: format!("Review the followed source {id}"),
                 detail: format!(
                     "{} new commits on {path} of {} since {last}, reviewed {}, head {}. Run one cycle of harness/skills/agent-policy/references/watching.md for it. {start}",
@@ -164,8 +163,9 @@ mod tests {
         assert!(!is_due(&source(Cadence::Monthly), &moved, day("2026-11-10")));
         assert!(is_due(&source(Cadence::Monthly), &moved, day("2026-12-05")));
         assert!(is_due(&source(Cadence::Busy), &moved, day("2026-11-10")));
-        let found = due(&Facts { owner: Some("north#1012".into()), readings: vec![Reading { source: source(Cadence::Busy), moved }] }, 1_794_000_000.0);
+        let found = due(&Facts { readings: vec![Reading { source: source(Cadence::Busy), moved }] }, 1_794_000_000.0);
         assert_eq!(found.len(), 1);
+        assert!(found[0].owner.is_none() && found[0].detector.files_own_issue(), "a due source is filed as an issue of its own, never on a standing owner");
         assert!(found[0].detail.contains("Start from its record `docs/rationale/watch/2026-11-05-notes.md`"));
     }
 }
