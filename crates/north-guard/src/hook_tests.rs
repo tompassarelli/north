@@ -231,6 +231,8 @@ fn an_accepted_finish_call_ends_the_turn_and_a_refused_one_returns_to_the_model(
     assert!(ended.get("decision").is_none(), "an accepted finish is no refusal: {ended}");
     let refused = json!({"error": "finish: ✗ the check `true` exited 1; NOT committed, NOT queued.", "is_interrupt": false});
     assert_eq!(dispatch("PostToolUseFailure", "mcp__north__finish", refused), None, "a refused finish must reach the model");
+    let refused_as_result = json!({"tool_response": [{"type": "text", "text": "north worker-sandbox broker: refused: evalA-lg-settled-outcomes-r1 launched in /tmp/north-assessment/evals/work/lg5/p/worktrees/worker, which is in no project of this host\nfinish: ✗ the check `cargo test` did not start: refused; NOT committed, NOT queued; the attempt is kept in /l/.git/attempt"}]});
+    assert_eq!(dispatch("PostToolUse", "mcp__north__finish", refused_as_result), None, "a refused finish Claude Code hands to PostToolUse ended the turn with nothing queued and no refusal reported");
     assert!(dispatch("PostToolUse", "mcp__north__hand-in", accepted).is_none_or(|output| output["continue"] != false), "only the finish call ends the turn");
 }
 
