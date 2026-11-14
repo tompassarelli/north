@@ -84,6 +84,13 @@ pub(super) fn open_writable(source: &Source, refresh: &dyn Fn()) -> Result<Conne
     Ok(db)
 }
 
+pub(super) fn open_for_publish(source: &Source, refresh: &dyn Fn()) -> Result<Connection, String> {
+    if source.snapshot {
+        return Connection::open_in_memory().map_err(|error| error.to_string());
+    }
+    open_writable(source, refresh)
+}
+
 fn snapshot_copy(path: &Path) -> Result<Connection, String> {
     let fail = |error: rusqlite::Error| error.to_string();
     let immutable = path.file_name().is_some_and(|name| name == "snapshot.db");

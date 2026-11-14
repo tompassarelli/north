@@ -195,7 +195,11 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let source = store::Source::locate(&home, std::env::var_os("THREADS_DB"));
     let places = Places::from_env();
-    let open = if action.writes() { store::open_writable } else { store::open };
+    let open = match action {
+        Action::Sample => store::open_for_publish,
+        _ if action.writes() => store::open_writable,
+        _ => store::open,
+    };
     let outcome = open(&source, host.refresh_snapshot).and_then(|db| action.perform(&db, &source, &places, host));
     match outcome {
         Ok((text, code)) => {
