@@ -1,6 +1,6 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::fold::{Admit, Condition, Route, admit_via, told};
-use crate::fleet::model::{Delivery, Status};
+use crate::fleet::model::{Delivery, Phase, Status};
 use crate::fleet::runtime::{PROXY, new_uuid, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind, SessionRow, Spool, cached_sessions};
@@ -77,6 +77,9 @@ impl Fleet {
 
     fn deliver_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         if self.session_dir(name)?.exists() {
+            if self.record(name).is_ok_and(|record| record.phase() == Some(Phase::HostLost)) {
+                return Err(NorthError::Refused(format!("{name} ended: its host exited with no stop; `north fleet revive {name}` starts it again")));
+            }
             return self.hand_in_signed(from, name, text, delivery);
         }
         if let Some(heir) = self.heir(name)? {

@@ -185,13 +185,17 @@ pub enum Aftermath {
     Quiet,
     Revive,
     Reported,
+    Lost,
 }
 
 pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &HostDeath, now_ms: u64) -> NorthResult<Aftermath> {
     let child = death.child;
     let restarted = child.host_pid != Some(death.host_pid);
-    if child.ended() || restarted || !death.mid_task {
+    if child.ended() || restarted {
         return Ok(Aftermath::Quiet);
+    }
+    if !death.mid_task {
+        return Ok(Aftermath::Lost);
     }
     if child.revived_mid_task_ms.is_none_or(|at| now_ms.saturating_sub(at) >= MID_TASK_REVIVE_WINDOW_MS) {
         return Ok(Aftermath::Revive);
@@ -203,6 +207,18 @@ pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &Host
     let text = format!("[from {} · host {} exited mid-task again within the hour of its revive] {}", child.name, death.host_pid, last_lines(death.lines));
     courier.notify(parent, text, Delivery::Now);
     Ok(Aftermath::Reported)
+}
+
+/// Tells the parent of a session whose host exited with no stop that the session is ended, once per host.
+pub fn report_lost(book: &dyn ReceiptBook, courier: &dyn Courier, death: &HostDeath, now_ms: u64) -> NorthResult<()> {
+    let child = death.child;
+    let Some(parent) = child.parent.as_deref() else { return Ok(()) };
+    if !book.claim_receipt(&child.name, &format!("host-lost:{}", death.host_pid), now_ms)? {
+        return Ok(());
+    }
+    let text = format!("[from {} · host {} exited with no stop, so the session is ended; `north fleet revive {}` starts it again] {}", child.name, death.host_pid, child.name, last_lines(death.lines));
+    courier.notify(parent, text, Delivery::Now);
+    Ok(())
 }
 
 pub(super) fn last_lines(lines: &[Entry]) -> String {
@@ -260,7 +276,7 @@ mod tests {
         let death = |child: &SessionRecord, mid_task, now| deliver_death(&book, &inbox, &HostDeath { child, host_pid: 41, mid_task, lines: &lines(2) }, now).unwrap();
         assert_eq!(death(&child(true, Some(41), None), true, 9), Aftermath::Quiet, "a stopped child was ended on purpose");
         assert_eq!(death(&child(false, Some(42), None), true, 9), Aftermath::Quiet, "a restarted child has a new host and its own watchdog");
-        assert_eq!(death(&child(false, Some(41), None), false, 9), Aftermath::Quiet, "a child that died idle had already reported");
+        assert_eq!(death(&child(false, Some(41), None), false, 9), Aftermath::Lost, "a child that died idle with no stop is ended and its parent told");
         assert_eq!(death(&child(false, Some(41), None), true, 9), Aftermath::Revive, "north-743..746-d0351 waited for a hand revive");
         assert_eq!(death(&child(false, Some(41), Some(1)), true, hour + 1), Aftermath::Revive, "a revive over an hour ago does not count");
         let crashing = child(false, Some(41), Some(1));
