@@ -1,7 +1,7 @@
 //! Folds a service's messages of one condition into one message per episode: the first message of a
 //! condition reaches its recipient, while a repeat of it within the window and a notice that it cleared
-//! or recovered are held for the digest (`held.rs`), except a health unit's one recovered line, the
-//! clearing ending the episode. A service names its condition with a key (`north fleet send --key`), and
+//! or recovered are held for the digest (`held.rs`), except a health unit's one recovered line and a land-watch
+//! page's cleared notice that the grid or the hand-ins answer again, the clearing ending the episode. A service names its condition with a key (`north fleet send --key`), and
 //! a new text key under it opens a new episode; an alarm service that names none is keyed by its cause,
 //! the alarm's first sentence with its numbers and commit-shaped tokens blanked, after the ops watch's
 //! `still, N min:` prefix, so a re-sent alarm whose load, age, count, runtime sha or canary session id
@@ -117,7 +117,7 @@ fn fold(root: &Path, sender: &Sender, to: &str, text: &str, condition: Option<&C
     sent.retain(|_, at| now_ms.saturating_sub(*at) < WINDOW_MS);
     let pages = to != crate::runtime::PROXY || unit.is_none() || crate::page::wakes(sender, text);
     let admitted = match cause {
-        Cause::Cleared(cause) => cleared(&mut sent, &format!("{slot}\t{cause}"), condition.is_some(), pages && unit == Some("north-health") && text.starts_with(HARNESS_UNIT)),
+        Cause::Cleared(cause) => cleared(&mut sent, &format!("{slot}\t{cause}"), condition.is_some(), pages && ((unit == Some("north-health") && text.starts_with(HARNESS_UNIT)) || crate::page::clear_wakes(sender, text))),
         Cause::Raised(_) if !pages => Admit::Hold,
         Cause::Raised(cause) => raised(&mut sent, &slot, &cause, condition.is_some(), now_ms),
     };

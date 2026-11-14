@@ -359,6 +359,10 @@ mod tests {
         assert_eq!(alarm(&service("north-health"), "health: ci: recovered"), Admit::Hold, "a recovered check waits for the digest");
         assert_eq!(alarm(&service("north-lease-reaper"), "lease reaper: evicted slot gex45-3"), Admit::Hold, "an eviction waits for the digest");
         assert_eq!(alarm(&service("north-capacity-watchdog"), "watchdog: host overload, load 99.1 (4.1/core)"), Admit::Hold, "an overload waits for the digest");
+        let grid = "north ops watch: north grid: no ready remote-execution worker on gex45 for 64 s, all 4 slots failing their readiness check: Failed to run cleaning command: exit status 1";
+        assert_eq!(alarm(&service("north-land-watch@gex45"), grid), Admit::Send, "north#1036: a grid with no ready worker pages now");
+        assert_eq!(alarm(&service("north-land-watch@gex45"), &grid.replace("watch: north grid", "watch: cleared after 9 min: north grid")), Admit::Send, "and so does its cleared notice");
+        assert_eq!(alarm(&service("north-land-watch"), "north ops watch: north land: no verdict for 2 min from any hand-in or after-landing run, 2 of them without one; newest: hand-in h2-gex45 (burnb2-h2-gex45): the checks before queueing reached no verdict 3 times"), Admit::Send, "north#1036: hand-ins without a verdict page now");
 
         let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
         let report = |turn, reply: &str| Report { child: "kid".into(), turn, exit: TurnExit::Completed, landed: None, reply: Some(reply.into()), waiting: false };

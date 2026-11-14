@@ -9,8 +9,10 @@ use serde_json::Value;
 
 pub mod facts;
 pub(crate) mod github;
+mod grid;
 mod landing;
 pub mod sink;
+mod verdicts;
 
 pub use facts::{Event, RepoFacts, Run, StageSample};
 
@@ -57,6 +59,8 @@ pub struct WatchContext {
     pub events: Vec<Event>,
     pub stages: Vec<StageSample>,
     pub live: BTreeSet<u32>,
+    pub grid: grid::Grid,
+    pub outcomes: Vec<verdicts::Outcome>,
     pub repos: Vec<RepoFacts>,
     pub settle: Option<Value>,
     pub follow: Option<Follow>,
@@ -66,7 +70,7 @@ pub struct WatchContext {
 
 pub type Probe = fn(&WatchContext) -> Vec<Alert>;
 
-pub const PROBES: &[(&str, Probe)] = &[("landing", landing::probe), ("github", github::probe)];
+pub const PROBES: &[(&str, Probe)] = &[("landing", landing::probe), ("github", github::probe), ("grid", grid::probe), ("verdicts", verdicts::probe)];
 
 pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())

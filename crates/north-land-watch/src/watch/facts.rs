@@ -82,6 +82,8 @@ pub fn gather(state: &Path) -> WatchContext {
         events,
         stages: read_stages(&state.join("safe-push/stages.tsv")),
         live: live_safe_pushes(),
+        grid: super::grid::gather(),
+        outcomes: super::verdicts::gather(state),
         repos,
         settle,
         follow,
