@@ -204,15 +204,11 @@ fn ported_cases_match_the_shell_guard() {
         .unwrap();
     let root = directory.path().display().to_string();
     sandbox(&root);
-    let unclassified = tempfile::Builder::new()
-        .prefix("tripwire-unclassified.")
-        .tempdir_in("/dev/shm")
-        .unwrap();
     let mut failures = Vec::new();
     let mut count = 0;
     for line in CASES.lines() {
         let case: Value = serde_json::from_str(
-            &line.replace("@UNCLASSIFIED@", &unclassified.path().display().to_string()),
+            &line.replace("@UNCLASSIFIED@", "/dev/shm"),
         )
         .unwrap();
         let (want, got) = (expected(&root, &case), verdict(&root, &case, false));
