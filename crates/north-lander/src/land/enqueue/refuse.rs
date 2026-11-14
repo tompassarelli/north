@@ -64,10 +64,10 @@ pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home:
 
 fn judge_lane_gates(diff: &DiffOnly<'_>) -> Result<Option<String>, String> {
     let (root, base, head) = (diff.root, diff.base, diff.head);
-    match refuse_lane_gates(root, base, head, diff.environment.state_home, diff.ledger.clone(), &crate::dep_gate::PublicRegistries)? {
-        Ok(()) => Ok(git(root, &["status", "--porcelain"]).is_ok_and(|status| status.is_empty()).then(|| merge_base(root, base, head))),
-        Err((gates, detail)) => diff.judged(&gates, Err(detail)).map(|()| None),
+    if let Err((gates, detail)) = refuse_lane_gates(root, base, head, diff.environment.state_home, diff.ledger.clone(), &crate::dep_gate::PublicRegistries)? {
+        diff.judged(&gates, Err(detail))?;
     }
+    Ok(git(root, &["status", "--porcelain"]).is_ok_and(|status| status.is_empty()).then(|| merge_base(root, base, head)))
 }
 
 fn driver_merged<'a>(root: &Path, paths: &[&'a str]) -> Result<Vec<&'a str>, String> {

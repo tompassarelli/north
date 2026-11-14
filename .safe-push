@@ -90,6 +90,7 @@
 	after-only = it plants a fault in a scratch copy of the landed main and checks buck2 test, clippy and the portable skill check still catch it, which judges the gates, not a lane :: .github/workflows/canary.yml:rust
 	after-only = it plants a fault in a scratch copy of the landed main and checks the harness tests still catch it, which judges the gates, not a lane :: .github/workflows/canary.yml:harness
 	after-only = it runs every Buck2 test and the clippy gate of the workspace on a clean runner with no store and no remote execution, where the changed crates' tests and clippy run before it lands as land checks :: .github/workflows/buck2.yml:test
+	after-only = it reports the tree's Rust line-budget excess on its issue and refuses no lane for size :: ./bin/land-shell --dev -- north code-health budget --json | CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ code-health over-budget
 	after-only = it runs every shell and Python harness test on a clean runner, where the changed ones run as the machine-bound land tests on the lander :: .github/workflows/harness.yml:test
 [test-admission]
 	contract = file-or-wire-format :: a format another program or a past north writes or reads: ledgers, trailers, transcripts, the GitHub and Claude APIs, git output
