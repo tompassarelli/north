@@ -404,7 +404,7 @@ pub(crate) fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
 }
 
 #[test]
-fn a_red_fix_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots() {
+fn a_red_main_fix_takes_the_reserved_slot_beside_a_held_one_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots() {
     let landing = "SAFE_PUSH_LANDING='1'";
     let order = order_through_one_slot(&[
         Queued { label: "sweep", name: "code-p-main", carried: "", red_fix: "", owner: "", urgent: "", hold: true, class: super::SlotClass::Background },
@@ -417,7 +417,7 @@ fn a_red_fix_then_a_lander_placed_hand_in_takes_the_first_freed_slot_ahead_of_ea
         Queued { label: "after", name: "code-p-main", carried: "SAFE_PUSH_LANDING='after'", red_fix: "", owner: "land-check", urgent: "", hold: false, class: super::SlotClass::LandCheck },
     ]);
     let foreground: Vec<&str> = order.iter().map(String::as_str).filter(|event| *event != "start-sweep").collect();
-    assert_eq!(foreground, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-after", "end-after", "start-worker", "end-worker", "start-forged-land", "end-forged-land", "start-forged", "end-forged", "end-sweep"], "the red fix took the slot first, the lander's hand-in land check next and its after-landing job queued after it at the same rank after that, which leaves the lander's first-in-line rank to its pre-push checks, then the worker builds in arrival order with the hand-in word that carries no lander owner among them, and the sweep outlasted them all");
+    assert_eq!(foreground, ["start-holder", "start-red-fix", "end-red-fix", "end-holder", "start-land", "end-land", "start-after", "end-after", "start-worker", "end-worker", "start-forged-land", "end-forged-land", "start-forged", "end-forged", "end-sweep"], "the red fix took the reserved slot beside the holder at once, the lander's hand-in land check next and its after-landing job queued after it at the same rank after that, which leaves the lander's first-in-line rank to its pre-push checks, then the worker builds in arrival order with the hand-in word that carries no lander owner among them, and the sweep outlasted them all");
     let at = |event: &str| order.iter().position(|seen| seen == event);
     assert!(at("start-sweep") < at("end-holder"), "the sweep ran in its own slot beside the holder, outside the one-job cap: {order:?}");
     let urgent = order_through_one_slot(&[
