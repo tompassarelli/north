@@ -1,10 +1,10 @@
 use super::config::{Config, Kind, Thresholds, at_rev};
 use super::functions::{Function, SourceText, measure};
 use super::graph::{component_of, fan, layer_violation, module_graph, sccs};
-use super::history::{allows, churn_at};
+use super::history::{allows, churn_at, reverted_shas};
 use super::report::{hand_of, hotspots_of, import_graph, inventory};
 use super::resolver::Resolver;
-use super::snapshot::{Snapshot, git, line_count};
+use super::snapshot::{Snapshot, git, git_ok, line_count};
 use super::state::State;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -248,7 +248,19 @@ pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_
     v.extend(super::implicit::debt(&mut hs, override_path, &head_files, &base_as_head)?);
     let allowed = allows(repo, &[&format!("{base}..{head}")])?;
     v.retain(|x| !(["function", "hotspot", super::implicit::RULE].contains(&x.rule.as_str()) && allowed.iter().any(|a| a.rule == x.rule && a.path == x.path)));
+    let restored = restored(state, repo, base, head, override_path)?;
+    v.retain(|x| !restored.contains(&(x.rule.clone(), x.path.clone())));
     Ok(GateResult { violations: v, warnings, metrics, warning: None })
+}
+
+fn restored(state: &State, repo: &Path, base: &str, head: &str, override_path: Option<&Path>) -> Result<HashSet<(String, String)>, String> {
+    let bodies = git(repo, &["log", "--format=%B%x1e", &format!("{base}..{head}")])?;
+    let mut out = HashSet::new();
+    for sha in bodies.split('\x1e').flat_map(reverted_shas) {
+        let Some(parent) = git_ok(repo, &["rev-parse", "--verify", "--quiet", &format!("{sha}^")]) else { continue };
+        out.extend(gate(state, repo, &sha, parent.trim(), override_path)?.violations.into_iter().map(|x| (x.rule, x.path)));
+    }
+    Ok(out)
 }
 
 fn generated_debt(config: &Config, base_config: &Config, hs: &Snapshot, bs: &Snapshot) -> Vec<Violation> {

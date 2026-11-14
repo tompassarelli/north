@@ -117,3 +117,17 @@ fn the_hotspot_ranking_is_the_same_whatever_baseline_file_a_host_holds() {
     assert_eq!(without_b, with_b);
     assert!(without_b.is_empty(), "{without_b:?}");
 }
+
+#[test]
+fn a_revert_that_restores_debt_its_commit_removed_is_not_new_debt() {
+    let repo = Repo::new();
+    let nested = "pub fn f(a: bool, b: bool) -> u8 {\n    if a {\n        if b { 1 } else { 2 }\n    } else {\n        0\n    }\n}\n";
+    repo.commit(&[("structure.toml", "[thresholds]\nfunction_complexity = 2\n".to_owned()), ("src/a.rs", nested.to_owned())]);
+    let fixed = repo.commit(&[("src/a.rs", "pub fn f(_: bool, _: bool) -> u8 {\n    0\n}\n".to_owned())]);
+    let base = repo.commit(&[("src/b.rs", "pub const B: u8 = 1;\n".to_owned())]);
+    repo.git(&["revert", "--no-edit", &fixed]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    assert_ne!(head, base);
+    let violations: Vec<String> = repo.gate(&base, &head).violations.iter().map(|violation| violation.shown()).collect();
+    assert!(violations.is_empty(), "{violations:?}");
+}
