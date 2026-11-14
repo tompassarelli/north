@@ -1,4 +1,4 @@
-//! North's own stores under the state directory, pruned on the disk pass because a worker sandbox cannot write there: land-queue logs older than `LOG_RETENTION`, and the runtimes past the newest `RUNTIMES_KEPT` that no link, live process or lease needs.
+//! North's own stores under the state directory, pruned on the disk pass because a worker sandbox cannot write there: land-queue logs older than `LOG_RETENTION`, and the runtimes past the newest `RUNTIMES_KEPT` that no link, live process or lease needs, on a host that is a runtime source only, because a lander ships checks that run its own runtime on other hosts where no link, process or lease names it.
 
 use std::fs;
 use std::path::Path;
@@ -12,10 +12,13 @@ const LOG_RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// A guess; how far back a promotion rollback reaches settles it.
 const RUNTIMES_KEPT: usize = 10;
 
-pub fn prune(state_home: &Path, proc_root: &Path, now: SystemTime) {
+pub fn prune(state_home: &Path, proc_root: &Path, now: SystemTime, runtimes: bool) {
     let logs = prune_logs(state_home, now);
     if logs > 0 {
         eprintln!("north capacity: removed {logs} land-queue logs older than {} days", LOG_RETENTION.as_secs() / 86_400);
+    }
+    if !runtimes {
+        return;
     }
     let layout = Layout { state: state_home.join("north") };
     match collection::prune(&layout, proc_root, RUNTIMES_KEPT) {

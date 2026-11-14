@@ -264,7 +264,7 @@ fn own_stores_prune_keeps_the_pinned_the_leased_and_the_running_runtime_and_dele
     File::create(queue.join("old.log")).unwrap().set_modified(now() - Duration::from_secs(8 * 86_400)).unwrap();
     File::create(queue.join("new.log")).unwrap().set_modified(now() - Duration::from_secs(86_400)).unwrap();
 
-    own_stores::prune(home.path(), &processes, now());
+    own_stores::prune(home.path(), &processes, now(), true);
 
     for survivor in [0, 1, 2, 6, 15] {
         assert!(runtimes.join(sha(survivor)).is_dir(), "runtime {survivor} was deleted");
