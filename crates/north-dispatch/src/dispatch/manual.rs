@@ -211,7 +211,6 @@ impl Start {
 
 pub fn begin(ask: &Ask, issue: Result<(String, f64), String>) -> Result<Start, String> {
     let cfg = placement::config()?;
-    let history = History::new(&record::read(&record::directory()));
     let (body, created) = if IssueRef::parse(ask.item).is_none() {
         (String::new(), 0.0)
     } else {
@@ -221,10 +220,14 @@ pub fn begin(ask: &Ask, issue: Result<(String, f64), String>) -> Result<Start, S
         })
     };
     let category = facets::settled(facets::declared_in(ask.brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase(), &format!("{}\n{body}", ask.brief));
-    let mut notes = Vec::new();
-    let ledger = survey::evidence(&[category.as_str()], &mut notes);
-    let grounds = grounds::Ledger::recorded(&mut notes);
-    let needs = IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, facets::declared_in(ask.brief, "Box"), placement::now(), &mut notes)).unwrap_or_default();
+    let (history, (ledger, mut notes), (grounds, grounds_notes), (needs, needs_notes)) = std::thread::scope(|scope| {
+        let history = scope.spawn(|| History::new(&record::read(&record::directory())));
+        let ledger = scope.spawn(|| noted(|notes| survey::evidence(&[category.as_str()], notes)));
+        let grounds = scope.spawn(|| noted(grounds::Ledger::recorded));
+        let needs = noted(|notes| IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, facets::declared_in(ask.brief, "Box"), placement::now(), notes)).unwrap_or_default());
+        (joined(history), joined(ledger), joined(grounds), needs)
+    });
+    notes.extend(grounds_notes.into_iter().chain(needs_notes));
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
     start(ask, &body, &cfg, &history, &ledger, &|route, family| grounds.grounds(ask.item, created, &body, route, family)).map(|start| Start { needs, ..start })
 }
@@ -264,4 +267,13 @@ pub fn untasked(brief: &str, model: Option<&str>, reason: Option<&str>) -> Resul
         (None, true) => Err("this worker launch names no issue, no `Category:` or `Tier:` line and no --model, so no tier can be picked for it; add a `Category:` line to the brief header, or name the issue (`--task` or an `Item:` line)".to_owned()),
         (None, false) => Ok(false),
     }
+}
+
+fn noted<T>(read: impl FnOnce(&mut Vec<String>) -> T) -> (T, Vec<String>) {
+    let mut notes = Vec::new();
+    (read(&mut notes), notes)
+}
+
+fn joined<T>(thread: std::thread::ScopedJoinHandle<'_, T>) -> T {
+    thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }

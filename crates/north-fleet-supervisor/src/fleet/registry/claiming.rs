@@ -29,8 +29,12 @@ type Early = Option<NorthResult<OpenedHost>>;
 type ClaimGate<'a> = Box<dyn FnOnce() -> NorthResult<()> + 'a>;
 
 impl Fleet {
-    /// Claims every task of a launch before its session starts: a live holder refuses it. A `--test` session claims nothing.
+    /// Claims every task of a launch before its session starts, first clearing any claim an exited session left on them: a live holder refuses it. A `--test` session claims nothing. It runs beside the host start, after the session is registered.
     pub(super) fn claim_before_start(&self, request: &LaunchRequest, tasks: &[String], verification: bool) -> NorthResult<()> {
+        let items = request.tasks();
+        if let Err(error) = self.release_exited_claims_on(&items) {
+            eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, items.join(" "), error.user_message());
+        }
         if verification {
             return Ok(());
         }

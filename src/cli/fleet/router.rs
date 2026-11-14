@@ -282,10 +282,6 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     if let Some(prompt) = super::agent_root::for_machine(&request.prompt, request.machine.as_ref()) {
         request.prompt = prompt;
     }
-    let tasks = request.tasks();
-    if let Err(error) = fleet.release_exited_claims_on(&tasks) {
-        eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, tasks.join(" "), error.user_message());
-    }
     let record = if take_over { fleet.take_over(&request) } else { fleet.launch(&request) }.inspect_err(|error| failed_to_start(&request.name, error))?;
     tier::recorded(started, &request, &record.name);
     trace_launch(fleet, &record, placing_ms, placed_ms);

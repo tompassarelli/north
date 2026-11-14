@@ -204,8 +204,9 @@ fn two_launches_at_once_one_with_a_120_character_name_record_their_hosts_live_be
     assert!(answered, "a session never answered its first turn: {shown:?}");
 }
 
+/// On 2026-11-14 the launch work before registration took 1.2 s of a one-worker launch, the exited-claims release among it: it asks who holds the task only once the session is registered.
 #[test]
-fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task() {
+fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task_and_asks_only_after_its_session_is_registered() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "fold");
@@ -214,7 +215,8 @@ fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task
     fs::create_dir_all(root.join(".local/state/threads")).unwrap();
     fs::copy(root.join("threads.db"), root.join(".local/state/threads/snapshot.db")).unwrap();
     executable(&root.join("bin/north"), &format!("exec {} \"$@\"\n", crate::support::bin_exe!("CARGO_BIN_EXE_north")));
-    executable(&root.join("bin/ssh"), &format!("for word; do command=$word; done\ncase $command in *holder*) sleep 3;; esac\nTHREADS_DB={} exec sh -c \"$command\"\n", root.join("threads.db").display()));
+    let (session, saw) = (root.join(".local/state/north/fleet/narrow"), root.join("holder-saw"));
+    executable(&root.join("bin/ssh"), &format!("for word; do command=$word; done\ncase $command in *holder*) if [ -d {session} ]; then echo registered >> {saw}; else echo unregistered >> {saw}; fi; sleep 3;; esac\nTHREADS_DB={db} exec sh -c \"$command\"\n", session = session.display(), saw = saw.display(), db = root.join("threads.db").display()));
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
@@ -223,10 +225,12 @@ fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task
     let launched = far_ledger(&["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
     let listed = text(&north(root, &["fleet", "list"]).stdout);
     north(root, &["fleet", "forget", "narrow"]);
+    let asked = fs::read_to_string(&saw).unwrap_or_default();
 
     assert!(launched.status.success(), "{}", text(&launched.stderr));
     assert!(text(&launched.stderr).contains("narrow launches with its holder check left to its claim, because the ledger did not say who holds makgora#4"), "{}", text(&launched.stderr));
     assert!(listed.contains("narrow"), "{listed}");
+    assert!(!asked.is_empty() && asked.lines().all(|line| line == "registered"), "the launch asked who holds its task before its session was registered: {asked:?}");
 }
 
 #[test]

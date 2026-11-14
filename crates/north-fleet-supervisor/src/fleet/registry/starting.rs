@@ -73,7 +73,7 @@ impl Fleet {
     pub(super) fn go_live_claimed(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, opened: OpenedHost, claimed: impl FnOnce() -> NorthResult<()>) -> NorthResult<()> {
         let live = self.record_live(record, opened)?;
         if let Err(error) = claimed() {
-            live.abandon()?;
+            self.refuse_live(record, live)?;
             return Err(error);
         }
         self.open_conversation(record, opening, hooks, live)
@@ -104,10 +104,16 @@ impl Fleet {
         Ok(LiveHost { runtime, instructions, changed, host_dir, host, started })
     }
 
+    /// Ends a host recorded live whose claims or hooks verdict refused the launch, and moves its phase off live, so the lifecycle store keeps no live launch whose directory the launch then discards.
+    fn refuse_live(&self, record: &SessionRecord, live: LiveHost) -> NorthResult<()> {
+        live.abandon()?;
+        self.phases()?.stopped(record.launch(), "its launch was refused before its first turn")
+    }
+
     /// Takes the hooks verdict and then sends the provider the session's opening frames: the first turn waits here on what the host start ran beside.
     fn open_conversation(&self, record: &mut SessionRecord, opening: Opening, hooks: HooksCheck, live: LiveHost) -> NorthResult<()> {
         if let Some(reason) = hooks.verdict()? {
-            live.abandon()?;
+            self.refuse_live(record, live)?;
             return Err(NorthError::Refused(reason));
         }
         let LiveHost { runtime, instructions, changed, host_dir, host, started } = live;
