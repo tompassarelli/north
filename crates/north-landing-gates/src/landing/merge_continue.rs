@@ -44,7 +44,7 @@ fn in_progress(worktree: &Path) -> Result<Option<Operation>, String> {
     Ok(None)
 }
 
-fn generator(worktree: &Path, command: &str, code: &[String]) -> Result<Command, String> {
+fn generator(worktree: &Path, command: &str, code: &[String], tree: Option<&str>) -> Result<Command, String> {
     let mut words = command.split_whitespace();
     let program = words.next().ok_or("an empty regenerate command")?;
     let head_north = worktree.join("bin/head-north");
@@ -52,6 +52,9 @@ fn generator(worktree: &Path, command: &str, code: &[String]) -> Result<Command,
         "north" if !code.is_empty() && head_north.is_file() => {
             let mut built = Command::new(head_north);
             built.args(["--code", &code.join(",")]);
+            if let Some(tree) = tree {
+                built.env("HEAD_NORTH_TREE", tree);
+            }
             built
         }
         "north" => Command::new(std::env::current_exe().map_err(|error| format!("the running north: {error}"))?),
@@ -61,8 +64,8 @@ fn generator(worktree: &Path, command: &str, code: &[String]) -> Result<Command,
     Ok(command)
 }
 
-fn generate(worktree: &Path, command: &str, code: &[String]) -> Result<(), String> {
-    let output = generator(worktree, command, code)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
+fn generate(worktree: &Path, command: &str, code: &[String], tree: Option<&str>) -> Result<(), String> {
+    let output = generator(worktree, command, code, tree)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
     if !output.status.success() {
         return Err(format!("{command} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
@@ -84,7 +87,7 @@ fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation) 
         }
     }
     for (command, generator) in commands {
-        generate(worktree, command, generator)?;
+        generate(worktree, command, generator, None)?;
     }
     let mut add = vec!["add", "--"];
     add.extend(conflicted);
@@ -158,14 +161,20 @@ pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<
     let rules = merge_set::read_rules(config)?;
     let changed = stdout(worktree, &["diff", "--name-only", "-z", picked_onto, "HEAD"])?;
     let changed = changed.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();
+    let stale: Vec<(&merge_set::Rule, &String, &Vec<String>)> = rules
+        .iter()
+        .filter_map(|rule| match &rule.kind {
+            Kind::Regenerate { command, sources, generator } if changed.iter().any(|path| *path == rule.path || sources.iter().any(|source| path.starts_with(source.as_str()))) => Some((rule, command, generator)),
+            _ => None,
+        })
+        .collect();
+    if stale.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tree = stdout(worktree, &["rev-parse", "HEAD^{tree}"])?.trim().to_owned();
     let mut refreshed = Vec::new();
-    for rule in &rules {
-        let Kind::Regenerate { command, sources, generator } = &rule.kind else { continue };
-        let stale = changed.iter().any(|path| *path == rule.path || sources.iter().any(|source| path.starts_with(source.as_str())));
-        if !stale {
-            continue;
-        }
-        generate(worktree, command, generator)?;
+    for (rule, command, generator) in stale {
+        generate(worktree, command, generator, Some(&tree))?;
         if !stdout(worktree, &["status", "--porcelain", "--", &rule.path])?.is_empty() {
             stdout(worktree, &["add", "--", &rule.path])?;
             refreshed.push(rule.path.clone());

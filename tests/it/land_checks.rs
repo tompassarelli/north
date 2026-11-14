@@ -607,6 +607,21 @@ fn head_north_bootstraps_with_buck2_where_an_engine_and_no_runtime_are_and_on_a_
     let ran = head_north_command(&fixture, "CARGO_TARGET_DIR=target ./bin/head-north --build").env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).env("STUB_UNCOVERED", "1").output().unwrap();
     assert!(ran.status.success() && !text(&ran).contains("buck2"), "a machine with no engine did not run the tree's artifact: {}", text(&ran));
     assert!(!fixture.trace().contains("runtime tree-build") && !fixture.repo.join("target").exists(), "a host with no engine, the laptop, built north from the tree into the lane beside its live runtime, as lane fix-dispatch-account-choice did on 2026-11-14 (north#1362): {}", fixture.trace());
+    let cached = fixture.path(&format!("cache/north/head-north/{tree}/north"));
+    fs::create_dir_all(cached.parent().unwrap()).unwrap();
+    script(&cached, "echo cached north\n");
+    fs::write(fixture.repo.join("bin/land-shell"), "dirty\n").unwrap();
+    let regenerate = |named: Option<&str>| {
+        let mut run = head_north_command(&fixture, "./bin/head-north --code docs/ docs reference-index");
+        run.env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).env("STUB_UNCOVERED", "1").env_remove("HEAD_NORTH_TREE");
+        if let Some(tree) = named {
+            run.env("HEAD_NORTH_TREE", tree);
+        }
+        run.output().unwrap()
+    };
+    assert_eq!(regenerate(None).status.code(), Some(75), "a dirty merged tree ran a north nobody named for it");
+    let named = regenerate(Some(&tree));
+    assert!(named.status.success() && text(&named).contains("cached north"), "the regenerate step on a host with no grid could not run the north fetched for the merged tree once an earlier index made its checkout dirty (north#1433): {}", text(&named));
 }
 
 #[test]

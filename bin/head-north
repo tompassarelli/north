@@ -29,6 +29,7 @@ prune() {
   done
 }
 clean_tree() {
+  [[ ${HEAD_NORTH_TREE:-} =~ ^[0-9a-f]{40}$ && -x $cache/$HEAD_NORTH_TREE/north ]] && { printf '%s\n' "$HEAD_NORTH_TREE"; return; }
   [ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] && git -C "$root" rev-parse 'HEAD^{tree}'
 }
 store() {
