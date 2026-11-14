@@ -28,6 +28,8 @@ pub struct Event {
     pub session: String,
     #[serde(skip)]
     pub tests: Vec<String>,
+    #[serde(skip)]
+    pub stale_base: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -218,12 +220,23 @@ fn read_events(state: &Path, now: f64) -> Vec<Event> {
     }
     let text = [path.with_extension("jsonl.1"), path].iter().filter_map(|path| fs::read_to_string(path).ok()).collect::<Vec<_>>().join("\n");
     let mut events = parse_events(&text, now);
+    mark_stale_bases(&mut events, |repo| home().join("code").join(repo).join("main"));
     for event in events.iter_mut().filter(|event| event.status == "failed" && event.stage == "land check") {
         if let Some(log) = event.detail.rsplit_once("log: ").map(|(_, log)| log.trim()) {
             event.tests = failing_tests(&fs::read_to_string(log).unwrap_or_default());
         }
     }
     events
+}
+
+pub fn mark_stale_bases(events: &mut [Event], checkout: impl Fn(&str) -> PathBuf) {
+    let landed: Vec<(f64, String, String)> = events.iter().filter(|event| event.status == "landed" && !event.sha.is_empty()).map(|event| (event.time, event.repo.clone(), event.sha.clone())).collect();
+    for event in events.iter_mut().filter(|event| event.status == "failed" && event.stage == "land check" && !event.sha.is_empty()) {
+        let main = landed.iter().filter(|(time, repo, _)| *repo == event.repo && *time < event.time).max_by(|left, right| left.0.total_cmp(&right.0));
+        let Some((_, _, main)) = main else { continue };
+        let status = Command::new("git").arg("-C").arg(checkout(&event.repo)).args(["merge-base", "--is-ancestor", main, &event.sha]).status();
+        event.stale_base = status.is_ok_and(|status| status.code() == Some(1));
+    }
 }
 
 pub fn failing_tests(log: &str) -> Vec<String> {

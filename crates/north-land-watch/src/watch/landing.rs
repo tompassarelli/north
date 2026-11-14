@@ -97,7 +97,7 @@ fn shared_failures(context: &WatchContext) -> Vec<Alert> {
     let mut alerts = Vec::new();
     for repo in repos {
         let mut lanes: BTreeMap<&str, Vec<&Event>> = BTreeMap::new();
-        for event in recent_land_check_failures(context, repo) {
+        for event in recent_land_check_failures(context, repo).filter(|event| !event.stale_base) {
             for test in &event.tests {
                 if lanes.get(test.as_str()).is_none_or(|seen| seen.iter().all(|other| other.lane != event.lane)) {
                     lanes.entry(test).or_default().push(event);
