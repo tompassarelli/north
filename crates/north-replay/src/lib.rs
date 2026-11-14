@@ -69,11 +69,11 @@ pub struct Replayed {
 }
 
 impl Replayed {
-    /// Every reason the change is refused: an outcome count that shifted past its bound, and each breached invariant.
     /// The decision kinds whose slowest replayed call passed the bound, which a strategy that does not finish quickly would.
     pub fn slow_calls(&self, bounds: &Bounds) -> Vec<String> {
         self.counts.iter().filter(|counts| counts.slowest_call > bounds.call_seconds).map(|counts| format!("{} call took {:.1} ms, over the {} ms of replay_call_milliseconds", counts.kind, counts.slowest_call * 1000.0, bounds.call_seconds * 1000.0)).collect()
     }
+
 
     pub fn refusals(&self, bounds: &Bounds, invariants: bool) -> Vec<String> {
         let shifts = self.counts.iter().flat_map(|counts| counts.shifts(bounds));

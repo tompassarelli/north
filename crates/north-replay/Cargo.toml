@@ -18,7 +18,6 @@ serde_json.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]
-north-capacity = { path = "../north-capacity", features = ["test-support"] }
 tempfile.workspace = true
 
 [lints]

@@ -176,7 +176,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("ssh-argv", Diagnosis),
     ("ssh-session", Bookkeeping),
     ("stale-revert", Diagnosis),
-    ("strategy log retain", Bookkeeping),
     ("supply-chain-scan", Diagnosis),
     ("task", Status),
     ("test coverage", Diagnosis),
