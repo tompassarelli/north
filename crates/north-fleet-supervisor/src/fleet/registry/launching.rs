@@ -79,6 +79,7 @@ impl Fleet {
         let tasks = crate::fleet::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
         let spare = (claim == Claim::Fresh).then(|| self.take_spare(request, &account, runtime.as_ref(), effort)).flatten();
         let conversation = spare.as_ref().map_or(conversation, |taken| Some(taken.conversation.clone()));
+        let request = &*super::spares::served(request, spare.as_ref());
         let mut record = request.record(effort, conversation.clone(), verification, now_ms());
         record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();

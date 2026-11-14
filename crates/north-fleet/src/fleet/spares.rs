@@ -5,6 +5,11 @@
 //! conversation and identity, and the runtime). A take claims an entry by renaming it, seals the session's binding in
 //! the spare's held directory before the launch sends anything and gives the session the spare's spool emptied; a spare
 //! nobody takes stops itself after `IDLE`, and its stop removes its entry, its held directory and its spool.
+//!
+//! A launch into a lane (`CODE/PROJECT/worktrees/NAME`) is served by spares of its project's main checkout: each such
+//! spare runs in a lane of its own made ahead at the project's base, detached. A take checks that both lanes are clean
+//! and at one commit, switches the spare's lane to the launch's branch, removes the launch's own lane, and the session
+//! then runs in the spare's lane; a lane at another commit is no fit, and the launch starts its client as before.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -31,12 +36,40 @@ const IDENTITY: &str = "%d:%i:%W";
 const MEMORY_FLOOR_KB: u64 = 4 * 1024 * 1024;
 const CHANNEL_WAIT: Duration = Duration::from_secs(3);
 const BOUND: [&str; 3] = [SESSION_ENV, ACTOR_ENV, CAPACITY_NEED_ENV];
+const HARDENED: &str = "-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.sshCommand=false";
+const PINNED_GIT: &str = r#"pinned() { [ -d "$common" ] && [ -d "$common/worktrees/${1##*/}" ] && [ "$(cat "$1/.git" 2>/dev/null)" = "gitdir: $common/worktrees/${1##*/}" ]; }
+g() { (w=$1; shift; cd "$w" && GIT_DIR="$common/worktrees/${w##*/}" GIT_COMMON_DIR="$common" GIT_WORK_TREE="$w" git $hardened "$@"); }
+fits() {
+  [ -z "$lane" ] && return 0
+  pinned "$lane" && pinned "$1" || return 1
+  head=$(g "$lane" symbolic-ref -q HEAD) || return 1
+  case "$head" in refs/heads/?*) branch=${head#refs/heads/};; *) return 1;; esac
+  GIT_DIR="$common" git $hardened show-ref --verify -q "refs/heads/$branch" || return 1
+  [ "$(g "$lane" rev-parse --verify -q HEAD)" = "$(g "$1" rev-parse --verify -q HEAD)" ] && [ -z "$(g "$lane" status --porcelain --ignore-submodules=all)" ] && [ -z "$(g "$1" status --porcelain --ignore-submodules=all)" ] && g "$1" switch -q --ignore-other-worktrees --end-of-options "$branch"
+}"#;
 
-/// A spare a launch took: the held unit its link attaches to, and its conversation.
+/// A spare a launch took: the held unit its link attaches to, its conversation, and the directory its client runs in, which is the session's from then on.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Taken {
     pub running: Running,
     pub conversation: String,
+    pub cwd: PathBuf,
+}
+
+/// The main checkout of the project whose lane `cwd` is, `CODE/PROJECT/main` for `CODE/PROJECT/worktrees/NAME`; None for any other directory.
+pub fn lane_root(cwd: &Path) -> Option<PathBuf> {
+    let worktrees = cwd.parent().filter(|parent| parent.file_name().is_some_and(|name| name == "worktrees"))?;
+    Some(worktrees.parent()?.join("main"))
+}
+
+/// The lane a fill makes ahead for the spare `spare` of the project whose main checkout is `root`.
+pub fn spare_lane(root: &Path, spare: &str) -> PathBuf {
+    root.with_file_name("worktrees").join(spare)
+}
+
+/// The directory a spare's kind and fingerprint name for `cwd`: its project's main checkout for a lane, so every lane of one project shares spares.
+fn served(cwd: &Path) -> PathBuf {
+    lane_root(cwd).unwrap_or_else(|| cwd.to_path_buf())
 }
 
 /// What a fill reads of a build host: its available memory, and the spares its pool holds.
@@ -69,12 +102,12 @@ pub fn fingerprint(spec: &HostSpec, runtime: Option<&Path>) -> String {
     env.sort();
     let mut removed = spec.env_remove.clone();
     removed.sort();
-    digest(&serde_json::json!([argv, env, removed, spec.cwd, runtime]).to_string())
+    digest(&serde_json::json!([argv, env, removed, served(&spec.cwd), runtime]).to_string())
 }
 
 /// The kind a spare fills for: the account, model, effort, compaction window and directory of the launches it may serve.
 pub fn kind(account: &str, model: Option<&str>, effort: Option<&str>, window: Option<u64>, cwd: &Path) -> String {
-    digest(&serde_json::json!([account, model, effort, window, cwd]).to_string())
+    digest(&serde_json::json!([account, model, effort, window, served(cwd)]).to_string())
 }
 
 /// A fresh spare's name, the session name its environment carries until a take binds it.
@@ -100,23 +133,32 @@ pub fn spare_spec(spec: HostSpec, place: &Place, spare: &str) -> HostSpec {
     spec
 }
 
-/// Takes a spare of `fingerprint` for the session `name` and writes `binding` before returning it, or None when none fits or the host does not answer, and the launch starts its client as before. Run twice for one name, it returns the spare the first run took.
-pub fn take(place: &Place, fingerprint: &str, name: &str, binding: &str) -> Option<Taken> {
+/// Takes a spare of `fingerprint` for the session `name` launching in `cwd` and writes `binding` before returning it, or None when none fits or the host does not answer, and the launch starts its client as before. For a launch into a lane, the spare's lane takes the lane's branch and the lane is removed; a spare whose lane does not fit stays in the pool. Every git the take runs reads its repository from the project's main checkout, never from a lane's `.git`, which a confined worker may write. Run twice for one name, it returns the spare the first run took.
+pub fn take(place: &Place, fingerprint: &str, name: &str, cwd: &Path, binding: &str) -> Option<Taken> {
+    let staged = |path: &Path| place.machine.session_path(path, place.home).to_string_lossy().into_owned();
+    let (lane, common) = lane_root(cwd).map_or_else(Default::default, |main| (staged(cwd), staged(&main.join(".git"))));
     let script = format!(
-        r#"pool={} spools={} fp={} name={} bound={} held={}
+        r#"pool={} spools={} fp={} name={} bound={} held={} lane={} common={} hardened='{HARDENED}'
 [ -d "$pool" ] && [ -O "$pool" ] && [ "$(stat -c %a "$pool")" = 700 ] || exit 1
 for b in "$held"/north-spare-*.service/bound/binding; do
   [ -f "$b" ] && [ "$(cat "$b")" = "$bound" ] || continue
   d=${{b%/bound/binding}}; u=${{d##*/}}
-  systemctl --user -q is-active "$u" && echo "$u $d $(cat "$d/nonce") $(cat "$d/conversation")" && exit 0
+  systemctl --user -q is-active "$u" && echo "$u $d $(cat "$d/nonce") $(cat "$d/conversation") $(cat "$d/bound/cwd")" && exit 0
 done
 [ ! -e "$spools/$name" ] || rmdir "$spools/$name" 2>/dev/null || exit 1
+{GIT}
 for e in "$pool"/*-"$fp"-*; do
   t="$pool/.${{e##*/}}.$$"
   [ -f "$e" ] && mv "$e" "$t" 2>/dev/null || continue
-  read -r unit dir nonce conv spare ident cwd < "$t"; rm -f "$t"
-  if systemctl --user -q is-active "$unit" && [ "$(cat "$dir/nonce" 2>/dev/null)" = "$nonce" ] && [ "$(stat -c %d:%i:%W "$cwd" 2>/dev/null)" = "$ident" ] && {{ [ ! -d "$spools/$spare" ] || {{ mv -T "$spools/$spare" "$spools/$name" && find "$spools/$name" -mindepth 1 -delete; }}; }} && mkdir -m 700 "$dir/bound" && printf %s "$bound" > "$dir/bound/.binding" && chmod 400 "$dir/bound/.binding" && mv "$dir/bound/.binding" "$dir/bound/binding" && chmod 500 "$dir/bound" && echo {} > "$dir/limit"; then
-    echo "$unit $dir $nonce $conv"; exit 0
+  read -r unit dir nonce conv spare ident cwd < "$t"
+  if ! {{ systemctl --user -q is-active "$unit" && [ "$(cat "$dir/nonce" 2>/dev/null)" = "$nonce" ] && [ "$(stat -c %d:%i:%W "$cwd" 2>/dev/null)" = "$ident" ]; }}; then
+    rm -f "$t"; systemctl --user stop --no-block "$unit" 2>/dev/null; continue
+  fi
+  fits "$cwd" || {{ mv "$t" "$e"; continue; }}
+  rm -f "$t"
+  if {{ [ ! -d "$spools/$spare" ] || {{ mv -T "$spools/$spare" "$spools/$name" && find "$spools/$name" -mindepth 1 -delete; }}; }} && mkdir -m 700 "$dir/bound" && printf %s "$cwd" > "$dir/bound/cwd" && printf %s "$bound" > "$dir/bound/.binding" && chmod 400 "$dir/bound/.binding" "$dir/bound/cwd" && mv "$dir/bound/.binding" "$dir/bound/binding" && chmod 500 "$dir/bound" && echo {} > "$dir/limit"; then
+    [ -z "$lane" ] || GIT_DIR="$common" git $hardened worktree remove --force -- "$lane" 2>/dev/null
+    echo "$unit $dir $nonce $conv $cwd"; exit 0
   fi
   systemctl --user stop --no-block "$unit" 2>/dev/null
 done
@@ -127,12 +169,15 @@ exit 1"#,
         quote(name),
         quote(binding),
         quote(&place.far_home().join(crate::platform::session_host_files::HELD).to_string_lossy()),
-        TAKEN_DETACHED.as_secs()
+        quote(&lane),
+        quote(&common),
+        TAKEN_DETACHED.as_secs(),
+        GIT = PINNED_GIT
     );
     let (code, out) = run(place, &script)?;
     let mut words = out.split_whitespace().map(str::to_owned);
-    match (code, words.next(), words.next(), words.next(), words.next()) {
-        (0, Some(unit), Some(dir), Some(nonce), Some(conversation)) => Some(Taken { running: Running { unit, dir, nonce }, conversation }),
+    match (code, words.next(), words.next(), words.next(), words.next(), words.next()) {
+        (0, Some(unit), Some(dir), Some(nonce), Some(conversation), Some(cwd)) => Some(Taken { running: Running { unit, dir, nonce }, conversation, cwd: PathBuf::from(cwd) }),
         _ => None,
     }
 }
@@ -227,17 +272,23 @@ pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spar
     let pool = pool(&place.far_home());
     let entry = format!("{pool}/{kind}-{fingerprint}-{spare}");
     let spool = format!("{}/{spare}", spools(&place.far_home()));
+    let cwd = quote(&spec.cwd.to_string_lossy());
+    let (make_lane, remove_lane) = lane_root(&spec.cwd).map_or_else(Default::default, |root| {
+        let root = quote(&root.to_string_lossy());
+        let git = format!("git -C {root} {HARDENED}");
+        let base = format!("$({git} rev-parse -q --verify 'refs/remotes/origin/main^{{commit}}' || {git} rev-parse -q --verify 'refs/heads/main^{{commit}}')");
+        (format!("{git} worktree add -q --detach {cwd} \"{base}\" && "), format!("{git} worktree remove --force {cwd}\n"))
+    });
     let retire = format!(
-        "[ -e {d}/bound ] && exit 0\nrm -f {entry}\nif [ -d {spool} ]; then find {spool} -mindepth 1 -delete; rmdir {spool}; fi\ncd {d} && rm -f in out err status attach feed nonce limit conversation retire && cd / && rmdir {d}\nexit 0\n",
+        "[ -e {d}/bound ] && exit 0\nrm -f {entry}\nif [ -d {spool} ]; then find {spool} -mindepth 1 -delete; rmdir {spool}; fi\ncd {d} && rm -f in out err status attach feed nonce limit conversation retire && cd / && rmdir {d}\n{remove_lane}exit 0\n",
         d = quote(&dir),
         entry = quote(&entry),
         spool = quote(&spool)
     );
     let nonce = new_uuid()?;
     let launch = remote::launch_script(spec, &held, &remote::Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation: Some(conversation) }, IDLE, &[format!("ExecStopPost=/bin/sh {dir}/retire")]);
-    let cwd = quote(&spec.cwd.to_string_lossy());
     let script = format!(
-        "{drop}\numask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && {{ {launch}; }} && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
+        "{drop}\n{make_lane}umask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && {{ {launch}; }} && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
         quote(&retire),
         quote(&format!("{unit} {dir} {nonce} {conversation} {spare}")),
         drop = drop_function(&place.far_home()),

@@ -204,10 +204,10 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     fs::create_dir_all(spools.join("spare-one")).unwrap();
     fs::write(spools.join("spare-one/left-by-the-spare"), "").unwrap();
     spares::start(&place, &spares::spare_spec(spec, &place, "spare-one"), "kind", "fp-one", "spare-one", "conversation-one").unwrap();
-    assert_eq!(spares::take(&place, "fp-two", "box-two", &spares::binding("box-two", None)), None, "a launch whose spec fits no spare starts its own client");
-    let taken = spares::take(&place, "fp-one", "box-two", &spares::binding("box-two", None)).expect("the launch takes the spare that fits it");
+    assert_eq!(spares::take(&place, "fp-two", "box-two", home, &spares::binding("box-two", None)), None, "a launch whose spec fits no spare starts its own client");
+    let taken = spares::take(&place, "fp-one", "box-two", home, &spares::binding("box-two", None)).expect("the launch takes the spare that fits it");
     assert_eq!(taken.conversation, "conversation-one");
-    assert_eq!(spares::take(&place, "fp-one", "box-three", &spares::binding("box-three", None)), None, "a second take of the one spare loses the race and its launch starts cold");
+    assert_eq!(spares::take(&place, "fp-one", "box-three", home, &spares::binding("box-three", None)), None, "a second take of the one spare loses the race and its launch starts cold");
     assert!(spools.join("box-two").is_dir() && !spools.join("spare-one").exists(), "the session takes the spare's spool, the directory its tool server may write");
     assert_eq!(fs::read_dir(spools.join("box-two")).unwrap().count(), 0, "the session's spool holds nothing the spare left in it");
     let bound = Path::new(&taken.running.dir).join("bound");
@@ -232,6 +232,78 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     let worker = LaunchRequest { verification: false, gates_aside: false, urgent: false, container_shell: false, container_dir: None, name: "box-one".into(), provider: ProviderName::new("claude"), account: "a".into(), cwd: lane.to_path_buf(), model: None, effort: None, prompt: "Item: north#1 brief".into(), system_prompt: Some("/tmp/box-one-prompt.md".into()), foreground_cap_secs: None, prompt_mode: PromptMode::North, idle_exit_minutes: None, parent: Some("lead".into()), task_ref: Some("north#1".into()), claim_box: Some("the box".into()), placement: None, machine: Some(far.clone()), capacity_need: Some("4".into()), role: Some(Role::Worker), resume: None, compact_window: Some(200_000), dispatched: false, surface: Default::default(), route: None };
     let template = spares::template(worker.clone(), "spare-two".into());
     assert_eq!(template, LaunchRequest { name: "spare-two".into(), prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, capacity_need: None, ..worker }, "a fill's template carries no task, box, brief or prompt file of the worker it was modelled on, and keeps its compaction window, which the client reads at start");
+    takes_lane_spares(&shims, &far, home);
+}
+
+/// A launch into a fresh lane takes the spare whose lane was made ahead, and no git of the take runs a program a lane names.
+fn takes_lane_spares(shims: &Path, far: &Machine, home: &Path) {
+    let git = |dir: &Path, args: &[&str]| {
+        let ran = std::process::Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"]).arg("-C").arg(dir).args(args).output().unwrap();
+        assert!(ran.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&ran.stderr));
+        String::from_utf8_lossy(&ran.stdout).trim().to_owned()
+    };
+    let main = home.join("code/eval/main");
+    fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q"]);
+    fs::write(main.join("f"), "base\n").unwrap();
+    fs::write(main.join(".gitattributes"), "f filter=m\n").unwrap();
+    git(&main, &["add", "f", ".gitattributes"]);
+    git(&main, &["commit", "-q", "-m", "base"]);
+    let task = home.join("code/eval/worktrees/task-l1");
+    git(&main, &["worktree", "add", "-q", "-b", "task-l1", &task.to_string_lossy(), "main"]);
+    let marked = |repo: &Path, marker: &Path| {
+        fs::create_dir_all(repo).unwrap();
+        git(repo, &["init", "-q"]);
+        fs::write(repo.join("f"), "other\n").unwrap();
+        fs::write(repo.join(".gitattributes"), "f filter=m\n").unwrap();
+        git(repo, &["add", "f", ".gitattributes"]);
+        git(repo, &["commit", "-q", "-m", "other"]);
+        let filter = marker.with_extension("filter");
+        crate::foundation::shim::write_script(&filter, &format!("touch '{}'\ncat\n", marker.display()));
+        git(repo, &["config", "filter.m.clean", &filter.to_string_lossy()]);
+    };
+    let (sub, sub_ran) = (task.join("sub"), home.join("sub-ran"));
+    marked(&sub, &sub_ran);
+    fs::write(sub.join("f"), "changed\n").unwrap();
+    let sub_head = git(&sub, &["rev-parse", "HEAD"]);
+    git(&task, &["update-index", "--add", "--cacheinfo", &format!("160000,{sub_head},sub")]);
+    git(&task, &["commit", "-q", "-m", "gitlink"]);
+    git(&main, &["merge", "-q", "--ff-only", "task-l1"]);
+    let ssh = shims.join("ssh");
+    let place = Place { ssh: &ssh, machine: far, home };
+    let ahead = spares::spare_lane(&main, "spare-lane");
+    let spec = HostSpec { key: "spare-lane".into(), shared: false, argv: vec!["sh".into(), "-c".into(), "cat > /dev/null".into()], env: Vec::new(), env_remove: Vec::new(), cwd: ahead.clone() };
+    spares::start(&place, &spares::spare_spec(spec, &place, "spare-lane"), "kind", "fp-lane", "spare-lane", "conversation-lane").unwrap();
+    let other = home.join("other");
+    fs::create_dir_all(&other).unwrap();
+    git(&other, &["init", "-q"]);
+    let (monitor, ran) = (home.join("monitor"), home.join("monitor-ran"));
+    crate::foundation::shim::write_script(&monitor, &format!("touch '{}'\n", ran.display()));
+    git(&other, &["config", "core.fsmonitor", &monitor.to_string_lossy()]);
+    let rogue = home.join("code/eval/worktrees/rogue");
+    fs::create_dir_all(&rogue).unwrap();
+    fs::write(rogue.join(".git"), format!("gitdir: {}\n", other.join(".git").display())).unwrap();
+    assert_eq!(spares::take(&place, "fp-lane", "rogue-run", &rogue, &spares::binding("rogue-run", None)), None, "a lane whose .git names another repository is no fit");
+    assert!(!ran.exists(), "no program the other repository's configuration names ran");
+    let taken = spares::take(&place, "fp-lane", "task-l1-run", &task, &spares::binding("task-l1-run", None)).expect("a launch into a fresh lane takes the spare whose lane was made ahead at the same commit");
+    assert_eq!((taken.cwd.as_path(), git(&ahead, &["symbolic-ref", "--short", "HEAD"]).as_str(), task.exists()), (ahead.as_path(), "task-l1", false), "the session runs in the lane made ahead, on the launch's branch, and the launch's own lane is gone");
+    assert!(!sub_ran.exists(), "no program the configuration of a gitlinked repository in the lane names ran");
+    spares::release(&place, &taken);
+
+    let task = home.join("code/eval/worktrees/task-l2");
+    git(&main, &["worktree", "add", "-q", "-b", "task-l2", &task.to_string_lossy(), "main"]);
+    let ahead = spares::spare_lane(&main, "spare-lane-2");
+    let spec = HostSpec { key: "spare-lane-2".into(), shared: false, argv: vec!["sh".into(), "-c".into(), "cat > /dev/null".into()], env: Vec::new(), env_remove: Vec::new(), cwd: ahead };
+    spares::start(&place, &spares::spare_spec(spec, &place, "spare-lane-2"), "kind", "fp-lane", "spare-lane-2", "conversation-lane-2").unwrap();
+    let (swapped, swapped_ran) = (home.join("swapped"), home.join("swapped-ran"));
+    marked(&swapped, &swapped_ran);
+    let real = String::from_utf8(std::process::Command::new("sh").args(["-c", "command -v git"]).output().unwrap().stdout).unwrap();
+    let shim = shims.join("git");
+    crate::foundation::shim::write_script(&shim, &format!("case \" $* \" in *\" switch \"*) printf 'gitdir: %s\\n' '{}' > '{}';; esac\nexec '{}' \"$@\"\n", swapped.join(".git").display(), task.join(".git").display(), real.trim()));
+    let taken = spares::take(&place, "fp-lane", "task-l2-run", &task, &spares::binding("task-l2-run", None)).expect("the second lane fits its spare");
+    fs::remove_file(&shim).unwrap();
+    assert!(!swapped_ran.exists(), "a lane whose .git is swapped after the fit runs no program of the repository it then names");
+    spares::release(&place, &taken);
 }
 
 #[test]

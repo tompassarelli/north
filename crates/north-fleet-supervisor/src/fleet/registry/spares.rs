@@ -17,7 +17,7 @@ impl Fleet {
             return None;
         }
         let (ssh, home) = (binary("ssh"), home()?);
-        spares::take(&Place { ssh: &ssh, machine, home: &home }, &fingerprint, &request.name, &spares::binding(&request.name, request.capacity_need.as_deref()))
+        spares::take(&Place { ssh: &ssh, machine, home: &home }, &fingerprint, &request.name, &request.cwd, &spares::binding(&request.name, request.capacity_need.as_deref()))
     }
 
     pub(super) fn release_spare(&self, machine: &Machine, taken: &Taken) {
@@ -63,7 +63,8 @@ impl Fleet {
         let held = pool.entries.iter().filter(|entry| entry.starts_with(&format!("{kind}-{fingerprint}-"))).count();
         for _ in 0..start {
             let (spare, conversation) = (spares::spare_name()?, new_uuid()?);
-            let request = LaunchRequest { name: spare.clone(), ..template.clone() };
+            let cwd = spares::lane_root(&template.cwd).map_or_else(|| template.cwd.clone(), |root| spares::spare_lane(&root, &spare));
+            let request = LaunchRequest { name: spare.clone(), cwd, ..template.clone() };
             let spec = spares::spare_spec(self.worker_spec(&request, &account, runtime.as_ref(), effort, &conversation)?, &place, &spare);
             spares::start(&place, &spec, &kind, &fingerprint, &spare, &conversation)?;
         }
@@ -102,4 +103,12 @@ fn fill_wanted(record: &SessionRecord) -> bool {
 
 fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from)
+}
+
+/// `request` as the spare it took serves it: in the spare's directory when the take moved it into the spare's lane.
+pub(super) fn served<'a>(request: &'a LaunchRequest, spare: Option<&Taken>) -> std::borrow::Cow<'a, LaunchRequest> {
+    match spare.filter(|taken| taken.cwd != request.cwd) {
+        Some(taken) => std::borrow::Cow::Owned(LaunchRequest { cwd: taken.cwd.clone(), ..request.clone() }),
+        None => std::borrow::Cow::Borrowed(request),
+    }
 }
