@@ -19,6 +19,7 @@ const SCRATCH: &str = "NORTH_118_RECORDS_SCRATCH";
 const WORDS: &str = "NORTH_118_RECORDS_WORDS";
 const TEST: &str = "worker_sandbox::tests::a_worker_lane_writes_its_slot_and_finish_records_through_the_broker";
 const SESSION: &str = "w-records-118";
+const EVAL_SESSION: &str = "w-eval-1509";
 
 pub(super) fn played() -> bool {
     let Some(root) = std::env::var_os(SCRATCH).map(PathBuf::from) else { return false };
@@ -65,6 +66,15 @@ pub(super) fn a_worker_lane_writes_its_slot_and_finish_records_through_the_broke
     write_script(&home.join(".local/bin/gh"), &format!("# {}\n", north_base::platform::gh_shim::MARKER));
     std::fs::write(root.join("fleet").join(SESSION).join("host.scope"), "north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n").unwrap();
     std::fs::write(root.join("fleet").join(SESSION).join("session.json"), serde_json::json!({ "name": SESSION, "cwd": main }).to_string()).unwrap();
+    let eval_main = root.join("eval-work/p/main");
+    std::fs::create_dir_all(&eval_main).unwrap();
+    std::fs::create_dir_all(root.join("eval-work/p/worktrees")).unwrap();
+    git(&eval_main, &["init", "-q", "-b", "main"]);
+    git(&eval_main, &["commit", "-q", "--allow-empty", "-m", "one"]);
+    git(&eval_main, &["worktree", "add", "-q", "../worktrees/worker", "-b", "worker"]);
+    std::fs::create_dir_all(root.join("fleet").join(EVAL_SESSION)).unwrap();
+    std::fs::write(root.join("fleet").join(EVAL_SESSION).join("host.scope"), "north-session-1509-eval.scope\n").unwrap();
+    std::fs::write(root.join("fleet").join(EVAL_SESSION).join("session.json"), serde_json::json!({ "name": EVAL_SESSION, "cwd": root.join("eval-work/p/worktrees/worker") }).to_string()).unwrap();
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", TEST, "--nocapture"])
         .env_clear()
@@ -155,6 +165,15 @@ fn serve(root: &Path) {
     let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("true", &git_text(&other, &["rev-parse", "HEAD"])), &other);
     if code != 0 || records.read(SESSION).is_none_or(|record| !record.passed || record.head != git_text(&other, &["rev-parse", "HEAD"])) || !told.is_empty() {
         failures.push(format!("a lane of another name that the session made after it launched was not admitted: exit {code}: {told}"));
+    }
+    let mut serving_eval = Host { cgroups: root.join("cgroup"), ..Host::own() };
+    serving_eval.code.push(root.join("eval-work"));
+    let eval_lane = root.join("eval-work/p/worktrees/worker");
+    let eval_ran = root.join("eval-ran");
+    let eval_scope = OPEN_SCOPE.replace("north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope", "north-session-1509-eval.scope");
+    let (code, told) = ask(&north, &serving_eval, &eval_scope, &words(&format!("touch {}", eval_ran.display()), &git_text(&eval_lane, &["rev-parse", "HEAD"])), &eval_lane);
+    if code != 0 || !eval_ran.exists() || records.read(EVAL_SESSION).is_none_or(|record| !record.passed) || !told.is_empty() {
+        failures.push(format!("a finish call from a lane under the eval work root the broker serves did not reach its check (north#1509): exit {code}: {told}"));
     }
     for (cgroup, request, naming, from) in [
         (outside.as_str(), words(&marking, &head), "no session's scope", &lane),

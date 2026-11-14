@@ -8,8 +8,7 @@ use north_base::platform::finish_record::{FinishRecords, Finished};
 
 use super::lane_grant::{self, Host};
 use super::offload_request;
-use super::request_checkout::Checkout;
-use super::removable::{lane, project};
+use super::request_checkout::{self, Checkout};
 use super::{CHECKED, FLAG, check_request};
 
 pub(super) const VERB: &str = "finish-check";
@@ -74,7 +73,7 @@ pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path,
     }
     let cwd = PathBuf::from(record["cwd"].as_str().unwrap_or_default());
     let canonical = |path: PathBuf| path.canonicalize().unwrap_or(path);
-    let project = project(&host.home, &cwd).map(canonical).ok_or_else(|| format!("{name} launched in {}, which is in no project of this host", cwd.display()))?;
+    let (project, _) = request_checkout::project(&host.code, &cwd).ok_or_else(|| format!("{name} launched in {}, which is in no project of this host", cwd.display()))?;
     if checkout.top.parent() != Some(project.join("worktrees").as_path()) {
         return Err(format!("{} is no lane of {name}'s project {} (PROJECT/worktrees/NAME): a finish check runs in a lane, never in main", checkout.top.display(), project.display()));
     }
@@ -85,7 +84,7 @@ pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path,
     });
     for (_, other_record) in local.chain(lane_grant::placed_running(host)).filter(|(other, _)| other != directory) {
         let named = other_record["name"].as_str().unwrap_or_default();
-        let launched = other_record["cwd"].as_str().and_then(|cwd| lane(&host.home, Path::new(cwd)));
+        let launched = other_record["cwd"].as_str().and_then(|cwd| request_checkout::project(&host.code, Path::new(cwd))?.1);
         let theirs = launched.into_iter().chain(lane_grant::own_lane(named, &other_record).ok());
         if theirs.map(canonical).any(|their| their == checkout.top) {
             return Err(format!("{} is the lane live session {named} launched in, not one of {name}'s", checkout.top.display()));

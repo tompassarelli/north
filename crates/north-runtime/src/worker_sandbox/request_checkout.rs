@@ -34,6 +34,20 @@ fn top(code: &Path, directory: &Path) -> Option<(PathBuf, PathBuf)> {
     Some((project, top))
 }
 
+/// The project container under one of `code` that `directory` lies in, and the lane (`CODE/PROJECT/worktrees/NAME`) it lies in when it lies in one, both canonical: the directories a broker serves are `~/code` and the one it was started to serve beside it, such as an evaluation's work root.
+pub(super) fn project(code: &[PathBuf], directory: &Path) -> Option<(PathBuf, Option<PathBuf>)> {
+    let real = directory.canonicalize().unwrap_or_else(|_| directory.to_path_buf());
+    code.iter().filter_map(|code| code.canonicalize().ok()).find_map(|code| {
+        let mut below = real.strip_prefix(&code).ok()?.components();
+        let project = code.join(below.next()?);
+        let lane = match (below.next(), below.next()) {
+            (Some(worktrees), Some(name)) if worktrees.as_os_str() == "worktrees" => Some(project.join("worktrees").join(name)),
+            _ => None,
+        };
+        Some((project, lane))
+    })
+}
+
 /// The checkout a request asked from `directory` is served from, on a host whose projects lie under `code`, or why it is refused: the directory is in no lane and no main checkout of them, its project has no main checkout with a repository of its own, or the lane's `.git` does not lead to the worktree of its own name in that repository.
 pub(super) fn registered(code: &[PathBuf], directory: &Path) -> Result<Checkout, String> {
     let unplaced = || format!("{} is in no lane (PROJECT/worktrees/NAME) and no main checkout (PROJECT/main) of this host's projects, and a request is served only from one; run it from your lane", directory.display());
