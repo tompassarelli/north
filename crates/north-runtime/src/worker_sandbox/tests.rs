@@ -438,6 +438,17 @@ fn a_leased_caller_s_brokered_run_starts_inside_its_lease_scope_north_1036() {
 }
 
 #[test]
+fn a_relayed_finish_check_starts_in_its_caller_s_session_scope_north_1036() {
+    let north = Path::new("/n/north");
+    let arguments = vec!["--worker-sandbox".to_owned(), "--program".to_owned(), "--".to_owned(), "cargo".to_owned(), "nextest".to_owned()];
+    let session = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-2117733b-fdc3-4230-8abd-52be17959550.scope\n";
+    let started = super::broker::relayed_command(north, &arguments, &Peer::from(Some(session)));
+    let words: Vec<String> = started.get_args().map(|word| word.to_string_lossy().into_owned()).collect();
+    assert_eq!(started.get_program(), "/bin/sh", "on whiterabbit on 2026-11-14 finish checks ran in the broker's own service, so the depbox their cargo reached lost the session and the laptop leased 31 GB of compiles itself");
+    assert_eq!(words[2..], ["/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-2117733b-fdc3-4230-8abd-52be17959550.scope/cgroup.procs", "/n/north", "--worker-sandbox", "--program", "--", "cargo", "nextest"]);
+}
+
+#[test]
 fn a_draining_broker_holding_the_unit_name_does_not_stop_a_new_broker_from_starting() {
     let directory = std::env::temp_dir().join(format!("north-1089-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
