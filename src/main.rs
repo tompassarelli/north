@@ -18,7 +18,6 @@ use north_land_watch::watch;
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land_abandon, landing, language_gate, provenance};
 use north_github_mirror as github_mirror;
 use north_tui::tui;
-use north_ops::ops;
 use north_ci::{ci_watch, private_check};
 use north_github_broker::gh_broker;
 use north_desktop::{agent_capture, private_desktop, warcraft_close, wc3_login_field};
