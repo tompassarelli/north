@@ -141,7 +141,7 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     for name in ["crates/a", "crates/b/src", "crates/c", "crates/d/src", "crates/x/m"] {
         std::fs::create_dir_all(tree.path().join(name)).unwrap();
     }
-    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("BUCK", "north\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/b/src/lib.rs", "#[test]\nfn b() {}\n"), ("crates/c/lib.rs", "c\n"), ("crates/d/BUCK", "d\n"), ("crates/d/src/lib.rs", "pub fn d() {}\n"), ("crates/x/m/BUCK", "m\n")] {
+    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("BUCK", "north\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/b/src/lib.rs", "#[test]\nfn b() {}\n"), ("crates/c/lib.rs", "c\n"), ("crates/d/BUCK", "d\n"), ("crates/d/src/lib.rs", "/// Whether an issue is open; the live answer asks GitHub, the tests give their own.\npub fn d() {}\n"), ("crates/x/m/BUCK", "m\n")] {
         std::fs::write(tree.path().join(name), text).unwrap();
     }
     for arguments in [&["init", "-q"][..], &["add", "."], &["commit", "-qm", "base"], &["tag", "base"]] {

@@ -4,6 +4,8 @@ use std::process::{Command, Stdio};
 
 use super::Selected;
 
+const TEST_CODE: [&str; 3] = [r"#\[[A-Za-z_:]*test", r"cfg\(test\)", "proptest!"];
+
 /// The selected crates, or for a workspace selection every member in `packages`, that do not move and name no test, each
 /// said in one line.
 pub(super) fn case_free(root: &Path, base: &str, selected: &Selected, moved: &[String], packages: &BTreeMap<String, String>) -> BTreeSet<String> {
@@ -19,8 +21,9 @@ pub(super) fn case_free(root: &Path, base: &str, selected: &Selected, moved: &[S
     free
 }
 
-/// The crates of `left`, each with its Buck2 package, whose Rust sources under that package name no test, by path or
-/// text in any case, both at `base` and in the tree at `root`, so a lane that deletes a crate's every test still leaves
+/// The crates of `left`, each with its Buck2 package, whose Rust sources under that package name no test, by a path holding
+/// "test" in any case or by test code in their text (a test attribute, `cfg(test)`, `proptest!`), never by prose, both
+/// at `base` and in the tree at `root`, so a lane that deletes a crate's every test still leaves
 /// it to the declared line, which fails when it selects none. The root package is never one, and none is when git
 /// cannot tell.
 fn untested(root: &Path, base: &str, left: Vec<(&String, &str)>) -> BTreeSet<String> {
@@ -36,9 +39,17 @@ fn untested(root: &Path, base: &str, left: Vec<(&String, &str)>) -> BTreeSet<Str
         let answered = output.status.success() || (arguments[0] == "grep" && output.status.code() == Some(1));
         answered.then(|| String::from_utf8_lossy(&output.stdout).lines().map(|line| line.strip_prefix(&format!("{base}:")).unwrap_or(line).to_owned()).collect())
     };
-    let (Some(at_base), Some(in_tree), Some(mentioned_at_base), Some(mentioned)) = (lines(&["ls-tree", "-r", "--name-only", base]), lines(&["ls-files"]), lines(&["grep", "-l", "-i", "-e", "test", base]), lines(&["grep", "-l", "-i", "-e", "test"])) else { return BTreeSet::new() };
+    let (Some(at_base), Some(in_tree), Some(mentioned_at_base), Some(mentioned)) = (lines(&["ls-tree", "-r", "--name-only", base]), lines(&["ls-files"]), lines(&grep(Some(base))), lines(&grep(None))) else { return BTreeSet::new() };
     let named: Vec<String> = at_base.into_iter().chain(in_tree).filter(|path| path.ends_with(".rs") && path.to_ascii_lowercase().contains("test")).chain(mentioned_at_base).chain(mentioned).collect();
     dirs.into_iter().filter(|(_, dir)| !named.iter().any(|path| path.starts_with(dir.as_str()))).map(|(name, _)| name.clone()).collect()
+}
+
+/// The git grep arguments that list the files holding test code, at `base` or in the tree.
+fn grep(base: Option<&str>) -> Vec<&str> {
+    let mut arguments = vec!["grep", "-l", "-E"];
+    arguments.extend(TEST_CODE.iter().flat_map(|pattern| ["-e", pattern]));
+    arguments.extend(base);
+    arguments
 }
 
 /// Whether the selected crate `name` stays on the declared line once Buck2 passed `passed`: Buck2 did not pass it and it is not
