@@ -112,6 +112,7 @@ pub(super) struct Land<'a> {
     pub(super) head: CommitId,
     pub(super) timeout_seconds: u64,
     pub(super) command: &'a str,
+    pub(super) outputs: &'a [String],
     pub(super) class: SlotClass,
     pub(super) confined: bool,
     pub(super) hold: Hold,
@@ -144,6 +145,7 @@ mod held;
 mod hold;
 pub use hold::{HOLD_CEILING_SECONDS, HOLD_COMMAND, Hold};
 mod generated;
+pub(super) mod outputs;
 pub(super) mod slot_record;
 #[cfg(test)]
 mod pinned;
@@ -225,7 +227,7 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let urgent = if north_capacity_host::capacity::host::urgency::caller_urgent() { "1" } else { "" };
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
+    let beside = beside::pin(&outputs::wrap(land.command, land.outputs), relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
     if !matches!(land.hold, Hold::Join { .. }) && let Some(host) = twin::held_elsewhere(land, &beside.command) {
         eprintln!("north capacity offload: the same head and command already wait or run on {host}, so this run is refused; a second copy of one job only fills build-host lines");
         return Err(ALREADY_PLACED);
@@ -249,12 +251,13 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let holding = land.hold.taken_on();
     let fed = child.stdin.take().map(|stdin| bundle::feed(header, bundle, stdin, holding.is_some()));
     let started = std::cell::Cell::new(false);
+    let mut returning = outputs::Returning::new(std::io::stdout(), land.outputs);
     let relayed = child.stdout.take().map_or_else(Relayed::default, |stdout| match (holding, token.as_deref()) {
         (Some(host), Some(token)) => {
             hold::announce(std::io::BufReader::new(stdout), host, token, || waiting.end());
             Relayed::default()
         }
-        _ => relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, &secret, || {
+        _ => relay(std::io::BufReader::new(stdout), &mut returning, &marker, &secret, || {
             waiting.end();
             started.set(true);
         }),
@@ -265,18 +268,19 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     }
     let first = (exited.code().and_then(|code| u8::try_from(code).ok()), relayed.ran);
     let tree = relayed.tree.filter(|_| first.1.is_some() && first.0 == first.1);
-    let (exited, ran) = reattach::ride_out(first, started.get() && !land.ssh.is_empty(), reattach::WINDOW, reattach::PAUSE, || read_back(land, &marker));
+    let (exited, ran) = reattach::ride_out(first, started.get() && !land.ssh.is_empty(), reattach::WINDOW, reattach::PAUSE, || read_back(land, &marker, &mut returning));
+    returning.finish();
     Ok(Shipped { exited, ran, tree: tree.filter(|_| (exited, ran) == first) })
 }
 
 /// One fresh connection to the host that reads the result of the run marked `marker` back: the output it wrote since the last byte this host sent, then its status, which the run's own script recorded in files when the first connection was lost.
-fn read_back(land: &Land, marker: &str) -> (Option<u8>, Option<u8>) {
+fn read_back(land: &Land, marker: &str, out: &mut impl std::io::Write) -> (Option<u8>, Option<u8>) {
     let remote = format!("sh -c {} offload-reattach {} {}", quote(&script::reattach_script()), quote(marker), land.timeout_seconds);
     let master = master::options(land.ssh);
     let mut command = with_caller(&offload::ssh());
     command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"]).args(&master).args([land.ssh, "--", &remote]);
     let Ok(mut child) = command.stdout(Stdio::piped()).spawn() else { return (None, None) };
-    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), marker, "", || {}).ran);
+    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), out, marker, "", || {}).ran);
     let exited = child.wait().ok().and_then(|status| status.code()).and_then(|code| u8::try_from(code).ok());
     (exited, ran)
 }

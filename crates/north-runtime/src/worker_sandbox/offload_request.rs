@@ -63,15 +63,25 @@ pub(super) fn granted(arguments: &[String], checkout: &Checkout, own: &[(String,
     if !matches!(arguments, [noun, verb, ..] if noun == "capacity" && verb == "offload") {
         return Ok(None);
     }
+    if asks_for_outputs(arguments) && checkout.top.parent().and_then(Path::file_name).is_none_or(|parent| parent != "worktrees") {
+        return Err(format!("--output has the broker write into the checkout the request comes from, so only a lane under a project's worktrees directory may ask for one, and {} is not", checkout.top.display()));
+    }
     let (arguments, asked) = capped(arguments);
     let note = asked.map(|asked| format!("a worker command's run on a build host ends after {RUN_SECONDS_CEILING} s, the longest a land check runs, so --timeout {asked} is taken as {RUN_SECONDS_CEILING}"));
     Ok(Some(Offload { arguments, directory: checkout.top.clone(), environment: environment(own, runtime, homes, Some(checkout))?, note }))
 }
 
+/// Whether the words of a `run` before its `--` hold an `--output`.
+fn asks_for_outputs(arguments: &[String]) -> bool {
+    let flags = arguments.iter().position(|word| word == "--").unwrap_or(arguments.len());
+    arguments[..flags].iter().any(|word| word == "--output")
+}
+
 /// `arguments` with a `run`'s `--timeout` no longer than the ceiling, and the seconds asked when they were more.
 fn capped(arguments: &[String]) -> (Vec<String>, Option<u64>) {
     let mut capped = arguments.to_vec();
-    let asked = arguments.len().checked_sub(3).filter(|at| *at >= 1 && arguments[at - 1] == "--timeout" && arguments[at + 1] == "--").and_then(|at| Some((at, arguments[at].parse::<u64>().ok()?))).filter(|(_, seconds)| *seconds > RUN_SECONDS_CEILING);
+    let flags = arguments.iter().position(|word| word == "--").unwrap_or(arguments.len());
+    let asked = arguments[..flags].iter().position(|word| word == "--timeout").and_then(|flag| Some((flag + 1, arguments.get(flag + 1)?.parse::<u64>().ok()?))).filter(|(_, seconds)| *seconds > RUN_SECONDS_CEILING);
     if let Some((at, _)) = asked {
         capped[at] = RUN_SECONDS_CEILING.to_string();
     }

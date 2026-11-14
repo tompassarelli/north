@@ -138,6 +138,17 @@ fn serve(root: &Path) {
         failures.push(format!("a run asked for longer than the longest land check deadline ({LAND_CHECK_CEILING} s) was started as asked: {words}"));
     }
 
+    let output_run = format!("capacity offload run --host {BUILD_HOST} --base HEAD --head HEAD --timeout 9 --output harness/defaults.toml -- true");
+    let (code, told) = ask(&output_run, &root.join("home/code/alpha/main"));
+    if code != 126 || !told.contains("--output has the broker write") || text("seen") != seen {
+        failures.push(format!("an --output asked from a main checkout, where the operator would write into a file a worker may not, was not refused: exit {code}: {told}"));
+    }
+    let (code, told) = ask(&output_run, &lane);
+    if code != 0 || !text("seen").lines().next_back().is_some_and(|started| started.contains("--output harness/defaults.toml")) {
+        failures.push(format!("an --output asked from a lane under worktrees/ was not started: exit {code}: {told}"));
+    }
+
+    let seen = text("seen");
     let (code, told) = ask(&free, &root.join("elsewhere"));
     if code != 126 || !told.contains("refused") || text("seen") != seen {
         failures.push(format!("a request from a directory in no lane and no main checkout was not refused: exit {code}: {told}"));

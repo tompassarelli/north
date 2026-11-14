@@ -16,7 +16,7 @@ pub(crate) mod slot_lock;
 
 pub use outside::{Reenter, Stage};
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | hold --host NAME --base BASE --head HEAD --timeout SECONDS (takes one land-check slot on NAME for a hand-in's checks before queueing, prints `NAME SLOT TOKEN` once it holds the slot, and holds it until its stdin ends or its deadline, at most 4200 s; a landing run whose NORTH_OFFLOAD_HOLD is that line runs in that slot with no ticket of its own) | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | closed (prints this host's name and exits 75 when `[hosts.NAME] offload_builds = false` closes it to offloaded checks, which the offload's script asks on each wait step so a job in its line leaves it; with --runners it is the build-mesh hold's question, exiting 75 to stop this host's runners only while the other open hosts that answer keep the floor of runners, and else 0 naming the count left) | trim-target TARGET KEEP_MIB (trims a slot's cargo target that no build holds to KEEP_MIB, least recently used build output first) | slot record NAME (records NAME as a build slot of the checkout it is run from, which the offload's script asks when its own domain cannot write the record) | line wait|record|report (this host's slot line, see `north capacity offload line`) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | hold --host NAME --base BASE --head HEAD --timeout SECONDS (takes one land-check slot on NAME for a hand-in's checks before queueing, prints `NAME SLOT TOKEN` once it holds the slot, and holds it until its stdin ends or its deadline, at most 4200 s; a landing run whose NORTH_OFFLOAD_HOLD is that line runs in that slot with no ticket of its own) | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS [--output PATH]... -- COMMAND (each --output names a file inside the lane, relative with no .., that COMMAND builds: once COMMAND exits 0 the file is copied back to the same path in this lane with its mode, one line printing its size and sha256, and a missing file fails the run; --background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | closed (prints this host's name and exits 75 when `[hosts.NAME] offload_builds = false` closes it to offloaded checks, which the offload's script asks on each wait step so a job in its line leaves it; with --runners it is the build-mesh hold's question, exiting 75 to stop this host's runners only while the other open hosts that answer keep the floor of runners, and else 0 naming the count left) | trim-target TARGET KEEP_MIB (trims a slot's cargo target that no build holds to KEEP_MIB, least recently used build output first) | slot record NAME (records NAME as a build slot of the checkout it is run from, which the offload's script asks when its own domain cannot write the record) | line wait|record|report (this host's slot line, see `north capacity offload line`) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
 
 /// Set by the outside broker in the process it starts for a worker command's offload request: its `choose` only reads each host's room and claims no host for a waiting land check, since none is behind it and a claim stops every other worker's builds there until it lapses (south#118).
 pub use north_base::foundation::offload::WORKER_REQUEST_ENV;
@@ -108,24 +108,47 @@ fn run_job(words: &[&str], stage: Stage) -> u8 {
         ["--background", rest @ ..] => (ship::SlotClass::Background, rest),
         _ => (ship::SlotClass::LandCheck, words),
     };
-    match words {
-        ["--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
-            let Ok(timeout_seconds) = seconds.parse() else { return usage() };
-            in_checkout(base, head, |checkout, base, head| offload(host, ship::Land { ssh: "", checkout, base, head, timeout_seconds, command, class, confined: false, hold: ship::Hold::None }, stage))
-        }
-        ["--host", _, "--base", _, "--head", _, "--timeout", _, "--", _, _, ..] => {
-            eprintln!("north capacity offload run: COMMAND after -- is one shell string, so quote it: -- 'cargo nextest run -p north'");
-            2
-        }
-        _ => usage(),
+    let Some(RunWords { host, base, head, seconds, outputs, command }) = run_words(words) else { return usage() };
+    let [command] = command else {
+        eprintln!("north capacity offload run: COMMAND after -- is one shell string, so quote it: -- 'cargo nextest run -p north'");
+        return 2;
+    };
+    let Ok(timeout_seconds) = seconds.parse() else { return usage() };
+    if let Some(why) = outputs.iter().find_map(|path| ship::outputs::lane_relative(path).err()) {
+        eprintln!("north capacity offload run: {why}");
+        return 2;
     }
+    let outputs: Vec<String> = outputs.into_iter().map(str::to_owned).collect();
+    in_checkout(base, head, |checkout, base, head| offload(host, ship::Land { ssh: "", checkout, base, head, timeout_seconds, command, outputs: &outputs, class, confined: false, hold: ship::Hold::None }, stage))
+}
+
+/// The words of a `run` after its `--background`: `--host NAME --base BASE --head HEAD --timeout SECONDS`, each `--output PATH`, then `--` and the command words.
+struct RunWords<'a, 'b> {
+    host: &'a str,
+    base: &'a str,
+    head: &'a str,
+    seconds: &'a str,
+    outputs: Vec<&'a str>,
+    command: &'b [&'a str],
+}
+
+fn run_words<'a, 'b>(words: &'b [&'a str]) -> Option<RunWords<'a, 'b>> {
+    let ["--host", host, "--base", base, "--head", head, "--timeout", seconds, tail @ ..] = words else { return None };
+    let mut rest = tail;
+    let mut outputs = Vec::new();
+    while let ["--output", path, after @ ..] = rest {
+        outputs.push(*path);
+        rest = after;
+    }
+    let ["--", command @ ..] = rest else { return None };
+    Some(RunWords { host, base, head, seconds, outputs, command })
 }
 
 fn hold_job(words: &[&str], stage: Stage) -> u8 {
     let ["--host", host, "--base", base, "--head", head, "--timeout", seconds] = words else { return usage() };
     let Ok(seconds) = seconds.parse::<u64>() else { return usage() };
     let hold = ship::Hold::Take { host: (*host).to_owned() };
-    in_checkout(base, head, |checkout, base, head| offload(host, ship::Land { ssh: "", checkout, base, head, timeout_seconds: seconds.min(ship::HOLD_CEILING_SECONDS), command: ship::HOLD_COMMAND, class: ship::SlotClass::LandCheck, confined: false, hold }, stage))
+    in_checkout(base, head, |checkout, base, head| offload(host, ship::Land { ssh: "", checkout, base, head, timeout_seconds: seconds.min(ship::HOLD_CEILING_SECONDS), command: ship::HOLD_COMMAND, outputs: &[], class: ship::SlotClass::LandCheck, confined: false, hold }, stage))
 }
 
 /// What `then` returns for the current directory and the commits `base` and `head` name in it, or exit 2 naming why they name none.
@@ -455,15 +478,15 @@ fn spread(standing: room::Standing, here: &str, remotes: Vec<(String, Option<roo
     0
 }
 
-/// The host an offload request names, when it is one the outside broker runs for a command whose domain reaches no other host (south#118): `hosts`, `slots` and `choose` bare, `slot record NAME`, which the offload's script asks from inside a worker's domain and whose project the broker's side names (ship/slot_record.rs), `choose --any` with the words `Placement::parse` reads apart from `--needs`, whose path would be read as the operator, each `choose` a read that claims no host (`WORKER_REQUEST_ENV`), `free --host NAME`, and `run` in exactly the words `run_job` reads with a base and head that are no option. Every other verb, word or option stays in the caller's domain, so a worker command picks no ssh option and no remote command beside the one the offload script runs under its lease.
+/// The host an offload request names, when it is one the outside broker runs for a command whose domain reaches no other host (south#118): `hosts`, `slots` and `choose` bare, `slot record NAME`, which the offload's script asks from inside a worker's domain and whose project the broker's side names (ship/slot_record.rs), `choose --any` with the words `Placement::parse` reads apart from `--needs`, whose path would be read as the operator, each `choose` a read that claims no host (`WORKER_REQUEST_ENV`), `free --host NAME`, and `run` in exactly the words `run_job` reads with a base and head that are no option and each `--output` a path inside the lane. Every other verb, word or option stays in the caller's domain, so a worker command picks no ssh option and no remote command beside the one the offload script runs under its lease.
 pub fn worker_request<'a>(words: &[&'a str]) -> Option<Option<&'a str>> {
     let commit = |name: &str| !name.starts_with('-');
     match words {
         ["hosts"] | ["slots"] | ["choose"] | ["slot", "record", _] => Some(None),
         ["choose", "--any", rest @ ..] => Placement::parse(rest).filter(|placement| placement.needs.is_empty()).map(|_| None),
         ["free", "--host", host] => Some(Some(host)),
-        ["run", "--background", rest @ ..] | ["run", rest @ ..] => match rest {
-            ["--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", _] if commit(base) && commit(head) && seconds.parse::<u64>().is_ok() => Some(Some(host)),
+        ["run", "--background", rest @ ..] | ["run", rest @ ..] => match run_words(rest) {
+            Some(RunWords { host, base, head, seconds, outputs, command: [_] }) if commit(base) && commit(head) && seconds.parse::<u64>().is_ok() && outputs.iter().all(|path| ship::outputs::lane_relative(path).is_ok()) => Some(Some(host)),
             _ => None,
         },
         _ => None,

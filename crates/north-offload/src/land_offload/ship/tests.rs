@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 fn carried_from(caller: &[(&str, &str)]) -> String {
-    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
+    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", outputs: &[], class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
     carried(&land, |name| caller.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()))
 }
 
@@ -192,7 +192,7 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
         let jobs: Vec<_> = references
             .iter()
             .map(|reference| {
-                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
+                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", outputs: &[], class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
                 let checkout = dir.path();
                 scope.spawn(move || {
                     let file = bundle(&land, reference, None).unwrap();
@@ -1057,7 +1057,7 @@ fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
     let bin = tempfile::tempdir().unwrap();
     north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let home = tempfile::tempdir().unwrap();
-    let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
+    let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, outputs: &[], class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
     let generated = super::generated::paths(&land);
     let script = format!("set -eu\nslot={} head={} command={} limit=10 generated={}\n{}{}", shell(slot), super::quote(head), super::quote(command), super::quote(&generated), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()), run_part());
     Command::new("sh")
