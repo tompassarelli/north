@@ -128,19 +128,21 @@ fn accounts_panel(screen: &Screen, window: &str) -> Panel {
         screen.credit.iter().filter(|org| !org.exhausted).count(),
         if screen.credit.len() == 1 { "organization" } else { "organizations" },
     );
-    let mut rows = vec![vec!["account".to_owned(), "plan".to_owned(), "week left".to_owned(), "use/h".to_owned(), "outlook".to_owned(), "resets".to_owned()]];
+    let mut rows = vec![vec!["account".to_owned(), "plan".to_owned(), "5h left".to_owned(), "5h resets".to_owned(), "week left".to_owned(), "use/h".to_owned(), "outlook".to_owned(), "resets".to_owned()]];
     rows.extend(accounts.iter().take(6).map(|account| {
         let plan = screen.billing.as_ref().ok().and_then(|billing| billing.plans.get(&account.account));
         vec![
             account.account.clone(),
             plan.map_or_else(|| "-".to_owned(), |plan| format!("{} {}/month", plan.plan, money(plan.monthly_usd))),
+            account.five_hour_used.map_or_else(|| "-".to_owned(), |used| format!("{:.0}%", (100.0 - used).max(0.0))),
+            account.five_hour_resets.map_or_else(|| "-".to_owned(), outlook::weekday_clock),
             account.week_used.map_or_else(|| "-".to_owned(), |used| format!("{:.0}%", (100.0 - used).max(0.0))),
             account.burn_per_hour.map_or_else(|| "-".to_owned(), |rate| format!("{rate:.1}%/h")),
             runway(account.runway),
             account.week_resets.map_or_else(|| "-".to_owned(), outlook::weekday_clock),
         ]
     }));
-    panel.lines.extend(grid(&rows, &[Align::Left, Align::Left, Align::Right, Align::Right, Align::Left, Align::Left]));
+    panel.lines.extend(grid(&rows, &[Align::Left, Align::Left, Align::Right, Align::Left, Align::Right, Align::Right, Align::Left, Align::Left]));
     for org in &screen.credit {
         panel.lines.push(org.line());
     }

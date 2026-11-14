@@ -158,3 +158,29 @@ fn the_main_view_names_each_session_and_the_focused_pane() {
     screen.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
     assert!(strip(&mut screen).contains("keys: session list"), "closing the digest returns focus to where it was");
 }
+
+#[test]
+fn the_digest_scrolls_to_its_last_row_and_shows_the_five_hour_window() {
+    use crate::fleet::board::{Board, Panel};
+    let mut accounts = Panel::new("Accounts", "every account lasts to its reset (3 accounts)");
+    accounts.lines = ["a", "b", "c"].iter().enumerate().map(|(index, name)| format!("{name}  Max 5x  5h left {}%  Thu 9:00 AM  week left", 90 - index)).collect();
+    let mut infra = Panel::new("Infra", "3 machines");
+    infra.lines = (0..12).map(|index| format!("machine {index} idle")).collect();
+    let mut health = Panel::new("Health", "all bars ready");
+    health.lines = vec!["the final health row".to_owned()];
+    let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
+    screen.digest.board = Board { first_line: "1 landings".to_owned(), panels: vec![Panel::new("Work", "1 working"), accounts, infra, health] };
+    screen.digest.shown = true;
+    let before = frame_rows(&mut screen, 80).join("\n");
+    assert!(!before.contains("the final health row"), "{before}");
+    assert_eq!(before.matches("5h left").count(), 3, "{before}");
+    for _ in 0..8 {
+        screen.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+    }
+    let after = frame_rows(&mut screen, 80).join("\n");
+    assert!(after.contains("the final health row"), "{after}");
+    for _ in 0..8 {
+        screen.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+    }
+    assert_eq!(frame_rows(&mut screen, 80).join("\n"), before);
+}

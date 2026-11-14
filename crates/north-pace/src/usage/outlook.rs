@@ -21,6 +21,8 @@ pub struct AccountOutlook {
     pub account: String,
     pub week_used: Option<f64>,
     pub week_resets: Option<Timestamp>,
+    pub five_hour_used: Option<f64>,
+    pub five_hour_resets: Option<Timestamp>,
     /// The weekly window's use per hour over the last readings, in percentage points; None until two readings span it.
     pub burn_per_hour: Option<f64>,
     pub runway: Runway,
@@ -43,7 +45,7 @@ pub fn claude_accounts(db: &Connection, policy: &Path, now: Timestamp) -> Result
                 Burn::Lasts { rate, .. } | Burn::Empties { rate, .. } => Some(*rate),
                 Burn::Unknown(_) => None,
             };
-            Ok(AccountOutlook { account: account.to_owned(), week_used: week.map(|(used, _)| used), week_resets: week.map(|(_, reset)| reset), burn_per_hour, runway: runway(&burn, week, session, now) })
+            Ok(AccountOutlook { account: account.to_owned(), week_used: week.map(|(used, _)| used), week_resets: week.map(|(_, reset)| reset), five_hour_used: session.map(|(used, _)| used), five_hour_resets: session.map(|(_, reset)| reset), burn_per_hour, runway: runway(&burn, week, session, now) })
         })
         .collect()
 }

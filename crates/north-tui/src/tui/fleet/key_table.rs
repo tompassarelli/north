@@ -48,6 +48,7 @@ pub const BINDINGS: &[Binding] = &[
     key("any letter", "start a message", "list"),
     key("Tab, Shift+Tab", "switch between list and composer", "anywhere"),
     key("PgUp/PgDn", "scroll the transcript", "anywhere"),
+    key("PgUp/PgDn", "scroll the digest", "digest"),
     ctrl("Ctrl+N", 'n', Control::NewSession, "start a new session"),
     ctrl("Ctrl+C", 'c', Control::Interrupt, "interrupt the selected session"),
     ctrl("Ctrl+X", 'x', Control::Stop, "stop the selected session"),
