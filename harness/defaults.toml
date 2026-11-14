@@ -1991,7 +1991,7 @@ fallback = "60"
 consumers = ["crates/north-pacing/src/pacing/placement/line_wait.rs"]
 
 [capacity_line_wait]
-value = true
+value = false
 allowed = {}
 unit = "whether a build host's slot line answers a job's expected wait, so a landing or ordinary check expected past its deadline is refused at once, and an offload whose head and command already wait or run on a build host is refused at once, naming that host"
 source = "prior: capacity scheduler box A1a (north#1036), 2026-11-13"
