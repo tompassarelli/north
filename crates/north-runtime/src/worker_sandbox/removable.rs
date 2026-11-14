@@ -1,5 +1,5 @@
 use std::os::unix::fs::DirBuilderExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::except::{Entries, beneath_except};
 
@@ -45,7 +45,8 @@ impl Context {
     fn with(command: &str, cwd: PathBuf, set: impl Fn(&str) -> Option<PathBuf>) -> Self {
         let uid = rustix::process::getuid().as_raw();
         let home = set("HOME").unwrap_or_default();
-        let named = named(&home, command);
+        let mut named = named(&home, command);
+        named.lanes.extend(eval_lane(&home, &cwd, set("NORTH_TEST_ROOT").as_deref()));
         Self {
             home,
             cwd,
@@ -175,6 +176,18 @@ pub(super) fn lane(home: &Path, cwd: &Path) -> Option<PathBuf> {
     let project = project(home, cwd)?;
     let slug = cwd.strip_prefix(project.join("worktrees")).ok()?.components().next()?;
     Some(project.join("worktrees").join(slug))
+}
+
+/// The lane an evaluation arm's worker runs in: `~/eval-data/.../WORK/p/worktrees/SLUG`, when `cwd` lies in it and the arm's fixture root `test_root` (`NORTH_TEST_ROOT`, which the arm sets to `WORK/state`) names that WORK directory; no other directory under `eval-data` is a lane.
+fn eval_lane(home: &Path, cwd: &Path, test_root: Option<&Path>) -> Option<PathBuf> {
+    let root = test_root?;
+    let plain = root.components().all(|part| matches!(part, Component::Normal(_) | Component::RootDir));
+    let inside = root.strip_prefix(home.join("eval-data")).ok().is_some_and(|rest| rest.components().count() > 1);
+    let worktrees = root.parent().filter(|_| plain && inside)?.join("p/worktrees");
+    match cwd.strip_prefix(&worktrees).ok()?.components().next()? {
+        Component::Normal(slug) => Some(worktrees.join(slug)),
+        _ => None,
+    }
 }
 
 /// What `command` names by absolute path (`~/code/PROJECT` and `~/code/PROJECT/worktrees/SLUG`, also written with `~` or `$HOME`).

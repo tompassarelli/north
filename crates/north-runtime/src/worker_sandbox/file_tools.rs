@@ -63,8 +63,31 @@ mod tests {
         Context::from_request("", lane, &[("HOME".into(), home.display().to_string()), ("NORTH_FLEET_SESSION".into(), "worker".into())])
     }
 
+    fn eval_worktree_reach(home: &Path) {
+        let named = |path: &Path| path.display().to_string();
+        let work = home.join("eval-data/eval-a/work/task-1");
+        let arm_lane = work.join("p/worktrees/worker");
+        let other_arm = home.join("eval-data/eval-a/work/task-2/p/worktrees/worker");
+        for directory in [work.join("p/main/.git"), work.join("state/north/fleet/worker"), arm_lane.join("src"), other_arm.clone(), home.join("eval-data/eval-a/work/task-3")] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        let arm_environment = |root: &Path| [("HOME".to_owned(), home.display().to_string()), ("NORTH_TEST_ROOT".to_owned(), root.display().to_string())];
+        let arm = Context::from_request("", &arm_lane, &arm_environment(&work.join("state")));
+        let arm_file = named(&arm_lane.join("src/new.rs"));
+        assert_eq!(outside(&arm, std::slice::from_ref(&arm_file), None), None);
+        for path in [work.join("state/north/fleet/worker/session.json"), work.join("p/main/file"), other_arm.join("file")] {
+            assert_eq!(outside(&arm, &[named(&path)], None), Some(named(&path)));
+        }
+        let unmarked = Context::from_request("", &arm_lane, &[("HOME".to_owned(), home.display().to_string())]);
+        let elsewhere = Context::from_request("", &arm_lane, &arm_environment(&home.join("eval-data/eval-a/work/task-3/state")));
+        let beside = Context::from_request("", &arm_lane, &arm_environment(&home.join("state")));
+        for other in [&unmarked, &elsewhere, &beside] {
+            assert_eq!(outside(other, std::slice::from_ref(&arm_file), None), Some(arm_file.clone()));
+        }
+    }
+
     #[test]
-    fn a_file_tool_reaches_the_lane_and_not_the_fleets_records_queue_archive_or_a_settings_file() {
+    fn a_file_tool_reaches_the_lane_and_the_eval_worktree_and_not_the_fleets_records_queue_archive_or_a_settings_file() {
         let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
         std::fs::create_dir_all(&outside_tmp).unwrap();
         let sandbox = tempfile::Builder::new().prefix("north-file-tools").tempdir_in(outside_tmp).unwrap();
@@ -106,5 +129,6 @@ mod tests {
         }
         assert_eq!(shut(&context, &[named(&fine), named(&key)]), Some(named(&key)));
         assert_eq!(shut(&unknown_home, &[named(&fine)]), Some(named(&fine)));
+        eval_worktree_reach(&home);
     }
 }
