@@ -281,7 +281,7 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
 }
 
 #[test]
-fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_before_its_ticket_is_written() {
+fn a_north_lane_queues_with_no_build_host_check_before_its_ticket_and_leaves_them_to_the_run_after_landing() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path();
     run(repo, &["init", "-q", "-b", "main"]);
@@ -293,16 +293,12 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     }
     commit(repo, "n882-context: pack context from graph-ground");
     let queued = crate::land::slots::runner::queue_commands(repo, &base, "HEAD").unwrap();
-    for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits"] {
-        assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
-    }
-    assert!(queued.iter().all(|command| !command.contains("cargo nextest run")), "a lane outside the trust boundary leaves its test line to the run after landing: {queued:#?}");
+    assert!(queued.is_empty(), "a north lane runs no build-host check before queueing: {queued:#?}");
     fs::create_dir_all(repo.join("crates/north-runtime/src/worker_sandbox")).unwrap();
     fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
     let bounded = commit(repo, "widen a worker sandbox grant");
     let kept = crate::land::slots::runner::queue_commands(repo, &base, &bounded).unwrap();
-    assert!(kept.iter().any(|command| command.contains("cargo nextest run")), "a lane that changes a trust-boundary path keeps its test line before queueing: {kept:#?}");
-    assert!(queued.iter().all(|command| !command.contains("--shadow")), "a shadow line gates nothing and runs after landing, so none is run before queueing: {queued:#?}");
+    assert!(kept.is_empty(), "a trust-boundary lane also leaves its build-host checks to the run after landing: {kept:#?}");
     let (store, entry) = ("~/.local/share/makgora-build-inputs/store", "14fbf7845b5d9c9705d0f0b4b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
     fs::create_dir_all(repo.join("build-inputs")).unwrap();
     fs::write(repo.join("build-inputs/impact-assets"), format!("{entry}\n")).unwrap();

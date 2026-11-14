@@ -15,6 +15,7 @@ use super::super::select::changed;
 const ATTEMPTS: usize = 3;
 const FAILING: &str = "; failing check `";
 const TESTS_AFTER_LANDING: &str = "tests_after_landing";
+const PREQUEUE_BUILD_CHECKS: &str = "prequeue_build_checks";
 
 /// The checks a lane runs alone before its ticket is written: its clippy (build and link), the
 /// `@enqueue` land.check lines, and the land test selection the batch would otherwise run unless `tests_after_landing`
@@ -25,6 +26,9 @@ const TESTS_AFTER_LANDING: &str = "tests_after_landing";
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = judged::config(root, base, head);
     let landing = config.after_set().commands(root, base, head)?;
+    if builds_after_landing(root, base, &landing) {
+        return Ok(Vec::new());
+    }
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
     let queued: Vec<String> = queued_lines.iter().map(|command| shared_build::built(command)).collect();
@@ -262,6 +266,11 @@ fn lane_tests(landing: &[String]) -> Option<String> {
 pub fn tests_after_landing(root: &Path, base: &str, head: &str) -> bool {
     let Ok(landing) = Config::load(root, head).after_set().commands(root, base, head) else { return false };
     lane_tests(&landing).is_some_and(|line| leaves_tests(root, base, head, &line))
+}
+
+fn builds_after_landing(root: &Path, base: &str, landing: &[String]) -> bool {
+    let off = document(DEFAULTS).get(PREQUEUE_BUILD_CHECKS).and_then(|entry| entry.get("value")).and_then(toml_edit::Item::as_str) == Some("off");
+    off && lane_tests(landing).is_some_and(|line| Config::load(root, base).after_only_reason(&line).is_some())
 }
 
 fn leaves_tests(root: &Path, base: &str, head: &str, line: &str) -> bool {
