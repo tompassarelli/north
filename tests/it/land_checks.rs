@@ -170,7 +170,7 @@ fn runs(fixture: &Fixture) -> Vec<String> {
 
 #[test]
 fn failed_check_judged_against_base() {
-    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {ENVIRONMENT_CHECK}"))]);
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {ENVIRONMENT_CHECK}")), ("land.reports-all", &format!("it names the broken file, its only finding :: {ENVIRONMENT_CHECK}"))]);
     let lane = lane_onto(&fixture, "lane\n");
     fs::write(fixture.path("plant"), "").unwrap();
     let output = fixture.command_between(&fixture.head, &lane).env("NORTH_LAND_ROUND", "r1").output().unwrap();
@@ -191,8 +191,8 @@ fn failed_check_judged_against_base() {
     assert_eq!(runs(&fixture).len(), 5, "a new round reuses no base result: {:?}", runs(&fixture));
 
     let output = fixture.command_between(&fixture.head, &lane).output().unwrap();
-    assert_eq!(output.status.code(), Some(127), "outside a lander round the failure stands: {}", text(&output));
-    assert_eq!(runs(&fixture).len(), 6);
+    assert_eq!(output.status.code(), Some(127), "outside a lander round a failure of the check's environment stands, though the base fails it too: {}", text(&output));
+    assert_eq!(runs(&fixture).len(), 7, "before queueing the base tree ran the failed check once to tell whose failure it is");
 
     fs::remove_file(fixture.path("plant")).unwrap();
     fs::remove_file(fixture.path("outcome")).unwrap();
@@ -200,20 +200,40 @@ fn failed_check_judged_against_base() {
     let output = fixture.command_between(&fixture.head, &broken).env("NORTH_LAND_ROUND", "r3").output().unwrap();
     assert_eq!(output.status.code(), Some(1), "a check the base tree passes refuses the lane: {}", text(&output));
     assert!(!fs::read_to_string(fixture.path("outcome")).unwrap().contains("environment is broken"));
-    assert_eq!(runs(&fixture)[6..], [broken.clone(), fixture.head.clone()]);
+    assert_eq!(runs(&fixture)[7..], [broken.clone(), fixture.head.clone()]);
     assert_eq!(git(&fixture.repo, &["rev-parse", "HEAD"]), broken);
+
+    git(&fixture.repo, &["checkout", "-q", "-B", "lane", &broken]);
+    fs::write(fixture.repo.join("file.txt"), "broken\nand a lane's own line\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "a lane on a red main"]);
+    let innocent = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let output = fixture.command_between(&broken, &innocent).output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "on 2026-11-15 five lanes were refused before queueing by checks main already failed the same way: {}", text(&output));
+    let output = fixture.command_between(&broken, &innocent).env("NORTH_LAND_ROUND", "r4").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "a check main fails the same way paused the lander for every lane: {}", text(&output));
+    assert!(fs::read_to_string(fixture.path("outcome")).unwrap().contains("not gating"));
 }
 
 #[test]
 fn a_test_that_is_red_on_the_base_never_refuses_the_lane_and_the_refusal_names_only_tests_the_base_passes() {
-    let check = r#": cargo nextest run; if [ "$(cat file.txt)" = lane ]; then printf '        FAIL [   0.1s] (1/2) crate::bin red::on_both\n        FAIL [   0.1s] (2/2) crate::bin %s\n' "${LANE_ONLY:-lane::only}"; exit 100; fi; case "${SAFE_PUSH_LAND_IT:-}" in *red::on_both*) printf '        FAIL [   0.1s] (1/1) crate::bin red::on_both\n'; exit 100;; esac"#;
+    let check = r#": cargo nextest run; if [ "$(cat file.txt)" = lane ]; then printf '        FAIL [   0.1s] (1/2) crate::bin red::on_both\n        FAIL [   0.1s] (2/2) crate::bin %s\n     Summary [   0.2s] 2 tests run: 0 passed, 2 failed, 0 skipped\n' "${LANE_ONLY:-lane::only}"; exit 100; fi; case "${SAFE_PUSH_LAND_IT:-}" in *red::on_both*) printf '        FAIL [   0.1s] (1/1) crate::bin red::on_both\n'; exit 100;; esac"#;
     let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {check}"))]);
-    let lane = lane_onto(&fixture, "lane\n");
-    let output = fixture.command_between(&fixture.head, &lane).output().unwrap();
+    git(&fixture.repo, &["checkout", "-q", "-B", "tested", &fixture.head]);
+    fs::create_dir_all(fixture.repo.join("src")).unwrap();
+    fs::write(fixture.repo.join("Cargo.toml"), "[package]\nname = \"fixture\"\n").unwrap();
+    fs::write(fixture.repo.join("src/lib.rs"), "#[test]\nfn on_both() {}\n").unwrap();
+    git(&fixture.repo, &["add", "Cargo.toml", "src/lib.rs"]);
+    git(&fixture.repo, &["commit", "-qm", "the base defines its red test"]);
+    let tested = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    git(&fixture.repo, &["checkout", "-q", "-B", "lane", &tested]);
+    fs::write(fixture.repo.join("file.txt"), "lane\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "lane"]);
+    let lane = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let output = fixture.command_between(&tested, &lane).output().unwrap();
     let report = text(&output);
     assert_eq!(output.status.code(), Some(100), "a test the base passes still refuses the lane: {report}");
     assert!(report.contains("1 test(s) pass on base tree") && report.contains("fail on this lane: crate::bin lane::only") && report.contains("1 more fail on the base too"), "the refusal names the test the base passes and counts the one it fails: {report}");
-    let red_only = fixture.command_between(&fixture.head, &lane).env("LANE_ONLY", "red::on_both").output().unwrap();
+    let red_only = fixture.command_between(&tested, &lane).env("LANE_ONLY", "red::on_both").output().unwrap();
     assert_eq!(red_only.status.code(), Some(0), "every failing test is red on the base too, so the lane is not refused: {}", text(&red_only));
     assert!(text(&red_only).contains("the lane adds no failing test"), "{}", text(&red_only));
 }

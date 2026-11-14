@@ -6,16 +6,10 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::land::telemetry::epoch;
 use crate::land::trace::check_log::{self, Mark};
-use crate::landing::check_findings;
 use super::LOG_KEEP;
 
 const ERROR_WORDS: &[&str] = &["error", "not found", "fail", "panicked", "denied", "no such"];
 const FIRST_ERROR_BOUND: usize = 300;
-
-pub(super) fn log_findings(text: &str) -> std::collections::BTreeSet<String> {
-    let found = check_findings::findings(text);
-    if found.is_empty() { first_error(text).into_iter().collect() } else { found }
-}
 
 pub(super) fn last_error(text: &str) -> Option<String> {
     text.lines().map(str::trim).rfind(|line| !line.is_empty() && !line.starts_with('{')).map(bounded)

@@ -3,9 +3,10 @@ use std::fs;
 
 use north_base::foundation::exit::NO_VERDICT_STATUS;
 
-use crate::land::slots::select::Config;
+use crate::land::slots::select::{Config, changed};
 use crate::land::slots::unit_reuse;
 use crate::platform::land_queue::ROUND;
+use super::attribution::{self, Attribution, LaneRun};
 use super::spawn::Ran;
 use super::{Shared, say, warn};
 
@@ -61,18 +62,38 @@ impl Shared {
         let _ = fs::remove_file(&base.log);
         let added: Tests = failing.difference(&red_on_base).cloned().collect();
         let log = ran.log.display();
-        if added.is_empty() {
+        let lane_log = fs::read_to_string(&ran.log).unwrap_or_default();
+        let cleared = added.is_empty() && self.base_takes_the_blame(command, &lane_log, &tree);
+        if cleared {
             say(&format!("safe-push: land check {command} exited {}, and every failing test also fails on base tree {tree}: {}; the lane adds no failing test, so it is not refused", ran.status, names(failing.clone())));
             self.outcome.record(&["event", "land check", "not gating", &format!("{command}: {} failing test(s) are red on the base too; log: {log}", failing.len())]);
             let _ = fs::remove_file(&ran.log);
             return Some(0);
         }
-        let shown = names(added.iter().cloned());
+        let shown = if added.is_empty() { format!("none, but the base cannot take the blame for {}", names(failing.clone())) } else { names(added.iter().cloned()) };
         let also = if red_on_base.is_empty() { String::new() } else { format!("; {} more fail on the base too and do not count", failing.len() - added.len()) };
         warn(&format!("safe-push: land check {command} exited {}: {} test(s) pass on base tree {tree} and fail on this lane: {shown}{also}; log: {log}; NOT pushed.", ran.status, added.len()));
         self.cache_record(ran.status, &[command.to_owned()]).await;
         self.outcome.record(&["event", "land check", "failed", &format!("{command}: fails {shown}; log: {log}")]);
         self.outcome.record(&["failed-step", command, &log.to_string()]);
         Some(ran.status)
+    }
+
+    /// Whether the base takes the blame for failing tests the base rerun already found red there: it judges only that the lane's run reached all its tests and compiled, failed in no environment, and changes none of the failing tests' files or packages, since the rerun decided which tests the lane adds.
+    fn base_takes_the_blame(&self, command: &str, lane_log: &str, tree: &str) -> bool {
+        let Ok(changed) = changed(&self.root, &self.arguments.base, &self.arguments.head, &[]) else { return false };
+        let run = LaneRun { command, log: lane_log, changed: &changed, tests: true, reports_all: false };
+        match attribution::attribute(&run, &attribution::signature(lane_log, true, &self.lane_tree()), &self.lane_tree()) {
+            Attribution::Base => true,
+            Attribution::Touches(files) => {
+                say(&format!("safe-push: the failing tests also fail on base tree {tree}, but this lane changes their files ({}), so the failure counts as the lane's", files.join(", ")));
+                false
+            }
+            Attribution::Unjudged(why) => {
+                say(&format!("safe-push: the failing tests also fail on base tree {tree}, but {why}, so the failure counts as the lane's"));
+                false
+            }
+            Attribution::Lane(_) => false,
+        }
     }
 }

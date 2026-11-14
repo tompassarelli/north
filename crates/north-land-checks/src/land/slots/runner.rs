@@ -23,6 +23,7 @@ use entry::{any, portable, replay, start_stage};
 use selection::{Selections, defined_on_tree, selections, unless_no_test, without_empty_test_selections};
 
 mod arguments;
+mod attribution;
 mod base_tests;
 mod batch;
 mod build_host;
@@ -33,6 +34,7 @@ mod fail_fast;
 mod hold;
 mod judge;
 mod lane_scope;
+mod lane_tree;
 mod line_refusals;
 mod log;
 mod offload_job;

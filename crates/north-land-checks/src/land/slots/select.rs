@@ -21,6 +21,7 @@ pub struct Config {
     after: Vec<String>,
     after_landing: Vec<String>,
     after_only: Vec<String>,
+    reports_all: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
     host_inputs: Vec<String>,
@@ -113,6 +114,7 @@ impl Config {
             after: blob.values("land.after"),
             after_landing: blob.values("after-landing.check"),
             after_only: blob.values("land.after-only"),
+            reports_all: blob.values("land.reports-all"),
             local_only: blob.values("land.local-only"),
             machine_bound: blob.values("land.machine-bound"),
             host_inputs: blob.values("land.host-input").into_iter().map(|line| expand_host_inputs(repo, head, line)).collect(),
@@ -175,6 +177,11 @@ impl Config {
         reason(&self.after_only, command)
     }
 
+    /// Whether `command` is declared to report every error it finds rather than stop at its first, so its failure on a lane can be compared whole with its base's.
+    pub fn reports_all(&self, command: &str) -> bool {
+        reason(&self.reports_all, command).is_some()
+    }
+
     pub fn local_reason(&self, command: &str) -> Option<&str> {
         reason(&self.local_only, command)
     }
@@ -196,7 +203,7 @@ impl Config {
     }
 
     fn malformed_pair(&self) -> Option<String> {
-        let lists = [("land.local-only", &self.local_only), ("land.machine-bound", &self.machine_bound), ("land.after-only", &self.after_only), ("land.host-input", &self.host_inputs), ("land.deadline", &self.deadlines)];
+        let lists = [("land.local-only", &self.local_only), ("land.machine-bound", &self.machine_bound), ("land.after-only", &self.after_only), ("land.reports-all", &self.reports_all), ("land.host-input", &self.host_inputs), ("land.deadline", &self.deadlines)];
         lists.into_iter().find_map(|(key, entries)| entries.iter().find(|entry| !entry.contains(SEPARATOR)).map(|entry| format!("invalid {key}: {entry} (expected REASON{SEPARATOR}COMMAND)")))
     }
 

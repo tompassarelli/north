@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
 use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS};
 
-use crate::land::slots::select::Config;
+use crate::land::slots::select::{Config, changed};
+use crate::land::slots::unit_reuse;
 use crate::landing::check_timings::outcomes::Outcome as CheckOutcome;
 use crate::platform::land_queue::ROUND;
 use super::{BASE_FAILS, BROKEN_BASE};
@@ -13,7 +15,8 @@ use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
 use super::{Shared, host_name, say, timeout_row, warn};
 use super::checkout::BaseTree;
 use super::lane_scope;
-use super::log::{log_findings, first_error};
+use super::attribution::{self, Attribution, LaneRun};
+use super::log::first_error;
 use super::spawn::{Attempt, Ended, Ran};
 
 impl Shared {
@@ -78,34 +81,8 @@ impl Shared {
         if let Some(judged) = self.judge_tests_against_base(command, leased, timeout, ran).await {
             return judged;
         }
-        if let Some(first) = self.base_failure(command, leased, timeout).await {
-            let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
-            if self.config.is_inferred(command) {
-                let added = self.added_findings(command, &ran.log);
-                if added.is_empty() {
-                    say(&format!("safe-push: land check (inferred) {command} exited {status} on this lane {BASE_FAILS} {tree} ({first}), and the lane adds no finding the base lacks; the repository never declared it and main does not meet it, so it does not gate this lane; log: {log}"));
-                    self.outcome.record(&["event", "land check", "not gating", &format!("{command}: main fails it too and the lane adds nothing; log: {log}")]);
-                    return 0;
-                }
-                let shown = added.iter().take(5).cloned().collect::<Vec<_>>().join("; ");
-                warn(&format!("safe-push: land check (inferred) {command} exited {status} on this lane {BASE_FAILS} {tree}, but the lane adds {} finding(s) the base lacks: {shown}; log: {log}; NOT pushed.", added.len()));
-                self.cache_record(status, &[command.to_owned()]).await;
-                self.outcome.record(&["event", "land check", "failed", &format!("{command}: adds {shown}; log: {log}")]);
-                self.outcome.record(&["failed-step", command, &log.to_string()]);
-                return status;
-            }
-            if let Some(host) = self.overloaded_host(command) {
-                let detail = format!("land check {command} failed on this lane and on base tree {tree} ({first}) while this host ran at load {:.1} over its {} cores, so the load, not main or this lane, is suspect", host.load, host.cores);
-                warn(&format!("safe-push: {detail}; log: {log}; NOT pushed."));
-                self.outcome.record(&["skip", &detail]);
-                self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
-                return NO_VERDICT_STATUS;
-            }
-            let detail = format!("{BROKEN_BASE}{command} on {}: {first}", host_name(&self.cache_class(command)));
-            warn(&format!("safe-push: land check {command} exited {status} on this lane {BASE_FAILS} {tree}, so the failure is the check environment, not this lane; log: {log}; NOT pushed."));
-            self.outcome.record(&["skip", &detail]);
-            self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
-            return NO_VERDICT_STATUS;
+        if let Some(judged) = self.judge_against_base(command, leased, timeout, ran).await {
+            return judged;
         }
         warn(&format!("safe-push: land check {command} exited {status}; log: {log}; NOT pushed."));
         self.cache_record(status, &[command.to_owned()]).await;
@@ -119,38 +96,81 @@ impl Shared {
         status
     }
 
-    fn added_findings(&self, command: &str, lane_log: &Path) -> Vec<String> {
-        let round = std::env::var(ROUND).unwrap_or_default();
-        let timings = Timings::standard();
-        let lane = log_findings(&fs::read_to_string(lane_log).unwrap_or_default());
-        match timings.findings(&self.trees.base, command, &self.cache_class(command), &round) {
-            Some(base) => check_findings::added(&lane, &check_findings::decode(&base)),
-            None => lane.into_iter().chain(["the base tree's findings were not recorded".to_owned()]).collect(),
+    async fn judge_against_base(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> Option<i32> {
+        let (first, base) = self.base_findings(command, leased, timeout).await?;
+        let (status, log) = (ran.status, ran.log.display());
+        let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
+        let held = !std::env::var(ROUND).unwrap_or_default().is_empty() && !self.config.is_inferred(command);
+        if held && let Some(host) = self.overloaded_host(command) {
+            let detail = format!("land check {command} failed on this lane and on base tree {tree} ({first}) while this host ran at load {:.1} over its {} cores, so the load, not main or this lane, is suspect", host.load, host.cores);
+            warn(&format!("safe-push: {detail}; log: {log}; NOT pushed."));
+            self.outcome.record(&["skip", &detail]);
+            self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
+            return Some(NO_VERDICT_STATUS);
+        }
+        let text = fs::read_to_string(&ran.log).unwrap_or_default();
+        let Ok(changed) = changed(&self.root, &self.arguments.base, &self.arguments.head, &[]) else {
+            say(&format!("safe-push: land check {command} {BASE_FAILS} {tree}, but this lane's changed files could not be listed, so the failure counts as the lane's"));
+            return None;
+        };
+        let run = LaneRun { command, log: &text, changed: &changed, tests: unit_reuse::runs_tests(command), reports_all: self.config.is_inferred(command) || Config::load(&self.root, &self.arguments.base).reports_all(command) };
+        let attributed = if base.is_empty() { Attribution::Unjudged("the base tree's failure names nothing to compare") } else { attribution::attribute(&run, &base, &self.lane_tree()) };
+        match attributed {
+            Attribution::Base => {
+                say(&format!("safe-push: land check {command} fails on this lane (exit {status}) the same way it fails on base tree {tree}, and the lane changes none of its own files, so main's failure stays red on main and does not refuse this lane; log: {log}"));
+                self.outcome.record(&["event", "land check", "not gating", &format!("{command}: fails the same way on base tree {tree}; log: {log}")]);
+                let _ = fs::remove_file(&ran.log);
+                Some(0)
+            }
+            Attribution::Lane(added) => {
+                let shown = added.iter().take(5).cloned().collect::<Vec<_>>().join("; ");
+                say(&format!("safe-push: land check {command} {BASE_FAILS} {tree}, but this lane adds {} failure(s) the base lacks: {shown}", added.len()));
+                None
+            }
+            Attribution::Touches(files) => {
+                say(&format!("safe-push: land check {command} {BASE_FAILS} {tree}, but this lane changes its own files ({}), so the failure counts as the lane's", files.join(", ")));
+                None
+            }
+            Attribution::Unjudged(why) if held => {
+                let detail = format!("{BROKEN_BASE}{command} on {}: {first}", host_name(&self.cache_class(command)));
+                warn(&format!("safe-push: land check {command} exited {status} on this lane {BASE_FAILS} {tree}, and {why}; log: {log}; NOT pushed."));
+                self.outcome.record(&["skip", &detail]);
+                self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
+                Some(NO_VERDICT_STATUS)
+            }
+            Attribution::Unjudged(why) => {
+                say(&format!("safe-push: land check {command} {BASE_FAILS} {tree}, but {why}, so the failure counts as the lane's"));
+                None
+            }
         }
     }
 
-    async fn base_failure(&self, command: &str, leased: bool, timeout: u64) -> Option<String> {
+    /// The base tree's failure of `command`, `None` when the base passes it or cannot judge it. A round reuses the base result
+    /// it recorded in the lander's own state under its round key; a run before queueing reads no record, since a caller's state
+    /// home is its own to write, and runs the check once at the base instead.
+    async fn base_findings(&self, command: &str, leased: bool, timeout: u64) -> Option<(String, BTreeSet<String>)> {
         let round = std::env::var(ROUND).unwrap_or_default();
-        let judged = !round.is_empty() && !self.lane_scoped(command) && !*self.cancel.borrow() && !self.trees.base.is_empty() && self.trees.base != self.trees.head && Config::load(&self.root, &self.arguments.base).runs(command);
+        let judged = !self.arguments.after && !self.lane_scoped(command) && !*self.cancel.borrow() && !self.trees.base.is_empty() && self.trees.base != self.trees.head && Config::load(&self.root, &self.arguments.base).runs(command);
         if !judged {
             return None;
         }
-        let class = self.cache_class(command);
-        let timings = Timings::standard();
         let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
-        let result = if let Some(result) = timings.result(&self.trees.base, command, &class, &round) {
-            say(&format!("safe-push: base tree {tree} already ran land check {command} this round"));
-            result
-        } else {
-            say(&format!("safe-push: land check failed; rerunning it on base tree {tree}: {command}"));
-            let result = self.run_on_base(command, leased, timeout).await;
-            let _ = timings.record_result(&self.trees.base, command, &class, &round, &result);
-            result
-        };
-        match result {
-            BaseResult::Failed(first) => Some(first),
-            BaseResult::Passed => None,
+        if !round.is_empty() {
+            let (timings, class) = (Timings::standard(), self.cache_class(command));
+            match timings.result(&self.trees.base, command, &class, &round) {
+                Some(BaseResult::Passed) => {
+                    say(&format!("safe-push: base tree {tree} already ran land check {command} this round and passed it"));
+                    return None;
+                }
+                Some(BaseResult::Failed(first)) => {
+                    say(&format!("safe-push: base tree {tree} already ran land check {command} this round and failed it"));
+                    return Some((first, timings.findings(&self.trees.base, command, &class, &round).map(|found| check_findings::decode(&found)).unwrap_or_default()));
+                }
+                None => {}
+            }
         }
+        say(&format!("safe-push: land check failed; running it once on base tree {tree} to tell whose failure it is: {command}"));
+        self.run_on_base(command, leased, timeout, Some(round.as_str()).filter(|round| !round.is_empty())).await
     }
 
     pub(super) async fn base_run(&self, command: &str, leased: bool, timeout: u64) -> Result<Ran, String> {
@@ -165,21 +185,29 @@ impl Shared {
         ran.map_err(|_| format!("land check {command} could not start on the base tree"))
     }
 
-    async fn run_on_base(&self, command: &str, leased: bool, timeout: u64) -> BaseResult {
+    async fn run_on_base(&self, command: &str, leased: bool, timeout: u64, round: Option<&str>) -> Option<(String, BTreeSet<String>)> {
         let ran = match self.base_run(command, leased, timeout).await {
             Ok(ran) => ran,
-            Err(error) => return BaseResult::Failed(error),
+            Err(error) => return Some((error, BTreeSet::new())),
         };
-        let _ = Timings::standard().record(&self.trees.base, command, &self.cache_class(command), ran.timing());
+        let (timings, class) = (Timings::standard(), self.cache_class(command));
+        let _ = timings.record(&self.trees.base, command, &class, ran.timing());
         if ran.status == 0 {
             let _ = fs::remove_file(&ran.log);
-            return BaseResult::Passed;
+            if let Some(round) = round {
+                let _ = timings.record_result(&self.trees.base, command, &class, round, &BaseResult::Passed);
+            }
+            return None;
         }
         let text = fs::read_to_string(&ran.log).unwrap_or_default();
-        let _ = Timings::standard().record_findings(&self.trees.base, command, &self.cache_class(command), &std::env::var(ROUND).unwrap_or_default(), &check_findings::encode(&log_findings(&text)));
+        let found = attribution::signature(&text, unit_reuse::runs_tests(command), &self.lane_tree());
         let first = first_error(&text).unwrap_or_else(|| format!("exited {}", ran.status));
+        if let Some(round) = round {
+            let _ = timings.record_findings(&self.trees.base, command, &class, round, &check_findings::encode(&found));
+            let _ = timings.record_result(&self.trees.base, command, &class, round, &BaseResult::Failed(first.clone()));
+        }
         say(&format!("safe-push: land check {command} exited {} on the base tree too; log: {}", ran.status, ran.log.display()));
-        BaseResult::Failed(first)
+        Some((first, found))
     }
 
     fn judge_hang(&self, command: &str, timeout: u64, base: Base, log: &Path) -> i32 {

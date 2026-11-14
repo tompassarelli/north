@@ -65,12 +65,18 @@ impl Index {
     }
 }
 
+fn every_error(results: impl Iterator<Item = Result<(), String>>) -> Result<(), String> {
+    let mut errors: Vec<String> = results.filter_map(Result::err).collect();
+    errors.dedup();
+    if errors.is_empty() { Ok(()) } else { Err(errors.join("\n")) }
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let result = match arguments.split_first() {
         Some((command, rest)) if command == "readme" && rest.first().is_some_and(|verb| verb == "import-large") => readme_large::run_import(&rest[1..]),
         Some((command, rest)) => {
             let mut named = INDEXES.iter().filter(|index| index.command == command).peekable();
-            if named.peek().is_none() { Err(USAGE.to_owned()) } else { named.try_for_each(|index| index.run(rest)) }
+            if named.peek().is_none() { Err(USAGE.to_owned()) } else { every_error(named.map(|index| index.run(rest))) }
         }
         None => Err(USAGE.to_owned()),
     };
