@@ -1,7 +1,9 @@
-use super::hands_over_a_command;
+use super::{hands_over_a_command, offer};
 
 #[test]
-fn the_proxy_replies_that_handed_tom_rm_commands_on_2026_11_08_are_refused_and_plain_reports_pass_north_937() {
+fn the_proxy_replies_that_handed_tom_rm_commands_on_2026_11_08_or_offered_work_as_a_question_are_refused_and_plain_or_quoting_reports_pass_north_937() {
+    assert!(offer("Done: landed.\n\nWant me to delete the lane?").is_some());
+    assert!(offer("Done: landed.\n\nThe stop check refuses \"want me to\" and `should i ` when they close a report.").is_none(), "a phrase only quoted is not an offer");
     let handed = [
         "Type this in my prompt to delete that one 41-byte file:\n\n```\n! rm /home/tom/code/operator/main/.git/refs/remotes/origin/main.lock\n```\n\nOnce it's gone, the next push goes out the new way.",
         "Thanks for deleting that lock. This clears the three and updates the checkout:\n\n```\n! rm /home/tom/code/operator/main/.git/index.lock /home/tom/code/operator/main/.git/ORIG_HEAD.lock /home/tom/code/operator/main/.git/refs/remotes/origin/HEAD.lock && git -C /home/tom/code/operator/main merge --ff-only origin/main\n```",

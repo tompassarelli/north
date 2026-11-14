@@ -29,6 +29,7 @@ pub const ASK_ONCE: [&str; 19] = [
     "cost", "costs", "money", "spend", "billing", "paid", "account", "accounts", "public", "publish", "credential", "credentials", "password", "delete", "deleting", "deletion", "token", "tokens", "north gate",
 ];
 
+static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?s)```.*?```|`[^`]*`|"[^"]*""#).unwrap());
 static GH_EDIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bgh\b([^\n;&|]*?)\bissue\s+edit\b([^\n;&|]*)").unwrap());
 static GH_CREATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bgh\b[^\n;&|]*?\bissue\s+create\b").unwrap());
 static THREADS_NOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bthreads\s+(?:box\s+add|note)\s+(?:-\S+\s+)*(\S+)").unwrap());
@@ -127,7 +128,13 @@ pub fn missing_step(reply: &str, turn: &Turn) -> Option<String> {
     Some(format!("BLOCKED ({UNIT}): your reply recommends or asks (\"{phrase}\") but {step}; ask Tom first only for cost, accounts, making something public, credentials or deleting valuable data."))
 }
 
+pub(super) fn unquoted(text: &str) -> String {
+    QUOTED.replace_all(text, " ").into_owned()
+}
+
 fn triggering_sentences(reply: &str) -> Vec<(String, String)> {
+    let reply = unquoted(reply);
+    let reply = reply.as_str();
     let mut found = Vec::new();
     for sentence in sentences(reply) {
         let words = words(sentence);

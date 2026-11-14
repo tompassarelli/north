@@ -49,7 +49,8 @@ pub fn offer(text: &str) -> Option<&'static str> {
     if decision {
         return None;
     }
-    OFFERS.into_iter().find(|phrase| has(phrase))
+    let offered = words(&crate::guard::recommend_acts::unquoted(&closing_paragraph(text)));
+    OFFERS.into_iter().find(|phrase| offered.contains(&words(phrase)))
 }
 
 fn closing_paragraph(text: &str) -> String {
