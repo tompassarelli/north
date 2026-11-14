@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::after_landing::{self, AfterLanding, Ledger};
 use super::failure::{Failure, failed};
 use super::layout;
-use super::main_runs::{self, MainRun, MainRuns};
+use super::main_runs::{self, Kept, MainRun, MainRuns};
 use super::trip::{Trip, Trips};
 
 pub(crate) const VERB: &str = "review-hold";
@@ -306,7 +306,7 @@ impl Screen {
         Ok(None)
     }
 
-    /// Whether red `run` gives no verdict (main_runs::not_judged), recorded once with the proxy told; a run already tripped or cleared keeps its verdict.
+    /// Whether red `run` gives no verdict (main_runs::not_judged), recorded once with the proxy told; a run already tripped or cleared keeps its verdict, and a read of the run that fails is an error that records nothing, so the head is refused as not screened and the next screen reads it again.
     fn unjudged(&self, run: &MainRun) -> Result<bool, String> {
         if !run.red || self.trips.cleared(&run.head)? || self.trips.read(&run.head)?.is_some() {
             return Ok(false);
@@ -314,8 +314,8 @@ impl Screen {
         if self.trips.unjudged(&run.head)? {
             return Ok(true);
         }
-        let Some(why) = main_runs::not_judged((self.runs.log)(&run.id).as_deref()) else { return Ok(false) };
-        self.trips.write_unjudged(&run.head, &run.id, why)?;
+        let Some(why) = main_runs::not_judged(&(self.runs.kept)(&run.id)?) else { return Ok(false) };
+        self.trips.write_unjudged(&run.head, &run.id, &why)?;
         (self.runs.alert)(&format!("north runtime: the hosted Buck2 run {} on {} is not judged and trips nothing: {why}", run.id, run.head));
         Ok(true)
     }
@@ -343,7 +343,10 @@ impl Screen {
 
     /// Writes the trip of a red run of main, with its failed cases read from the run's log, and tells the proxy of it.
     fn record(&self, run: &MainRun) -> Result<Trip, String> {
-        let cases = (self.runs.log)(&run.id).map(|text| main_runs::failed_cases(&text)).unwrap_or_default();
+        let cases = match (self.runs.kept)(&run.id) {
+            Ok(Kept::Log(text)) => main_runs::failed_cases(&text),
+            _ => Vec::new(),
+        };
         let trip = Trip { head: run.head.clone(), run: Some(run.id.clone()), cases };
         self.trips.write(&trip)?;
         (self.runs.alert)(&format!("north runtime: {}", trip.refusal()));

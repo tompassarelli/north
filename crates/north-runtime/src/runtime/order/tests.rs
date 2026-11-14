@@ -5,7 +5,7 @@ use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
 use super::super::after_landing::Landing;
 use super::super::review_hold::{self, Ask, Caller, Holds, Screen, landed_in, lane_of, now};
-use super::super::main_runs::{MainRun, MainRuns};
+use super::super::main_runs::{Kept, MainRun, MainRuns};
 use super::super::trip::Trips;
 use super::super::update::{self, Flight};
 use super::{Host, Order, run};
@@ -468,7 +468,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     assert!(tripped.order(NEW, &["whiterabbit"], now()).is_ok(), "a cleared trip no longer holds");
     assert!(Trips(trips).clear(SQUASHED, "proxy", "again", now()).is_err(), "a trip is cleared once");
     let hosted = state.path().join("hosted-trips");
-    let reds_only = || MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
+    let reds_only = || MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), kept: Box::new(|_| Ok(Kept::Log(HOSTED_LOG.to_owned()))), alert: Box::new(|_| {}) };
     let passing = Screen { runs: reds_only(), trips: Trips(hosted.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     assert!(passing.order(NEW, &["whiterabbit"], now()).is_ok(), "a red hosted run on an ancestor holds no later head whose own after-landing run passed");
     let read = Screen { runs: reds_only(), trips: Trips(hosted.clone()), after_landing: None, ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
@@ -478,14 +478,14 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     Trips(hosted).clear(SQUASHED, "proxy", "the case passes on rerun", now()).unwrap();
     assert!(read.order(NEW, &["whiterabbit"], now()).is_ok(), "a cleared hosted trip no longer holds");
     let timed_out = state.path().join("timed-out-trips");
-    for (run, log) in [("43604836319", Some(TIMED_OUT_LOG)), ("43607761294", None)] {
-        let runs = MainRuns { page: Box::new(move |number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: run.to_owned(), red: true }, MainRun { head: crate::runtime::main_runs::FIXTURE_ANCESTOR.to_owned(), id: "0".to_owned(), red: false }]))), log: Box::new(move |_| log.map(str::to_owned)), alert: Box::new(|_| {}) };
+    for (run, kept) in [("43604836319", Kept::Log(TIMED_OUT_LOG.to_owned())), ("43607761294", Kept::CutOff("The hosted runner lost communication with the server.".to_owned()))] {
+        let runs = MainRuns { page: Box::new(move |number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: run.to_owned(), red: true }, MainRun { head: crate::runtime::main_runs::FIXTURE_ANCESTOR.to_owned(), id: "0".to_owned(), red: false }]))), kept: Box::new(move |_| Ok(kept.clone())), alert: Box::new(|_| {}) };
         let unjudged = Screen { runs, trips: Trips(timed_out.join(run)), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
         assert!(unjudged.order(NEW, &["whiterabbit"], now()).is_ok(), "on 2026-11-14 hosted run {run} only timed out or hit its job limit, tripped promotion, and was cleared by hand: such a run trips nothing");
         assert!(Trips(timed_out.join(run)).read(SQUASHED).unwrap().is_none() && Trips(timed_out.join(run)).unjudged(SQUASHED).unwrap(), "{run} is recorded as not judged, not as a trip");
     }
     let superseded_trips = state.path().join("superseded-trips");
-    let superseded_runs = || MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: NEW.to_owned(), id: "43493048821".to_owned(), red: false }, MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
+    let superseded_runs = || MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: NEW.to_owned(), id: "43493048821".to_owned(), red: false }, MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), kept: Box::new(|_| Ok(Kept::Log(HOSTED_LOG.to_owned()))), alert: Box::new(|_| {}) };
     let superseded = superseded_runs();
     let newer = Screen { contains: Box::new(newer_green), runs: superseded, trips: Trips(superseded_trips.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     assert!(newer.order(NEW, &["whiterabbit"], now()).is_ok(), "an older red run behind a newer green run on the ancestry holds nothing");
@@ -497,7 +497,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let fixed_asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
     let fixed = Screen { contains: Box::new(newer_green), runs: superseded_runs(), trips: Trips(fixed_trips), revert: recorder(&fixed_asked), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     assert!(fixed.order(NEW, &["whiterabbit"], later).is_ok() && fixed_asked.borrow().is_empty(), "a fix that landed first and turned main green asks for no revert");
-    let off_ancestry = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: OLD.to_owned(), id: "43491019011".to_owned(), red: true }]))), log: Box::new(|_| Some(HOSTED_LOG.to_owned())), alert: Box::new(|_| {}) };
+    let off_ancestry = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: OLD.to_owned(), id: "43491019011".to_owned(), red: true }]))), kept: Box::new(|_| Ok(Kept::Log(HOSTED_LOG.to_owned()))), alert: Box::new(|_| {}) };
     let off = Screen { runs: off_ancestry, trips: Trips(state.path().join("off-ancestry-trips")), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
     let unscreened = off.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
     assert!(unscreened.contains("is not screened"), "a list whose runs are all off the head's ancestry refuses the head as not screened: {unscreened}");
@@ -506,4 +506,18 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     for branches in [vec!["main".to_owned()], vec!["f-fix".to_owned(), "f-other".to_owned()]] {
         assert!(lane_of(REVIEWED, "", &branches).is_err(), "a hold whose lane is not one branch is refused at placement: {branches:?}");
     }
+}
+
+#[test]
+fn a_red_run_that_cannot_be_read_refuses_the_head_and_records_nothing_until_a_read_judges_it() {
+    let state = tempfile::tempdir().unwrap();
+    let unread_trips = state.path().join("unread-trips");
+    Trips(unread_trips.clone()).write_unjudged(SQUASHED, "43491019011", "its log cannot be read, as when the job ends at its time limit").unwrap();
+    let counted = std::rc::Rc::new(std::cell::Cell::new(0));
+    let flaky = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }, MainRun { head: crate::runtime::main_runs::FIXTURE_ANCESTOR.to_owned(), id: "0".to_owned(), red: false }]))), kept: Box::new(move |_| { counted.set(counted.get() + 1); if counted.get() == 1 { Err("gh: connection refused".to_owned()) } else { Ok(Kept::Log(HOSTED_LOG.to_owned())) } }), alert: Box::new(|_| {}) };
+    let unread = Screen { runs: flaky, trips: Trips(unread_trips.clone()), after_landing: None, ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
+    let unread_refusal = unread.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
+    assert!(unread_refusal.contains("is not screened") && !Trips(unread_trips.clone()).unjudged(SQUASHED).unwrap(), "a review on 2026-11-15 found that a failed read of a red run marked it not judged for good, so a red run could promote: such a record counts as absent, and a failed read refuses the head and records nothing: {unread_refusal}");
+    let reread = unread.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
+    assert!(reread.contains("golden_path::a_brief_becomes") && Trips(unread_trips).read(SQUASHED).unwrap().is_some(), "the next screen reads the run again and trips on its failed case: {reread}");
 }

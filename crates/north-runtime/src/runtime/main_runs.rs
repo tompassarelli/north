@@ -22,23 +22,33 @@ pub(crate) struct MainRun {
     pub red: bool,
 }
 
-type RunLog = Box<dyn Fn(&str) -> Option<String>>;
+const UNFINISHED: [&str; 2] = ["timed_out", "cancelled"];
+const CUT_OFF: [&str; 2] = ["lost communication with the server", "exceeded the maximum execution time"];
+
+/// What GitHub kept of a red run: its job record's word that a job was cut off before it finished, or its failed steps' log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Kept {
+    CutOff(String),
+    Log(String),
+}
+
+type RunKept = Box<dyn Fn(&str) -> Result<Kept, String>>;
 type RunPage = Box<dyn Fn(u32) -> Result<Option<Vec<MainRun>>, String>>;
 
 pub(crate) struct MainRuns {
     pub page: RunPage,
-    pub log: RunLog,
+    pub kept: RunKept,
     pub alert: Box<dyn Fn(&str)>,
 }
 
 impl MainRuns {
     pub(crate) fn main() -> Self {
-        Self { page: Box::new(page), log: Box::new(log), alert: Box::new(super::alert::alert_proxy) }
+        Self { page: Box::new(page), kept: Box::new(kept), alert: Box::new(super::alert::alert_proxy) }
     }
 
     #[cfg(test)]
     pub(crate) fn none() -> Self {
-        Self { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: FIXTURE_ANCESTOR.to_owned(), id: "0".to_owned(), red: false }]))), log: Box::new(|_| None), alert: Box::new(|_| {}) }
+        Self { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: FIXTURE_ANCESTOR.to_owned(), id: "0".to_owned(), red: false }]))), kept: Box::new(|_| Err("this fixture reads no run".to_owned())), alert: Box::new(|_| {}) }
     }
 }
 
@@ -47,6 +57,18 @@ struct Row {
     id: u64,
     conclusion: String,
     head_sha: String,
+}
+
+#[derive(Deserialize)]
+struct Job {
+    id: u64,
+    conclusion: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Annotation {
+    annotation_level: String,
+    message: String,
 }
 
 /// One page of main's completed Buck2 runs, newest first, the cancelled ones left out; `None` past the last run.
@@ -65,8 +87,36 @@ fn page(number: u32) -> Result<Option<Vec<MainRun>>, String> {
     ))
 }
 
-fn log(run: &str) -> Option<String> {
-    gh(&["run", "view", run, "-R", REPOSITORY, "--log-failed"]).ok()
+/// What GitHub kept of red run `run`: the failed steps' log once a job failed on its own, else why a job was cut off (it
+/// timed out, was cancelled, or its failure annotation says its runner was lost or its time limit reached); a read that fails
+/// is an error, so nothing is judged from it.
+fn kept(run: &str) -> Result<Kept, String> {
+    let endpoint = format!("repos/{REPOSITORY}/actions/runs/{run}/jobs");
+    let jobs: Vec<Job> = serde_json::from_str(&gh(&["api", endpoint.as_str(), "--jq", ".jobs"])?).map_err(|error| format!("gh api jobs of run {run} is unreadable: {error}"))?;
+    let mut cut_off = None;
+    for job in jobs {
+        let conclusion = job.conclusion.unwrap_or_default();
+        let why = match conclusion.as_str() {
+            "failure" => cut_off_annotation(job.id)?,
+            unfinished if UNFINISHED.contains(&unfinished) => Some(format!("its job concluded {unfinished}")),
+            _ => continue,
+        };
+        match why {
+            Some(why) => cut_off = Some(why),
+            None => return failed_log(run),
+        }
+    }
+    cut_off.map_or_else(|| failed_log(run), |why| Ok(Kept::CutOff(why)))
+}
+
+fn cut_off_annotation(job: u64) -> Result<Option<String>, String> {
+    let endpoint = format!("repos/{REPOSITORY}/check-runs/{job}/annotations");
+    let annotations: Vec<Annotation> = serde_json::from_str(&gh(&["api", endpoint.as_str()])?).map_err(|error| format!("gh api annotations of job {job} is unreadable: {error}"))?;
+    Ok(annotations.into_iter().find(|annotation| annotation.annotation_level == "failure" && CUT_OFF.iter().any(|cut| annotation.message.contains(cut))).map(|annotation| annotation.message))
+}
+
+fn failed_log(run: &str) -> Result<Kept, String> {
+    gh(&["run", "view", run, "-R", REPOSITORY, "--log-failed"]).map(Kept::Log)
 }
 
 fn gh(arguments: &[&str]) -> Result<String, String> {
@@ -98,9 +148,14 @@ pub(crate) fn failed_cases(log: &str) -> Vec<(String, String)> {
     cases.into_iter().collect()
 }
 
-/// Why a red run's `log` gives no verdict on its head, or None when it does: a run with no log (the job was ended at its time limit) or one that names no failed case beside cases and targets that timed out ran out of time rather than found a fault.
-pub(crate) fn not_judged(log: Option<&str>) -> Option<&'static str> {
-    let Some(log) = log else { return Some("its log cannot be read, as when the job ends at its time limit") };
-    let timed_out = log.lines().map(log_text).any(|text| text.contains("TIMEOUT [") || text.contains("Timeout: "));
-    (timed_out && failed_cases(log).is_empty()).then_some("its cases and targets only timed out, none failed")
+/// Why a red run gives no verdict on its head, or None when it does: a job cut off before it finished, or a log that names no
+/// failed case beside cases and targets that timed out, ran out of time rather than found a fault.
+pub(crate) fn not_judged(kept: &Kept) -> Option<String> {
+    match kept {
+        Kept::CutOff(why) => Some(format!("its job was cut off before it finished: {why}")),
+        Kept::Log(log) => {
+            let timed_out = log.lines().map(log_text).any(|text| text.contains("TIMEOUT [") || text.contains("Timeout: "));
+            (timed_out && failed_cases(log).is_empty()).then(|| "its cases and targets only timed out, none failed".to_owned())
+        }
+    }
 }
