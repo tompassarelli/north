@@ -253,8 +253,16 @@ fn execute(declared: &str) -> u8 {
     let base = variable(BASE_ENV);
     let split = std::env::current_dir().ok().and_then(|root| north_build_system::crate_tests(&root, base.as_deref(), line, PACKAGES_ENV, selected.as_deref()));
     let Some(split) = split else { return declared_line(declared, None) };
+    let held = match split.hold(Path::new(".")) {
+        Ok(held) => held,
+        Err(why) => {
+            eprintln!("north land crate-tests: {why}, so the declared line tests every crate");
+            return declared_line(declared, None);
+        }
+    };
     eprintln!("north land crate-tests: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
     let (status, output) = run_printing(&split.line, &[]);
+    drop(held);
     let summary = last_with(&output, SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests: cannot read Buck2's record of the run: {why}")).ok());
     let owner = |label: &str| split.owner(label).map(str::to_owned);
@@ -326,8 +334,16 @@ fn after_landing() -> u8 {
         eprintln!("north land crate-tests after-landing: this host lists no crate for Buck2, holds no store generation, or the tree has no Buck2 targets, so Buck2 gives no verdict");
         return NO_VERDICT;
     };
+    let held = match split.hold(Path::new(".")) {
+        Ok(held) => held,
+        Err(why) => {
+            eprintln!("north land crate-tests after-landing: {why}, so Buck2 gives no verdict");
+            return NO_VERDICT;
+        }
+    };
     eprintln!("north land crate-tests after-landing: this host tests {} with Buck2: {}", split.moved.join(", "), split.line);
     let (status, output) = run_printing(&split.line, &[]);
+    drop(held);
     let summary = last_with(&output, SUMMARY);
     let record = north_build_system::test_record(&split.line).filter(|_| status == Some(0)).and_then(|record| record.runs(Path::new(".")).map_err(|why| eprintln!("north land crate-tests after-landing: cannot read Buck2's record of the run: {why}")).ok());
     let owner = |label: &str| split.owner(label).map(str::to_owned);

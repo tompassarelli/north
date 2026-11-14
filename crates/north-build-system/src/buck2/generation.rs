@@ -2,7 +2,7 @@
 //! Buck2's local state must not outlive a change of it, so each generation has an isolation directory of its own, a
 //! daemon and a `buck-out` no other generation used, and a tree's first run under a generation ends the daemons of the
 //! others and removes their output directories.
-use std::fs;
+use std::fs::{self, File, TryLockError};
 use std::io::ErrorKind;
 use std::path::Path;
 use std::process::Stdio;
@@ -12,8 +12,12 @@ use crate::{Invocation, Shell};
 /// The file the system configuration writes: the generation as a decimal integer and one newline, absent while none is set.
 pub const FILE: &str = "/etc/buildbarn/store-generation";
 pub(crate) const FLAG: &str = "--isolation-dir";
+/// Buck2's own isolation directory, where no flag names one.
+pub(crate) const DEFAULT: &str = "v2";
 const PREFIX: &str = "north-g";
 const OUTPUT: &str = "buck-out";
+/// Beside the isolation directories in `buck-out`, under a name no generation's directory has, so a retirement leaves it.
+const LOCKS: &str = "north-locks";
 
 /// The generation `file` holds, `None` when there is no file; why not, when it cannot be read or holds anything else.
 pub(crate) fn read(file: &Path) -> Result<Option<u64>, String> {
@@ -64,4 +68,24 @@ pub(crate) fn clear(dir: &Path) -> Result<(), String> {
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
         Err(error) => Err(format!("cannot clear {}: {error}", dir.display())),
     }
+}
+
+/// The file whose lock gives one Buck2 command at a time the isolation directory `dir` of the tree at `root`.
+pub(crate) fn lock_file(root: &Path, dir: &str) -> std::path::PathBuf {
+    root.join(OUTPUT).join(LOCKS).join(dir)
+}
+
+/// The tree at `root`'s lock on its isolation directory `dir`, taken once any other holder lets it go, held until the file
+/// is dropped: two Buck2 clients started together in one directory with no daemon running each start one, and one fails
+/// on the state the other is creating (north#1403).
+pub(crate) fn hold(root: &Path, dir: &str) -> Result<File, String> {
+    let path = lock_file(root, dir);
+    let file = path.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| File::options().create(true).truncate(false).write(true).open(&path)).map_err(|error| format!("cannot open {}: {error}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => return Ok(file),
+        Err(TryLockError::WouldBlock) => eprintln!("north: another Buck2 command holds {dir} in {}, so this one waits for it", root.display()),
+        Err(TryLockError::Error(error)) => return Err(format!("cannot lock {}: {error}", path.display())),
+    }
+    file.lock().map_err(|error| format!("cannot lock {}: {error}", path.display()))?;
+    Ok(file)
 }

@@ -290,6 +290,8 @@ pub struct CrateTests {
     packages: BTreeMap<String, String>,
     /// The Buck2 line that runs the tests of every crate that moves, in one invocation.
     pub line: String,
+    /// The isolation directory `line` runs in.
+    isolation: String,
     selected: Selected,
     /// The crates that move which the host's `buck2_caseless_crates` names as having no case, so Buck2 passes one whose targets passed with no case run.
     pub caseless: BTreeSet<String>,
@@ -304,6 +306,11 @@ pub struct CrateTests {
 }
 
 impl CrateTests {
+    /// The tree at `root`'s lock on the isolation directory of [`Self::line`], once no other command holds it: run the line only while the returned file lives (north#1403).
+    pub fn hold(&self, root: &Path) -> Result<fs::File, String> {
+        generation::hold(root, &self.isolation)
+    }
+
     /// The crate that moves whose package holds the Buck2 target `label`, as Buck2's record names it (`root//crates/NAME:TARGET`).
     pub fn owner(&self, label: &str) -> Option<&str> {
         self.moved.iter().map(String::as_str).find(|name| self.packages.get(*name).is_some_and(|package| holds(package, label)))
@@ -404,7 +411,8 @@ pub(crate) fn crate_tests(side: &Buck2, root: &Path, base: &str, declared: &str,
     side.enter(root);
     let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(packages.values().cloned().collect()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
     let line = behind(shell, side.tests(&run));
-    Some(CrateTests { moved: names, packages, line, selected, caseless: BTreeSet::new(), shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases, members, root: root_package })
+    let isolation = side.isolation.clone().unwrap_or_else(|| generation::DEFAULT.to_owned());
+    Some(CrateTests { moved: names, packages, line, isolation, selected, caseless: BTreeSet::new(), shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases, members, root: root_package })
 }
 
 /// What `north_host_cases` (build/rust_test.bzl) writes for one test target: its case runner, its binary and the
@@ -446,8 +454,10 @@ pub(crate) fn host_runs(root: &Path, lead: &[String], daemon: &str, target: &str
         return Ok(BTreeMap::new());
     }
     let build: Vec<String> = lead.iter().cloned().chain(["buck2", generation::FLAG, daemon, "build", REMOTE_ONLY, "--show-json-output"].map(str::to_owned)).chain(wanted.iter().map(|package| format!("{package}{target}"))).collect();
+    let held = generation::hold(root, daemon)?;
     let started = Instant::now();
     let built = Command::new(&build[0]).args(&build[1..]).current_dir(root).stdin(Stdio::null()).stderr(Stdio::inherit()).output().map_err(|error| format!("{}: {error}", build.join(" ")))?;
+    drop(held);
     if !built.status.success() {
         return Err(format!("{} exited {}", build.join(" "), built.status));
     }

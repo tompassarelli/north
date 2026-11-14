@@ -200,3 +200,18 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     assert_eq!(split(NEXTEST, "-p a"), None, "a lane whose .buckconfig names its own endpoint is tested by Cargo");
     assert!(!builds_with_buck2(), "and its north is built by Cargo");
 }
+
+#[test]
+fn two_lines_of_one_tree_and_isolation_directory_hold_its_lock_one_at_a_time() {
+    let tree = tempfile::tempdir().unwrap();
+    let first = super::generation::hold(tree.path(), "north-g1").unwrap();
+    let (sent, taken) = std::sync::mpsc::channel();
+    let root = tree.path().to_owned();
+    let second = std::thread::spawn(move || sent.send(super::generation::hold(&root, "north-g1").unwrap()).unwrap());
+    assert!(taken.recv_timeout(std::time::Duration::from_millis(300)).is_err(), "the second line waits while the first holds the directory, so two daemons never start on one state (north#1403)");
+    let beside = super::generation::hold(tree.path(), "north-g1-lint");
+    assert!(beside.is_ok(), "a line in a directory of its own does not wait on the test line's");
+    drop(first);
+    taken.recv().unwrap();
+    second.join().unwrap();
+}
