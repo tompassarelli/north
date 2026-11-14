@@ -347,3 +347,30 @@ fn a_screen_flag_is_refused_for_any_role_but_the_proxy() {
     assert_eq!(refused.status.code(), Some(2), "{}", text(&refused.stderr));
     assert!(text(&refused.stderr).contains("the proxy is the only role for it"), "{}", text(&refused.stderr));
 }
+
+#[test]
+fn a_fresh_state_takes_one_usage_reading_before_the_coordinator_is_placed() {
+    use sha2::{Digest, Sha256};
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    let gate = root.join(".local/state/agents/usage-gate.json");
+    fs::remove_file(&gate).unwrap();
+    fs::create_dir_all(root.join("code/north/main")).unwrap();
+    let uuid = "6d1f6f3c-1411-4c1e-9a52-6a0c8b0e1411";
+    let hash: String = Sha256::digest(uuid.as_bytes()).iter().take(4).map(|byte| format!("{byte:02x}")).collect();
+    let orchestration = root.join("op/orchestration.toml");
+    let policy = fs::read_to_string(&orchestration).unwrap();
+    fs::write(&orchestration, format!("{policy}[accounts.claude.labels]\n\"{hash}\" = \"a\"\n[accounts.claude.profiles.a.here]\npath = \"~/.local/state/north/profiles/claude-a\"\n")).unwrap();
+    let limits = serde_json::json!([{"kind": "session", "group": "session", "percent": 10.0, "resets_at": "2099-01-01T00:00:00Z"}, {"kind": "weekly_all", "group": "weekly", "percent": 10.0, "resets_at": "2099-01-01T00:00:00Z"}]);
+    let cache = serde_json::json!({"fetchedAtMs": north_core::foundation::clock::Timestamp::now().unix_seconds_f64() * 1000.0, "accountUuid": uuid, "utilization": {"limits": limits}});
+    fs::write(root.join(".local/state/north/profiles/claude-a/.claude.json"), serde_json::json!({"oauthAccount": {"accountUuid": uuid}, "cachedUsageUtilization": cache}).to_string()).unwrap();
+
+    let started = north(root, &["proxy"]);
+    let written = fs::read_to_string(&gate).unwrap_or_default();
+    north(root, &["fleet", "forget", "proxy"]);
+
+    assert!(!text(&started.stderr).contains("no live Claude usage sample"), "{}", text(&started.stderr));
+    let windows = serde_json::from_str::<serde_json::Value>(&written).map(|gate| gate["claude"]["windows"].clone()).unwrap_or_default();
+    assert!(windows.as_object().is_some_and(|windows| !windows.is_empty()), "{written}\n{}", text(&started.stderr));
+}

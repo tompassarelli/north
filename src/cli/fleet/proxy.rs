@@ -54,6 +54,9 @@ fn attach(fleet: Fleet) -> NorthResult<()> {
 }
 
 fn launch(fleet: &Fleet) -> NorthResult<()> {
+    if crate::pacing::placement::gate::live_gate()["claude"]["windows"].as_object().map_or(0, serde_json::Map::len) == 0 {
+        crate::cli::agents::with_usage_host(crate::usage::refresh).map_err(|error| NorthError::State(format!("the usage reading failed: {error}")))?;
+    }
     let earlier = fleet.earlier_proxies()?;
     let opening = if earlier.is_empty() {
         OPENING.to_owned()

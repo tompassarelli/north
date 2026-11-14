@@ -176,6 +176,14 @@ pub struct Host<'a> {
     pub token_headers: &'a dyn Fn(&Path) -> TokenHeaders,
 }
 
+/// The reading `north fleet usage --refresh` takes, recorded in the usage table and the pace gate, with nothing printed.
+pub fn refresh(host: &Host) -> Result<(), String> {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let source = store::Source::locate(&home, std::env::var_os("THREADS_DB"));
+    let db = store::open_writable(&source, host.refresh_snapshot)?;
+    refresh::refresh_readings(&db, &source, &Places::from_env(), true, host)
+}
+
 pub fn run(arguments: &[String], host: &Host) -> u8 {
     if let Some((provider, refresh)) = rows_request(arguments) {
         return print_rows(provider, refresh);

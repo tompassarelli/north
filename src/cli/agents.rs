@@ -68,7 +68,7 @@ pub(super) fn usage(arguments: &[String]) -> u8 {
     2
 }
 
-fn with_usage_host(work: impl FnOnce(&crate::usage::Host) -> u8) -> u8 {
+pub(in crate::cli) fn with_usage_host<T>(work: impl FnOnce(&crate::usage::Host) -> T) -> T {
     let env: std::collections::BTreeMap<String, String> = std::env::vars_os().filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?))).collect();
     let ssh = move |arguments: &[&str]| crate::platform::ssh::argv(&["ssh".into()], &env, arguments);
     work(&crate::usage::Host {
