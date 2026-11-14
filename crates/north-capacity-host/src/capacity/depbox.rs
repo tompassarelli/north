@@ -119,7 +119,7 @@ impl Sandbox {
             return Err((2, format!("refusing to expose {}", top.display())));
         }
         let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).and_then(|common| std::fs::canonicalize(common).ok()).ok_or((2, "the checkout has no git directory".to_owned()))?;
-        let sandbox = home.join("code").join(project(&common)).join("sandbox");
+        let sandbox = home.join("code").join(project(&home.join("code"), &common)).join("sandbox");
         let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
         let mut box_ = Self { mode, top: top.clone(), sandbox: sandbox.clone(), home: home.clone(), named_home: named_home.clone(), runtime: runtime.clone(), arguments: Vec::new(), binds: vec![top, sandbox, common], hand_off: std::env::var(REMOVAL_ROOTS).ok().and_then(|roots| serde_json::from_str(&roots).ok()) };
         box_.add(&["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs"]);
@@ -312,8 +312,11 @@ fn store_entries(top: &Path, home: &Path, view: &str) -> Result<Vec<PathBuf>, (u
     Ok(entries)
 }
 
-/// The project a git common directory belongs to: `code/<project>/<checkout>/.git` names `<project>`, a bare common directory its own name.
-fn project(common: &Path) -> OsString {
+/// The project a git common directory belongs to: the directory directly under `code` that holds it, so `code/<project>/<checkout>/.git` and a lander candidate's bare mirror `code/<project>/trusted/repo.git` both name `<project>`; outside `code`, a `.git` names its checkout's parent and a bare common directory its own name.
+fn project(code: &Path, common: &Path) -> OsString {
+    if let Some(first) = common.strip_prefix(code).ok().and_then(|below| below.components().next()) {
+        return first.as_os_str().to_os_string();
+    }
     let container = if common.file_name() == Some(OsStr::new(".git")) { common.parent().and_then(Path::parent) } else { None };
     container.unwrap_or(common).file_name().map(OsStr::to_os_string).unwrap_or_default()
 }
@@ -390,3 +393,7 @@ fn exec(command: &mut Command, program: &str) -> u8 {
     eprintln!("depbox: {program}: {error}");
     if error.kind() == std::io::ErrorKind::NotFound { 127 } else { 126 }
 }
+
+#[cfg(test)]
+#[path = "depbox_tests.rs"]
+mod tests;
