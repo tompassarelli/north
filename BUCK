@@ -770,7 +770,7 @@ north_rust_test(
     skip = [
         "agent_build_sandbox::an_agent_build_path_reads_no_credential_reaches_no_network_and_refuses_a_remote_buck2_run",
         "capacity_agent_compile::a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here",
-        "capacity_agent_compile::a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_and_not_this_host_has_room",
+        "capacity_agent_compile::a_fleet_sessions_compile_from_any_entry_is_refused_on_a_non_build_host_even_with_room_here",
         "carry_matrix::carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_exits_127_for_a_missing_program",
         "depbox_broker::dependency_code_in_depbox_cannot_connect_to_the_broker_socket",
         "land_checks::a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_not_rerun_on_base",

@@ -39,7 +39,7 @@ fn compiled(host: &Host) -> String {
 }
 
 #[test]
-fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_and_not_this_host_has_room() {
+fn a_fleet_sessions_compile_from_any_entry_is_refused_on_a_non_build_host_even_with_room_here() {
     let host = host();
     fs::write(host.path("pressure"), FULL).unwrap();
     let refused_on_a_full_host = |refusal: fn(&Host)| {
