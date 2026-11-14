@@ -78,7 +78,7 @@ capacity request that fits now passes a queued ticket the host would not admit o
 
 - **No live owner.** A background command run by `north capacity bounded` sits in a guard scope bound
   to the fleet session scope (`--property=BindsTo={scope}`,
-  `crates/north-ops/src/ops/run_bounded/mod.rs:64`), and its service is bound to that guard
+  `crates/north-capacity-host/src/run_bounded/mod.rs:64`), and its service is bound to that guard
   (`:89`); a session's own tools are bound to their session unit
   (`crates/north-base/src/platform/session_scope.rs:33`). A nested offload job holds its caller's slot
   lock and a watcher ends its process group when that holder ends (f178f6047c;

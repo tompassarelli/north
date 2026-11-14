@@ -24,7 +24,7 @@ impl north_landing::issue_body::Ledger for HostLedger {
 const UNIFORM: &[(&str, Run)] = &[
     ("agent-policy-contract", agent_policy_contract::run),
     ("dep-gate", dep_gate::run),
-    ("evidence", crate::ops::reclaim::evidence_start),
+    ("evidence", north_reclaim::reclaim::evidence_start),
     ("denylist", denylist::run),
     ("autoland-status", autoland_status::run),
     ("check", check),
@@ -39,7 +39,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("hand-in", super::remote_land::hand_in),
     ("finish", super::remote_land::finish),
     ("follows-release", follows_release::run),
-    ("job-run", crate::ops::job_run::run),
+    ("job-run", north_timers::job_run::run),
     ("cloud", super::cloud::run),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
     ("pin-retire", crate::lanes::pin_retire),
@@ -84,10 +84,10 @@ const UNIFORM: &[(&str, Run)] = &[
 ];
 
 const DIRECT: &[(&str, Run)] = &[
-    ("nexus-ram", crate::ops::nexus_ram::run),
+    ("nexus-ram", north_capacity_host::nexus_ram::run),
     ("laptop-runner", crate::laptop_runner::run),
     ("agent-contain", crate::agent_contain::run),
-    ("retain", crate::ops::retention::run),
+    ("retain", north_reclaim::retention::run),
     ("buck", |arguments| north_buck::run(arguments, &north_buck::Cargo { manifests: north_build_system::manifest_graph, features: north_build_system::feature_graph }, &north_buck::Sides { buck2: north_build_system::cases_buck2_runs, nextest: north_build_system::cases_nextest_lists }, &crate::platform::records_mirror::state_home())),
     ("lane", lane),
     ("home", home),
@@ -181,7 +181,7 @@ impl Tool {
             },
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load, workers: crate::dispatch::fleet_workers }, super::token_usage::read)),
             Self::Capacity => match arguments.split_first() {
-                Some((verb, rest)) if verb == "bounded" => ExitCode::from(crate::ops::run_bounded::run(rest)),
+                Some((verb, rest)) if verb == "bounded" => ExitCode::from(north_capacity_host::run_bounded::run(rest)),
                 Some((verb, rest)) if verb == "nexus" => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(rest).await)) }),
                 Some((verb, rest)) if verb == "dev-shell" && rest.first().is_some_and(|run| run == "run") => ExitCode::from(crate::capacity::dev_shell::command(rest, &|command| capacity::gate::lease_class(command, &capacity_host()).is_some())),
                 _ => ExitCode::from(capacity::command::run(arguments, capacity_host())),
@@ -246,7 +246,7 @@ pub(super) fn defines(command: &str) -> bool {
 
 
 fn reclaim_disk() -> Option<f64> {
-    north_offload::offload_cache::reclaim(crate::ops::reclaim::before_disk_defer_here)
+    north_offload::offload_cache::reclaim(north_reclaim::reclaim::before_disk_defer_here)
 }
 
 fn config(arguments: &[String]) -> u8 {

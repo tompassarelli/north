@@ -987,6 +987,7 @@ dependencies = [
  "north-offload",
  "north-ops",
  "north-providers",
+ "north-reclaim",
  "north-registries",
  "north-replay",
  "north-runtime",
@@ -1903,6 +1904,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-reclaim"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-capacity-host",
+ "north-fleet",
+ "north-lanes",
+ "north-threads",
+ "rustix 0.38.44",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-registries"
 version = "0.1.0"
 dependencies = [
@@ -2045,6 +2062,7 @@ name = "north-timers"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-capacity-host",
  "north-dispatch",
  "north-providers",
  "percent-encoding",

@@ -1209,7 +1209,7 @@ architecture plan are one plan.
    these two). Plan: not asked.
 6. **Kernel-interface code (`ptrace`, Landlock, seccomp, `mount`, `pty`, `pidfd`) in named leaf crates.** Cost: L18 moves
    the sandbox; the `pty` and `pidfd_open` sites are small moves (`north-base/src/platform/process.rs` and `terminal.rs`,
-   `north-landing/src/land/wake.rs`, `north-ops/src/ops/job_run/records.rs`). Breakers: north-runtime (until L18),
+   `north-landing/src/land/wake.rs`, `north-timers/src/job_run/records.rs`). Breakers: north-runtime (until L18),
    north-base (`pty`, `pidfd_open`), north-landing and north-ops (`pidfd_open`). Plan: partly, L18 only.
 7. **Tests that run the built binary live in the root's `tests/it`, and a crate's tests start no other program except
    through the one git fixture.** Cost: moving the 19 tests of north-land-sandbox (4 sites) next to the root's. Breakers: that one crate.

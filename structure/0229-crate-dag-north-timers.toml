@@ -2,4 +2,4 @@
 name = "north-timers"
 layer = 6
 paths = ["crates/north-timers/src/**"]
-may_use = ["north-base", "north-dispatch", "north-providers"]
+may_use = ["north-base", "north-capacity-host", "north-dispatch", "north-providers"]

@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-capacity-host = { path = "../north-capacity-host" }
 north-dispatch = { path = "../north-dispatch" }
 north-providers = { path = "../north-providers" }
 regex.workspace = true

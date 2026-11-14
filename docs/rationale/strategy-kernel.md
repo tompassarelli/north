@@ -309,7 +309,7 @@ lock, with no fsync. The writer checks the returned length. A short write counts
 a second write, so lines from different processes cannot interleave. A failed write prints one warning,
 the decision still stands, and the failure is counted in the next line's envelope (`dropped`).
 
-**Rotation**: the hour in the path is the rotation. A retention task under `crates/north-ops/src/ops/retention`
+**Rotation**: the hour in the path is the rotation. A retention task under `crates/north-reclaim/src/retention`
 compresses each closed hour to `HH.jsonl.zst` and deletes days older than 14. A host's log stays local,
 and replay runs on the host that holds the log: `north ops strategy replay --host gex45` runs there over ssh
 and prints back only the summary. The first day's measured admission size decides the sampling rule under

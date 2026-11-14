@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-reclaim"
+layer = 6
+paths = ["crates/north-reclaim/src/**"]
+may_use = ["north-base", "north-capacity-host", "north-fleet", "north-lanes", "north-threads"]

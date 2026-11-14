@@ -16,7 +16,7 @@ capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
 hook_verbs north-guard
 lane_gc_journeys north-guard
-run_bounded north-ops north-capacity-host
+run_bounded north-capacity-host
 runtime_update north-runtime
 safe_push_entry north-base north-safe-push north
 safe_push_remote_land north north-safe-push

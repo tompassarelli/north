@@ -129,7 +129,7 @@ fixes in each machine's code from history.
     worktree (`lanes/pin_retire/consumed.rs:54`). Shapes: mtime-read, presence-flag.
 11. **Job queue and job runs** (68: 34 x 2). A `taken` job has no lease or taker
     (`crates/north-threads/src/threads/jobs/queue.rs:178-224`); a crashed job's `job_runs.finished` stays NULL and
-    JOB-START never meets a JOB-EXIT (`crates/north-ops/src/ops/job_run/records.rs`). Shapes: status-string.
+    JOB-START never meets a JOB-EXIT (`crates/north-timers/src/job_run/records.rs`). Shapes: status-string.
 12. **Offload slots** (66: 33 x 2). `SLOT.{lock,busy,holder,owner,pgid}` (a holder keeps `.lock` exclusive and `.busy` shared, and probes test only `.busy`), queue tickets held by flock, the warmer's
     `warm.lock` and `.warmed`, build-offload claims whose liveness is `/proc/PID`
     (`crates/north-offload/src/land_offload/ship/script.rs:97-155`, `build_offload/claims.rs:11-55`); a SIGKILL leaves
@@ -221,7 +221,7 @@ fixes in each machine's code from history.
     unreadable. Shapes: status-string.
 36. **Rename-into-place leftovers** (none counted). Staging names nothing reaps after a crash: `.stage.*` and
     `.current.PID` (`crates/north-runtime/src/vendor_runtime/mod.rs:100-125`), `.incoming/PID`
-    (`ops/retention/archive.rs:141`), `.zst.tmpPID` (`ops/convo/archive.rs:246`), `target.seeding-PID`
+    (`north-reclaim/src/retention/archive.rs:141`), `.zst.tmpPID` (`ops/convo/archive.rs:246`), `target.seeding-PID`
     (`crates/north-lanes/src/lanes/target_seed.rs:44`). Shapes: phase-suffix.
 
 ### Not converted

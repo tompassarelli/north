@@ -83,6 +83,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-issue-boxes | An issue's checkboxes as work: converted into child issues, and ticked when their check passes. |
 | 6 operations | north-claims | Claims a written text makes about the tree, checked against it: cited commands, flags, paths and keys, and a design review's facts. |
 | 6 operations | north-expectations | Declared expectations judged on a timer, each alerting once per breach and once per clear. |
+| 6 operations | north-reclaim | Disk room on the fleet's hosts: what may be deleted or archived, under which budget, and when. |
 | 6 operations | north-health | Health facts: failed starts, flows, issues, loops, red main, rework. |
 | 6 operations | north-convo | Transcript search, and policy replay, and the context audit. |
 | 6 operations | north-lander-doctor | The lander doctor: each health bound read live and the remedy for each stuck state. |

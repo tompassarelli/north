@@ -110,7 +110,7 @@ const LANE: &[(&str, Run)] = &[
     ("layout", crate::lanes::layout_check),
     ("new", crate::lanes::new_lane),
     ("reap", crate::lanes::wt_reap),
-    ("reclaim", crate::ops::reclaim::run),
+    ("reclaim", north_reclaim::reclaim::run),
     ("remove", |arguments| outside_the_sandbox("lane", "remove", crate::lanes::remove, arguments)),
     ("rescue", crate::lanes::wt_rescue),
     ("restore-packed-refs", crate::worker_sandbox::restore_packed_refs),
