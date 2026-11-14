@@ -159,7 +159,9 @@ fn draw_confirm_stop(frame: &mut Frame<'_>, name: &str) {
 }
 
 fn draw_launch_form(frame: &mut Frame<'_>, form: &LaunchForm) {
-    let area = centered(frame.area(), 84, 20);
+    const WIDTH: u16 = 84;
+    let footer_rows = form.problem.as_deref().map_or(2, |problem| wrapped_rows(problem, WIDTH.saturating_sub(2)).max(2));
+    let area = centered(frame.area(), WIDTH, 18 + footer_rows);
     frame.render_widget(Clear, area);
     let block = pane(Line::from(" new session "), true);
     let inner = block.inner(area);
@@ -168,9 +170,9 @@ fn draw_launch_form(frame: &mut Frame<'_>, form: &LaunchForm) {
         .direction(Direction::Vertical)
         .constraints(Field::ORDER.map(|field| match field {
             Field::Account => Constraint::Length(2),
-            Field::Prompt => Constraint::Min(3),
+            Field::Prompt => Constraint::Min(1),
             _ => Constraint::Length(1),
-        }).into_iter().chain([Constraint::Length(2)]))
+        }).into_iter().chain([Constraint::Length(footer_rows)]))
         .split(inner);
     for (index, field) in Field::ORDER.iter().enumerate() {
         draw_form_field(frame, form, *field, rows[index]);
@@ -180,6 +182,11 @@ fn draw_launch_form(frame: &mut Frame<'_>, form: &LaunchForm) {
         None => Span::styled("Tab next · ←/→ choose · Enter launches · Alt+Enter newline · Esc cancels", MUTED),
     };
     frame.render_widget(Paragraph::new(footer).wrap(Wrap { trim: true }), rows[Field::ORDER.len()]);
+}
+
+fn wrapped_rows(text: &str, width: u16) -> u16 {
+    let rows = text.chars().count().div_ceil(usize::from(width.max(1))) + 1;
+    u16::try_from(rows).unwrap_or(u16::MAX)
 }
 
 fn draw_form_field(frame: &mut Frame<'_>, form: &LaunchForm, field: Field, area: Rect) {

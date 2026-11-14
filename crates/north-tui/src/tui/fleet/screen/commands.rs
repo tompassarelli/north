@@ -79,7 +79,7 @@ impl Screen {
     fn launch_refused(&mut self, sent_form: Option<Box<LaunchForm>>, error: &NorthError) {
         match sent_form {
             Some(mut form) if self.dialog.is_none() => {
-                form.problem = Some(error.user_message());
+                form.problem = Some(format!("The launch failed: {}", error.user_message()));
                 self.dialog = Some(Dialog::Launch(form));
                 self.notice = None;
             }

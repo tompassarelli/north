@@ -337,12 +337,16 @@ fn a_refused_launch_keeps_the_form_as_typed() {
     let name = request.name.clone();
     screen.begin(&launch, None);
     assert!(screen.dialog.is_none());
-    screen.settle(launch, Err(NorthError::Refused("account a has nothing left".into())));
+    let cause = "the session host did not start: its start command said: Failed to connect to user scope bus via local transport: No such file or directory, and the scope it left was stopped after it, so nothing of this session runs on this host lastword";
+    screen.settle(launch, Err(NorthError::State(cause.into())));
     let Some(Dialog::Launch(form)) = &screen.dialog else { panic!("the refused launch left no form open") };
     assert_eq!(form.name.lines().concat(), name);
     assert_eq!(form.model.lines().concat(), "opus");
     assert_eq!(form.prompt.lines().concat(), "do the work");
-    assert_eq!(form.problem.as_deref(), Some("account a has nothing left"));
+    assert_eq!(form.problem.as_deref(), Some(format!("The launch failed: {cause}").as_str()));
+    let frame = form_frame(&mut screen, 100, 30);
+    assert!(frame.contains("The launch failed: the session host did not start"), "the refusal does not open with what failed:\n{frame}");
+    assert!(frame.contains("lastword"), "the refusal is cut before its end:\n{frame}");
 }
 
 #[test]

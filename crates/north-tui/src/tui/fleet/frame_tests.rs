@@ -121,6 +121,11 @@ fn help_shows_the_proxys_account_and_log_path_and_closes_when_its_slash_is_backs
     assert!(screen.composer.is_empty());
     assert_eq!(screen.help.tab(), None);
     assert_eq!(help_fact(&mut screen, "Available Commands"), "");
+    screen.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+    assert_eq!(screen.help.tab(), Some(Tab::General));
+    screen.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(screen.help.tab(), None);
+    assert!(screen.composer.is_empty(), "? then Esc left {:?} in the composer", screen.composer.lines());
 }
 
 #[test]
