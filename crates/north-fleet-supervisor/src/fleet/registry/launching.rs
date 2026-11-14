@@ -89,10 +89,7 @@ impl Fleet {
             let shown = scope.spawn(|| first_prompt(request, verification));
             let mut early = hosts_early(claim, &unrecorded).then(|| scope.spawn(|| self.open_host(&unrecorded, &account, fresh_opening(request, conversation.as_deref()), spare.as_ref())));
             let mut joined = || early.take().map(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
-            if let Err(error) = self.registrar.register(&row, claim) {
-                self.abandon_early(joined(), session_dir);
-                return Err(error);
-            }
+            let registered = self.register_beside(scope, &row, claim)?;
             let launched = self.succeed(&request.name, claim, |predecessor| {
                 record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
                 let tasks = predecessor.as_ref().filter(|predecessor| predecessor.carries_for(&request.tasks())).map_or_else(|| tasks.clone(), |predecessor| predecessor.carry_into(&mut record));
@@ -102,6 +99,7 @@ impl Fleet {
                     let (opened, claimed) = self.refused_first(joined(), claimed, session_dir)?;
                     Ok::<_, NorthError>(fs::create_dir_all(session_dir).map_err(|error| NorthError::io_at(error, || format!("creating {}", session_dir.display()))).and_then(|()| self.bring_up(request, &mut record, &account, predecessor.as_ref(), conversation.as_deref(), hooks, (opened, claimed), || shown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))))
                 })?;
+                let brought = brought.and_then(|()| registered().inspect_err(|_| self.halt_unregistered(&record.name)));
                 let Err(error) = brought else {
                     if let Err(error) = self.inherit_workers(request, &record) {
                         eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());

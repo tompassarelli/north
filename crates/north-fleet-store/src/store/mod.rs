@@ -43,7 +43,7 @@ impl Store {
     pub fn open(ledger: &Path) -> NorthResult<Self> {
         let mut db = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(sql)?;
         db.busy_timeout(BUSY).map_err(sql)?;
-        if !db.is_readonly("main").map_err(sql)? {
+        if !db.is_readonly("main").map_err(sql)? && !(schema::current(&db)? && waits::current(&db)? && gates::current(&db)?) {
             schema::ensure(&mut db)?;
             waits::ensure(&db)?;
             gates::ensure(&db)?;

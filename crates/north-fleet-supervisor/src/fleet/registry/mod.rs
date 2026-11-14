@@ -46,6 +46,7 @@ mod lanes;
 mod relaunching;
 pub mod reserve;
 pub use relaunching::Restart;
+mod registering;
 mod reopening;
 mod retiring;
 mod grounding;

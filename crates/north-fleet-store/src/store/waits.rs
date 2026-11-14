@@ -88,6 +88,11 @@ impl WaitRequest {
     }
 }
 
+pub(super) fn current(db: &Connection) -> NorthResult<bool> {
+    let declares_every_kind = super::schema::declared(db, "table", "fleet_waits")?.is_some_and(|declared| WaitKind::ALL.iter().all(|kind| declared.contains(&format!("'{}'", kind.label()))));
+    Ok(declares_every_kind && super::schema::declared(db, "table", "fleet_wait_history")?.is_some() && super::schema::declared(db, "trigger", "fleet_waits_settled")?.is_some())
+}
+
 pub(super) fn ensure(db: &Connection) -> NorthResult<()> {
     let kinds = WaitKind::ALL.iter().map(|kind| format!("'{}'", kind.label())).collect::<Vec<_>>().join(",");
     let declared: Option<String> = db.query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'fleet_waits'", [], |row| row.get(0)).ok();

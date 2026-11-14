@@ -28,6 +28,10 @@ impl GateRow {
     }
 }
 
+pub(super) fn current(db: &Connection) -> NorthResult<bool> {
+    Ok(super::schema::declared(db, "table", "fleet_gates")?.is_some())
+}
+
 pub(super) fn ensure(db: &Connection) -> NorthResult<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS fleet_gates(host TEXT NOT NULL, id INTEGER NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), PRIMARY KEY(host, id)) STRICT;").map_err(sql)
 }

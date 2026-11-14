@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 use crate::error::{NorthError, NorthResult};
 
@@ -13,6 +13,27 @@ pub(super) fn sql(error: rusqlite::Error) -> NorthError {
 
 fn kind_list() -> String {
     RowKind::ALL.iter().map(|kind| format!("'{}'", kind.label())).collect::<Vec<_>>().join(",")
+}
+
+pub(super) fn declared(db: &Connection, kind: &str, name: &str) -> NorthResult<Option<String>> {
+    db.query_row("SELECT sql FROM sqlite_master WHERE type = ?1 AND name = ?2", [kind, name], |row| row.get(0)).optional().map_err(sql)
+}
+
+fn names_every_kind(declared: Option<&str>) -> bool {
+    declared.is_some_and(|declared| RowKind::ALL.iter().all(|kind| declared.contains(&format!("'{}'", kind.label()))))
+}
+
+/// Whether the ledger already has every table, index and column [`ensure`] makes, read without the write lock that every ledger caller would otherwise queue on.
+pub(super) fn current(db: &Connection) -> NorthResult<bool> {
+    let columns = columns(db)?;
+    Ok(names_every_kind(declared(db, "table", "events")?.as_deref())
+        && names_every_kind(declared(db, "index", "events_fleet_id")?.as_deref())
+        && declared(db, "index", "events_fleet_to")?.is_some()
+        && DISPLAY_COLUMNS.iter().all(|(name, _)| columns.iter().any(|held| held == name)))
+}
+
+fn columns(db: &Connection) -> NorthResult<Vec<String>> {
+    db.prepare("SELECT name FROM pragma_table_info('fleet_sessions')").map_err(sql)?.query_map([], |row| row.get(0)).map_err(sql)?.collect::<Result<_, _>>().map_err(sql)
 }
 
 pub(super) fn ensure(db: &mut Connection) -> NorthResult<()> {
