@@ -87,11 +87,11 @@ pub(super) fn walk_of(layout: &Layout, host: &str, live: Option<&str>, judged: O
     }
 }
 
-/// Ships the walked runtime to each other deploy host that no standing hold names, or nothing when it has not walked the spine here or `screen` refuses it on this host (a reviewer's hold naming this host, or an after-landing run not ended green). A host a hold names is left out as `order --except` leaves it out: recorded in runtime-pins.jsonl and printed with its hold.
+/// Ships the walked runtime to each other deploy host that no standing hold names, or nothing when it has not walked the spine here or `screen` refuses it live on this host (a reviewer's hold naming this host, or an after-landing run not ended green); a trip found after its promotion ships it all the same (Screen::live). A host a hold names is left out as `order --except` leaves it out: recorded in runtime-pins.jsonl and printed with its hold.
 pub(super) fn ship_if_walked<T>(layout: &Layout, walk: Result<String, String>, screen: &Screen, ship: impl FnOnce(&str, &[String]) -> Result<T, Failure>) -> Result<Option<T>, Failure> {
     let here = host::name();
     let held_at = review_hold::now();
-    match walk.and_then(|sha| screen.order(&sha, &[here.as_str()], held_at).map(|_| sha)) {
+    match walk.and_then(|sha| screen.live(&sha, &[here.as_str()], held_at).map(|_| sha)) {
         Ok(sha) => {
             let (kept, left_out) = held_out(&land_offload::deployment(), screen, &sha, held_at);
             for (destination, why) in &left_out {
@@ -115,7 +115,7 @@ fn held_out(plan: &Deployment, screen: &Screen, sha: &str, at: u64) -> (Vec<Stri
     let mut kept = Vec::new();
     let mut left_out = Vec::new();
     for (name, destination) in plan.names.iter().zip(&plan.destinations) {
-        match screen.order(sha, &[name.as_str()], at) {
+        match screen.live(sha, &[name.as_str()], at) {
             Ok(_) => kept.push(destination.clone()),
             Err(why) => left_out.push((destination.clone(), why)),
         }
