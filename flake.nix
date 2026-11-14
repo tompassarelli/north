@@ -60,9 +60,35 @@
                         pkgs.lib.makeBinPath (devPackages ++ [ pkgs.git ] ++ pkgs.stdenv.initialPath)
                       }:/run/wrappers/bin:/run/current-system/sw/bin
                   '';
+                  setup = pkgs.writeShellApplication {
+                    name = "north-setup";
+                    runtimeInputs = [ pkgs.git ];
+                    text = ''
+                      checkout="$HOME/code/north/main"
+                      say() { printf 'setup: %s\n' "$*"; }
+                      fail() { say "$1 failed: $2" >&2; exit 1; }
+                      if [ -d "$checkout/.git" ]; then
+                        say "1/3 use the north checkout at $checkout"
+                      else
+                        say "1/3 clone north into $checkout"
+                        mkdir -p "$(dirname "$checkout")"
+                        git clone https://github.com/tompassarelli/north "$checkout" || fail "the clone" "check the network and that $checkout is free, then run this again"
+                      fi
+                      cd "$checkout"
+                      say "2/3 build north and verify-north; the first build downloads the toolchain and takes minutes"
+                      nix develop -c cargo build --locked --bin north --bin verify-north || fail "the build" "the cargo output above names the cause; run this again after fixing it"
+                      say "3/3 make the claude-main account from Claude Code's login and have a worker land one change"
+                      target/debug/verify-north --north "$checkout/target/debug/north" --claude-account main --from-claude-login || fail "verify-north" "its FAIL line above names the step and the cause; run this again after fixing it"
+                      say "done: a worker's change landed; run $checkout/target/debug/north to open the fleet screen"
+                    '';
+                  };
                 in
                 {
                   formatter.${system} = pkgs.nixfmt-tree;
+                  apps.${system}.setup = {
+                    type = "app";
+                    program = "${setup}/bin/north-setup";
+                  };
                   packages.${system} = {
                     buck2-toolchain = buck2Toolchain;
                     # Off the dev shell so the laptop never compiles it; third-party/reindeer.toml says how to run it.

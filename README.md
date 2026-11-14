@@ -41,26 +41,18 @@ Not measured yet:
 
 ## Quickstart
 
-You need Linux or macOS with Nix and flakes, `git`, and Claude Code installed and signed in. These are
-the commands of [the onboarding page](docs/onboarding.md), which says what each one does; the last one
-has one agent land one change on a scratch repository and exits 0 when it is on main.
+You need x86_64 Linux with Nix and flakes, `git`, and Claude Code installed and signed in. This is the
+command of [the onboarding page](docs/onboarding.md), which says what it does: it clones and builds north,
+makes an account profile from the Claude Code login, has one agent land one change on a scratch
+repository and exits 0 when it is on main.
 
 <!-- north docs readme: quickstart -->
 ```sh
-mkdir -p ~/code/north
-git clone https://github.com/tompassarelli/north ~/code/north/main
-cd ~/code/north/main
-nix develop -c cargo build --locked --bin north --bin verify-north
-profile="$HOME/.local/state/north/profiles/claude-main"
-mkdir -p "$profile"
-ln -sfn "$HOME/.claude/.credentials.json" "$profile/.credentials.json"
-cp "$HOME/.claude.json" "$profile/.claude.json"
-printf '{}\n' > "$profile/settings.json"
-time target/debug/verify-north --north "$PWD/target/debug/north" --claude-account main
+nix run github:tompassarelli/north#setup
 ```
 <!-- end quickstart -->
 
-Then run `target/debug/north` to open the fleet screen. To run north on your own repositories, keep its
+Then run `~/code/north/main/target/debug/north` to open the fleet screen. To run north on your own repositories, keep its
 policy in an operator repository: `north config operator init DIR` writes a working one with
 placeholder values, and [docs/operator-repository.md](docs/operator-repository.md) says what each
 file holds.

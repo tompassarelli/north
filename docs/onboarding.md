@@ -1,7 +1,7 @@
 # Install north and land your first change
 
 This page takes a new account with Nix and a Claude Code login to one change landed on a scratch
-repository. Every command is here, in order; the operator repository that a long-lived fleet reads is
+repository. The one command is here; the operator repository that a long-lived fleet reads is
 not needed, and neither is a second machine. The whole path is meant to take at most 30 minutes.
 
 The change is made the way north makes every change: a model writes it in a fleet session, the
@@ -12,7 +12,7 @@ thrown away after the run, so nothing outside this page is changed.
 
 You need:
 
-- Linux or macOS with Nix and flakes enabled.
+- x86_64 Linux with Nix and flakes enabled.
 - Claude Code installed and signed in. Run `claude` once, finish its sign-in, and quit; the login is
   the `~/.claude` directory and the `~/.claude.json` file that north will read.
 - `git`, and about 10 GB of free disk for the Nix store and the Rust build.
@@ -28,68 +28,43 @@ git --version
 If `nix` is missing, install it from [nixos.org/download](https://nixos.org/download/) and enable
 flakes in `~/.config/nix/nix.conf` with `experimental-features = nix-command flakes`.
 
-## 1. Clone north where north expects it
-
-North keeps each repository in a container with `main/` and `worktrees/`. Put north's checkout at
-`~/code/north/main` so the commands below and the pages after this one agree on the place:
+## 1. Run setup
 
 ```sh
-mkdir -p ~/code/north
-git clone https://github.com/tompassarelli/north ~/code/north/main
-cd ~/code/north/main
+nix run github:tompassarelli/north#setup
 ```
 
-## 2. Build north and the check
+The command prints each of its three steps as it starts it and, when one fails, what to do next.
+Run it again after you fix the cause; it reuses whatever the last run left in place.
 
-The flake pins the Rust toolchain and every other build input. The first build downloads the
-toolchain; later builds reuse the Nix store and take a fraction of the time.
+1. It clones north to `~/code/north/main`, the place the pages after this one expect, or uses the
+   checkout already there.
+2. It builds `target/debug/north`, the fleet binary, and `target/debug/verify-north`, the end-to-end
+   check, with `nix develop -c cargo build --locked`. The flake pins the Rust toolchain and every
+   other build input; the first build downloads them and takes several minutes, and later builds reuse
+   the Nix store.
+3. It runs `verify-north --claude-account main --from-claude-login`. North runs every provider in an
+   account profile of its own under `~/.local/state/north/profiles/`, so a fleet session never writes
+   the login you use by hand. When `claude-main` has no profile yet, verify-north makes it: it links
+   `~/.claude/.credentials.json`, so Claude Code renews the same login, copies `~/.claude.json` when
+   it exists, so the profile gets its own conversation state, and writes an empty `settings.json`.
+   Then it lands the change:
+   1. It creates a scratch repository with a bare origin under `$TMPDIR` and a lane on a `worker`
+      branch.
+   2. It starts `north land serve` for that origin and the worker sandbox that keeps the worker's
+      tools on that scratch world.
+   3. It launches one Claude haiku worker with a one-file brief. The worker writes `worker.txt` and
+      calls the `hand-in` tool, which queues the lane and waits for the landing.
+   4. The lander checks the commit and pushes it to the scratch origin's `main`; `north ledger worker`
+      then records the run, and the walk cleans every process and directory it made.
 
-```sh
-nix develop -c cargo build --locked --bin north --bin verify-north
-```
-
-You now have `target/debug/north`, the fleet binary, and `target/debug/verify-north`, the end-to-end
-check that walks the first change.
-
-## 3. Give north the Claude Code login
-
-North runs every provider in an account profile of its own under
-`~/.local/state/north/profiles/`, so a fleet session never writes the login you use by hand. Make one
-profile named `main` and point it at the Claude Code login:
-
-```sh
-profile="$HOME/.local/state/north/profiles/claude-main"
-mkdir -p "$profile"
-ln -sfn "$HOME/.claude/.credentials.json" "$profile/.credentials.json"
-cp "$HOME/.claude.json" "$profile/.claude.json"
-printf '{}\n' > "$profile/settings.json"
-```
-
-`claude-main` is the account name used below. The credentials file is linked, so Claude Code renews
-the same login; `~/.claude.json` is copied, so this profile gets its own conversation state.
-
-## 4. Land the change
-
-```sh
-time target/debug/verify-north --north "$PWD/target/debug/north" --claude-account main
-```
-
-`verify-north` does the rest:
-
-1. It creates a scratch repository with a bare origin under `$TMPDIR` and a lane on a `worker` branch.
-2. It starts `north land serve` for that origin and the worker sandbox that keeps the worker's tools
-   on that scratch world.
-3. It launches one Claude haiku worker with a one-file brief. The worker writes `worker.txt` and
-   calls the `hand-in` tool, which queues the lane and waits for the landing.
-4. The lander checks the commit and pushes it to the scratch origin's `main`; `north ledger worker`
-   then records the run, and the walk cleans every process and directory it made.
-
-A passing run prints a `step 0 ok` line for the binary it uses, one `step N ok` line for each of the
-four spine steps, and ends:
+A passing run prints a `step 0 ok` line for the profile and one for the binary it uses, one
+`step N ok` line for each of the four spine steps, and ends:
 
 ```
 step 4 ok     ... ms  `north ledger worker` records the run done and landed at that commit
 verify-north passed  total ... ms
+setup: done: a worker's change landed; run ~/code/north/main/target/debug/north to open the fleet screen
 ```
 
 Exit 0 is the proof that the worker's change landed on `main`.
@@ -159,6 +134,9 @@ repository nor the machine configuration. Once the check above passes, [briefing
 
 ## If the check fails
 
-`verify-north` names the step that failed and keeps its evidence under
-`~/.local/state/north/verify-north/failed/<stamp>/`. Run it again with the same command after fixing
-the cause; it creates a fresh scratch world each time and never reuses a lane or a ledger.
+Setup names the step that failed and what to do. A failed clone or build prints the git or cargo
+output that names the cause. A failed `verify-north` prints a `FAIL` line naming its step and cause and
+keeps its evidence under `~/.local/state/north/verify-north/failed/<stamp>/`; when Claude Code has no
+login, the first `step 0` line says to run `claude`, finish its sign-in and quit. Run the same command
+again after fixing the cause: it reuses the checkout, the build and the profile, and verify-north
+creates a fresh scratch world each time and never reuses a lane or a ledger.
