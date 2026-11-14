@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -228,9 +229,14 @@ fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
 
 /// Asks agy's models in turn: Gemini first, then the Claude models agy also serves.
 fn ask_agy(prompt: &str) -> Result<String, String> {
+    ask_agy_with(std::env::var_os("DBUS_SESSION_BUS_ADDRESS").as_deref(), &|model| ask_agy_model(model, prompt))
+}
+
+fn ask_agy_with(bus: Option<&OsStr>, ask: &dyn Fn(&str) -> Result<String, String>) -> Result<String, String> {
+    keyring_reachable(bus)?;
     let mut refused = Vec::new();
     for model in AGY_MODELS {
-        match ask_agy_model(model, prompt) {
+        match ask(model) {
             Ok(answer) => return Ok(answer),
             Err(why) => refused.push(format!("{model}: {why}")),
         }
@@ -238,10 +244,20 @@ fn ask_agy(prompt: &str) -> Result<String, String> {
     Err(refused.join("; "))
 }
 
+/// agy keeps its Google login in the desktop keyring over the D-Bus session bus, and without the bus it opens a browser sign-in.
+fn keyring_reachable(bus: Option<&OsStr>) -> Result<(), String> {
+    let address = bus.and_then(OsStr::to_str).unwrap_or_default();
+    let refused = |why: String| Err(format!("agy's Google login lives in the desktop keyring, which this process cannot reach ({why}), so agy is not started: it would open a browser sign-in"));
+    match address.strip_prefix("unix:path=").map(|rest| rest.split(',').next().unwrap_or_default()) {
+        Some(path) => std::os::unix::net::UnixStream::connect(path).map(drop).or_else(|error| refused(format!("session bus {path}: {error}"))),
+        None => refused(format!("no unix:path session bus in DBUS_SESSION_BUS_ADDRESS={address:?}")),
+    }
+}
+
 fn ask_agy_model(model: &str, prompt: &str) -> Result<String, String> {
     let prompt_arg = format!("-p={prompt}");
     let mut command = std::process::Command::new(crate::fleet::install::runtime("agy"));
-    command.env("AGY_CLI_DISABLE_AUTO_UPDATE", "1").args(["--model", model, "--dangerously-skip-permissions", "--disable-slash-commands", prompt_arg.as_str()]);
+    command.env("AGY_CLI_DISABLE_AUTO_UPDATE", "1").env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY").env("BROWSER", "false").args(["--model", model, "--dangerously-skip-permissions", "--disable-slash-commands", prompt_arg.as_str()]);
     let output = crate::platform::process::run_command_within(command, None, ATTEMPT_LIMIT).ok_or("agy did not finish")?;
     let answer = String::from_utf8_lossy(&output.stdout).into_owned();
     if output.status.success() && !answer.trim().is_empty() {
@@ -431,5 +447,16 @@ mod tests {
         assert!(!later.get(), "a judge after the one that answered was asked");
         let none = first_answer(&[("subscription", &refuse), ("api credit", &refuse), ("agy", &refuse)]).unwrap_err();
         assert!(["subscription:", "api credit:", "agy:"].iter().all(|name| none.contains(name)), "{none}");
+    }
+
+    #[test]
+    fn agy_behind_a_masked_session_bus_is_refused_naming_its_keyring_login_and_never_started_north_1553() {
+        let started = std::cell::Cell::new(0);
+        let refused = ask_agy_with(Some(OsStr::new("unix:path=/dev/null")), &|_| {
+            started.set(started.get() + 1);
+            Ok("NONE".to_owned())
+        });
+        assert!(refused.as_ref().is_err_and(|why| why.contains("Google login lives in the desktop keyring")), "{refused:?}");
+        assert_eq!(started.get(), 0, "agy started without a reachable keyring and would open a browser sign-in");
     }
 }
