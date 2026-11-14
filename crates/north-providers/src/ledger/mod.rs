@@ -232,7 +232,7 @@ impl Ledger {
         let conn = Connection::open(path).map_err(sql)?;
         conn.busy_timeout(lock_wait).map_err(sql)?;
         conn.pragma_update(None, "synchronous", "NORMAL").map_err(sql)?;
-        let migrating = schema_version(&conn).map_err(sql)? < SCHEMA_VERSION;
+        let migrating = !conn.is_readonly(rusqlite::MAIN_DB).map_err(sql)? && schema_version(&conn).map_err(sql)? < SCHEMA_VERSION;
         if migrating {
             migrate(&conn).map_err(sql)?;
             gates::adopt(path, &conn)?;

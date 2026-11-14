@@ -546,3 +546,16 @@ fn one_repository_failing_on_github_leaves_the_other_reports_recorded_and_fails_
     assert!(settle(&counter, Vec::new()).unwrap().is_empty());
     assert_eq!(settle(&counter, unread()).unwrap(), unread(), "a read that succeeds restarts the count");
 }
+
+#[test]
+fn a_worker_that_may_not_write_an_older_ledger_still_opens_and_reads_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    drop(ledger(&directory));
+    Connection::open(&path).unwrap().pragma_update(None, "user_version", super::SCHEMA_VERSION - 1).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err(), "the ledger stayed writable, as it does to root, so no worker domain was simulated");
+    let reader = Ledger::open(&path).unwrap();
+    reader.runs().unwrap();
+}
