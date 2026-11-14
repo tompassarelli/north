@@ -167,6 +167,11 @@ fn the_nextest_arguments_select_each_traced_test_by_binary_and_each_added_test_b
     let cone = Cone { tests: [id("north::it", "fleet::a_launch_claims"), id("north-base", "error::tests::drill")].into(), added: vec![Added { package: "north-lanes".to_owned(), name: "retires_a_pin".to_owned() }], ..Cone::default() };
     assert_eq!(cone.nextest_arguments().join(" "), "-p north -p north-base -p north-lanes -E (binary_id(north-base)&test(=error::tests::drill))|(binary_id(north::it)&test(=fleet::a_launch_claims))|(package(north-lanes)&test(/(^|::)retires_a_pin$/))");
     assert!(Cone::default().nextest_arguments().is_empty());
+    let wide = Cone { tests: (0..2000).map(|index| id("north::it", &format!("fleet::a_launch_claims_{index:0>80}"))).collect(), ..Cone::default() };
+    let arguments = wide.nextest_arguments();
+    let filters: Vec<&String> = arguments.iter().skip_while(|word| *word != "-E").filter(|word| *word != "-E").collect();
+    assert!(filters.len() > 1 && filters.iter().all(|filter| filter.len() <= 64 * 1024));
+    assert_eq!(filters.iter().map(|filter| filter.matches("binary_id").count()).sum::<usize>(), 2000);
 }
 
 #[test]

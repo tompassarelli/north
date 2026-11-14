@@ -59,12 +59,28 @@ impl Cone {
         let packages: BTreeSet<&str> = tests.clone().map(TestId::package).chain(self.added.iter().map(|test| test.package.as_str()).filter(|package| !package.is_empty())).collect();
         let traced = tests.map(|test| format!("(binary_id({})&test(={}))", test.binary, test.name));
         let added = self.added.iter().map(|test| if test.package.is_empty() { format!("test(/(^|::){}$/)", test.name) } else { format!("(package({})&test(/(^|::){}$/))", test.package, test.name) });
-        let filter = traced.chain(added).collect::<Vec<_>>().join("|");
-        if filter.is_empty() {
+        let filters = chunked(traced.chain(added));
+        if filters.is_empty() {
             return Vec::new();
         }
-        packages.into_iter().flat_map(|package| ["-p".to_owned(), package.to_owned()]).chain(["-E".to_owned(), filter]).collect()
+        packages.into_iter().flat_map(|package| ["-p".to_owned(), package.to_owned()]).chain(filters.into_iter().flat_map(|filter| ["-E".to_owned(), filter])).collect()
     }
+}
+
+const FILTER_LIMIT: usize = 64 * 1024;
+
+fn chunked(clauses: impl Iterator<Item = String>) -> Vec<String> {
+    let mut filters: Vec<String> = Vec::new();
+    for clause in clauses {
+        match filters.last_mut() {
+            Some(last) if last.len() + 1 + clause.len() <= FILTER_LIMIT => {
+                last.push('|');
+                last.push_str(&clause);
+            }
+            _ => filters.push(clause),
+        }
+    }
+    filters
 }
 
 pub fn untraced_input(path: &str) -> bool {
