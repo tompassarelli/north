@@ -59,3 +59,19 @@ fn a_failing_unit_names_its_own_cause_under_one_condition_on_every_check_and_its
     assert!(scan(&started).is_empty(), "a successful start after the last failure clears the failed-start streak");
     assert_eq!(tick(&mut told, &started), recovered, "a unit that started since its last failure is sent as recovered, not as failing");
 }
+
+#[test]
+fn a_failed_harness_check_started_by_a_firn_commit_pages_the_catalog_scan_that_failed_it_not_that_commit() {
+    let unit = "firn-agent-config-check-fa9c3c1c0123456789abcdef0123456789abcdef.service";
+    let start = |_| {
+        vec![
+            json!({"_SYSTEMD_USER_UNIT": unit, "SYSLOG_IDENTIFIER": "north", "MESSAGE": "  FAIL: policy-contract: read-reach: north_hook needs a catalog registration owned by a Rust module"}).to_string(),
+            json!({"USER_UNIT": unit, "SYSLOG_IDENTIFIER": "systemd", "MESSAGE": format!("{unit}: Failed with result 'exit-code'.")}).to_string(),
+            json!({"USER_UNIT": unit, "SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "Failed to start Firn agent configuration advisory check."}).to_string(),
+        ]
+    };
+    let sent = tick(&mut Told::default(), &journal(3, &start));
+    let [(page, _, false)] = sent.as_slice() else { panic!("one failing page: {sent:?}") };
+    assert!(page.contains("firn-agent-config-check") && page.contains("catalog scan") && page.contains("runtime tree"), "{page}");
+    assert!(!page.contains("fa9c3c1c"), "the firn commit that started the check is no cause: {page}");
+}

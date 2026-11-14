@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 const LIMIT: usize = 3;
+const REPORTERS: [(&str, &str); 1] = [("needs a catalog registration", "north's catalog scan of the runtime tree the check runs from")];
 const ERROR_WORDS: [&str; 10] = ["error", "fail", "denied", "cannot", "unable", "broken", "panic", "fatal", "timed out", "timeout"];
 
 #[derive(Debug, PartialEq)]
@@ -80,11 +81,28 @@ fn cause(seen: &Seen) -> String {
     errorish.cloned().or_else(|| seen.result.clone()).unwrap_or_else(|| "no cause logged".into())
 }
 
+fn check_of(unit: &str) -> &str {
+    let name = unit.strip_suffix(".service").unwrap_or(unit);
+    match name.rsplit_once('-') {
+        Some((check, commit)) if commit.len() >= 7 && commit.bytes().all(|byte| byte.is_ascii_hexdigit()) => check,
+        _ => unit,
+    }
+}
+
+fn page(one: &Failing) -> String {
+    let check = check_of(&one.unit);
+    let failed = format!("harness unit {check} failed to start {} times in the last hour", one.count);
+    match REPORTERS.iter().find(|(said, _)| one.cause.contains(said)) {
+        Some((_, reporter)) => format!("{failed}, reported by {reporter}, not by the commit that started it: {}", one.cause),
+        None => format!("{failed}: {}", one.cause),
+    }
+}
+
 pub(super) fn verdict(failing: &[Failing]) -> Result<(), String> {
     if failing.is_empty() {
         return Ok(());
     }
-    Err(failing.iter().map(|one| format!("{} failed to start {} times in the last hour: {}", one.unit, one.count, one.cause)).collect::<Vec<_>>().join("; "))
+    Err(failing.iter().map(page).collect::<Vec<_>>().join("; "))
 }
 
 fn condition(unit: &str) -> String {
@@ -94,13 +112,13 @@ fn condition(unit: &str) -> String {
 /// Tells the proxy of each failing unit under its condition key on every check, which the fleet store delivers once per episode and again when the cause changes, and of each unit told failing that recovered, which ends the episode.
 pub(super) fn announce(failing: &[Failing], told: &mut Told, send: &mut dyn FnMut(&str, &str, bool) -> bool) {
     for one in failing {
-        if send(&format!("harness unit {} failed to start {} times in the last hour: {}", one.unit, one.count, one.cause), &condition(&one.unit), false) {
+        if send(&page(one), &condition(&one.unit), false) {
             told.units.insert(one.unit.clone());
         }
     }
     let recovered: Vec<String> = told.units.iter().filter(|unit| !failing.iter().any(|one| &one.unit == *unit)).cloned().collect();
     for unit in recovered {
-        if send(&format!("harness unit {unit} recovered: under {LIMIT} failed starts in the last hour"), &condition(&unit), true) {
+        if send(&format!("harness unit {} recovered: under {LIMIT} failed starts in the last hour", check_of(&unit)), &condition(&unit), true) {
             told.units.remove(&unit);
         }
     }
