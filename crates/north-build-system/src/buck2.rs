@@ -11,8 +11,11 @@ use super::{Build, BuildSystem, Invocation, Lint, Mutants, Profile, Resolution, 
 
 pub(crate) mod generation;
 pub(crate) mod test_record;
+mod case_free;
 mod release_build;
 mod test_build;
+
+use case_free::{case_free, stays};
 
 /// Buck2 over the generated BUCK targets (north#1115): the root package is `//:north`, a workspace crate `//crates/NAME:NAME`
 /// with its tests beside it. A host chooses it with `build_system = "buck2"`. Until the host also sets `buck2_tests`, this side
@@ -297,6 +300,8 @@ pub struct CrateTests {
     selected: Selected,
     /// The crates that move which the host's `buck2_caseless_crates` names as having no case, so Buck2 passes one whose targets passed with no case run.
     pub caseless: BTreeSet<String>,
+    /// The selected crates that do not move whose sources name no test at the base or in the tree, so the declared line has no case of theirs to run.
+    case_free: BTreeSet<String>,
     /// The shell the declared line runs in, its words without the line's Cargo settings.
     shell: Vec<String>,
     /// The isolation directory the host-case build runs in.
@@ -333,7 +338,7 @@ impl CrateTests {
     pub fn declared_crates(&self, passed: &BTreeSet<String>) -> usize {
         match &self.selected {
             Selected::Workspace => self.members.saturating_sub(passed.len()),
-            Selected::Packages(names) => names.iter().filter(|name| !passed.contains(*name)).count(),
+            Selected::Packages(names) => names.iter().filter(|name| stays(&self.case_free, name, passed)).count(),
         }
     }
 
@@ -342,7 +347,7 @@ impl CrateTests {
         match &self.selected {
             Selected::Workspace => (self.declared_crates(passed) > 0).then(|| passed.iter().fold("--workspace".to_owned(), |flags, name| format!("{flags} --exclude {name}"))),
             Selected::Packages(names) => {
-                let left: Vec<String> = names.iter().filter(|name| !passed.contains(*name)).map(|name| format!("-p {name}")).collect();
+                let left: Vec<String> = names.iter().filter(|name| stays(&self.case_free, name, passed)).map(|name| format!("-p {name}")).collect();
                 (!left.is_empty()).then(|| left.join(" "))
             }
         }
@@ -406,6 +411,7 @@ pub(crate) fn crate_tests(side: &Buck2, root: &Path, base: &str, declared: &str,
     }
     let members = packages.len();
     let root_package = packages.iter().find(|(_, package)| package.as_str() == "//:").map(|(name, _)| name.clone());
+    let case_free = case_free(root, base, &selected, &names, packages);
     let packages: BTreeMap<String, String> = names.iter().filter_map(|name| Some((name.clone(), packages.get(name)?.clone()))).collect();
     if names.is_empty() {
         return None;
@@ -414,7 +420,7 @@ pub(crate) fn crate_tests(side: &Buck2, root: &Path, base: &str, declared: &str,
     let run = Tests { root: Path::new(""), step: Step::Run { doctests: false, keep_going: false }, selection: Selection::Typed(packages.values().cloned().collect()), resolution: Resolution::PINNED, shell: Shell::Inherited, output: None, uncached: false, coverage: None };
     let line = behind(shell, side.tests(&run));
     let isolation = side.isolation.clone().unwrap_or_else(|| generation::DEFAULT.to_owned());
-    Some(CrateTests { moved: names, packages, line, isolation, selected, caseless: BTreeSet::new(), shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases, members, root: root_package })
+    Some(CrateTests { moved: names, packages, line, isolation, selected, caseless: BTreeSet::new(), case_free, shell: lead(shell), daemon: side.host_cases_daemon(), builds_host_cases, members, root: root_package })
 }
 
 /// What `north_host_cases` (build/rust_test.bzl) writes for one test target: its case runner, its binary and the

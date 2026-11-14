@@ -138,17 +138,17 @@ fn a_lint_only_host_runs_the_gate_only_while_the_tree_s_gate_script_and_buck2_co
 fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_selection_to_the_declared_line() {
     let tree = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(tree.path()).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).stdout(Stdio::null()).status().unwrap().success());
-    for name in ["crates/a", "crates/b", "crates/c", "crates/x/m"] {
+    for name in ["crates/a", "crates/b/src", "crates/c", "crates/d/src", "crates/x/m"] {
         std::fs::create_dir_all(tree.path().join(name)).unwrap();
     }
-    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("BUCK", "north\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/c/lib.rs", "c\n"), ("crates/x/m/BUCK", "m\n")] {
+    for (name, text) in [(".buckconfig", "[cells]\n  root = .\n"), ("BUCK", "north\n"), ("crates/a/BUCK", "a\n"), ("crates/b/BUCK", "b\n"), ("crates/b/src/lib.rs", "#[test]\nfn b() {}\n"), ("crates/c/lib.rs", "c\n"), ("crates/d/BUCK", "d\n"), ("crates/d/src/lib.rs", "pub fn d() {}\n"), ("crates/x/m/BUCK", "m\n")] {
         std::fs::write(tree.path().join(name), text).unwrap();
     }
     for arguments in [&["init", "-q"][..], &["add", "."], &["commit", "-qm", "base"], &["tag", "base"]] {
         git(arguments);
     }
     let listed = ["a", "c", "gone", "m", "north"].map(str::to_owned).into_iter().collect();
-    let packages = [("a", "//crates/a:"), ("b", "//crates/b:"), ("c", "//crates/c:"), ("m", "//crates/x/m:"), ("north", "//:")].map(|(name, package)| (name.to_owned(), package.to_owned())).into();
+    let packages = [("a", "//crates/a:"), ("b", "//crates/b:"), ("c", "//crates/c:"), ("d", "//crates/d:"), ("m", "//crates/x/m:"), ("north", "//:")].map(|(name, package)| (name.to_owned(), package.to_owned())).into();
     let none = std::collections::BTreeSet::new();
     let passed: std::collections::BTreeSet<String> = ["a".to_owned()].into();
     let side = Buck2 { tests: true, isolation: None };
@@ -158,6 +158,10 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
 
     assert_eq!(split(NEXTEST, "-p a -p b"), Some((on_buck2(&["a"], "//crates/a:"), flags("-p b"), flags("-p a -p b"))), "the listed crate moves, and stays on the declared line unless Buck2 passed it");
     assert_eq!(split(NEXTEST, "-p a"), Some((on_buck2(&["a"], "//crates/a:"), None, flags("-p a"))), "nothing is left for the declared line once Buck2 passed every selected package");
+    assert_eq!(split(NEXTEST, "-p a -p d"), Some((on_buck2(&["a"], "//crates/a:"), None, flags("-p a"))), "a crate left over whose sources name no test has no case for the declared line, so it is not handed a selection of nothing that fails");
+    std::fs::write(tree.path().join("crates/b/src/lib.rs"), "fn b() {}\n").unwrap();
+    assert_eq!(split(NEXTEST, "-p a -p b"), Some((on_buck2(&["a"], "//crates/a:"), flags("-p b"), flags("-p a -p b"))), "one whose every test the lane deleted still goes to it, so the line fails on it");
+    std::fs::write(tree.path().join("crates/b/src/lib.rs"), "#[test]\nfn b() {}\n").unwrap();
     assert_eq!(
         split(NEXTEST, "--workspace"),
         Some((on_buck2(&["a", "m", "north"], "//crates/a: //crates/x/m: //:"), flags("--workspace --exclude a"), flags("--workspace"))),
@@ -172,9 +176,9 @@ fn a_host_that_lists_crates_tests_them_with_buck2_and_leaves_the_rest_of_the_sel
     assert_eq!((super::named_selection(NEXTEST, "SAFE_PUSH_LAND_PACKAGES"), super::named_selection(&format!("{guards} -p c"), "SAFE_PUSH_LAND_PACKAGES")), (None, None), "a line that reads the variable, or names its packages apart, keeps its own form");
     assert_eq!(split(CLIPPY, "-p a"), None, "the key moves the nextest line alone");
     let moved = super::crate_tests(&side, tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), (&listed, false), &packages).unwrap();
-    let every: std::collections::BTreeSet<String> = ["a", "b", "c", "m", "north"].map(str::to_owned).into();
+    let every: std::collections::BTreeSet<String> = ["a", "b", "c", "d", "m", "north"].map(str::to_owned).into();
     assert_eq!((moved.declared_crates(&every), moved.left(&every)), (0, None), "nothing is left for the declared line once Buck2 passed every workspace member, so no --workspace line excluding them all runs");
-    let others: std::collections::BTreeSet<String> = ["a", "b", "c", "m"].map(str::to_owned).into();
+    let others: std::collections::BTreeSet<String> = ["a", "b", "c", "d", "m"].map(str::to_owned).into();
     let picked = |selected: &str| super::crate_tests(&side, tree.path(), "base", NEXTEST, ("SAFE_PUSH_LAND_PACKAGES", selected), (&listed, false), &packages).unwrap();
     let lenient = |line: String| line.contains(" --no-tests=pass ") && !line.contains("--no-tests=fail");
     assert_eq!(
