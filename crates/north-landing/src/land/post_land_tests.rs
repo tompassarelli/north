@@ -362,6 +362,10 @@ fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
     let log = std::fs::read_to_string(gates.path().join("blame-walk-back.jsonl")).unwrap();
     let row: serde_json::Value = serde_json::from_str(log.trim()).unwrap();
     assert_eq!(row["would_revert"].as_str(), Some("ds-1033"), "walking back names the earlier lane red where its parent passes: {log}");
+    let ledger = "1\tfirn\t780be397\tred-main\tbash .github/scripts/land-checks.sh native; log: /l\trevert\t661\n";
+    let native = std::collections::BTreeSet::from([Failure::Step("bash .github/scripts/land-checks.sh native".to_owned())]);
+    assert!(super::red_before(ledger, "firn", "780be397", &native), "a base whose own run was red on the check blames no lane, as firn's reverts of 2026-11-14 needed");
+    assert!(!super::red_before(ledger, "firn", "bee979c2", &native) && !super::red_before(ledger, "north", "780be397", &native));
 }
 
 #[test]

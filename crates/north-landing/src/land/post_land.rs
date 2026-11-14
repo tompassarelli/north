@@ -363,10 +363,21 @@ fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
     }
 }
 
+/// Whether the post-land ledger records `base`'s own after-landing run of `repository` red on one of the failed checks, which a
+/// prefix probe passing that base must not overrule.
+pub(super) fn red_before(ledger: &str, repository: &str, base: &str, failing: &BTreeSet<Failure>) -> bool {
+    let row = ledger.lines().rev().map(|row| row.split('\t').collect::<Vec<_>>()).find(|fields| fields.get(1) == Some(&repository) && fields.get(2) == Some(&base));
+    row.is_some_and(|fields| fields.get(3) == Some(&"red-main") && fields.get(4).is_some_and(|text| failing.iter().any(|failure| text.contains(failure.label()))))
+}
+
 const WALK_BACK: usize = 16;
 const WALK_BACK_GATE: &str = "blame-walk-back";
 
 fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize>, Option<String>) {
+    if red_before(&fs::read_to_string(ledger_path()).unwrap_or_default(), &landed.repository, &landed.base, failing) {
+        println!("north land: the base {} of {} was already red on the failed checks in its own after-landing run, so no landed lane is blamed and the sheriff answers it", landed.base, landed.head);
+        return (Vec::new(), None);
+    }
     let lanes = landed.tips.len();
     let room = probe_slots::free_slots(&landed.repo).map_or(1, |(free, _)| free);
     let suspects = blame::ask(&landed.repo, &run.log, &landed.base, &landed.head, &landed.lanes, &landed.tips, room);
