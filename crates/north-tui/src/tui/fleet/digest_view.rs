@@ -17,14 +17,10 @@ const MUTED: Style = Style::new().fg(Color::DarkGray);
 const BOLD: Style = Style::new().add_modifier(Modifier::BOLD);
 const KEY: Style = Style::new().fg(Color::Cyan);
 
-pub fn draw_digest(frame: &mut Frame<'_>, screen: &mut Screen, area: Rect, now_ms: u64) {
+pub fn draw_digest(frame: &mut Frame<'_>, screen: &Screen, area: Rect, now_ms: u64) {
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Cyan)).title(Span::styled(" digest ", BOLD));
-    let inner = block.inner(area);
-    let width = usize::from(inner.width);
-    let lines = digest_lines(&screen.digest, &screen.sessions, now_ms, width);
-    let rows: usize = lines.iter().map(|line| line.width().max(1).div_ceil(width.max(1))).sum();
-    screen.digest.measure(inner.height, u16::try_from(rows.saturating_sub(usize::from(inner.height))).unwrap_or(u16::MAX));
-    frame.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }).scroll((screen.digest.scroll, 0)), area);
+    let width = usize::from(block.inner(area).width);
+    frame.render_widget(Paragraph::new(digest_lines(&screen.digest, &screen.sessions, now_ms, width)).block(block).wrap(Wrap { trim: false }), area);
 }
 
 pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u64, width: usize) -> Vec<Line<'static>> {

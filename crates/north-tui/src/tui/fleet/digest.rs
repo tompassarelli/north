@@ -42,9 +42,6 @@ pub struct DigestPane {
     pub books: Digest,
     pub facts: BTreeMap<String, SessionFacts>,
     pub selected_gate: Option<i64>,
-    pub scroll: u16,
-    scroll_limit: u16,
-    page: u16,
     seen_gates: BTreeSet<i64>,
 }
 
@@ -56,17 +53,6 @@ impl DigestPane {
             self.selected_gate = self.books.open_gates().next().map(|gate| gate.id);
         }
         arrived
-    }
-
-    pub fn measure(&mut self, rows: u16, limit: u16) {
-        self.page = (rows / 2).max(1);
-        self.scroll_limit = limit;
-        self.scroll = self.scroll.min(limit);
-    }
-
-    pub fn page_by(&mut self, pages: i32) {
-        let target = (i32::from(self.scroll) + pages * i32::from(self.page.max(1))).clamp(0, i32::from(self.scroll_limit));
-        self.scroll = u16::try_from(target).unwrap_or(0);
     }
 
     pub fn selected(&self) -> Option<&Gate> {

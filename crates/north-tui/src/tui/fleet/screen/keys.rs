@@ -40,8 +40,6 @@ impl Screen {
         self.notice = None;
         match key.code {
             KeyCode::Tab | KeyCode::BackTab => self.toggle_focus(),
-            KeyCode::PageUp if self.digest.shown => self.digest.page_by(-1),
-            KeyCode::PageDown if self.digest.shown => self.digest.page_by(1),
             KeyCode::PageUp => self.scroll_by(i32::from(self.page)),
             KeyCode::PageDown => self.scroll_by(-i32::from(self.page)),
             _ if self.focus == Focus::List => return self.handle_list_key(key),
