@@ -1,15 +1,13 @@
 //! `north tune`: the daily learning tick. It reads the ledger's closed boxes of the last week and
 //! the week before, prints the dashboard line, writes the ETA and budget cells to the graph as one
 //! transaction of writer `tune`, appends each changed cell's evidence to the provenance
-//! file, keeps one rolling north issue for the cells whose cost per closed box rose more than 25%
-//! week on week, opened on the second risen tick in a row and closed on the first calm one, and prints the open north issue
-//! count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
+//! file, prints the cells whose cost per closed box rose more than 25% week on week and tells the
+//! proxy once whenever that set of cells changes, and prints the open north issue count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
 //! today's beside the last earlier day's. It reads each landed plan issue's dividend from the same
 //! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
-//! keeps the cells whose ratio at the quantile their estimator covers drifted out of the calibrated band, where an estimate replayed
-//! from their own runs of the 7 days before each run would have sat inside it, in a second rolling north issue behind the same
-//! gate as the rises, and counts beside it the cells outside the band under every estimator. It scores each category's runs against the Budget stored at their launch
+//! prints the cells whose ratio at the quantile their estimator covers drifted out of the calibrated band, where an estimate replayed
+//! from their own runs of the 7 days before each run would have sat inside it, telling the proxy once whenever that set changes, and counts beside it the cells outside the band under every estimator. It scores each category's runs against the Budget stored at their launch
 //! (share over it, actual/E p50 and p90) and reads the budget cells' multiplier from that p90 once
 //! a category holds enough runs carrying one, and moves an ETA or budget cell at most 2x from its prior value per tick. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
@@ -22,13 +20,13 @@ use crate::dispatch::tuned::{WRITER, directory};
 use crate::dispatch::LEDGER_WINDOW;
 use crate::threads::calibration::predictions::Brier;
 use crate::platform::github;
-use crate::platform::rolling_issue::{self, Breaches, settle};
 use cells::{Cells, Change};
 use north_graph_loops::Learned;
 use costs::Cost;
 use dividends::{Dividend, Reading};
 use estimates::EstimatedRuns;
 use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -47,13 +45,12 @@ const USAGE: &str = "usage: north tune [--dry-run | --backtest]";
 const REPO: &str = "tompassarelli/north";
 const REPLAY_WINDOW: &str = "14d";
 
-/// The north issue tracker a tick reads and files to.
+/// The north issue tracker a tick reads and the proxy it tells.
 pub trait Tracker {
     /// How many north issues are open.
     fn open(&self) -> Result<usize, String>;
     /// Sends the proxy session a fleet message.
     fn tell_proxy(&mut self, text: &str) -> Result<(), String>;
-    fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker;
 }
 
 /// The ledger as one tick reads it, with the skills agents can load and `runs` the last day's
@@ -67,14 +64,17 @@ pub struct Ledger {
     pub skills: Vec<String>,
 }
 
+/// The cells each week-window alarm last told the proxy of, by alarm.
+pub type Alarms = BTreeMap<String, BTreeSet<String>>;
+
 /// What earlier ticks left: the cells they wrote, the costs and dividend readings they kept, and the
-/// breached ticks in a row each rolling issue has seen.
+/// cells each alarm last told the proxy of.
 #[derive(Default)]
 pub struct Prior {
     pub cells: Cells,
     pub costs: Vec<Cost>,
     pub readings: Vec<Reading>,
-    pub breaches: Breaches,
+    pub alarms: Alarms,
 }
 
 #[derive(Debug, PartialEq)]
@@ -84,7 +84,7 @@ pub struct Tick {
     pub records: Vec<Value>,
     pub costs: Vec<Value>,
     pub readings: Vec<Value>,
-    pub breaches: Breaches,
+    pub alarms: Alarms,
     pub failed: bool,
 }
 
@@ -123,35 +123,51 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     }
     let (covered, uncovered) = coverage::check(&ledger.runs);
     lines.extend(covered);
-    let mut breaches = prior.breaches.clone();
+    let mut alarms = prior.alarms.clone();
     let found_rises = rises::rises(&ledger.week, &ledger.before);
     lines.extend(found_rises.iter().map(rises::Rise::line));
-    let risen = keep(tracker, &mut breaches, rises::TITLE, rises::issue_body(&found_rises).as_deref(), &format!("`north tune` on {at}: no staffed cell's cost per closed box sits more than 25% above the week before."), dry_run, &mut lines);
+    let risen = tell_alarm(tracker, &mut alarms, rises::TITLE, found_rises.iter().map(|rise| format!("{} {}", rise.tier, rise.category)).collect(), dry_run, &mut lines);
     lines.extend(calibrations.iter().filter(|calibration| calibration.drifted()).map(estimates::Calibration::drift_line));
     if ledger.estimates.is_ok() {
         lines.extend(estimates::noise_lines(&calibrations));
     }
-    let drifted = keep(tracker, &mut breaches, estimates::TITLE, estimates::issue_body(&calibrations).as_deref(), &format!("`north tune` on {at}: every tier and category's covered ratio of actual to estimate sits inside {}-{}x.", estimates::CALIBRATED.0, estimates::CALIBRATED.1), dry_run, &mut lines);
+    let drifted = tell_alarm(tracker, &mut alarms, estimates::TITLE, calibrations.iter().filter(|calibration| calibration.drifted()).map(|calibration| format!("{} {}", calibration.tier, calibration.category)).collect(), dry_run, &mut lines);
     let open = tracker.open();
     lines.push(match &open {
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = ledger.estimates.is_err() || ledger.briers.is_err() || risen.is_err() || drifted.is_err() || open.is_err() || told_failed || uncovered;
-    Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, breaches, failed }
+    let failed = ledger.estimates.is_err() || ledger.briers.is_err() || risen || drifted || open.is_err() || told_failed || uncovered;
+    Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, alarms, failed }
 }
 
-fn keep(tracker: &mut dyn Tracker, breaches: &mut Breaches, title: &str, body: Option<&str>, closing: &str, dry_run: bool, lines: &mut Vec<String>) -> Result<(), String> {
+/// Tells the proxy when the set of cells under an alarm changed since the last tell, and keeps the
+/// set told; a tell that did not go keeps the earlier set, so the next tick tells again. A dry run
+/// tells no one.
+fn tell_alarm(tracker: &mut dyn Tracker, alarms: &mut Alarms, title: &str, cells: BTreeSet<String>, dry_run: bool, lines: &mut Vec<String>) -> bool {
+    if alarms.get(title).map_or(cells.is_empty(), |told| *told == cells) {
+        return false;
+    }
+    let text = if cells.is_empty() {
+        format!("north tune: {title}: no cell any longer; `north tune --dry-run` shows the week's cells.")
+    } else {
+        format!("north tune: {title}: {}; `north tune --dry-run` shows them.", cells.iter().cloned().collect::<Vec<_>>().join(", "))
+    };
     if dry_run {
-        if body.is_some() {
-            lines.push(format!("  would file: {title}"));
-        }
-        return Ok(());
+        lines.push(format!("  would tell the proxy: {text}"));
+        return false;
     }
-    if !breaches.record(title, body.is_some()) && body.is_some() {
-        return Ok(());
+    if let Err(error) = tracker.tell_proxy(&text) {
+        lines.push(format!("  proxy not told of {title}: {error}"));
+        return true;
     }
-    settle(tracker.rolling(), title, body, closing).inspect_err(|error| lines.push(format!("  not settled: {title}: {error}")))
+    lines.push(format!("  told the proxy: {title}: {} cells", cells.len()));
+    if cells.is_empty() {
+        alarms.remove(title);
+    } else {
+        alarms.insert(title.to_owned(), cells);
+    }
+    false
 }
 
 /// Tells the proxy of each dividend that decayed and returns the rows to keep: a dividend whose
@@ -213,8 +229,8 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let files = Files::here()?;
     let at = Timestamp::now().iso();
     let learned = files.learned()?;
-    let prior = Prior { cells: learned.cells.clone(), costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };
-    let tick = tick(&ledger, &prior, &dividends::definitions()?, &mut Gh { rolling: rolling_issue::Gh::north() }, &at, dry_run);
+    let prior = Prior { cells: learned.cells.clone(), costs: files.costs()?, readings: files.readings()?, alarms: files.alarms()? };
+    let tick = tick(&ledger, &prior, &dividends::definitions()?, &mut Gh, &at, dry_run);
     tick.lines.iter().for_each(|line| println!("{line}"));
     switch::judge(dry_run).iter().for_each(|line| println!("{line}"));
     let loops = crate::loops::here(None);
@@ -229,7 +245,7 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     Ok(tick)
 }
 
-/// The graph dispatch's cells are told to, and the provenance, costs, readings and breaches files beside
+/// The graph dispatch's cells are told to, and the provenance, costs, readings and alarms files beside
 /// them in north's state directory.
 struct Files {
     dir: PathBuf,
@@ -257,11 +273,11 @@ impl Files {
         }
     }
 
-    fn breaches(&self) -> Result<Breaches, String> {
-        let path = self.dir.join("breaches.json");
+    fn alarms(&self) -> Result<Alarms, String> {
+        let path = self.dir.join("alarms.json");
         match std::fs::read_to_string(&path) {
             Ok(text) => serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Breaches::default()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Alarms::default()),
             Err(error) => Err(format!("{}: {error}", path.display())),
         }
     }
@@ -287,14 +303,12 @@ impl Files {
         tick.costs.iter().try_for_each(|record| writeln!(costs, "{record}")).map_err(failed)?;
         let mut readings = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("dividends.jsonl")).map_err(failed)?;
         tick.readings.iter().try_for_each(|record| writeln!(readings, "{record}")).map_err(failed)?;
-        std::fs::write(self.dir.join("breaches.json"), serde_json::to_string(&tick.breaches).map_err(|error| error.to_string())? + "\n").map_err(failed)?;
+        std::fs::write(self.dir.join("alarms.json"), serde_json::to_string(&tick.alarms).map_err(|error| error.to_string())? + "\n").map_err(failed)?;
         north_graph_loops::tell(&north_graph_loops::graph_path(), WRITER, prior, &tick.cells, Timestamp::now().unix_seconds())
     }
 }
 
-struct Gh {
-    rolling: rolling_issue::Gh,
-}
+struct Gh;
 
 fn tell(text: &str) -> Result<(), String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
@@ -314,10 +328,6 @@ impl Tracker for Gh {
 
     fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
         tell(text)
-    }
-
-    fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker {
-        &mut self.rolling
     }
 }
 

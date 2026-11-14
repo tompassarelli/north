@@ -2,9 +2,9 @@
 //! and p90 ratio of actual to estimated minutes per run and cost per box and the share inside their
 //! estimate, beside the same ratio for an estimate replayed from the cell's own runs of the 7 days
 //! before each run started. A cell drifted when the estimate in use sat outside the calibrated band
-//! at the quantile its estimator covers and the replayed one sat inside it: a stale estimate, kept
-//! as the one rolling north issue a tick keeps for them. A cell outside the band under both is
-//! noisy, and is counted beside the alarm rather than filed.
+//! at the quantile its estimator covers and the replayed one sat inside it: a stale estimate,
+//! which the tick tells the proxy of whenever the set of them changes. A cell outside the band under
+//! both is noisy, and is counted beside the alarm rather than told.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::EstimatedRun;
 use crate::ledger::closed::percentile;
@@ -81,11 +81,6 @@ impl Reading {
             Some(_) => Verdict::Stale,
             None => Verdict::Unreplayed,
         }
-    }
-
-    fn shown(&self) -> String {
-        let replayed = self.replayed.as_ref().map_or_else(|| "none".to_owned(), |replayed| format!("p{} {:.2}x (n {})", replayed.percent, replayed.covered, replayed.n));
-        format!("{}; replayed {replayed}", self.stated.shown())
     }
 }
 
@@ -217,11 +212,6 @@ impl Calibration {
     pub fn drift_line(&self) -> String {
         format!("drifted {} {}: {} outside {}-{}x", self.tier, self.category, self.summed(Verdict::Stale), CALIBRATED.0, CALIBRATED.1)
     }
-
-    fn section(&self) -> String {
-        let named: Vec<String> = self.named(Verdict::Stale).iter().map(|(name, reading)| format!("- {name}: actual over estimate {}", reading.shown())).collect();
-        format!("## {} {}\n\n{}\n\n", self.tier, self.category, named.join("\n"))
-    }
 }
 
 pub fn noise_lines(calibrations: &[Calibration]) -> Vec<String> {
@@ -234,14 +224,3 @@ pub fn noise_lines(calibrations: &[Calibration]) -> Vec<String> {
 }
 
 pub const TITLE: &str = "Estimates drifted outside the calibrated band of actual";
-
-pub fn issue_body(calibrations: &[Calibration]) -> Option<String> {
-    let sections: String = calibrations.iter().filter(|calibration| calibration.drifted()).map(Calibration::section).collect();
-    (!sections.is_empty()).then(|| {
-        format!(
-            "`north tune` keeps this issue while any tier and category's ratio of actual to estimated minutes or cost, read at the quantile its estimator covers (the ETA's `eta_coverage`, the Budget's p90), over the last 7 days sits outside {low}-{high}x (each ratio holding at least {DRIFT_MIN_RUNS} runs) where an estimate replayed from the cell's own runs of the 7 days before each run would have sat inside it, and closes it on the first tick none does.\n\nCategory: debugging-unknown-cause\nClass: brief estimates that the ledger's own readings show biased, so every ETA and budget line misleads by the same factor\n\n## Done when\n\n- [ ] Every drifted estimator below is recalibrated from its runs, so each tier and category's covered ratio sits inside {low}-{high}x. Done when: `north tune --dry-run | rg -q 'would file: {TITLE}'; test $? -eq 1`\n\n{sections}",
-            low = CALIBRATED.0,
-            high = CALIBRATED.1,
-        )
-    })
-}
