@@ -429,11 +429,14 @@ pub fn bind(path: &Path) -> io::Result<UnixListener> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    match fs::remove_file(path) {
+    let staged = path.with_extension("new");
+    match fs::remove_file(&staged) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
         _ => {}
     }
-    UnixListener::bind(path)
+    let listener = UnixListener::bind(&staged)?;
+    fs::rename(&staged, path)?;
+    Ok(listener)
 }
 
 /// Serves clients until the host winds down, then gives any still connected `DEFER` to finish and returns the
