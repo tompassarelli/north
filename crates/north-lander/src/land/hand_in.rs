@@ -15,6 +15,7 @@ mod acceptance;
 mod early_facts;
 mod kept;
 mod lane_sync;
+mod message;
 mod other_lanes;
 mod stageable;
 
@@ -268,11 +269,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
         return Err(format!("{} is outside the lane {}", outside.display(), root.display()));
     }
     road.writable(&root)?;
-    let message = match (request.message.trim().is_empty(), request.check) {
-        (false, _) => request.message.to_owned(),
-        (true, Some(_)) => proposed_message(&root).ok_or("the message is empty and the brief proposed none")?,
-        (true, None) => return Err("the message is empty".to_owned()),
-    };
+    let message = message::chosen(&root, request, &paths, !targets.is_empty())?;
     if request.check.is_some() && proposed_message(&root).is_some_and(|proposed| proposed == message) {
         record_proposal(&root, "used", &message);
     }

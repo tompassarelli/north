@@ -475,11 +475,8 @@ fn a_hand_in_that_names_a_deleted_path_lands_its_deletion() {
     assert!(text.contains(&format!("Done: landed {landed} on main")), "{text}\n{journal}");
     assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-status", "-r", "main"]), "D\tREADME\nD\tgone.txt\nD\told/a.txt\nD\told/inner/b.txt", "the deletions did not land, or more than the named paths did");
     assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--deleted"])), (String::new(), "kept.txt".to_owned()), "an unnamed deletion was staged");
-}
 
-#[test]
-fn a_hand_in_verb_call_takes_a_named_path_literally_so_a_glob_or_pathspec_magic_stages_only_that_name() {
-    let (world, north) = scanned_world(JUDGE_PASSES);
+    git(&north.checkout, &["fetch", "-q", "origin"]);
     let lane = worktree(&north, "literal");
     fs::write(lane.join("*.txt"), "the starred file\n").unwrap();
     fs::write(lane.join("a.txt"), "the plain file\n").unwrap();
@@ -500,6 +497,26 @@ fn a_hand_in_verb_call_takes_a_named_path_literally_so_a_glob_or_pathspec_magic_
     assert!(text.contains(&format!("Done: landed {landed} on main")), "{text}\n{journal}");
     assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-status", "-r", "main"]), "A\t*.txt", "a glob in a name staged more than that file");
     assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--others"])), (String::new(), "a.txt".to_owned()), "the unnamed file was staged");
+}
+
+#[test]
+fn a_handed_in_lane_keeps_its_message_and_live_fix_trailer() {
+    if let Ok(arguments) = std::env::var(VERB_ARGUMENTS) {
+        let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        let road = |lane: &hand_in::Lane| enqueue::run(&["--repo".to_owned(), lane.root.display().to_string(), "--wait".to_owned()]);
+        std::process::exit(i32::from(hand_in::run(&arguments, road)));
+    }
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let lane = worktree(&north, "carried");
+    fs::write(lane.join("carried.txt"), "the committed change\n").unwrap();
+    git(&lane, &["add", "carried.txt"]);
+    let message = "Name the change once\n\nWhy it lands.\n\nLive-fix: the lander is red";
+    git(&lane, &["commit", "-qm", message]);
+
+    let (output, journal) = decided(&world, &north, verb(&world, "", &[&lane.join("carried.txt")]));
+    let text = report(&output);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert_eq!(git(&north.origin, &["log", "-1", "--format=%B", "main"]), message, "a committed lane handed in with no message did not land under its head's message: {text}");
 }
 
 #[test]
