@@ -50,17 +50,17 @@ by = "n1041-peer-enforce"
 hours = 61
 decisions = 2150
 
-# A filed or edited issue's new unticked box that names no backticked `Done when:` command and says neither `Needs:` nor `not before` is refused with a message naming the box and showing how to write one (north#872), since only its own worker can tick it. The 2026-11-09 review read the log on gex45 alone (the laptop's and nexus's logs were unreachable), 2 would-be refusals over 24 h rather than the 20 the box asked for: 1 true (a probe box naming no command) and 1 false (an edit of north#706 that appended a measurement to a box it already held, so the box was not new), fixed by matching held boxes on their opening words instead of the whole line. That review passed on elapsed time alone and was not enough to enforce (north#971). The 2026-11-10 review read 24 decisions: 20 in the laptop log through the records mirror, all correct, and the 4 on gex45 (the 2 above plus 2 probes), 3 correct; nexus refuses a log read over remote-serve, so its log is unread. Neither log has a row since 2026-11-09 while more than 40 issues filed since then hold unrunnable boxes, because the gate read only the text of a Claude shell command and missed every body written to a file, a script or a Rust tool. The gate now judges the body `north gh-session` sends on every fleet gh call, for each provider (north#1041), so the next review reads that layer's rows on every host before the mode goes to enforce.
+# A filed or edited issue's new unticked box that names no backticked `Done when:` command and says neither `Needs:` nor `not before` is refused with a message naming the box and showing how to write one (north#872), since only its own worker can tick it. The 2026-11-09 review read the log on gex45 alone (the laptop's and nexus's logs were unreachable), 2 would-be refusals over 24 h rather than the 20 the box asked for: 1 true (a probe box naming no command) and 1 false (an edit of north#706 that appended a measurement to a box it already held, so the box was not new), fixed by matching held boxes on their opening words instead of the whole line. That review passed on elapsed time alone and was not enough to enforce (north#971). The 2026-11-10 review read 24 decisions: 20 in the laptop log through the records mirror, all correct, and the 4 on gex45 (the 2 above plus 2 probes), 3 correct; nexus refuses a log read over remote-serve, so its log is unread. Neither log has a row since 2026-11-09 while more than 40 issues filed since then hold unrunnable boxes, because the gate read only the text of a Claude shell command and missed every body written to a file, a script or a Rust tool. The gate now judges the body `north gh-session` sends on every fleet gh call, for each provider (north#1041), so the next review reads that layer's rows on every host before the mode goes to enforce. The 2026-11-14 review by the second reviewer read every row the gh-session layer logged since 2026-11-10 (laptop 1,226, gex45 118; nexus holds no log file), 1,342 correct; the 2 false refusals were one edit of north#1076 whose boxes read "Done when" followed by a backticked command with no colon. Whether each refused box was new was checked against GitHub edit history on a 50-row sample; the log holds only would-refuse rows, so wrong passes are not counted.
 [gate.unrunnable-box]
-mode = "shadow"
+mode = "enforce"
 
 [gate.unrunnable-box.review]
-reviewed = "2026-11-10"
-by = "north-1041-d0906"
+reviewed = "2026-11-14"
+by = "second-reviewer"
 issue = "north#1041"
 hosts = ["laptop", "gex45"]
-decisions = 24
-correct = 23
+decisions = 1344
+correct = 1342
 
 # Each Bash command, hook and MCP server of a fleet worker runs under `north --worker-sandbox` (CLAUDE_CODE_SHELL_PREFIX), a Landlock domain that confines file removal to the worker's own trees (north#706, docs/rationale/worker-sandbox.md). Landlock has no permissive mode, so its shadow review counted canary worker launches made with NORTH_WORKER_SANDBOX=1: 65 Bash commands of the second round (n706-canary2-claims 52, including its safe-push, and n706-canary2-ingest 13), none refused, after the first round's two refusal classes were fixed.
 [gate.worker-sandbox]
