@@ -5,6 +5,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use north_base::lifecycle::Owner;
 use north_base::foundation::shim::write_executable;
 use north_base::platform::gh_shim;
 
@@ -280,14 +281,13 @@ fn a_lane_path_a_retired_placed_session_used_is_not_its_live_owner_north_1352() 
     assert!(admitted().is_err_and(|refused| refused.contains("launched in, not one of")), "a placed session whose unit runs here no longer owns its lane");
 }
 
-const WINDOW: u32 = 4242;
 const SHELL: u32 = 4300;
 const APP_CGROUP: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-terminal-1.scope\n";
 
-fn adopt_window(fixture: &Fixture) -> PathBuf {
+fn adopt_window(fixture: &Fixture, window: &Owner) -> PathBuf {
     let directory = fixture.host.fleet.join("coordinator");
     std::fs::create_dir_all(&directory).unwrap();
-    let record = serde_json::json!({ "name": "coordinator", "role": "coordinator", "placement": format!("adopted window, process {WINDOW}"), "adopted_ms": 1793952078246u64, "cwd": fixture.lane });
+    let record = serde_json::json!({ "name": "coordinator", "role": "coordinator", "placement": format!("adopted window, process {}", window.pid), "window": window, "adopted_ms": 1793952078246u64, "cwd": fixture.lane });
     std::fs::write(directory.join("session.json"), record.to_string()).unwrap();
     directory
 }
@@ -295,8 +295,9 @@ fn adopt_window(fixture: &Fixture) -> PathBuf {
 #[test]
 fn a_shell_descended_from_an_adopted_window_resolves_to_its_record_and_an_app_scope_without_one_is_refused_north_1427() {
     let fixture = Fixture::new();
-    let directory = adopt_window(&fixture);
-    let peer = Peer::with_pids(Some(APP_CGROUP), &[SHELL, WINDOW]);
+    let window = Owner::current();
+    let directory = adopt_window(&fixture, &window);
+    let peer = Peer::with_pids(Some(APP_CGROUP), &[SHELL, window.pid]);
     let (found, record) = super::own_session(&peer, &fixture.host, "absent").unwrap();
     assert_eq!((found, record["name"].as_str()), (directory, Some("coordinator")));
     let unrelated = Peer::with_pids(Some(APP_CGROUP), &[SHELL]);
@@ -310,4 +311,23 @@ fn a_lane_only_request_from_a_nested_scope_is_served_as_the_sessions_own() {
     let asked = fixture.ask_from(&nested, &["task", "comment", "--body", "landed"], &fixture.lane);
     assert_eq!(asked.code, 0, "{}", asked.stderr);
     assert_eq!(fixture.ran().last().unwrap(), &format!("{}|task comment {TASK} --body landed|{NAME}", fixture.lane.display()));
+}
+
+#[test]
+fn a_reused_window_pid_is_not_the_adopted_window_and_a_held_service_inside_one_resolves_to_its_placed_record_north_1529() {
+    use north_base::platform::session_host_files::{BOUND_CONVERSATION, HELD, PLACED};
+    let fixture = Fixture::new();
+    let window = Owner::current();
+    adopt_window(&fixture, &Owner { started: window.started + 1, ..window.clone() });
+    assert_eq!(super::own_session(&Peer::with_pids(Some(APP_CGROUP), &[SHELL, window.pid]), &fixture.host, "absent").unwrap_err(), "absent", "a reused pid with another start time passed for the adopted window");
+    adopt_window(&fixture, &window);
+    let held = fixture.host.home.join(HELD).join("north-fleet-placed-1529.service");
+    let placed = fixture.host.fleet.join(PLACED).join("c0ffee-1529");
+    std::fs::create_dir_all(&held).unwrap();
+    std::fs::create_dir_all(&placed).unwrap();
+    std::fs::write(held.join(BOUND_CONVERSATION), "c0ffee-1529").unwrap();
+    std::fs::write(placed.join("session.json"), serde_json::json!({ "name": "placed-1529", "provider": "claude", "cwd": fixture.lane }).to_string()).unwrap();
+    let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-placed-1529.service\n";
+    let (found, record) = super::own_session(&Peer::with_pids(Some(cgroup), &[SHELL, window.pid]), &fixture.host, "absent").unwrap();
+    assert_eq!((found, record["name"].as_str()), (placed, Some("placed-1529")));
 }

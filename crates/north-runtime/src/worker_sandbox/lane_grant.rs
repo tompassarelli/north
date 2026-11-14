@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use north_base::lifecycle::{Liveness, Owner, Proc};
 use north_base::platform::session_scope::{self, LANE_ONLY_UNIT_PREFIX, REMOVAL_ROOTS, SESSION_UNIT_PREFIX};
 use north_base::platform::{gh_shim, git_credential, session_host_files};
 use regex::Regex;
@@ -18,7 +19,6 @@ pub(super) const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 pub(super) const PROVED_ENV: &str = "NORTH_FLEET_SESSION_PROVED";
 const SHIM_DIRECTORIES: [&str; 2] = [".local/bin", ".local/share/north/bin"];
 pub(super) const GIT_HARDENING: [(&str, &str); 3] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("core.sshCommand", "false")];
-const ADOPTED_WINDOW: &str = "adopted window, process ";
 const COMMAND_KEYS: &str = r"^(filter\..+\.(clean|smudge|process)|core\.sshcommand)$";
 const WITHHELD: &str = "[token withheld]";
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}").expect("the token pattern compiles"));
@@ -101,17 +101,16 @@ pub(super) fn recorded(unit: &str, fleet: &Path) -> Result<(PathBuf, Value), Str
     Ok((directory, record))
 }
 
-/// The directory and record of the fleet session the caller `peer` runs in, or `absent` when it runs in none: a session scope this host's fleet started, else an adopted window whose process the caller is or descends from, or a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs). The caller chooses neither its unit nor what the launcher wrote, and a placed lane-only session is refused, since its held unit carries no lane-only mark to grant it by (north#1054).
+/// The directory and record of the fleet session the caller `peer` runs in, or `absent` when it runs in none: a session scope this host's fleet started, else a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs). The caller chooses neither its unit nor what the launcher wrote, and a placed lane-only session is refused, since its held unit carries no lane-only mark to grant it by (north#1054); a caller in neither is the adopted window whose process it is or descends from.
 pub(super) fn own_session(peer: &Peer, host: &Host, absent: &str) -> Result<(PathBuf, Value), String> {
     let cgroup = peer.cgroup().unwrap_or_default();
     let leaves = || cgroup.lines().flat_map(|line| line.split('/'));
     if let Some(unit) = leaves().find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")) {
         return recorded(unit, &host.fleet);
     }
-    if let Some(adopted) = adopted_window(peer.pids(), &host.fleet) {
-        return Ok(adopted);
-    }
-    let (unit, conversation) = leaves().filter(|leaf| leaf.ends_with(".service")).find_map(|unit| Some((unit, bound_conversation(&host.home.join(session_host_files::HELD).join(unit))?))).ok_or(absent)?;
+    let Some((unit, conversation)) = leaves().filter(|leaf| leaf.ends_with(".service")).find_map(|unit| Some((unit, bound_conversation(&host.home.join(session_host_files::HELD).join(unit))?))) else {
+        return adopted_window(peer.pids(), &host.fleet).ok_or_else(|| absent.to_owned());
+    };
     let directory = host.fleet.join(session_host_files::PLACED).join(&conversation);
     let record = read_record(&directory).ok_or_else(|| format!("{unit} runs the conversation {conversation}, and no record of it was placed here"))?;
     if session_scope::session_unit(record["provider"].as_str().unwrap_or_default(), "").starts_with(LANE_ONLY_UNIT_PREFIX) {
@@ -120,12 +119,12 @@ pub(super) fn own_session(peer: &Peer, host: &Host, absent: &str) -> Result<(Pat
     Ok((directory, record))
 }
 
-/// The directory and record of the adopted session whose window process is one of `pids`, the caller or an ancestor of it: an adopted record names the window process it bound in its placement (`adopted window, process N`), and a shell run in that window descends from it.
+/// The directory and record of the adopted session whose window process is one of `pids`, the caller or an ancestor of it, and still the process it recorded at adoption, with the same start time; a shell run in that window descends from it.
 fn adopted_window(pids: &[u32], fleet: &Path) -> Option<(PathBuf, Value)> {
     std::fs::read_dir(fleet).into_iter().flatten().flatten().map(|entry| entry.path()).find_map(|directory| {
         let record = read_record(&directory)?;
-        let process = record["placement"].as_str()?.strip_prefix(ADOPTED_WINDOW)?.parse::<u32>().ok()?;
-        (!record["adopted_ms"].is_null() && pids.contains(&process)).then_some((directory, record))
+        let window = serde_json::from_value::<Owner>(record["window"].clone()).ok()?;
+        (!record["adopted_ms"].is_null() && pids.contains(&window.pid) && Proc.alive(&window) == Some(true)).then_some((directory, record))
     })
 }
 

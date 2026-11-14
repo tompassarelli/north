@@ -209,6 +209,9 @@ pub struct SessionRecord {
     pub brief: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adopted_ms: Option<u64>,
+    /// The adopted window's process with its start time, so a reused pid never passes for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<north_base::lifecycle::Owner>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revived_mid_task_ms: Option<u64>,
     /// The held unit on its machine when the session took a spare, whose name is not the one its session name gives.
@@ -231,6 +234,12 @@ pub struct SessionRecord {
 impl SessionRecord {
     pub fn adopted(&self) -> bool {
         self.adopted_ms.is_some()
+    }
+
+    /// Marks the record adopted at its creation by the window process `window`.
+    pub fn adopt(&mut self, window: Option<north_base::lifecycle::Owner>) {
+        self.adopted_ms = Some(self.created_ms);
+        self.window = window;
     }
 
 

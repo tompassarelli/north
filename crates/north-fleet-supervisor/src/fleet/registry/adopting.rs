@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use north_base::lifecycle::Owner;
 use rustix::process::{Pid, Signal, kill_process};
 
 use crate::error::{NorthError, NorthResult};
@@ -37,12 +38,12 @@ impl Fleet {
         let (runtime, inbox) = self.window_of(conversation).ok_or_else(|| NorthError::State(format!("no live interactive window holds conversation {conversation}")))?;
         runtime.adopt_window(conversation, &inbox)?;
         let session_dir = self.session_dir(name)?;
-        let placement = format!("adopted window, process {}", inbox.pid);
+        let (placement, window) = (format!("adopted window, process {}", inbox.pid), Owner::of(inbox.pid));
         if let Ok(held) = self.record(name)
             && held.adopted()
             && held.conversation.as_deref() == Some(conversation)
         {
-            if held.account == inbox.account && held.placement.as_deref() == Some(placement.as_str()) {
+            if held.account == inbox.account && held.placement.as_deref() == Some(placement.as_str()) && held.window == window {
                 bar_hosts(&session_dir)?;
                 return Ok(held);
             }
@@ -82,7 +83,7 @@ impl Fleet {
             route: None,
                     };
         let mut record = request.record(None, Some(conversation.to_owned()), false, now_ms());
-        record.adopted_ms = Some(record.created_ms);
+        record.adopt(window);
         let row = SessionRow { status: Status::Idle.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         self.registrar.register(&row, Claim::TakeOver)?;
         self.succeed(name, Claim::TakeOver, |seat| {

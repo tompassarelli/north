@@ -142,6 +142,7 @@ impl LaunchRequest {
             other_claims: self.other_claims(),
             brief: self.brief_path(),
             adopted_ms: None,
+            window: None,
             revived_mid_task_ms: None,
             held_unit: None,
             reserve_caller: None,
