@@ -258,19 +258,9 @@ impl Screen {
         self.screened(head, &|host| host.is_none_or(|host| hosts.contains(&host)), now)
     }
 
-    /// Why the runtime `head`, already live on the host that settles the fleet, may not be shipped to the hosts `hosts` or followed by its lander link: its after-landing verdict and holds as `order` reads them, but no trip, since a red run of main that ends after the promotion took `head` live refuses the next promotion and asks for its revert instead of leaving every other host and the lander link on an older runtime than the one live here (north#1540).
-    pub(crate) fn live(&self, head: &str, hosts: &[&str], now: u64) -> Result<Vec<String>, String> {
-        self.passed(head)?;
-        self.held(head, &|host| host.is_none_or(|host| hosts.contains(&host)), now)
-    }
-
     fn screened(&self, head: &str, applies: &dyn Fn(Option<&str>) -> bool, now: u64) -> Result<Vec<String>, String> {
         let passed = self.passed(head)?;
         self.tripped(head, passed, now)?;
-        self.held(head, applies, now)
-    }
-
-    fn held(&self, head: &str, applies: &dyn Fn(Option<&str>) -> bool, now: u64) -> Result<Vec<String>, String> {
         if !enabled() {
             return Ok(Vec::new());
         }

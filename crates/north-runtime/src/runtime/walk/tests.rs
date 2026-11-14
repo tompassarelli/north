@@ -3,10 +3,10 @@ use super::super::layout::{self, Layout};
 use super::super::live::Swap;
 use super::super::pin::{Event, read};
 use super::super::after_landing::Landing;
-use super::super::main_runs::{Kept, MainRun, MainRuns};
+use super::super::main_runs::MainRuns;
 use super::super::review_hold::{Ask, Caller, Holds, Screen, now};
 use super::super::trip::Trips;
-use super::{handed_to_live, held_out, judged, ship_if_walked, walk_verdict};
+use super::{handed_to_live, held_out, judged, walk_verdict};
 use crate::platform::host;
 use north_offload::land_offload::Deployment;
 use north_base::foundation::shim::write_executable;
@@ -162,23 +162,4 @@ fn a_hold_naming_one_host_leaves_only_that_host_out_of_the_ship_and_a_hold_namin
     let (kept, left_out) = held_out(&plan, &screen, MAIN, now());
     assert!(kept.is_empty());
     assert_eq!(left_out.len(), 2);
-}
-
-#[test]
-fn a_shipped_runtime_is_swapped_in_on_every_unheld_host_when_a_red_run_on_its_ancestry_ends_after_it_went_live() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().to_owned() };
-    fs::create_dir_all(layout.runtime(MAIN)).unwrap();
-    std::os::unix::fs::symlink(layout::link(MAIN), layout.current()).unwrap();
-    let red_ancestor = MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: PINNED.to_owned(), id: "43638604894".to_owned(), red: true }]))), kept: Box::new(|_| Ok(Kept::Log("test\tTest\t2026-11-14T20:55:41.0Z [2026-11-14T20:55:41.000+00:00]         FAIL [   0.526s] north::it cli::parses".to_owned()))), alert: Box::new(|_| {}) };
-    let screen = Screen { after_landing: None, runs: red_ancestor, trips: Trips(state.path().join("trips")), ..screen_holding(&state.path().join("holds")) };
-    assert!(screen.order(MAIN, &[host::name().as_str()], now()).is_err(), "the red run of the ancestor still refuses the next promotion");
-    let shipped = std::cell::Cell::new(false);
-    let ship = |sha: &str, _: &[String]| {
-        shipped.set(sha == MAIN);
-        Ok(())
-    };
-    assert_eq!(ship_if_walked(&layout, Ok(MAIN.to_owned()), &screen, ship).unwrap(), Some(()), "on 2026-11-15 whiterabbit took 4c4d4309 live, the hosted run of its ancestor c00b4ec9 ended red before its walk, and the walk shipped it to no other host, so gex45 and cpx62b kept 2091ad27 with 4c4d4309 unpacked beside it");
-    assert!(shipped.get());
-    assert!(super::super::follow::lander_cleared(&layout, &screen).is_ok(), "the lander link follows the runtime live here");
 }
