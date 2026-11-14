@@ -22,6 +22,7 @@ pub enum Round {
     Idle,
     NoRoom(String),
     Ran { branch: String, recorded: usize, unrecorded: usize },
+    StartedMain { main: String, lines: usize },
     RecordedMain { main: String, lines: usize },
 }
 
@@ -87,8 +88,12 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
         }
     };
     let Some(work) = pick::first_with_work(queued, |path, ticket| run::missing(settings, &worktree, &main, &host, path, ticket, &logs)) else {
-        if main_run::pending(&logs, &main) && let Some(lines) = main_run::record(settings, &worktree, &main, &logs) {
-            return Ok(Round::RecordedMain { main, lines });
+        if main_run::pending(&logs, &main) {
+            match main_run::advance(settings, &worktree, &main, &logs) {
+                main_run::Step::Started(lines) => return Ok(Round::StartedMain { main, lines }),
+                main_run::Step::Harvested(lines) => return Ok(Round::RecordedMain { main, lines }),
+                main_run::Step::Waiting => {}
+            }
         }
         if let Some(line) = coverage::tend(settings) {
             println!("north land shadow: {}: {line}", settings.repo.display());
@@ -118,6 +123,7 @@ fn say(repo: &Path, round: &Result<Round, String>) -> bool {
         Ok(Round::Locked) => println!("north land shadow: {name}: another tick holds the lock"),
         Ok(Round::Idle) => println!("north land shadow: {name}: every queued lane has its verdicts"),
         Ok(Round::NoRoom(reason)) => println!("north land shadow: {name}: no host has room, skipped the round: {reason}"),
+        Ok(Round::StartedMain { main, lines }) => println!("north land shadow: {name}: started the nextest land check of main {main} detached on a build host, {lines} line(s)"),
         Ok(Round::RecordedMain { main, lines }) => println!("north land shadow: {name}: recorded the nextest land check of main {main} in the background slot, {lines} line(s)"),
         Ok(Round::Ran { branch, recorded, unrecorded }) => println!("north land shadow: {name}: {branch}: recorded {recorded} verdict(s), {unrecorded} without a verdict"),
         Err(error) => {
