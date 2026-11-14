@@ -6,7 +6,7 @@ use crate::issue_body::{self, Edit, Issue};
 use crate::issue_box_lint;
 
 const OBSERVATION_MARKERS: [&str; 2] = ["(observed", "(headless run)"];
-const CHECKED: &str = "Done when: `";
+const CHECKED: &str = "done when:";
 const SHORT_SHA: usize = 12;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -69,10 +69,11 @@ pub fn needs_observation(text: &str) -> bool {
     OBSERVATION_MARKERS.iter().any(|marker| text.contains(marker)) || issue_box_lint::hands_tom_a_check(text)
 }
 
-/// Whether the box names its own ``Done when: `CMD` ``, which `north task check --done-when` runs and
-/// stamps, so the landing tick leaves it to that check.
+/// Whether the box names a backticked command after its `Done when:`, as the unrunnable-box guard reads it (prose may come
+/// first), which `north task check --done-when` runs and stamps, so the landing tick leaves it to that check.
 fn commanded(text: &str) -> bool {
-    text.split_once(CHECKED).and_then(|(_, after)| after.split_once('`')).is_some_and(|(command, _)| !command.trim().is_empty())
+    let Some(at) = text.to_ascii_lowercase().find(CHECKED) else { return false };
+    text[at + CHECKED.len()..].split_once('`').and_then(|(_, rest)| rest.split_once('`')).is_some_and(|(command, _)| !command.is_empty())
 }
 
 fn children(lines: &[&str], boxes: &[Checkbox], parent: usize) -> Vec<usize> {

@@ -11,6 +11,7 @@ fn an_issue_closes_only_when_every_box_is_ticked_and_a_landed_box_naming_its_own
     assert!(closable("- [x] done. Evidence: `true` exited 0 on main 1a2b3c4d5e6f on 2026-11-06.\n  - [X] nested, split to north#900\n* [x] star done. Evidence: `true` passed on 2026-11-06: ok\n"));
     let body = "- [ ] Parent\n  - [ ] Shares. Done when: `cargo test -p north-dispatch shares` passes.\n  - [ ] Prose. Done when the dry run shows it.\n";
     assert_eq!(tick(body, "Shares", Some("1a2b3c4d5e6f7")), Tick::NeedsChecker);
+    assert_eq!(tick("- [ ] Install. Done when: the run log's last line is the sign-in stop, `setup: the Claude sign-in check failed`\n", "Install", Some("1a2b3c4d5e6f7")), Tick::NeedsChecker, "a Done when whose backticked command follows prose waits for its checker, as on north#1484");
     let Tick::Ticked(edited) = tick(body, "Prose", Some("1a2b3c4d5e6f7")) else { panic!() };
     assert!(edited.contains("- [x] Prose. Done when the dry run shows it. (landed 1a2b3c4d5e6f)") && edited.starts_with("- [ ] Parent"), "{edited}");
     let stamped = body.replace("- [ ] Shares. Done when: `cargo test -p north-dispatch shares` passes.", "- [x] Shares. Done when: `cargo test -p north-dispatch shares` passes. Evidence: `cargo test -p north-dispatch shares` exited 0 on main 1a2b3c4d5e6f on 2026-11-06.");
