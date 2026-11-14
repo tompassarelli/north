@@ -58,6 +58,7 @@ fn a_hand_launch_whose_brief_opens_with_its_issue_holds_it_so_dispatch_refuses_n
         resume: None,
         compact_window: None,
         dispatched: false,
+        surface: Default::default(),
         route: None,
             };
     let record = request.record(None, None, false, 1_794_090_424_000);

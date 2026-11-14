@@ -58,6 +58,20 @@ impl Machine {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Surface {
+    #[default]
+    Window,
+    Screen,
+}
+
+impl Surface {
+    pub fn is_window(&self) -> bool {
+        *self == Self::Window
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -164,6 +178,8 @@ pub struct SessionRecord {
     /// `north fleet dispatch` started it (`--dispatched`), the only kind of session dispatch stops.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dispatched: bool,
+    #[serde(default, skip_serializing_if = "Surface::is_window")]
+    pub surface: Surface,
     /// Whether Claude Code compacts the session on idle (on by default since v2.1.299), recorded beside its window so the window arm's cost can be read with and without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_compaction: Option<bool>,

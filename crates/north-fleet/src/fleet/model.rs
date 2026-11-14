@@ -6,7 +6,7 @@ pub use super::effort::Effort;
 pub use super::prompt::PromptMode;
 pub use north_fleet_store::status::{Delivery, Report, SessionPhase, Status};
 use super::turns::{Turn, Turns};
-pub use north_fleet_store::session::{LastSender, Machine, Predicted, ProviderName, Role, SessionRecord};
+pub use north_fleet_store::session::{LastSender, Machine, Predicted, ProviderName, Role, SessionRecord, Surface};
 pub use north_fleet_store::session_lifecycle::{Launch, Phase, Phases};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -83,6 +83,8 @@ pub struct LaunchRequest {
     /// `north fleet dispatch` started it (`--dispatched`), the only kind of session dispatch stops.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dispatched: bool,
+    #[serde(default, skip_serializing_if = "Surface::is_window")]
+    pub surface: Surface,
     /// The two-rung route `--route` names (north#1233); a brief's own text never sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<String>,
@@ -127,6 +129,7 @@ impl LaunchRequest {
             last_sender: None,
             compact_window: self.window(),
             dispatched: self.dispatched,
+            surface: self.surface,
             idle_compaction: super::compaction::idle_compaction(self.provider.label()),
             eta_min: self.eta_min(),
             addressed_since_ms: None,
@@ -177,6 +180,7 @@ impl LaunchRequest {
             resume: None,
             compact_window: record.compact_window,
             dispatched: record.dispatched,
+            surface: record.surface,
             route: None,
         }
     }

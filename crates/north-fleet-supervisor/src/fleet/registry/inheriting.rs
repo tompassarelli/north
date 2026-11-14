@@ -78,6 +78,7 @@ mod tests {
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: Default::default(),
             route: None,
                     };
         let record = request.record(None, None, false, 2);

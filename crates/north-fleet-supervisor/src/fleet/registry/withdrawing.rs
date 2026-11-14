@@ -130,6 +130,7 @@ mod tests {
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: Default::default(),
             route: None,
         };
         QueuedLaunch::new(request, Priority::Normal, created_ms, "provider limit".into())

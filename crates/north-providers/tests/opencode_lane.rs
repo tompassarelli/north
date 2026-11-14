@@ -57,6 +57,7 @@ fn request(cwd: &Path, prompt: &str) -> LaunchRequest {
         resume: None,
         compact_window: None,
         dispatched: false,
+        surface: Default::default(),
         route: None,
     }
 }

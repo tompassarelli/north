@@ -253,6 +253,7 @@ mod launch_tests {
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: Default::default(),
             route: None,
                     }
     }
@@ -314,6 +315,7 @@ mod ghost_tests {
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: Default::default(),
             route: None,
         }
     }
@@ -419,6 +421,7 @@ mod queued_claim_tests {
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: Default::default(),
             route: None,
         }
     }

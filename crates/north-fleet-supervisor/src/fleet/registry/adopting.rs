@@ -78,6 +78,7 @@ impl Fleet {
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: self.record(name).map(|held| held.surface).unwrap_or_default(),
             route: None,
                     };
         let mut record = request.record(None, Some(conversation.to_owned()), false, now_ms());

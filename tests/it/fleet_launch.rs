@@ -336,3 +336,14 @@ fn a_revived_proxy_opens_in_a_window_on_the_desktop_and_starts_no_host_where_the
     assert!(opened.contains("--title=north proxy -e env") && opened.ends_with("fleet interactive proxy --after-turn\n"), "{opened}");
 }
 
+#[test]
+fn a_screen_flag_is_refused_for_any_role_but_the_proxy() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+
+    let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--role", "worker", "--screen", "do the box"]);
+
+    assert_eq!(refused.status.code(), Some(2), "{}", text(&refused.stderr));
+    assert!(text(&refused.stderr).contains("the proxy is the only role for it"), "{}", text(&refused.stderr));
+}

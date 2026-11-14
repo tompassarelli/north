@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::launch_queue::Priority;
-use crate::fleet::model::{Effort, LaunchRequest, ProviderName, Role};
+use crate::fleet::model::{Effort, LaunchRequest, ProviderName, Role, Surface};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::runtime::{PROXY, new_uuid};
 use crate::fleet::route::Route;
@@ -37,9 +37,18 @@ struct LaunchFlags {
     priority: Priority,
     route: Option<String>,
     dispatched: bool,
+    screen: bool,
 }
 
 impl LaunchFlags {
+    fn surface(&self) -> NorthResult<Surface> {
+        match (self.screen, self.role) {
+            (false, _) => Ok(Surface::Window),
+            (true, Some(Role::Proxy)) => Ok(Surface::Screen),
+            (true, _) => Err(NorthError::Usage("--screen holds the coordinator's conversation, so the proxy is the only role for it; launch with --role proxy".to_owned())),
+        }
+    }
+
     fn set(&mut self, providers: &[ProviderName], flag: &str, value: String) -> NorthResult<()> {
         match flag {
             "--provider" => self.provider = Some(parse_provider(providers, &value)?),
@@ -66,6 +75,7 @@ impl LaunchFlags {
     }
 
     fn request(self, prompt: String, caller: Option<String>, proxy: bool) -> NorthResult<LaunchRequest> {
+        let surface = self.surface()?;
         let Some(provider) = self.provider else { return Err(usage()) };
         let placed = provider.label() == "claude" && !self.verification;
         let account = match self.account {
@@ -123,6 +133,7 @@ impl LaunchFlags {
             resume: None,
             compact_window: None,
             dispatched,
+            surface,
             route: self.route,
         })
     }
@@ -152,6 +163,7 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
             "--container-shell" => flags.container_shell = true,
             "--take-over" => flags.take_over = true,
             "--dispatched" => flags.dispatched = true,
+            "--screen" => flags.screen = true,
             "--wait" | "--no-wait" => flags.wait = Some(*flag == "--wait"),
             _ => {
                 let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;

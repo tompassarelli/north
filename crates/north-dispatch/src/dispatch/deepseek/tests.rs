@@ -193,6 +193,7 @@ fn a_private_lane_opencode_launch_past_the_zero_retention_date_is_refused_and_a_
         resume: None,
         compact_window: None,
         dispatched: false,
+        surface: Default::default(),
         route: None,
     };
     let launch = |visibility: Visibility, today: time::Date| {

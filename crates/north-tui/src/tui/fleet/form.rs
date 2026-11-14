@@ -210,6 +210,7 @@ impl LaunchForm {
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: Default::default(),
             route: None,
                     })
     }

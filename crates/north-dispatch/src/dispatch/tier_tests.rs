@@ -231,6 +231,7 @@ fn a_hand_launched_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_la
             resume: None,
             compact_window: None,
             dispatched: false,
+            surface: Default::default(),
             route: None,
                     };
         let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
