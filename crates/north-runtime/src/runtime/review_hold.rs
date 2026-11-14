@@ -1,4 +1,4 @@
-//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session or the fleet's coordinator (a session whose record names the role `proxy`) lifts it, and the record keeps who lifted it and why. Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. The broker places no hold on a commit the north checkout lacks. The switch `review_holds` in harness/defaults.toml turns every screen off.
+//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session lifts it, and the record keeps who lifted it and why. A session in the coordinator role (a record naming the role `proxy`) is refused both, since the client window it also runs in runs in no session's scope (north#1281). Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. The broker places no hold on a commit the north checkout lacks. The switch `review_holds` in harness/defaults.toml turns every screen off.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -24,7 +24,7 @@ const DESTINATION: &str = "main";
 const PUSH_LEDGER: &str = "safe-push/pushes.tsv";
 const WHY_LIMIT: usize = 2048;
 const SHOWN_FOR: u64 = 24 * 60 * 60;
-const USAGE: &str = "usage: north runtime hold COMMIT [--host HOST] --why TEXT | north runtime hold --lift COMMIT --why TEXT  place a reviewer's hold on COMMIT and the lane that holds it, which keeps `north runtime order` and the slot and Live-fix promotions from taking live any head that contains COMMIT or a landing of that lane (with --host, only an order that promotes HOST is refused), or lift it; the hold is the calling fleet session's, and only that session or the coordinator lifts it; run it on the host that settles the fleet";
+const USAGE: &str = "usage: north runtime hold COMMIT [--host HOST] --why TEXT | north runtime hold --lift COMMIT --why TEXT  place a reviewer's hold on COMMIT and the lane that holds it, which keeps `north runtime order` and the slot and Live-fix promotions from taking live any head that contains COMMIT or a landing of that lane (with --host, only an order that promotes HOST is refused), or lift it; the hold is the calling fleet session's, and only that session lifts it; the coordinator role holds no hold; run it on the host that settles the fleet";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Lift {
@@ -163,13 +163,16 @@ impl Holds {
         if !named(&caller.session) || caller.session.contains('/') {
             return Err(format!("{:?} names no fleet session", caller.session));
         }
+        if caller.coordinator {
+            return Err(format!("{} runs in the coordinator role, which neither places nor lifts a hold: the coordinator's client window runs in no fleet session's scope and cannot, so the coordinator cannot in the screen either", caller.session));
+        }
         let holds = self.all()?;
         self.prune(&holds, now);
         match ask {
             Ask::Place { commit, lane, host, why } => {
                 let on = host.as_deref().map_or(String::new(), |host| format!(" on {host}"));
                 self.write(&Hold { commit: commit.clone(), lane: lane.clone(), host, session: caller.session.clone(), why, at: now, lifted: None })?;
-                Ok(format!("north runtime hold: {} holds {commit} of the lane {lane}{on}; no head containing it or a landing of {lane} goes live until {} or the coordinator lifts it", caller.session, caller.session))
+                Ok(format!("north runtime hold: {} holds {commit} of the lane {lane}{on}; no head containing it or a landing of {lane} goes live until {} lifts it", caller.session, caller.session))
             }
             Ask::Lift { commit, why } => self.lift(holds, &commit, &why, caller, now),
         }
@@ -180,10 +183,10 @@ impl Holds {
         if standing.is_empty() {
             return Err(format!("no hold stands on {commit}"));
         }
-        let (own, others): (Vec<Hold>, Vec<Hold>) = standing.into_iter().partition(|hold| caller.coordinator || hold.session == caller.session);
+        let (own, others): (Vec<Hold>, Vec<Hold>) = standing.into_iter().partition(|hold| hold.session == caller.session);
         if own.is_empty() {
             let placers: Vec<&str> = others.iter().map(|hold| hold.session.as_str()).collect();
-            return Err(format!("{commit} is held by {}; only {} or the coordinator lifts it, not {}", placers.join(", "), placers.join(" or "), caller.session));
+            return Err(format!("{commit} is held by {}; only {} lifts it, not {}", placers.join(", "), placers.join(" or "), caller.session));
         }
         for mut hold in own.iter().cloned() {
             hold.lifted = Some(Lift { by: caller.session.clone(), why: why.to_owned(), at: now });
@@ -318,7 +321,7 @@ impl Screen {
 
 fn refusal(hold: &Hold) -> String {
     let on = hold.host.as_deref().map_or(String::new(), |host| format!(" on {host}"));
-    format!("{} of the lane {}, held{on} by {}: {}; only {} or the coordinator lifts it (north runtime hold --lift {} --why TEXT)", hold.commit, hold.lane, hold.session, hold.why, hold.session, hold.commit)
+    format!("{} of the lane {}, held{on} by {}: {}; only {} lifts it (north runtime hold --lift {} --why TEXT)", hold.commit, hold.lane, hold.session, hold.why, hold.session, hold.commit)
 }
 
 /// Refuses a hold on `commit` unless `checkout` holds it as a commit, since every screen asks git there about each hold and one on a commit git cannot find refuses every head.

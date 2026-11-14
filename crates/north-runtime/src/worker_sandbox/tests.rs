@@ -572,6 +572,38 @@ fn review_pass_records_only_a_reviewer_session_s_accept_and_a_forged_session_nev
 }
 
 #[test]
+fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
+    use crate::runtime::review_hold::{Ask, Holds};
+
+    const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+    let unit = |name: &str| format!("north-session-{name}.scope");
+    let cgroup = |name: &str| format!("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/{}\n", unit(name));
+    let root = tempfile::tempdir().unwrap();
+    let fleet = root.path().join("fleet");
+    for (name, role) in [("proxy-session", "proxy"), ("lead-session", "lead")] {
+        let directory = fleet.join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("host.scope"), unit(name)).unwrap();
+        std::fs::write(directory.join("session.json"), json!({"name": name, "role": role, "cwd": root.path()}).to_string()).unwrap();
+    }
+    let host = super::lane_grant::Host { fleet, home: root.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: root.path().join("cgroup") };
+    let holds = Holds::of(&[("NORTH_VERDICT_CACHE_DIR".to_owned(), root.path().join("verdicts").display().to_string())], &host.home);
+    let caller = |name: &str| super::hold_request::caller(&cgroup(name), &host).unwrap();
+    let place = || Ask::Place { commit: COMMIT.to_owned(), lane: "f-fix".to_owned(), host: None, why: "held for review".to_owned() };
+    let lift = || Ask::Lift { commit: COMMIT.to_owned(), why: "reviewed".to_owned() };
+    let refusal = "proxy-session runs in the coordinator role, which neither places nor lifts a hold";
+
+    let placed = holds.serve(place(), &caller("proxy-session"), 1);
+    assert!(placed.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session placed a hold its client window cannot: {placed:?}");
+    let placed = holds.serve(place(), &caller("lead-session"), 2);
+    assert!(placed.as_ref().is_ok_and(|line| line.contains("lead-session holds")), "a lead lost its hold: {placed:?}");
+    let lifted = holds.serve(lift(), &caller("proxy-session"), 3);
+    assert!(lifted.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session lifted a hold its client window cannot: {lifted:?}");
+    let lifted = holds.serve(lift(), &caller("lead-session"), 4);
+    assert!(lifted.as_ref().is_ok_and(|line| line.contains("lead-session lifted the hold of lead-session")), "a lead lost its lift: {lifted:?}");
+}
+
+#[test]
 fn merge_tree_leaves_main_clean() {
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&outside_tmp).unwrap();

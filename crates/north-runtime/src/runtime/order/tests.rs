@@ -371,8 +371,8 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     let screen = screen_of(Holds(store.clone()), squashed, landings);
     let cleared = |sha: &str| screen.order(sha, &["whiterabbit"], now());
     let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
-    let session = |name: &str, coordinator| Caller { session: name.to_owned(), coordinator, reviewer: false };
-    let (reviewer, author, coordinator) = (session("f-review", false), session("f-holds", false), session("proxy", true));
+    let session = |name: &str| Caller { session: name.to_owned(), coordinator: false, reviewer: false };
+    let (reviewer, author) = (session("f-review"), session("f-holds"));
     let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now());
     let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: REVIEWED.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());
     place(&reviewer).unwrap();
@@ -395,9 +395,9 @@ fn a_reviewers_hold_refuses_an_order_and_the_promotion_of_a_head_containing_it_u
     assert!(update::slot::held_by_review(&layout, &screen, NEW).is_none());
 
     place(&reviewer).unwrap();
-    lift(&coordinator).unwrap();
+    lift(&reviewer).unwrap();
     let named = cleared(NEW).unwrap();
-    assert!(named.iter().any(|line| line.contains("f-review") && line.contains("proxy lifted it: the fix is reviewed")), "{named:?}");
+    assert!(named.iter().any(|line| line.contains("f-review") && line.contains("f-review lifted it: the fix is reviewed")), "{named:?}");
     let unresolved = screen_of(Holds(store.clone()), |_, _| Err("fatal: Not a valid object name".to_owned()), landings);
     assert!(unresolved.order(NEW, &["whiterabbit"], now()).is_ok(), "on 2026-11-13 a lifted hold on a commit the checkout lacks refused every order and promotion for a day");
     place(&reviewer).unwrap();
