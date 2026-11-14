@@ -56,12 +56,14 @@ pub(in super::super) fn a_listed_lead_starts_reads_and_stops_only_the_finish_pro
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().canonicalize().unwrap();
     let lead = host(&root, LEAD, LEAD_SESSION, true);
-    let main = lead.home.join("code/north/main");
+    let (main, origin) = (lead.home.join("code/north/main"), root.join("origin.git"));
+    git(&root, &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()]);
+    git(&root, &["clone", "-q", &origin.to_string_lossy(), &main.to_string_lossy()]);
     std::fs::create_dir_all(main.join("evals/b")).unwrap();
-    git(&main, &["init", "-q", "-b", "main"]);
     std::fs::write(main.join("evals/b/main.rs"), "one").unwrap();
     git(&main, &["add", "."]);
     git(&main, &["commit", "-q", "-m", "one"]);
+    git(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
     let head = git(&main, &["rev-parse", "--short=10", "HEAD"]);
     let base = git(&main, &["rev-parse", "HEAD"]);
     let digest = format!("{:x}", Sha256::digest("runner"));
@@ -101,8 +103,13 @@ pub(in super::super) fn a_listed_lead_starts_reads_and_stops_only_the_finish_pro
 
     std::fs::write(main.join("evals/b/main.rs"), "two").unwrap();
     git(&main, &["commit", "-q", "-am", "two"]);
+    git(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let two = git(&main, &["rev-parse", "HEAD"]);
+    git(&main, &["replace", &two, &base]);
+    git(&main, &["update-ref", "refs/heads/main", &base]);
+    git(&main, &["update-ref", "refs/remotes/origin/main", &base]);
     let refused = serve(ask(&["eval-unit", "start", "finish-proof", "next", "2"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).unwrap_err();
-    assert!(refused.contains("a runner build is a separate matter") && units.started.borrow().len() == 1, "{refused}");
+    assert!(refused.contains("a runner build is a separate matter") && units.started.borrow().len() == 1, "a runner is labelled for the head origin sent, whatever head, origin/main or replace ref a worker writes into the main checkout's store (south#138): {refused}");
 
     for words in [
         &["eval-unit", "start", "finish-proof", "../x", "2"][..],

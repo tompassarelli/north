@@ -3,9 +3,9 @@
 use std::ops::RangeInclusive;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use north_base::platform::harness::{DEFAULTS, document};
+use north_trusted_mirror::Mirror;
 use sha2::{Digest, Sha256};
 
 use super::eval_start::{self, Start};
@@ -102,11 +102,7 @@ fn asking(peer: &Peer, host: &Host, script: bool) -> Result<String, String> {
     Err(format!("{name} may not ask for an eval unit: only a lead session the harness default {ASKERS} lists does"))
 }
 
-fn git(main: &request_checkout::Checkout, host: &Host, arguments: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("git").arg("-C").arg(&main.top).args(arguments).env_clear().envs(host.environment.iter().cloned()).envs(main.pinned()).output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
-}
-
-/// The runner the form runs: `W/bin/eval-b.SHA` for the short head of this host's north main checkout, the broker's copy of the runner built from `pin.commit`, which stands for this head only while `evals/b` has not changed since. The built file must have the digest of `pin` before anything else is read or copied; the copy is made when it is missing and refused when it differs.
+/// The runner the form runs: `W/bin/eval-b.SHA` for the short origin/main of north's trusted mirror beside this host's north main checkout, fetched now, the broker's copy of the runner built from `pin.commit`, which stands for that head only while `evals/b` has not changed since; the main checkout's own head and refs, which a worker writes, are never read (south#138). The built file must have the digest of `pin` before anything else is read or copied; the copy is made when it is missing and refused when it differs.
 fn runner(host: &Host, data: &Path, pin: &Pin) -> Result<PathBuf, String> {
     let built = data.join("bin").join(format!("eval-b.{}", pin.built));
     let bytes = built.symlink_metadata().is_ok_and(|file| file.is_file()).then(|| std::fs::read(&built).ok()).flatten().ok_or_else(|| format!("{} is not a built runner", built.display()))?;
@@ -115,18 +111,15 @@ fn runner(host: &Host, data: &Path, pin: &Pin) -> Result<PathBuf, String> {
         return Err(format!("{} has the sha256 {digest}, not the {} the closed list pins; a runner build is a separate matter", built.display(), pin.digest));
     }
     let main = host.code.iter().find_map(|root| request_checkout::registered(&host.code, &root.join("north/main")).ok()).ok_or_else(|| "this host keeps no north main checkout".to_owned())?;
-    let same = git(&main, host, &["diff", "--quiet", pin.commit, "HEAD", "--", "evals/b"])?;
+    let mirror = Mirror::open(&main.top)?;
+    let head = mirror.fetch_origin()?;
+    let same = north_trusted_mirror::command(mirror.git_dir()).args(["diff", "--quiet", pin.commit, &head, "--", "evals/b"]).output().map_err(|error| format!("git diff: {error}"))?;
     match same.status.code() {
         Some(0) => {}
         Some(1) => return Err(format!("evals/b changed since {}, so the runner there no longer stands for this head; a runner build is a separate matter", pin.commit)),
-        _ => return Err(format!("git diff {} HEAD -- evals/b: {}", pin.commit, String::from_utf8_lossy(&same.stderr).trim())),
+        _ => return Err(format!("git diff {} {head} -- evals/b: {}", pin.commit, String::from_utf8_lossy(&same.stderr).trim())),
     }
-    let head = git(&main, host, &["rev-parse", "--short=10", "HEAD"])?;
-    let head = String::from_utf8_lossy(&head.stdout).trim().to_owned();
-    if head.is_empty() || !head.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("the north main checkout has no head".to_owned());
-    }
-    let copy = data.join("bin").join(format!("eval-b.{head}"));
+    let copy = data.join("bin").join(format!("eval-b.{}", &head[..10]));
     if copy.symlink_metadata().is_err() {
         std::fs::copy(&built, &copy).map_err(|error| format!("{}: {error}", copy.display()))?;
     }
