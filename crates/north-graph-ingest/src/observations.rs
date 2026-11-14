@@ -7,9 +7,9 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use crate::facts::{Facts, text};
 use crate::places::Places;
 
-const LANDER: &str = "lander";
+pub(crate) const LANDER: &str = "lander";
 const CHECKER: &str = "checker";
-const GIT: &str = "git";
+pub(crate) const GIT: &str = "git";
 const LANDED_ON: &str = "landed-on";
 const ANCESTOR_OF: &str = "ancestor-of";
 const MAIN: &str = "main";

@@ -13,7 +13,7 @@ use rusqlite::{Connection, OpenFlags};
 use crate::facts::{Facts, Sourced, issue_ref, text};
 use crate::places::Places;
 
-const WRITER: &str = "ledger";
+pub(crate) const WRITER: &str = "ledger";
 const REPLACED: [&str; 2] = ["loss-usd", "box-usd"];
 const DAY_S: i64 = 86_400;
 const ESTIMATE_DAYS: i64 = 14;

@@ -7,7 +7,7 @@ use north_graph::Telling;
 use crate::facts::{Facts, text};
 use crate::places::Places;
 
-const WRITER: &str = "git";
+pub(crate) const WRITER: &str = "git";
 const WINDOW_DAYS: u64 = 30;
 const COMMIT_MARK: &str = "\u{1e}";
 

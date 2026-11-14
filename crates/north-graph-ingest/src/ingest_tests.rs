@@ -107,6 +107,15 @@ fn a_fleet_session_cannot_tell_under_a_trusted_name() {
     });
     assert_eq!(*seen.borrow(), ["S"], "the parser resolves S, so a reading of the raw words that refuses checker here is the wrong one");
     assert_eq!(code, 2, "the guard let it through and the write failed on its arguments");
+    use crate::trusted_writers::ingest_refusal;
+    let collector = Some("0::/user.slice/north-lander.service\n");
+    for source in [Source::Mirror, Source::Ledger, Source::Touches, Source::Observations] {
+        assert!(ingest_refusal(source.name(), source.writers(), session).is_some() && ingest_refusal(source.name(), source.writers(), None).is_some(), "{}", source.name());
+    }
+    for source in [Source::Ranking, Source::Losses, Source::Pushes, Source::Corrections, Source::Coverage, Source::Crates, Source::Reads] {
+        assert!(ingest_refusal(source.name(), source.writers(), session).is_none(), "{}", source.name());
+    }
+    assert!(Source::ALL.into_iter().all(|source| ingest_refusal(source.name(), source.writers(), collector).is_none()));
 }
 
 fn a_run_claims_its_box_of_a_closed_issue_and_the_lander_observes_the_landing(places: &Places, graph: &mut Graph) {

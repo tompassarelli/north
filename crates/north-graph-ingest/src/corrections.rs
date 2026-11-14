@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::facts::{Facts, instant, text};
 use crate::places::Places;
 
-const WRITER: &str = "corrections";
+pub(crate) const WRITER: &str = "corrections";
 const REPLACED: [&str; 4] = ["class-paraphrase", "class-owner", "class-guard", "class-guarded-at"];
 
 pub fn read(places: &Places) -> Result<Telling, String> {

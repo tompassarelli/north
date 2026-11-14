@@ -9,9 +9,9 @@ use crate::facts::{Facts, issue_ref, keyword, text};
 use crate::issues;
 use crate::places::Places;
 
-const CHECKER: &str = "checker";
-const LEDGER: &str = "ledger";
-const THREADS: &str = "threads";
+pub(crate) const CHECKER: &str = "checker";
+pub(crate) const LEDGER: &str = "ledger";
+pub(crate) const THREADS: &str = "threads";
 
 pub fn read(places: &Places) -> Result<Telling, String> {
     let connection = Connection::open_with_flags(&places.ledger, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|why| format!("{}: {why}", places.ledger.display()))?;

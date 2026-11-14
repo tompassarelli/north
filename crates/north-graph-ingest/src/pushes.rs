@@ -3,7 +3,7 @@ use north_graph::Telling;
 use crate::facts::{Facts, instant, text};
 use crate::places::Places;
 
-const WRITER: &str = "push-log";
+pub(crate) const WRITER: &str = "push-log";
 
 pub fn read(places: &Places) -> Result<Telling, String> {
     if !places.pushes.is_file() {

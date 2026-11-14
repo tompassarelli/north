@@ -48,6 +48,22 @@ impl Source {
         }
     }
 
+    pub fn writers(self) -> &'static [&'static str] {
+        match self {
+            Self::Mirror => &[issues::WRITER, issues::RUNS],
+            Self::Ranking => &[ranking::WRITER],
+            Self::Ledger => &[ledger::CHECKER, ledger::LEDGER, ledger::THREADS],
+            Self::Losses => &[losses::WRITER],
+            Self::Pushes => &[pushes::WRITER],
+            Self::Touches => &[touches::WRITER],
+            Self::Corrections => &[corrections::WRITER],
+            Self::Coverage => &[coverage::WRITER],
+            Self::Crates => &[crates::WRITER],
+            Self::Reads => &[reads::WRITER],
+            Self::Observations => &[observations::LANDER, observations::GIT, ledger::CHECKER],
+        }
+    }
+
     fn read(self, places: &Places, shas: &Shas) -> Result<Sourced, String> {
         match self {
             Self::Mirror => issues::read(places, shas),
@@ -112,14 +128,15 @@ pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report 
 }
 
 pub fn run(arguments: &[String]) -> u8 {
+    let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok();
     match arguments.split_first() {
-        Some((verb, rest)) if verb == "ingest" => ingest_command(rest),
+        Some((verb, rest)) if verb == "ingest" => ingest_command(rest, cgroup.as_deref()),
         Some((verb, rest)) if verb == "retain" => retain_command(rest),
-        _ => north_graph::run_guarded(arguments, &|verb, writer| crate::trusted_writers::refusal(verb, writer, std::fs::read_to_string("/proc/self/cgroup").ok().as_deref())),
+        _ => north_graph::run_guarded(arguments, &|verb, writer| crate::trusted_writers::refusal(verb, writer, cgroup.as_deref())),
     }
 }
 
-fn ingest_command(arguments: &[String]) -> u8 {
+fn ingest_command(arguments: &[String], cgroup: Option<&str>) -> u8 {
     let mut db = default_path();
     let mut sources = Vec::new();
     let mut rest = arguments.iter();
@@ -135,6 +152,13 @@ fn ingest_command(arguments: &[String]) -> u8 {
     }
     if sources.is_empty() {
         sources.extend(Source::ALL);
+    }
+    let refused: Vec<String> = sources.iter().filter_map(|source| crate::trusted_writers::ingest_refusal(source.name(), source.writers(), cgroup)).collect();
+    if !refused.is_empty() {
+        for why in &refused {
+            eprintln!("north graph ingest: {why}");
+        }
+        return 1;
     }
     let mut graph = match Graph::open(&db) {
         Ok(graph) => graph,

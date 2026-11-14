@@ -11,8 +11,8 @@ use crate::places::Places;
 use crate::shas::Shas;
 use crate::waits::{self, Wait};
 
-const WRITER: &str = "mirror";
-const RUNS: &str = "ledger";
+pub(crate) const WRITER: &str = "mirror";
+pub(crate) const RUNS: &str = "ledger";
 const REPLACED: [&str; 15] = ["title", "state", "label", "blocked-by", "follows", "has-box", "text", "ticked", "owner", "claims", "waits-on", "unparsed-wait", "parent", "leaf", "done-when"];
 
 fn open_issues(places: &Places, repo: &str) -> Option<Vec<Value>> {

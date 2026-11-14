@@ -9,7 +9,7 @@ use toml_edit::{DocumentMut, Item, TableLike};
 use crate::facts::{Facts, Sourced, text};
 use crate::places::Places;
 
-const WRITER: &str = "cargo";
+pub(crate) const WRITER: &str = "cargo";
 const REPLACED: [&str; 4] = ["root", "depends-on", "embeds", "crates-commit"];
 const KINDS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
 

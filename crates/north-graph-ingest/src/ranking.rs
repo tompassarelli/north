@@ -8,7 +8,7 @@ use crate::facts::{Facts, Sourced, text};
 use crate::issues;
 use crate::places::Places;
 
-const WRITER: &str = "ranking";
+pub(crate) const WRITER: &str = "ranking";
 const REPLACED: [&str; 2] = ["rank", "doc-waits-on"];
 
 fn ranked_line() -> &'static Regex {

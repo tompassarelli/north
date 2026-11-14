@@ -120,6 +120,7 @@ computation, and exits non-zero unless the median of 20 runs is under 50 ms.
 short command for a timer or hook: it reads the local copies (never the GitHub API), compares them with the live assertions
 and tells only the difference, so a rerun over unchanged sources asserts and retracts nothing. A source that cannot be read
 is skipped with its reason and the exit code is 1; the others still load.
+From a fleet session's scope an ingest of `mirror`, `ledger`, `touches` or `observations` is refused before the database is opened, since those sources tell under `checker`, `mirror`, `lander` or `git`, and an ingest with no source named is refused there for the same reason. The runs that own those writers are `north land follow` (in `north-land@PROJECT.service` on the laptop) and the ledger host's ingest timer.
 
 Facts are told by the writer that would know them. A worker's Done claim is a quoted triple asserted by that worker, never a
 bare fact; a checker's observation is an assertion by `checker`. `assertion(writer, t1, t2, t3)` has a row per live

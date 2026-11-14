@@ -4,7 +4,7 @@ use north_graph::Telling;
 use crate::facts::{Facts, text};
 use crate::places::Places;
 
-const WRITER: &str = "coverage";
+pub(crate) const WRITER: &str = "coverage";
 const REPLACED: [&str; 7] = ["commit", "reaches", "in-file", "in-binary", "item-in", "defines", "refers-to"];
 
 pub fn read(places: &Places) -> Result<Telling, String> {

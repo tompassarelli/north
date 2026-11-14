@@ -6,7 +6,7 @@ use north_base::verdict_cache::path_set::{self, Kind};
 use crate::facts::{Facts, Sourced, text};
 use crate::places::Places;
 
-const WRITER: &str = "recorder";
+pub(crate) const WRITER: &str = "recorder";
 const REPLACED: [&str; 6] = ["reads", "lists", "expects-absent", "read-set", "recorded-in", "reads-commit"];
 
 struct Unit<'a> {
