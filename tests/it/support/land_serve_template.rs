@@ -5,11 +5,10 @@ use std::sync::OnceLock;
 
 pub struct Template {
     root: PathBuf,
-    pub base: String,
 }
 
 impl Template {
-    pub fn get(build: fn(&Path) -> String) -> &'static Template {
+    pub fn get(build: fn(&Path)) -> &'static Template {
         static BUILT: OnceLock<Template> = OnceLock::new();
         BUILT.get_or_init(|| {
             let parent = crate::support::target_tmpdir();
@@ -18,8 +17,8 @@ impl Template {
             let root = parent.join(format!("land-serve-{}", std::process::id()));
             let _ = fs::remove_dir_all(&root);
             fs::create_dir_all(&root).unwrap();
-            let base = build(&root);
-            Template { root, base }
+            build(&root);
+            Template { root }
         })
     }
 

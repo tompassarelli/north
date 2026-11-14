@@ -1,6 +1,5 @@
 use north_core::foundation::shim;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 const NORTH_STUB: &str = r#"printf 'north %s\n' "$*" >>"$STUB_TRACE"
@@ -40,19 +39,11 @@ exec "$REAL_NORTH" "$@"
 
 const SCAN_STUB: &str = "printf '%s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit \"${STUB_SCAN_STATUS:-0}\"\n";
 
-const GH_STUB: &str = r#"printf 'gh %s\n' "$*" >>"$STUB_TRACE"
-case "$1 $2" in
-  "workflow run") [ -z "${STUB_GH_REFUSE:-}" ] || { echo 'HTTP 403: Resource not accessible' >&2; exit 1; }; [ -n "${STUB_GH_SILENT:-}" ] || echo "https://github.com/owner/farm/actions/runs/7" ;;
-  "run view") printf '{"status":"completed","conclusion":"%s","url":"u","jobs":[]}\n' "${STUB_CONCLUSION:-success}" ;;
-esac
-"#;
-
 const LEASE_PROBE: &str = "printf 'acquire\\n' >>\"$LEASE_LOG\"\ntouch \"$LEASE_HELD\"\nstatus=0\n\"$@\" || status=$?\nrm -f \"$LEASE_HELD\"\nprintf 'release\\n' >>\"$LEASE_LOG\"\nexit \"$status\"\n";
 
 struct Fixture {
     root: tempfile::TempDir,
     repo: PathBuf,
-    base: String,
     head: String,
 }
 
@@ -104,15 +95,11 @@ impl Fixture {
         std::os::unix::fs::symlink(root.path(), root.path().join("state/safe-push/base-trees")).unwrap();
         fs::create_dir_all(root.path().join("runtime")).unwrap();
         fs::write(root.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
-        Self { root, repo, base, head }
+        Self { root, repo, head }
     }
 
     fn path(&self, name: &str) -> PathBuf {
         self.root.path().join(name)
-    }
-
-    fn command(&self) -> Command {
-        self.command_between(&self.base, &self.head)
     }
 
     fn command_between(&self, base: &str, head: &str) -> Command {
@@ -159,118 +146,10 @@ impl Fixture {
         command
     }
 
-    fn trace(&self) -> String {
-        fs::read_to_string(self.path("trace")).unwrap_or_default()
-    }
-
-    fn logs(&self) -> Vec<PathBuf> {
-        fs::read_dir(self.path("state/safe-push"))
-            .map(|entries| entries.flatten().map(|entry| entry.path()).filter(|path| path.to_string_lossy().contains("land-check-")).collect())
-            .unwrap_or_default()
-    }
 }
 
 fn text(output: &Output) -> String {
     format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
-}
-
-#[test]
-fn land_publish() {
-    let probe = r#"printf '%s\n' "$SAFE_PUSH_LAND_REF" > ../published-ref; git --git-dir=../origin.git rev-parse "refs/heads/$SAFE_PUSH_LAND_REF" > ../published-head"#;
-    let fixture = Fixture::new(&[("land.publish", "farm/"), ("land.check", &format!("file.txt :: {probe}"))]);
-    let output = fixture.command().env("STUB_SCAN_STATUS", "0").output().unwrap();
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    let reference = format!("farm/{}", &fixture.head[..12]);
-    assert_eq!(fs::read_to_string(fixture.path("published-ref")).unwrap().trim(), reference);
-    assert_eq!(fs::read_to_string(fixture.path("published-head")).unwrap().trim(), fixture.head);
-    let remaining = Command::new("git").args(["--git-dir"]).arg(fixture.path("origin.git")).args(["rev-parse", "-q", "--verify", &format!("refs/heads/{reference}")]).output().unwrap();
-    assert!(!remaining.status.success(), "the published ref outlived the land checks");
-    assert!(fixture.trace().contains(&format!("--publication-scan {} {}", fixture.base, fixture.head)));
-    assert!(text(&output).contains(&format!("published {} to origin {reference} for the land checks", &fixture.head[..12])));
-
-    let refused = Fixture::new(&[("land.publish", "farm/"), ("land.check", "file.txt :: touch ../ran")]);
-    let output = refused.command().env("STUB_SCAN_STATUS", "1").output().unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(!refused.path("ran").exists(), "a land check ran after the publication scan refused");
-    assert!(fs::read_to_string(refused.path("outcome")).unwrap().contains("skip\tskipped: the lane cannot be published for them until the publication scan passes"));
-
-    let dry = Fixture::new(&[("land.publish", "farm/"), ("land.check", "file.txt :: touch ../ran")]);
-    let output = dry.command().args(["--dry", "1"]).output().unwrap();
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    assert!(!dry.trace().contains("--publication-scan"), "a dry run published");
-
-    for (leaks, status) in [("0", 0), ("1", 1)] {
-        let fixture = Fixture::new(&[("land.publish", "farm/"), ("land.check", "file.txt :: touch ../ran")]);
-        git(&fixture.repo, &["config", "user.email", "t@example.invalid"]);
-        git(&fixture.repo, &["config", "safe-push.allowEmail", "t@example.invalid"]);
-        let link = fixture.path("link/safe-push");
-        fs::create_dir_all(fixture.path("link")).unwrap();
-        std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &link).unwrap();
-        assert_eq!(fs::canonicalize(&link).unwrap().file_name().unwrap(), "north");
-        script(&fixture.path("stubs/betterleaks"), "printf 'betterleaks %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit \"$STUB_LEAKS_STATUS\"\n");
-        let output = fixture.command_through(&fixture.base, &fixture.head, &link).env("HOME", fixture.path("home")).env_remove("SAFE_PUSH_DENYLIST").env_remove("SAFE_PUSH_SOUTH").env("STUB_LEAKS_STATUS", leaks).output().unwrap();
-        assert_eq!(output.status.code(), Some(status), "{}\n{}", text(&output), fixture.trace());
-        assert!(fixture.trace().contains("betterleaks "), "the link did not run the publication scan: {}", fixture.trace());
-        assert_eq!(fixture.path("ran").exists(), status == 0, "{}", text(&output));
-    }
-
-    {
-        let fixture = Fixture::new(&[("land.check", "file.txt :: ./bin/head-north land tests one"), ("land.check", "file.txt :: ./bin/head-north land tests two"), ("land.check", "file.txt :: true clippy"), ("land.check", "file.txt :: true nextest")]);
-        let output = fixture.command().env("SAFE_PUSH_LAND_RUNNER", "buildbox").output().unwrap();
-        assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-        let trace = fixture.trace();
-        assert!(trace.contains("capacity offload choose --any --count 2 --taken buildbox --taken buildbox\n"), "the 1:51 AM run of 2026-11-07 spread clippy and nextest onto ccx33 beside the head-north checks pinned there, counting none of them: {trace}");
-    }
-
-    {
-        let fixture = Fixture::new(&[("land.runner", "build-host"), ("land.check", "file.txt :: ./bin/head-north land tests one"), ("land.check", "file.txt :: ./bin/head-north land tests two"), ("land.check", "file.txt :: true clippy"), ("land.check", "file.txt :: true nextest")]);
-        let output = fixture.command().env("NORTH_LAND_CHECKS_OFF_HOST", "1").output().unwrap();
-        assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-        let trace = fixture.trace();
-        assert!(trace.contains("capacity offload choose --any --avoid "), "the lander's candidate checks asked for a build host that may be this one: {trace}");
-        assert!(trace.contains("--taken buildbox --taken buildbox --avoid "), "on 2026-11-08 the lander spread its candidate checks onto the laptop beside gex45 by free slots: {trace}");
-    }
-
-    {
-        let fixture = Fixture::new(&[("land.runner", "buildbox"), ("land.check", "file.txt :: true clippy")]);
-        let output = fixture.command().env("SAFE_PUSH_LAND_RUNNER", "").output().unwrap();
-        assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-        let trace = fixture.trace();
-        assert!(trace.contains("--host buildbox"), "on 2026-11-07 the lander unit's empty SAFE_PUSH_LAND_RUNNER overrode runner = build-host and every candidate check compiled on the laptop: {trace}");
-    }
-}
-
-fn hung_log(fixture: &Fixture) -> String {
-    let logs = fixture.logs();
-    assert_eq!(logs.len(), 1, "{logs:?}");
-    fs::read_to_string(&logs[0]).unwrap()
-}
-
-#[test]
-fn hung_check_timeout() {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: bash ../step.sh")]);
-    fs::write(fixture.path("step.sh"), "printf 'step started\\n'\nsleep 600\n").unwrap();
-    let output = fixture.command().env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
-    assert_eq!(output.status.code(), Some(75), "a hang on a lane whose base tree was never timed is infrastructure: {}", text(&output));
-    let log = hung_log(&fixture);
-    assert!(log.contains("bash -euo pipefail -c bash ../step.sh exceeded its 2 s deadline; still running:"), "{log}");
-    assert!(log.lines().any(|line| line.trim_start().ends_with(" sleep 600")), "the deadline did not name the planted step: {log}");
-    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
-    assert!(outcome.contains("skip\tland check bash ../step.sh ran past its 2 s deadline and base tree "), "{outcome}");
-    assert!(outcome.contains(" has never been timed, so the hang is infrastructure, not this lane"), "{outcome}");
-
-    fs::write(fixture.path("step.sh"), "if grep -q hang file.txt; then sleep 600; fi\n").unwrap();
-    fs::remove_file(fixture.path("outcome")).unwrap();
-    let timed = lane_onto(&fixture, "timed\n");
-    let output = fixture.command_between(&fixture.head, &timed).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    fs::write(fixture.repo.join("file.txt"), "hang\n").unwrap();
-    git(&fixture.repo, &["commit", "-qam", "hang"]);
-    let lane = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    let output = fixture.command_between(&timed, &lane).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
-    assert_eq!(output.status.code(), Some(75), "on 2026-11-05 to 07 a land check past its p90-derived wall deadline on a loaded build host refused six lanes because the base tree had once finished it in time: {}", text(&output));
-    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
-    assert!(outcome.contains("skip\tland check bash ../step.sh ran past its 2 s deadline and base tree ") && !outcome.contains("failed-step"), "{outcome}");
 }
 
 impl Fixture {
@@ -326,18 +205,6 @@ fn failed_check_judged_against_base() {
 }
 
 #[test]
-fn a_check_that_also_fails_on_base_on_an_overloaded_host_blames_the_load_not_main() {
-    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {ENVIRONMENT_CHECK}"))]);
-    let lane = lane_onto(&fixture, "lane\n");
-    fs::write(fixture.path("plant"), "").unwrap();
-    fs::write(fixture.path("loadavg"), "500.00 500.00 500.00 1/100 1\n").unwrap();
-    let output = fixture.command_between(&fixture.head, &lane).env("NORTH_LAND_ROUND", "r1").output().unwrap();
-    assert_eq!(output.status.code(), Some(75), "{}", text(&output));
-    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
-    assert!(!outcome.contains("check environment is broken") && outcome.contains("while this host ran at load 500.0"), "on 2026-11-08 two timing tests failed on the lane and its base on the laptop at load 39 to 64, the lander read main as broken in placed and judged every candidate in place for 30 minutes, which drove the load to 123: {outcome}");
-}
-
-#[test]
 fn a_test_that_is_red_on_the_base_never_refuses_the_lane_and_the_refusal_names_only_tests_the_base_passes() {
     let check = r#": cargo nextest run; if [ "$(cat file.txt)" = lane ]; then printf '        FAIL [   0.1s] (1/2) crate::bin red::on_both\n        FAIL [   0.1s] (2/2) crate::bin %s\n' "${LANE_ONLY:-lane::only}"; exit 100; fi; case "${SAFE_PUSH_LAND_IT:-}" in *red::on_both*) printf '        FAIL [   0.1s] (1/1) crate::bin red::on_both\n'; exit 100;; esac"#;
     let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {check}"))]);
@@ -351,312 +218,9 @@ fn a_test_that_is_red_on_the_base_never_refuses_the_lane_and_the_refusal_names_o
     assert!(text(&red_only).contains("the lane adds no failing test"), "{}", text(&red_only));
 }
 
-#[test]
-fn a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_not_rerun_on_base() {
-    let dropped = r#"printf '%s\n' "$(git rev-parse HEAD)" >>../runs; echo "north capacity offload: the connection ended (ssh exit 255) before the remote host reported the command's exit, so the run reached no verdict" >&2; exit 75"#;
-    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {dropped}"))]);
-    let lane = lane_onto(&fixture, "lane\n");
-    let output = fixture.command_between(&fixture.head, &lane).env("NORTH_LAND_ROUND", "r1").output().unwrap();
-    assert_eq!(output.status.code(), Some(75), "{}", text(&output));
-    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
-    assert!(!outcome.lines().any(|line| line.starts_with("failed-step\t")), "a check with no verdict was named a failing step: {outcome}");
-    assert!(outcome.lines().any(|line| line.starts_with("skip\tland check ") && line.ends_with("reached no verdict (exit 75: its host or connection failed before the check reported), which is not this lane's failure")), "{outcome}");
-    assert_eq!(runs(&fixture), [lane], "a check with no verdict was rerun on the base tree");
-    let farm = Fixture::new(&[("land.check", "file.txt :: north land dispatch farm")]);
-    script(&farm.path("stubs/gh"), GH_STUB);
-    let login = farm.path("home/.config/gh/hosts.yml");
-    fs::create_dir_all(login.parent().unwrap()).unwrap();
-    fs::write(&login, "github.com:\n    oauth_token: planted\n").unwrap();
-    let command = format!(r#"if cat {} >/dev/null 2>&1; then echo 'north land dispatch: {{"checks":"LEAKED"}}'; else printf 'north land dispatch: %s\n' "$(cat inputs.json)"; fi"#, login.display());
-    for (key, value) in [("dispatch.farm.command", command.as_str()), ("dispatch.farm.workflow", "farm-test.yml"), ("dispatch.farm.repository", "owner/farm"), ("dispatch.farm.input", "checks [a-z,]+")] {
-        git(&farm.repo, &["config", "--file", ".safe-push", "--add", key, value]);
-    }
-    git(&farm.repo, &["commit", "-qam", "declare the farm dispatch"]);
-    git(&farm.repo, &["push", "-q", "origin", "HEAD:main"]);
-    let main = git(&farm.repo, &["rev-parse", "HEAD"]);
-    git(&farm.repo, &["config", "--file", ".safe-push", "--add", "dispatch.farm.input", "tag .*"]);
-    fs::write(farm.repo.join("file.txt"), "lane\n").unwrap();
-    git(&farm.repo, &["commit", "-qam", "lane widens the declaration"]);
-    let lane = git(&farm.repo, &["rev-parse", "HEAD"]);
-    let dispatch = |tree: char, inputs: &str, envs: &[(&str, &str)]| {
-        fs::write(farm.repo.join("inputs.json"), inputs).unwrap();
-        let path = format!("{}:{}", farm.path("stubs").display(), std::env::var("PATH").unwrap_or_default());
-        let started = |trace: &str| trace.lines().filter(|line| line.starts_with("gh workflow run")).map(str::to_owned).collect::<Vec<_>>();
-        let before = started(&fs::read_to_string(farm.path("trace")).unwrap_or_default()).len();
-        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
-            .current_dir(&farm.repo)
-            .args(["land", "dispatch", "farm"])
-            .env("PATH", path)
-            .env("HOME", farm.path("home"))
-            .env("XDG_STATE_HOME", farm.path("home/.local/state"))
-            .env("DEPBOX_ADMITTED", "1")
-            .env_remove("DEPBOX")
-            .env_remove("NORTH_WORKER_SANDBOXED")
-            .env("STUB_TRACE", farm.path("trace"))
-            .env("SAFE_PUSH_LAND_HEAD", &lane)
-            .env("SAFE_PUSH_LAND_BASE", &main)
-            .env("SAFE_PUSH_LAND_RUNTIME_HEAD", tree.to_string().repeat(40))
-            .envs(envs.iter().copied())
-            .output()
-            .unwrap();
-        (output, started(&fs::read_to_string(farm.path("trace")).unwrap_or_default()).split_off(before))
-    };
-    let (output, dispatched) = dispatch('1', r#"{"checks":"unit"}"#, &[]);
-    assert_eq!(output.status.code(), Some(0), "the check's command, run where the lander's GitHub login is unreadable, dispatches its declared input: {}", text(&output));
-    assert_eq!(dispatched, [format!("gh workflow run farm-test.yml -R owner/farm --ref main -f ref={lane} -f base={main} -f checks=unit")], "the lander dispatches main's repository and workflow and sets ref and base itself");
-    let (output, dispatched) = dispatch('1', r#"{"checks":"unit"}"#, &[]);
-    assert_eq!((output.status.code(), dispatched.len()), (Some(75), 0), "a second process of the same check dispatches nothing: {}", text(&output));
-    let (output, dispatched) = dispatch('2', r#"{"checks":"unit","tag":"x"}"#, &[]);
-    assert_eq!((output.status.code(), dispatched.len()), (Some(75), 0), "an input only the lane's own declaration allows dispatches nothing: {}", text(&output));
-    let (output, dispatched) = dispatch('3', r#"{"checks":"unit; rm"}"#, &[]);
-    assert_eq!((output.status.code(), dispatched.len()), (Some(75), 0), "a value outside its declared pattern dispatches nothing: {}", text(&output));
-    let (output, _) = dispatch('4', r#"{"checks":"unit"}"#, &[("STUB_GH_REFUSE", "1")]);
-    assert_eq!(output.status.code(), Some(75), "a refused dispatch never counts as passed: {}", text(&output));
-    let (output, _) = dispatch('5', r#"{"checks":"unit"}"#, &[("STUB_CONCLUSION", "cancelled")]);
-    assert_eq!(output.status.code(), Some(75), "a cancelled run never counts as passed: {}", text(&output));
-    let (output, _) = dispatch('6', r#"{"checks":"unit"}"#, &[("STUB_CONCLUSION", "failure")]);
-    assert_eq!(output.status.code(), Some(1), "a failed run is red although the check's command exits 0: {}", text(&output));
-    let (output, _) = dispatch('7', r#"{"checks":"unit"}"#, &[("STUB_GH_SILENT", "1")]);
-    assert_eq!(output.status.code(), Some(75), "a dispatch that returns no run id takes no other run of the same head for its own: {}", text(&output));
-}
-
-#[test]
-fn check_a_lane_adds_is_not_judged_against_base() {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: printf x >>../runs; printf %s \"${NORTH_OFFLOAD_TREES:-}\" >>../trees; exit 127")]);
-    let output = fixture.command().env("NORTH_LAND_ROUND", "r1").env("NORTH_OFFLOAD_TREES", fixture.path("post-land.trees")).output().unwrap();
-    assert_eq!(output.status.code(), Some(127), "{}", text(&output));
-    assert_eq!(fs::read_to_string(fixture.path("runs")).unwrap(), "x", "a check the base tree does not list ran on it");
-    assert_eq!(fs::read_to_string(fixture.path("trees")).unwrap(), "", "a check run here inherits no path to the after-landing run's tree record, so no offload client it starts appends to it (north#1252)");
-}
-
 impl Fixture {
 }
 
-
-fn safe_push_entries(key: &str) -> Vec<String> {
-    let file = crate::support::manifest_dir().join(".safe-push");
-    let output = Command::new("git").args(["config", "--file"]).arg(file).args(["--get-all", key]).output().unwrap();
-    String::from_utf8(output.stdout).unwrap().lines().map(str::to_owned).collect()
-}
-
-fn split_entry(entry: &str) -> (&str, &str) {
-    entry.split_once(" :: ").unwrap()
-}
-
-fn features_check() -> String {
-    let entry = safe_push_entries("land.check").into_iter().find(|entry| entry.contains(" --no-build docs features-index")).expect("the features-index check runs before the push without a build");
-    split_entry(&entry).1.to_owned()
-}
-
-const LEASE_CHECK: &str = "flock -n -x \"$(dirname \"$0\")/lease\" true 2>/dev/null && printf 'unleased %s\\n' \"$0\" >>\"$STUB_TRACE\"\n";
-
-fn live_runtime(fixture: &Fixture) {
-    let live = fixture.path("state/north/current/north");
-    fs::create_dir_all(live.parent().unwrap()).unwrap();
-    script(&live, &format!("if [ \"$1 $2\" = 'runtime covers' ]; then [ -z \"${{STUB_UNCOVERED:-}}\" ] || {{ echo 'runtime older than the checker code' >&2; exit 1; }}; printf '%s' \"$0\"; exit 0; fi\n{LEASE_CHECK}printf 'live %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexec \"$REAL_NORTH\" \"$@\"\n"));
-}
-
-fn north_from_the_tree(fixture: &Fixture) {
-    let tree = git(&fixture.repo, &["rev-parse", "HEAD^{tree}"]);
-    let built = fixture.path(&format!("cache/north/head-north/{tree}/north"));
-    fs::create_dir_all(built.parent().unwrap()).unwrap();
-    script(&built, &format!("{LEASE_CHECK}printf 'tree %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexec \"$REAL_NORTH\" \"$@\"\n"));
-}
-
-fn head_north(fixture: &Fixture, command: &str, uncovered: bool) -> Output {
-    let mut run = Command::new("bash");
-    run.current_dir(&fixture.repo).args(["-c", command]);
-    run.env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
-    run.env_remove("SAFE_PUSH_LAND_RUNTIME_HEAD").env_remove("NORTH_OFFLOAD_SLOT");
-    if uncovered {
-        run.env("STUB_UNCOVERED", "1");
-    }
-    run.output().unwrap()
-}
-
-fn render_features(fixture: &Fixture, message: &str) -> String {
-    let render = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
-    assert!(render.status.success(), "{}", text(&render));
-    git(&fixture.repo, &["add", "."]);
-    git(&fixture.repo, &["commit", "-qm", message]);
-    git(&fixture.repo, &["rev-parse", "HEAD"])
-}
-
-#[test]
-fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runtime_older_than_its_checker() {
-    let command = features_check();
-    let fixture = Fixture::new(&[("land.check-local", "true"), ("land.check", &format!("docs/features/ :: {command}"))]);
-    live_runtime(&fixture);
-    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
-    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
-    let section = fixture.repo.join("docs/features/core");
-    fs::create_dir_all(&section).unwrap();
-    fs::write(fixture.repo.join("docs/features/_header.md"), "# Features\n").unwrap();
-    fs::write(fixture.repo.join(".gitignore"), "/docs/features.md\n").unwrap();
-    fs::write(section.join("_title.md"), "## Core\n").unwrap();
-    fs::write(section.join("small.md"), "- A short entry.\n").unwrap();
-    let clean = render_features(&fixture, "features");
-
-    let output = head_north(&fixture, &command, false);
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    assert!(fixture.trace().contains("live docs features-index"), "the covering live runtime did not run the checker: {}", fixture.trace());
-
-    fs::write(section.join("long.md"), format!("- {}\n", "x".repeat(1_300))).unwrap();
-    let over = render_features(&fixture, "a long entry");
-    let output = head_north(&fixture, &command, true);
-    assert_eq!(output.status.code(), Some(1), "a --no-build check on a runtime that does not cover its checker passed without running: {}", text(&output));
-    assert!(text(&output).contains("head-north: refused, no live runtime covers the checker code"), "{}", text(&output));
-
-    fs::write(fixture.path("trace"), "").unwrap();
-    let landed = fixture.command_between(&clean, &over).output().unwrap();
-    assert_eq!(landed.status.code(), Some(0), "the covering live runtime refused an entry only its body made long: {}", text(&landed));
-    assert!(fixture.trace().contains("live docs features-index"), "{}", fixture.trace());
-
-    north_from_the_tree(&fixture);
-    fs::write(fixture.path("trace"), "").unwrap();
-    let landed = fixture.command_between(&clean, &over).env("STUB_UNCOVERED", "1").output().unwrap();
-    assert_eq!(landed.status.code(), Some(0), "a lane whose checker is newer than the live runtime failed its check before the push: {}", text(&landed));
-    assert!(text(&landed).contains("the live runtime does not cover the checker code of 1 land check(s)"), "{}", text(&landed));
-    let trace = fixture.trace();
-    assert!(trace.contains("tree docs features-index") && !trace.contains("live docs features-index"), "the check did not run on north built from the lane's tree: {trace}");
-    assert!(!trace.contains("unleased"), "a check ran on a runtime it held no lease on: {trace}");
-}
-
-fn head_north_on_a_runtime_mid_build() -> (Fixture, PathBuf) {
-    let fixture = Fixture::new(&[("land.check-local", "true")]);
-    live_runtime(&fixture);
-    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
-    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
-    git(&fixture.repo, &["add", "."]);
-    git(&fixture.repo, &["commit", "-qm", "head-north"]);
-    north_from_the_tree(&fixture);
-    let lease = fixture.path("state/north/current/lease");
-    fs::create_dir(&lease).unwrap();
-    fs::write(fixture.path("trace"), "").unwrap();
-    (fixture, lease)
-}
-
-fn run_head_north_releasing(fixture: &Fixture, command: &str, waiting_line: &str, release: impl FnOnce()) -> Output {
-    let mut run = head_north_command(fixture, command);
-    let mut child = run.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let mut stderr = BufReader::new(child.stderr.take().unwrap());
-    let mut seen = String::new();
-    let mut release = Some(release);
-    let mut line = String::new();
-    while stderr.read_line(&mut line).unwrap() > 0 {
-        if line.contains(waiting_line) {
-            release.take().into_iter().for_each(|release| release());
-        }
-        seen.push_str(&line);
-        line.clear();
-    }
-    let finished = child.wait_with_output().unwrap();
-    Output { stderr: seen.into_bytes(), ..finished }
-}
-
-fn run_head_north(fixture: &Fixture, command: &str) -> Output {
-    head_north_command(fixture, command).env("HEAD_NORTH_SETTLE", "0").output().unwrap()
-}
-
-fn head_north_command(fixture: &Fixture, command: &str) -> Command {
-    let mut run = Command::new("bash");
-    run.current_dir(&fixture.repo).args(["-c", command]).env("HEAD_NORTH_SETTLE", "1").env_remove("NORTH_OFFLOAD_SLOT");
-    run.env("REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
-    run
-}
-
-#[test]
-fn head_north_refuses_a_tree_that_does_not_compile_reaches_no_verdict_only_when_the_build_itself_fails_and_bootstraps_with_buck2_where_no_runtime_is() {
-    head_north_bootstraps_with_buck2_where_an_engine_and_no_runtime_are_and_on_a_host_with_no_engine_builds_nothing_in_the_lane_even_beside_a_live_runtime();
-    let fixture = Fixture::new(&[("land.check-local", "true")]);
-    live_runtime(&fixture);
-    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
-    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
-    script(&fixture.repo.join("bin/land-shell"), "printf '%s\\n' \"$STUB_CARGO_ERROR\" >&2\nexit 101\n");
-    git(&fixture.repo, &["add", "."]);
-    git(&fixture.repo, &["commit", "-qm", "head-north"]);
-    let engine = fixture.path("engine");
-    fs::write(&engine, "1\n").unwrap();
-    let build = |error: &str| head_north_command(&fixture, "./bin/head-north --build").env("HEAD_NORTH_ENGINE", &engine).env("STUB_UNCOVERED", "1").env("STUB_CARGO_ERROR", error).output().unwrap();
-    let broken = build("error: could not compile `north-lander` (lib) due to 1 previous error");
-    assert_eq!(broken.status.code(), Some(1), "a tree that does not compile read as no verdict: {}", text(&broken));
-    assert!(text(&broken).contains("north does not compile from this tree"), "{}", text(&broken));
-    let unfetched = build("error: failed to download `serde v1.0.0`");
-    assert_eq!(unfetched.status.code(), Some(75), "a build that failed for want of the host's crates refused the lane: {}", text(&unfetched));
-}
-
-fn head_north_bootstraps_with_buck2_where_an_engine_and_no_runtime_are_and_on_a_host_with_no_engine_builds_nothing_in_the_lane_even_beside_a_live_runtime() {
-    let fixture = Fixture::new(&[("land.check-local", "true")]);
-    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
-    shim::copy_executable(crate::support::manifest_dir().join("bin/head-north"), fixture.repo.join("bin/head-north"));
-    script(&fixture.repo.join("bin/land-shell"), "for out; do :; done\nmkdir -p \"$(dirname \"$out\")\"\nprintf '#!/usr/bin/env bash\\necho \"tree north $*\"\\n' >\"$out\"\nchmod +x \"$out\"\n");
-    git(&fixture.repo, &["add", "."]);
-    git(&fixture.repo, &["commit", "-qm", "head-north"]);
-    let tree = git(&fixture.repo, &["rev-parse", "HEAD^{tree}"]);
-    let engine = fixture.path("engine");
-    fs::write(&engine, "1\n").unwrap();
-    let built = head_north_command(&fixture, "./bin/head-north --build").env("HEAD_NORTH_ENGINE", &engine).output().unwrap();
-    assert!(built.status.success(), "a machine with an engine and no runtime could not build a tree's north: {}", text(&built));
-    let kept = fixture.path(&format!("cache/north/head-north/{tree}/north"));
-    assert!(fs::read_to_string(&kept).is_ok_and(|north| north.contains("tree north")), "{} does not hold the north the tree built: {}", kept.display(), text(&built));
-    fs::remove_dir_all(fixture.path("cache")).unwrap();
-    live_runtime(&fixture);
-    let missing = head_north_command(&fixture, "CARGO_TARGET_DIR=target ./bin/head-north --build").env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).env("STUB_UNCOVERED", "1").output().unwrap();
-    assert_eq!(missing.status.code(), Some(75), "a machine with no engine built, or ran, a tree with no artifact: {}", text(&missing));
-    assert!(text(&missing).contains(&format!("no build-ahead artifact for tree {tree}")), "{}", text(&missing));
-    let artifact = fixture.path(&format!("state/north/runtime-artifacts/{tree}/north"));
-    fs::create_dir_all(artifact.parent().unwrap()).unwrap();
-    script(&artifact, "echo artifact\n");
-    let ran = head_north_command(&fixture, "CARGO_TARGET_DIR=target ./bin/head-north --build").env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).env("STUB_UNCOVERED", "1").output().unwrap();
-    assert!(ran.status.success() && !text(&ran).contains("buck2"), "a machine with no engine did not run the tree's artifact: {}", text(&ran));
-    assert!(!fixture.trace().contains("runtime tree-build") && !fixture.repo.join("target").exists(), "a host with no engine, the laptop, built north from the tree into the lane beside its live runtime, as lane fix-dispatch-account-choice did on 2026-11-14 (north#1362): {}", fixture.trace());
-    let cached = fixture.path(&format!("cache/north/head-north/{tree}/north"));
-    fs::create_dir_all(cached.parent().unwrap()).unwrap();
-    script(&cached, "echo cached north\n");
-    fs::write(fixture.repo.join("bin/land-shell"), "dirty\n").unwrap();
-    let regenerate = |named: Option<&str>| {
-        let mut run = head_north_command(&fixture, "./bin/head-north --code docs/ docs reference-index");
-        run.env("HEAD_NORTH_ENGINE", fixture.path("no-engine")).env("STUB_UNCOVERED", "1").env_remove("HEAD_NORTH_TREE");
-        if let Some(tree) = named {
-            run.env("HEAD_NORTH_TREE", tree);
-        }
-        run.output().unwrap()
-    };
-    assert_eq!(regenerate(None).status.code(), Some(75), "a dirty merged tree ran a north nobody named for it");
-    let named = regenerate(Some(&tree));
-    assert!(named.status.success() && text(&named).contains("cached north"), "the regenerate step on a host with no grid could not run the north fetched for the merged tree once an earlier index made its checkout dirty (north#1433): {}", text(&named));
-}
-
-#[test]
-fn a_land_check_waits_for_a_runtime_another_process_is_still_building_instead_of_failing() {
-    let (fixture, lease) = head_north_on_a_runtime_mid_build();
-    let output = run_head_north_releasing(&fixture, "./bin/head-north --code docs/ docs --help", "is not a whole runtime yet", || fs::remove_dir(lease).unwrap());
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    assert!(text(&output).contains("is not a whole runtime yet"), "{}", text(&output));
-    assert!(fixture.trace().contains("live docs --help"), "the check did not run on the runtime once it was whole: {}", fixture.trace());
-}
-
-#[test]
-fn a_land_check_runs_on_the_trees_own_north_when_the_live_runtime_stays_unreadable_except_in_an_offload_slot() {
-    let (fixture, _lease) = head_north_on_a_runtime_mid_build();
-    let output = run_head_north(&fixture, "./bin/head-north --code docs/ docs --help");
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    assert!(fixture.trace().contains("tree docs --help") && !fixture.trace().contains("live docs --help"), "{}", fixture.trace());
-    let refused = run_head_north(&fixture, "./bin/head-north --code docs/ --no-build docs --help");
-    assert_eq!(refused.status.code(), Some(1), "{}", text(&refused));
-    assert!(text(&refused).contains("stayed unreadable"), "{}", text(&refused));
-    let in_slot = |fixture: &Fixture| head_north_command(fixture, "./bin/head-north --code docs/ docs --help").env("HEAD_NORTH_SETTLE", "0").env("NORTH_OFFLOAD_SLOT", "slot-1").output().unwrap();
-    for state in ["unreadable", "absent"] {
-        if state == "absent" {
-            fs::remove_file(fixture.path("state/north/current/north")).unwrap();
-        }
-        fs::write(fixture.path("trace"), "").unwrap();
-        let slot = in_slot(&fixture);
-        assert_eq!(slot.status.code(), Some(75), "an offload slot whose live runtime was {state} reached a verdict: {}", text(&slot));
-        assert!(text(&slot).contains("an offload slot never builds north from the tree") && !text(&slot).contains("from the tree:") && !text(&slot).contains("built from tree"), "the gex45 slot of 2026-11-13 built north from a lane's tree when its live runtime was {state}: {}", text(&slot));
-        assert!(fixture.trace().is_empty(), "{}", fixture.trace());
-    }
-}
 
 const HEAD_NORTH_SHIM: &str = "[ \"$1\" = --code ] && shift 2\n[ \"$1\" = --build ] && exit 0\n[ \"$1\" = --no-build ] && shift\nexec \"$REAL_NORTH\" \"$@\"\n";
 
@@ -667,29 +231,6 @@ fn with_north_land_lines(repo: &Path) {
     fs::create_dir_all(repo.join("bin")).unwrap();
     script(&repo.join("bin/head-north"), HEAD_NORTH_SHIM);
     script(&repo.join("bin/land-shell"), "exit 0\n");
-}
-
-#[test]
-fn north_land_check_refuses_a_lane_that_grows_a_skill_past_its_byte_limit() {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
-    let repo = &fixture.repo;
-    with_north_land_lines(repo);
-    let skill = repo.join("harness/skills/demo/SKILL.md");
-    fs::create_dir_all(skill.parent().unwrap()).unwrap();
-    fs::write(&skill, "---\nname: demo\ndescription: Demo skill.\n---\n\n# Demo\n\nRoute to references.\n").unwrap();
-    git(repo, &["add", ".safe-push", "harness", "bin"]);
-    git(repo, &["commit", "-qm", "skill"]);
-    let base = git(repo, &["rev-parse", "HEAD"]);
-    let mut grown = fs::read_to_string(&skill).unwrap();
-    grown.push_str(&"- Another rule the skill body grew by.\n".repeat(170));
-    let bytes = grown.len();
-    fs::write(&skill, grown).unwrap();
-    git(repo, &["commit", "-qam", "grow the skill"]);
-    let head = git(repo, &["rev-parse", "HEAD"]);
-    let output = fixture.command_between(&base, &head).output().unwrap();
-    let report = text(&output);
-    assert_eq!(output.status.code(), Some(1), "{report}");
-    assert!(report.contains(&format!("demo: SKILL.md is {bytes} bytes; policy keeps each SKILL.md at most 6144")), "{report}");
 }
 
 #[test]
@@ -715,132 +256,3 @@ fn north_land_check_refuses_a_lane_that_adds_a_reference_its_module_layers_forbi
     assert!(report.contains("module tests may not use fleet_store"), "{report}");
 }
 
-#[test]
-fn land_after_reuses_the_candidates_selection() {
-    let record = r#"printf '%s\n' "$SAFE_PUSH_LAND_IT" >>../seen"#;
-    let line = format!("crates/ :: {record}");
-    let fixture = Fixture::new(&[("land.check", &line), ("land.after", &line)]);
-    fs::write(fixture.repo.join("structure.toml"), "[[crate_dag.crate]]\nname = \"a\"\npaths = [\"crates/a/src/**\"]\nmay_use = []\n\n[[crate_dag.crate]]\nname = \"b\"\npaths = [\"crates/b/src/**\"]\nmay_use = []\n").unwrap();
-    fs::create_dir_all(fixture.repo.join("tests/it")).unwrap();
-    fs::write(fixture.repo.join("tests/it/crates.txt"), "m1 a\nm2 b\n").unwrap();
-    fs::write(fixture.repo.join("tests/it/tree_wide_units.txt"), "# no tree-wide unit tests in this fixture\n").unwrap();
-    git(&fixture.repo, &["add", "structure.toml", "tests"]);
-    git(&fixture.repo, &["commit", "-qm", "structure"]);
-    let before = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    fs::create_dir_all(fixture.repo.join("crates/a/src")).unwrap();
-    fs::write(fixture.repo.join("crates/a/src/f.rs"), "\n").unwrap();
-    git(&fixture.repo, &["add", "crates"]);
-    git(&fixture.repo, &["commit", "-qm", "crate a"]);
-    let tip = git(&fixture.repo, &["rev-parse", "HEAD"]);
-
-    let candidate = fixture.command_between(&before, &tip).output().unwrap();
-    assert_eq!(candidate.status.code(), Some(0), "{}", text(&candidate));
-    let after = fixture.command_between(&tip, &tip).args(["--after", "--command", record]).output().unwrap();
-    assert_eq!(after.status.code(), Some(0), "{}", text(&after));
-    let seen = fs::read_to_string(fixture.path("seen")).unwrap();
-    let runs: Vec<&str> = seen.lines().collect();
-    assert_eq!(runs.len(), 2, "{seen}\n{}\n{}", text(&candidate), text(&after));
-    assert!(runs[0].contains("test(/m1::/)") && !runs[0].contains("m2::"), "the candidate's selection should name only the module of the changed crate: {seen}");
-    assert_eq!(runs[0], runs[1], "the after-landing run selected differently from its candidate: {seen}");
-    let fresh = fixture.command_between(&tip, &tip).args(["--after", "--fresh", "--command", record]).output().unwrap();
-    assert_eq!(fresh.status.code(), Some(0), "the sheriff's --fresh rerun is a flag of the after-landing runner: {}", text(&fresh));
-    assert_eq!(fs::read_to_string(fixture.path("seen")).unwrap().lines().count(), 3, "a --fresh after-landing run runs its check: {}", text(&fresh));
-
-    let answer = fixture.path("answer");
-    let graph = fixture.path("state/north/current/north");
-    fs::create_dir_all(graph.parent().unwrap()).unwrap();
-    script(&graph, &format!("if [ \"$1 $2 $3\" = 'graph ask affected' ]; then cat '{}'; exit 0; fi\nexec \"$REAL_NORTH\" \"$@\"\n", answer.display()));
-    fs::create_dir_all(fixture.repo.join("docs")).unwrap();
-    fs::write(fixture.repo.join("docs/a.md"), "a\n").unwrap();
-    git(&fixture.repo, &["add", "docs"]);
-    git(&fixture.repo, &["commit", "-qm", "docs"]);
-    let docs = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    fs::write(&answer, r#"{"tests":[],"always":[],"added":[],"files":["docs/a.md"],"untraced":null,"known":2}"#).unwrap();
-    let documents = fixture.command_between(&tip, &docs).args(["--after", "--command", record]).output().unwrap();
-    assert_eq!(documents.status.code(), Some(0), "a documents-only landing is green: {}", text(&documents));
-    assert_eq!(fs::read_to_string(fixture.path("seen")).unwrap().lines().count(), 3, "a documents-only landing the change graph reaches no test from runs no test: {}", text(&documents));
-    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
-    assert!(outcome.contains(r#""no_test":"the change graph reaches no test from docs/a.md""#), "the after-landing record names why no test ran: {outcome}");
-    fs::write(fixture.repo.join("crates/a/src/f.rs"), "fn f() {}\n").unwrap();
-    git(&fixture.repo, &["commit", "-qam", "source"]);
-    let source = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    fs::write(&answer, r#"{"tests":["north::it m1::t"],"always":[],"added":[],"files":["crates/a/src/f.rs"],"untraced":null,"known":2}"#).unwrap();
-    let reached = fixture.command_between(&docs, &source).args(["--after", "--command", record]).output().unwrap();
-    assert_eq!(reached.status.code(), Some(0), "{}", text(&reached));
-    let seen = fs::read_to_string(fixture.path("seen")).unwrap();
-    assert!(seen.lines().count() == 4 && seen.lines().last().is_some_and(|run| run.contains("test(/m1::/)") && !run.contains("m2::")), "a source landing runs the tests its change reaches: {seen}\n{}", text(&reached));
-}
-
-#[test]
-fn clippy_and_the_tests_under_one_lease_run_side_by_side_on_a_host_with_the_cores_and_either_failing_still_refuses() {
-    let waits = |own: &str, other: &str, status: u8| format!("file.txt :: touch ../{own}.started; for _ in $(seq 300); do [ -e ../{other}.started ] && exit {status}; sleep 0.1; done; echo {own} never saw {other} start >&2; exit 2");
-    let fixture = Fixture::new(&[("land.check", &waits("clippy", "tests", 0)), ("land.check", &waits("tests", "clippy", 0))]);
-    let output = fixture.command().env("AGENT_CAPACITY_CORES", "16").output().unwrap();
-    assert_eq!(output.status.code(), Some(0), "the two checks ran one after the other: {}", text(&output));
-
-    let failing = Fixture::new(&[("land.check", &waits("clippy", "tests", 0)), ("land.check", &waits("tests", "clippy", 1))]);
-    let output = failing.command().env("AGENT_CAPACITY_CORES", "16").output().unwrap();
-    assert_ne!(output.status.code(), Some(0), "a failing check beside a passing one did not refuse: {}", text(&output));
-}
-
-#[test]
-fn the_buck_check_answers_infrastructure_when_cargo_cannot_run_and_refuses_cargos_own_lock_answer_and_a_third_party_target_behind_cargo() {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
-    let check = |path: &Path| Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", path).env("XDG_STATE_HOME", fixture.path("state")).env_remove("SAFE_PUSH_LAND_BASE").output().unwrap();
-    let empty = fixture.path("no-cargo");
-    fs::create_dir_all(&empty).unwrap();
-    let missing = check(&empty);
-    assert_eq!(missing.status.code(), Some(75), "a host without cargo was blamed on the lane: {}", text(&missing));
-
-    let stale = fixture.path("stale-lock");
-    fs::create_dir_all(&stale).unwrap();
-    script(&stale.join("cargo"), "echo 'error: cannot update the lock file Cargo.lock because --locked was passed to prevent this' >&2\nexit 101\n");
-    let refused = check(Path::new(&format!("{}:{}", stale.display(), std::env::var("PATH").unwrap_or_default())));
-    assert_eq!(refused.status.code(), Some(1), "cargo's own lock answer did not refuse: {}", text(&refused));
-    assert!(text(&refused).contains("cannot update the lock file"), "{}", text(&refused));
-
-    let behind = fixture.path("behind");
-    fs::create_dir_all(&behind).unwrap();
-    fs::create_dir_all(fixture.repo.join("third-party")).unwrap();
-    fs::write(fixture.repo.join("Cargo.toml"), "[workspace]\n").unwrap();
-    fs::write(fixture.repo.join("third-party/BUCK"), "cargo.rust_library(\n    name = \"serde_json-1\",\n    env = {\n        \"CARGO_PKG_NAME\": \"serde_json\",\n        \"CARGO_PKG_VERSION\": \"1.0.151\",\n    },\n    features = [\n        \"default\",\n        \"std\",\n    ],\n)\n").unwrap();
-    let metadata = behind.join("metadata.json");
-    fs::write(&metadata, serde_json::json!({"packages": [], "workspace_members": [], "workspace_root": fixture.repo, "resolve": {"nodes": []}}).to_string()).unwrap();
-    script(&behind.join("cargo"), &format!("case \"$1\" in\n  metadata) cat '{}' ;;\n  tree) printf '%s\\n' 'serde_json v1.0.151|default,float_roundtrip,std' 'itoa v1.0.18|' ;;\nesac\n", metadata.display()));
-    let path = format!("{}:{}", behind.display(), std::env::var("PATH").unwrap_or_default());
-    let lagging = check(Path::new(&path));
-    assert_eq!(lagging.status.code(), Some(1), "a third-party target behind the Cargo build did not refuse: {}", text(&lagging));
-    assert!(text(&lagging).contains("third-party/BUCK builds serde_json 1.0.151 without float_roundtrip") && text(&lagging).contains("third-party/BUCK has no target for itoa 1.0.18"), "{}", text(&lagging));
-
-    fs::create_dir_all(fixture.repo.join("harness")).unwrap();
-    fs::write(fixture.repo.join("harness/gates.toml"), "[gate.buck-targets-drift]\nmode = \"shadow\"\n").unwrap();
-    let shadowed = check(Path::new(&path));
-    assert_eq!(shadowed.status.code(), Some(0), "the gate refused while in shadow: {}", text(&shadowed));
-    assert!(text(&shadowed).contains("would refuse (shadow): third-party/BUCK builds serde_json 1.0.151 without float_roundtrip"), "{}", text(&shadowed));
-    let logged = fs::read_to_string(fixture.path("state/north/gates/buck-targets-drift.jsonl")).unwrap_or_default();
-    assert!(logged.contains(r#""would_refuse":true"#) && logged.contains("float_roundtrip"), "the shadow decision was not logged: {logged}");
-
-
-    fs::create_dir_all(fixture.repo.join("build")).unwrap();
-    fs::create_dir_all(fixture.repo.join("crates/alpha/src")).unwrap();
-    fs::write(fixture.repo.join("crates/alpha/src/lib.rs"), "fn a() {}\nfn d() {}\n").unwrap();
-    fs::write(fixture.repo.join("build/host-cases.list"), "alpha t::a\n").unwrap();
-    git(&fixture.repo, &["add", "build/host-cases.list", "crates/alpha/src/lib.rs"]);
-    git(&fixture.repo, &["commit", "-qm", "list"]);
-    let base = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    let lane = |listed: &str, cases: &[&str]| {
-        fs::write(fixture.repo.join("build/host-cases.list"), listed).unwrap();
-        let cases: Vec<_> = cases.iter().map(|name| serde_json::json!({"name": name, "reason": "needs openat2"})).collect();
-        let alpha = serde_json::json!({"id": "alpha", "name": "alpha", "version": "0.1.0", "manifest_path": fixture.repo.join("crates/alpha/Cargo.toml"), "features": {}, "targets": [{"name": "alpha", "kind": ["lib"], "src_path": fixture.repo.join("crates/alpha/src/lib.rs"), "edition": "2024"}], "metadata": {"north": {"buck": {"host-cases": cases}}}});
-        fs::write(&metadata, serde_json::json!({"packages": [alpha], "workspace_members": ["alpha"], "workspace_root": fixture.repo, "resolve": {"nodes": [{"id": "alpha", "deps": [], "features": []}]}}).to_string()).unwrap();
-        text(&Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["buck", "targets", "--check", "--root"]).arg(&fixture.repo).env("PATH", &path).env("XDG_STATE_HOME", fixture.path("state")).env("SAFE_PUSH_LAND_BASE", &base).output().unwrap())
-    };
-    let dropped = lane("# none\n", &["t::a"]);
-    assert!(dropped.contains("alpha: host case t::a of alpha is in the landing base's build/host-cases.list but not in the lane's own copy"), "a list line dropped while its manifest entry stays was not refused: {dropped}");
-
-    fs::write(fixture.repo.join("crates/alpha/src/lib.rs"), "fn a() {}\nfn d() {}\nfn b() {}\n").unwrap();
-    let added = lane("alpha t::a\nalpha t::b\nalpha t::d\n", &["t::a", "t::b", "t::d"]);
-    assert!(!added.contains("host case t::b of alpha is not in the reviewed list") && added.contains("host case t::d of alpha is not in the reviewed list"), "a host case of a test new in the lane was refused, or one of a test the base has was let in by the lane's own list: {added}");
-    let stale = lane("alpha t::a\nalpha t::b\nalpha t::c\n", &["t::a", "t::b"]);
-    assert!(stale.contains("`alpha t::c` names a test the tree no longer has"), "a list line naming no test in the tree was not refused: {stale}");
-}

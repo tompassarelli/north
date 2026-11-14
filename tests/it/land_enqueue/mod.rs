@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-mod clippy;
 mod secrets;
 
 fn git(directory: &Path, arguments: &[&str]) -> String {

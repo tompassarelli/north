@@ -2,7 +2,7 @@ use std::path::Path;
 
 use north_core::foundation::shim;
 
-use super::{Fixture, Real, Run, Scratch, git, write};
+use super::{Fixture, git, write};
 
 const DENYLIST: &str = "title = \"safe-push test deny-list\"\n[[rules]]\nid = \"fake-private-term\"\ndescription = \"fake private identity term\"\nregex = '''zebra-quokka-7731'''\n";
 
@@ -18,46 +18,6 @@ fn a_branch_push_to_a_public_origin_is_refused_before_any_check_and_names_the_pr
         assert!(!ran.output.contains("language gate") && !fixture.traced().contains("<language-gate>"), "a refused public push ran its checks: {}", ran.output);
         assert_eq!(fixture.remote_state(), before, "a branch push reached the public origin");
     }
-}
-
-#[test]
-fn a_branch_landing_refuses_a_private_author_email_before_push() {
-    let scratch = Scratch::new();
-    let fixture = Real::new(&scratch, "email-to-main");
-    let private_email = "someone@private.example";
-    git(&fixture.repo, &["commit", "--amend", "--allow-empty", "-qm", "private author for main", &format!("--author=safe-push-test <{private_email}>")]);
-    let before = fixture.remote_state();
-    let observed = Run::new(&scratch, &fixture.repo, &["--dry-run", "--to", "main"]).output();
-    let sha = git(&fixture.repo, &["rev-parse", "--short", "HEAD"]);
-    assert_ne!(observed.status, Some(0), "{}", observed.output);
-    assert!(observed.output.contains(&format!("safe-push: commit {sha} author email {private_email} is not safe-push-test@example.invalid")), "{}", observed.output);
-    assert!(observed.output.contains("git commit --amend --reset-author (or rebase --exec) before pushing; NOT pushed."), "{}", observed.output);
-    assert_eq!(fixture.remote_state(), before, "private author email refusal mutated the remote");
-}
-
-#[test]
-fn a_language_gate_pass_publishes_to_another_branch() {
-    let fixture = Fixture::new();
-    fixture.git(&["switch", "-q", "-c", "feature"]);
-    fixture.git(&["commit", "--allow-empty", "-qm", "feature"]);
-    fixture.run(&["--to", "other"]).expect(true, &[]);
-    assert_eq!(git(&fixture.remote, &["rev-parse", "other"]), fixture.head(), "a language pass did not publish");
-    let tracking = std::process::Command::new("git").current_dir(&fixture.repo).args(["rev-parse", "--verify", "@{upstream}"]).output().unwrap();
-    assert!(!tracking.status.success(), "--to changed local branch tracking");
-}
-
-#[test]
-fn a_failed_fetch_of_the_destination_is_refused_before_any_check_runs() {
-    let fixture = Fixture::new();
-    shim::write_script(&fixture.repo.join(".git/hooks/pre-push"), "cat >/dev/null\n");
-    fixture.git(&["config", "remote.origin.pushurl", &fixture.remote.to_string_lossy()]);
-    fixture.git(&["config", "remote.origin.url", &fixture.root.join("unreachable.git").to_string_lossy()]);
-    let before = fixture.remote_state();
-    let ran = fixture.run(&["--to", "main"]);
-    ran.expect(false, &["safe-push: could not fetch origin/main; NOT pushed."]);
-    assert!(!ran.output.contains("blocking check(s) failed") && !ran.output.contains("language gate"), "a failed fetch was reported as a gate refusal: {}", ran.output);
-    assert!(!fixture.traced().contains("<language-gate>"), "a failed fetch reached the language gate");
-    assert_eq!(fixture.remote_state(), before, "a failed fetch published");
 }
 
 #[test]

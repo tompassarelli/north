@@ -11,6 +11,4 @@ src/bin/fake_claude.rs	1
 src/cli/fleet/claims.rs	1
 tests/it/follows_release.rs	2
 tests/it/land_serve/mod.rs	1
-tests/it/landing_targets.rs	2
 tests/it/lane_gc_journeys.rs	1
-tests/it/safe_push/preflight.rs	1

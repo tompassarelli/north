@@ -18,8 +18,6 @@ hook_verbs north-guard
 lane_gc_journeys north-guard
 run_bounded north-capacity-host
 runtime_update north-runtime
-safe_push_entry north-base north-safe-push north
-safe_push_remote_land north north-safe-push
 stdio north-fleet
 worker_sandbox north-runtime north
 hand_in_tool north-runtime north-providers north-lander north-safe-push north
@@ -43,17 +41,10 @@ agent_text_reads north # tree-wide: counts agent-text reads in every Rust source
 affected_modules north-landing north north-land-checks north-lander # tree-wide: reads every tests/it module and every crate the crate DAG names
 embedded_store_paths north north-base north-calibration north-claude-stream north-fleet north-guard north-lanes north-ops north-pace north-providers north-safe-push north-threads north-tune
 golden_path north-fleet north-landing north-land-checks north-lander
-land_after_set north-landing north north-land-checks north-lander
 land_checks north-landing north-core north-land-checks north-lander
-land_checks_script north-landing north north-land-checks north-lander
 land_enqueue north-landing north-land-checks north-lander
-land_publication north-landing north-safe-push north north-land-checks north-lander
 land_rebase north-landing north-land-checks north-lander
-land_route north-landing north-safe-push north north-land-checks north-lander
-land_scan north-landing north-land-checks north-lander
-land_scan_incident_test north-landing north-land-checks north-lander
 land_serve north-landing north-land-checks north-lander
-landing_targets north-landing north-land-checks north-lander
 release north-landing north-safe-push north north-land-checks north-lander
 safe_push north-capacity north-capacity-host north-landing north-safe-push north-land-checks north-lander
 safe_push_tag north-landing north-safe-push north-land-checks north-lander

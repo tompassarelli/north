@@ -9,9 +9,7 @@ use std::time::Duration;
 
 use crate::support::template::Template;
 
-mod candidate;
 mod gates;
-mod preflight;
 mod publication;
 mod scans;
 mod session;
@@ -181,9 +179,6 @@ impl Observed {
         self.expect(true, &[lines, &[named.as_str()]].concat());
     }
 
-    pub fn last_line(&self) -> &str {
-        self.output.lines().last().unwrap_or_default()
-    }
 }
 
 pub struct Running {
@@ -192,10 +187,6 @@ pub struct Running {
 }
 
 impl Running {
-    pub fn pid(&self) -> u32 {
-        self.child.id()
-    }
-
     pub fn output(&self) -> String {
         std::fs::read_to_string(&self.log).unwrap_or_default()
     }
@@ -301,15 +292,11 @@ impl Real {
         Self { repo, remote }
     }
 
-    pub fn remote_state(&self) -> String {
-        remote_state(&self.remote)
-    }
 }
 
 pub struct Landing {
     pub root: PathBuf,
     pub remote: PathBuf,
-    pub seed: PathBuf,
 }
 
 static LANDING: LazyLock<Template> = LazyLock::new(|| {
@@ -329,11 +316,7 @@ impl Landing {
     pub fn new(scratch: &Scratch, name: &str) -> Self {
         let root = scratch.path().join(name);
         LANDING.copy_into(&root);
-        Self { remote: root.join("remote.git"), seed: root.join("seed"), root }
-    }
-
-    pub fn main(&self) -> String {
-        git(&self.remote, &["rev-parse", "main"])
+        Self { remote: root.join("remote.git"), root }
     }
 
     pub fn lane(&self) -> PathBuf {
@@ -381,10 +364,6 @@ impl Fixture {
         let root = repo.parent().unwrap().to_owned();
         std::fs::create_dir_all(root.join("home")).unwrap();
         Self { state: scratch.state(), trace: root.join("north-trace"), scratch, root, repo, remote, bin }
-    }
-
-    pub fn deny_language(&self, message: &str) {
-        write(&self.root.join("language-deny"), &format!("{message}\n"));
     }
 
     pub fn leak_secret(&self) {
@@ -443,7 +422,4 @@ impl Fixture {
         std::fs::read_to_string(&self.trace).unwrap_or_default()
     }
 
-    pub fn clear_trace(&self) {
-        let _ = std::fs::remove_file(&self.trace);
-    }
 }

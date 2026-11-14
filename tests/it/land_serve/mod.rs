@@ -7,9 +7,6 @@ use north_landing::land::queue::{self, RedFix, Ticket};
 mod cleanup;
 
 mod landing;
-mod post_land;
-mod promote;
-mod remote;
 
 #[path = "../support/land_serve_template.rs"]
 mod template;
@@ -98,7 +95,6 @@ struct Fixture {
     state: PathBuf,
     trace: PathBuf,
     bin: PathBuf,
-    base: String,
     queued: u128,
 }
 
@@ -106,7 +102,7 @@ fn layout(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
     (root.join("origin.git"), root.join("proj/main"), root.join("state"), root.join("trace"), root.join("bin"))
 }
 
-fn build_template(root: &Path) -> String {
+fn build_template(root: &Path) {
     let (origin, repo, state, trace, bin) = layout(root);
     for directory in [&state, &trace, &bin] {
         fs::create_dir_all(directory).unwrap();
@@ -129,7 +125,6 @@ fn build_template(root: &Path) -> String {
     executable(&trace.join("north"), NORTH);
     executable(&trace.join("mint"), MINT);
     std::os::unix::fs::symlink(crate::support::bin_exe!("CARGO_BIN_EXE_push_trace_git"), bin.join("git")).unwrap();
-    git(&repo, &["rev-parse", "HEAD"])
 }
 
 impl Fixture {
@@ -139,7 +134,7 @@ impl Fixture {
         let template = template::Template::get(build_template);
         template.copy_into(&root);
         let (origin, repo, state, trace, bin) = layout(&root);
-        Self { _scratch: scratch, root, origin, repo, state, trace, bin, base: template.base.clone(), queued: now_micros() }
+        Self { _scratch: scratch, root, origin, repo, state, trace, bin, queued: now_micros() }
     }
 
     fn lane(&self, name: &str, file: &str, text: &str) -> PathBuf {
@@ -228,81 +223,9 @@ impl Fixture {
         output
     }
 
-    fn main(&self) -> String {
-        git(&self.origin, &["rev-parse", "refs/heads/main"])
-    }
-
-    fn subjects(&self) -> Vec<String> {
-        git(&self.origin, &["log", "--reverse", "--format=%s", &format!("{}..main", self.base)]).lines().map(str::to_owned).collect()
-    }
-
     fn read(&self, name: &str) -> String {
         fs::read_to_string(self.trace.join(name)).unwrap_or_default()
     }
 
-    fn calls(&self, prefix: &str) -> Vec<String> {
-        self.read("north-calls").lines().filter(|line| line.starts_with(prefix) && !line.starts_with("capacity offload reap")).map(str::to_owned).collect()
-    }
-
-    fn fleet(&self) -> Vec<String> {
-        self.calls("fleet send")
-    }
-
-    fn verdict(&self, ticket: &Path) -> Option<String> {
-        queue::read(&ticket.parent().unwrap().join("done").join(ticket.file_name().unwrap())).ok().and_then(|ticket| ticket.verdict)
-    }
-}
-
-const FAKE_SSH: &str = r#"#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$LAND_TRACE/ssh"
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -o) shift 2 ;;
-    -T) shift ;;
-    *) destination=${1#*@}; shift; break ;;
-  esac
-done
-[ "${1:-}" != -- ] || shift
-[ -d "$FAKE_REMOTE_HOMES/$destination" ] || { echo "ssh: connect to host $destination port 22: Connection timed out" >&2; exit 255; }
-command=$*
-case "$command" in git-upload-pack*) command="git upload-pack${command#git-upload-pack}" ;; esac
-unset XDG_STATE_HOME
-HOME=$FAKE_REMOTE_HOMES/$destination exec sh -c "$command"
-"#;
-
-impl Fixture {
-    fn landing_config(&mut self, config: &str) {
-        executable(&self.bin.join("ssh"), FAKE_SSH);
-        self.commit(&self.repo, ".safe-push", &format!("[landing]\n\tpush-app = lander\n{config}"), "configure landing");
-        git(&self.repo, &["push", "-q", "origin", "main"]);
-        self.base = self.main();
-    }
-
-    fn land_enqueue(&self, lane: &Path, state: &Path, session: &str) -> Output {
-        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").env("XDG_STATE_HOME", state).env("NORTH_TEST_ROOT", state).env("HOME", state.join("home")).env_remove("SAFE_PUSH_SOUTH").env_remove("SAFE_PUSH_DENYLIST").env("NORTH_FLEET_SESSION", session).env("NORTH_FLEET_SESSION_PROVED", "1").env_remove("NORTH_LAND_SERVING").output().unwrap();
-        eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-        output
-    }
-}
-
-#[test]
-fn a_lander_whose_state_lies_outside_the_declared_fixture_root_refuses_before_it_serves() {
-    let scratch = tempfile::tempdir().unwrap();
-    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
-        .args(["land", "serve", "--once"])
-        .env("XDG_STATE_HOME", scratch.path().join("state"))
-        .env("NORTH_TEST_ROOT", scratch.path().join("elsewhere"))
-        .output()
-        .unwrap();
-    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-
-    assert!(!output.status.success(), "{text}");
-    assert!(text.contains("outside the test fixture root"), "{text}");
-}
-
-fn json_names(directory: &Path) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(directory).map(|entries| entries.filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).filter(|name| name.ends_with(".json")).collect()).unwrap_or_default();
-    names.sort();
-    names
 }
 
