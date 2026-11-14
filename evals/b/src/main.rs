@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 const USAGE: &str = "usage:
   eval-b workload --seed S --count N --lander-host HOST --out DIR
-  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A[,A...]] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--provider P] [--model M] [--effort E] [--arm NAME] [--checks-on HOST] --work DIR --results FILE
+  eval-b ladder --workload DIR --level N [--first I] [--count C] [--account A[,A...]] [--parent SESSION] [--hosts H,H] [--burst INITIAL:AFTER_S] [--kill-lander QUEUED:DOWN_S] [--provider P] [--model M --effort E] [--route ROUTE --arm NAME] [--arm NAME] [--checks-on HOST] --work DIR --results FILE
   eval-b t3-tasks --workload DIR --count N --out FILE
   eval-b t3-rows --workload DIR --from EVAL_A_ROWS --results FILE
   eval-b summary --results FILE
@@ -65,6 +65,14 @@ fn pair(flags: &BTreeMap<String, String>, key: &str) -> Result<Option<(usize, u6
     parsed.map(Some).ok_or_else(|| format!("--{key} takes N:SECONDS, got {value}"))
 }
 
+fn arm(flags: &BTreeMap<String, String>) -> Result<String, String> {
+    match (flags.get("arm"), flags.get("route")) {
+        (Some(arm), _) => Ok(arm.clone()),
+        (None, None) => Ok("north".to_owned()),
+        (None, Some(route)) => Err(format!("name the arm that --route {route} measures with --arm NAME, so its rows stay apart from the pinned arm's")),
+    }
+}
+
 fn hosts(flags: &BTreeMap<String, String>) -> Vec<String> {
     flags.get("hosts").map_or("cpx62,gex45,cpx62b", String::as_str).split(',').map(str::to_owned).collect()
 }
@@ -81,7 +89,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
     let work = PathBuf::from(need(flags, "work")?).join(format!("l{level}-{stamp}"));
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let tasks: Vec<Value> = manifest["tasks"].as_array().into_iter().flatten().skip(first - 1).take(count).map(|task| ladder::unseen(task, &format!("{stamp}-l{level}"))).collect();
-    let plan = ladder::Plan { level, tasks, accounts: flags.get("account").map_or_else(|| vec!["d".to_owned()], |list| list.split(',').map(str::to_owned).collect()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()), effort: flags.get("effort").cloned().unwrap_or_else(|| ladder::PINNED_EFFORT.to_owned()), provider: flags.get("provider").cloned().unwrap_or_else(|| "claude".to_owned()), arm: flags.get("arm").cloned().unwrap_or_else(|| "north".to_owned()), checks_on: flags.get("checks-on").cloned() };
+    let plan = ladder::Plan { level, tasks, accounts: flags.get("account").map_or_else(|| vec!["d".to_owned()], |list| list.split(',').map(str::to_owned).collect()), parent, hosts, work, burst: pair(flags, "burst")?.map(|(initial, after)| (initial, after as f64)), model: flags.get("model").cloned().unwrap_or_else(|| ladder::PINNED_MODEL.to_owned()), effort: flags.get("effort").cloned().unwrap_or_else(|| ladder::PINNED_EFFORT.to_owned()), provider: flags.get("provider").cloned().unwrap_or_else(|| "claude".to_owned()), route: flags.get("route").cloned(), arm: arm(flags)?, checks_on: flags.get("checks-on").cloned() };
     let kill = pair(flags, "kill-lander")?;
     let branches: Vec<String> = plan.tasks.iter().map(|t| format!("{}-l{level}", t["id"].as_str().unwrap_or_default())).collect();
     scratch::prepare_laptop(&dir.join("repo"), &branches)?;
@@ -147,7 +155,7 @@ fn recount(flags: &BTreeMap<String, String>) -> Result<(), String> {
         .lines()
         .map(|line| {
             let Ok(mut row) = serde_json::from_str::<Value>(line) else { return line.to_owned() };
-            let Some(raw) = row["raw"].as_str().filter(|_| row["arm"] == "north").map(PathBuf::from).filter(|raw| raw.join("transcript.jsonl").exists()) else { return line.to_owned() };
+            let Some(raw) = row["raw"].as_str().filter(|_| row["arm"].as_str().is_some_and(|arm| arm.starts_with("north"))).map(PathBuf::from).filter(|raw| raw.join("transcript.jsonl").exists()) else { return line.to_owned() };
             rows::counted(&mut row, &collect::transcript(&raw)["handins"]);
             counted += 1;
             row.to_string()

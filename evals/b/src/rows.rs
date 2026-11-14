@@ -69,7 +69,11 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     let session: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap_or_default()).unwrap_or(Value::Null);
     let transcript = collect::transcript(&dir);
     let attempts = collect::spans(scratch::queue_dir().as_deref(), &run.branch, run.launch_start);
-    let (cost, total) = collect::cost(&dir, &transcript);
+    let second = dir.join(crate::ladder::second_attempt(&run.name));
+    let escalated = second.join("session.json").exists();
+    let (cost, total) = if escalated { merged_spend(collect::cost(&dir, &transcript), collect::cost(&second, &collect::transcript(&second))) } else { collect::cost(&dir, &transcript) };
+    let tokens = if escalated { merged_tokens(&transcript["tokens"], &collect::transcript(&second)["tokens"]) } else { transcript["tokens"].clone() };
+    let models = if escalated { merged_list(&transcript["models"], &collect::transcript(&second)["models"]) } else { transcript["models"].clone() };
     let (resolved_at, reason) = run.resolved.clone().unwrap_or((run.launch_end, "unresolved".to_owned()));
     let landed = reason == "landed";
     let (acceptance, hidden) = if landed { accepted(&plan.work, plan.checks_on.as_deref(), expect, &run.task) } else { (false, "not-run") };
@@ -84,7 +88,7 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
     conditions["admission_wait_s"] = json!((run.room_wait_s * 100.0).round() / 100.0);
     conditions["host_load_at_end"] = serde_json::from_str(&std::fs::read_to_string(dir.join("load-at-end.json")).unwrap_or_default()).unwrap_or(Value::Null);
     conditions["claude_code_observed"] = transcript["claude_code"].clone();
-    conditions["models_observed"] = transcript["models"].clone();
+    conditions["models_observed"] = models;
     conditions["effort_observed"] = transcript["efforts"].clone();
     let mut row = json!({
         "arm": plan.arm, "level": plan.level, "task": run.task["id"], "shared": run.task["shared"], "session": run.name, "branch": run.branch,
@@ -100,12 +104,30 @@ pub fn row(plan: &Plan, run: &Run, expect: &Path, stamp: &Value, command: &str) 
         "lander_attempts": attempts.as_array().map_or(0, Vec::len), "lander_refusals": lander_refusals,
         "landings": attempts.as_array().map_or(0, |a| a.iter().filter(|x| x["attributes"]["landed"].is_string()).count()), "main_commits": main_commits(&plan.work, &run.task), "wave": run.wave,
         "interventions": run.nudges.len(), "intervention_stalls": run.nudges,
-        "model_requests": transcript["model_requests"], "tokens": transcript["tokens"], "tokens_total_spend": total, "cost_usd": cost,
+        "model_requests": transcript["model_requests"], "tokens": tokens, "tokens_total_spend": total, "cost_usd": cost,
         "last_words": if landed { String::new() } else { collect::last_words(&dir) },
         "conditions": conditions, "command": command, "raw": dir,
     });
     counted(&mut row, &transcript["handins"]);
+    if plan.route.is_some() {
+        row["escalated"] = json!(escalated);
+        row["conditions"]["route"] = json!(plan.route);
+    }
     row
+}
+
+fn merged_spend(first: (Option<f64>, Option<u64>), second: (Option<f64>, Option<u64>)) -> (Option<f64>, Option<u64>) {
+    (first.0.zip(second.0).map(|(a, b)| a + b), first.1.zip(second.1).map(|(a, b)| a + b))
+}
+
+fn merged_tokens(first: &Value, second: &Value) -> Value {
+    let keys = ["input", "output", "cache_read", "cache_write"];
+    Value::Object(keys.iter().map(|k| ((*k).to_owned(), json!(first[k].as_u64().unwrap_or(0) + second[k].as_u64().unwrap_or(0)))).collect())
+}
+
+fn merged_list(first: &Value, second: &Value) -> Value {
+    let all: std::collections::BTreeSet<&str> = [first, second].into_iter().filter_map(Value::as_array).flatten().filter_map(Value::as_str).collect();
+    json!(all)
 }
 
 pub fn counted(row: &mut Value, handins: &Value) {

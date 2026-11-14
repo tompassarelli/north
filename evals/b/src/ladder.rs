@@ -29,6 +29,7 @@ pub struct Plan {
     pub model: String,
     pub effort: String,
     pub provider: String,
+    pub route: Option<String>,
     pub arm: String,
     pub checks_on: Option<String>,
 }
@@ -51,8 +52,12 @@ pub struct Run {
     pub wave: &'static str,
 }
 
-fn header(host: &str, model: &str, effort: &str) -> String {
-    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: {host}\nModel: {model} at {effort} effort, pinned so Eval B holds the model fixed as Eval A does.\nArm: context-500k\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
+fn header(host: &str, model: &str) -> String {
+    format!("Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: {host}\nModel: {model}\nArm: context-500k\nDone when: the acceptance command below exits 0 and the change is on main, handed in from this lane the way your worker instructions say.\n\n")
+}
+
+fn model_line(plan: &Plan) -> String {
+    plan.route.as_ref().map_or_else(|| format!("{} at {} effort, pinned so Eval B holds the model fixed as Eval A does.", plan.model, plan.effort), |route| format!("routed by `--route {route}`: the first family on the route starts, and the next starts once only when the finish call's check fails."))
 }
 
 pub fn prompt(task: &Value) -> String {
@@ -72,15 +77,16 @@ pub fn unseen(task: &Value, nonce: &str) -> Value {
 
 fn launch_words(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str) -> Vec<String> {
     let cwd = format!("{}:{}", plan.hosts[0], scratch::worktree(branch));
-    let text = header(&plan.hosts[0], &plan.model, &plan.effort) + &prompt(task);
-    let tier_reason = format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort);
+    let text = header(&plan.hosts[0], &model_line(plan)) + &prompt(task);
+    let tier_reason = plan.route.as_ref().map_or_else(|| format!("Eval B pins {} at {} for the whole ladder", plan.model, plan.effort), |route| format!("Eval B routes {route} for the whole ladder"));
+    let pick: Vec<&str> = plan.route.as_ref().map_or_else(|| vec!["--model", &plan.model, "--effort", &plan.effort], |route| vec!["--route", route]);
     let pin = format!("Eval B runs every arm on {}", plan.hosts[0]);
-    [
-        "--provider", &plan.provider, "--account", account, "--model", &plan.model, "--effort", &plan.effort, "--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north",
-        "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &cwd, "--gates-aside", "--no-wait", &text,
-    ]
-    .map(str::to_owned)
-    .to_vec()
+    ["--provider", plan.provider.as_str(), "--account", account]
+        .into_iter()
+        .chain(pick)
+        .chain(["--name", name, "--parent", &plan.parent, "--role", "worker", "--prompt", "north", "--tier-reason", &tier_reason, "--pin", &pin, "--cwd", &cwd, "--gates-aside", "--no-wait", &text])
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Fills spares on the ladder's host for its first launch before the first wave, so that launch takes a warm one.
@@ -125,6 +131,10 @@ fn launch(plan: &Plan, task: &Value, account: &str, branch: &str, name: &str, wa
     }
 }
 
+pub fn second_attempt(name: &str) -> String {
+    format!("{name}-r2")
+}
+
 fn statuses(names: &[&str]) -> BTreeMap<String, String> {
     let listed: Value = serde_json::from_str(&run("north", &["fleet", "list", "--json", "--all"], None).out).unwrap_or(Value::Null);
     listed.as_array().into_iter().flatten().filter(|s| names.contains(&s["name"].as_str().unwrap_or_default())).map(|s| (s["name"].as_str().unwrap_or_default().to_owned(), s["status"].as_str().unwrap_or_default().to_owned())).collect()
@@ -139,7 +149,7 @@ fn landed_branches(queue: Option<&Path>) -> BTreeMap<String, f64> {
         .collect()
 }
 
-fn step(run: &mut Run, status: Option<&String>, landed: Option<f64>, at: f64) {
+fn step(run: &mut Run, (current, status): (&str, Option<&String>), landed: Option<f64>, at: f64) {
     if let Some(end) = landed {
         run.resolved = Some((end, "landed".to_owned()));
         return;
@@ -162,7 +172,7 @@ fn step(run: &mut Run, status: Option<&String>, landed: Option<f64>, at: f64) {
         return;
     }
     run.nudges.push(json!({"at_s": (since - run.launch_start).round(), "stall_s": (at - since).round(), "status": status}));
-    let _ = crate::proc::run("north", &["fleet", "send", &run.name, NUDGE], None);
+    let _ = crate::proc::run("north", &["fleet", "send", current, NUDGE], None);
     run.settled_since = None;
 }
 
@@ -218,12 +228,15 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
             break;
         }
         thread::sleep(std::time::Duration::from_secs(POLL_S));
-        let names: Vec<&str> = active.iter().map(|r| r.name.as_str()).collect();
+        let second: Vec<String> = active.iter().map(|r| second_attempt(&r.name)).collect();
+        let names: Vec<&str> = active.iter().map(|r| r.name.as_str()).chain(second.iter().map(String::as_str)).collect();
         let status = statuses(&names);
         let landed = landed_branches(scratch::queue_dir().as_deref());
         let at = now();
         for run in active.iter_mut().filter(|r| r.resolved.is_none()) {
-            step(run, status.get(&run.name), landed.get(&run.branch).copied().filter(|end| *end >= run.launch_start), at);
+            let escalated = second_attempt(&run.name);
+            let current = if status.contains_key(&escalated) { escalated } else { run.name.clone() };
+            step(run, (&current, status.get(&current)), landed.get(&run.branch).copied().filter(|end| *end >= run.launch_start), at);
         }
         let (resolved, still): (Vec<Run>, Vec<Run>) = active.into_iter().partition(|r| r.resolved.is_some());
         active = still;
@@ -234,7 +247,11 @@ pub fn drive(plan: &Plan, stamp: &str) -> Vec<Run> {
             let hosts = plan.hosts.clone();
             collectors.push(thread::spawn(move || {
                 let _ = fs::write(work.join(&name).join("load-at-end.json"), crate::proc::host_loads(&hosts).to_string());
-                collect::session(&work, &name)
+                collect::session(&work, &name);
+                let second = second_attempt(&name);
+                if crate::proc::run("north", &["fleet", "show", &second, "--json"], None).ok() {
+                    collect::session(&work.join(&name), &second);
+                }
             }));
             done.push(run);
         }
