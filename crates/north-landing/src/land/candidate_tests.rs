@@ -165,6 +165,10 @@ fn rebase_compile_scenario(dir: &Path) {
     fs::write(&offline, "#!/bin/sh\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n").unwrap();
     fs::set_permissions(&offline, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     assert!(rebase_compile::judge(&rebased, &offline, &logs, "lane").unwrap().is_none(), "cargo exits 101 for a resolver failure too, which says nothing about the lane");
+    let rechecked = git(&repo, &["commit-tree", &format!("{checked_on}^{{tree}}"), "-p", &checked_on, "-m", "Check the lane again"]).unwrap();
+    let unjudged = [(dir.join("unjudged.json"), Ticket { branch: "unjudged".to_owned(), head: head.clone(), root: repo.clone(), origin: repo.display().to_string(), gated_from: Some(rechecked.clone()), ..Default::default() })];
+    compile_ahead(&repo, &logs, &offline, &unjudged);
+    assert!(rebase_compile::reused(&Ahead { lane_head: head.clone(), picked_onto: moved.clone(), checked_on: rechecked }, &lane_tree, "unjudged").is_none(), "on 2026-11-14 review of 4d0134a82e: an early compile that gave no verdict was reused, so the lane would land with no compile instead of compiling at its pick");
     fs::write(repo.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"3\"\n\n[workspace.dependencies]\nthiserror = \"2\"\nthiserror = \"2\"\n").unwrap();
     commit_all(&repo, "Add thiserror to the workspace a second time");
     let unreadable = git(&repo, &["rev-parse", "HEAD"]).unwrap();

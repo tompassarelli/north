@@ -206,15 +206,9 @@ pub fn reused(ahead: &Ahead, tree: &str, name: &str) -> Option<Option<Refused>> 
     let slot = slots().lock().unwrap_or_else(PoisonError::into_inner).get(ahead).map(Arc::clone)?;
     let ran = slot.ready.wait_while(slot.ran.lock().unwrap_or_else(PoisonError::into_inner), |ran| ran.is_none()).unwrap_or_else(PoisonError::into_inner);
     match ran.as_ref() {
-        Some(Ran { tree: compiled, outcome }) if compiled == tree => {
+        Some(Ran { tree: compiled, outcome: Outcome::Judged(refused) }) if compiled == tree => {
             println!("north land: {name}: reused the compile after its rebase onto {} that ran while it waited in the queue", &ahead.picked_onto[..ahead.picked_onto.len().min(10)]);
-            Some(match outcome {
-                Outcome::Judged(refused) => refused.clone(),
-                Outcome::Unjudged(line) => {
-                    println!("{line}");
-                    None
-                }
-            })
+            Some(refused.clone())
         }
         _ => None,
     }

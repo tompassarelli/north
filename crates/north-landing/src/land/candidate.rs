@@ -310,13 +310,12 @@ pub fn compile_ahead(worktree: &Path, logs: &Path, program: &Path, queued: &[(Pa
         return;
     }
     let Ok(main) = git(worktree, &["rev-parse", "-q", "--verify", "refs/remotes/origin/main^{commit}"]) else { return };
-    for (path, ticket) in queued {
-        let Some(checked_on) = checked_on(ticket).filter(|checked_on| *checked_on != main && ticket.gated_from.as_deref() != Some(main.as_str())) else { continue };
-        let Some(claim) = rebase_compile::claim(Ahead { lane_head: ticket.head.clone(), picked_onto: main.clone(), checked_on: checked_on.to_owned() }) else { continue };
-        let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane").to_owned();
-        let (worktree, logs, program, main, checked_on, ticket) = (worktree.to_owned(), logs.to_owned(), program.to_owned(), main.clone(), checked_on.to_owned(), ticket.clone());
-        std::thread::spawn(move || compiled_ahead(&worktree, (&logs, &name), &program, (&main, &checked_on, &ticket), claim));
-    }
+    let Some((path, ticket)) = queued.first() else { return };
+    let Some(checked_on) = checked_on(ticket).filter(|checked_on| *checked_on != main && ticket.gated_from.as_deref() != Some(main.as_str())) else { return };
+    let Some(claim) = rebase_compile::claim(Ahead { lane_head: ticket.head.clone(), picked_onto: main.clone(), checked_on: checked_on.to_owned() }) else { return };
+    let name = format!("{}-ahead", path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane"));
+    let (worktree, logs, program, checked_on, ticket) = (worktree.to_owned(), logs.to_owned(), program.to_owned(), checked_on.to_owned(), ticket.clone());
+    std::thread::spawn(move || compiled_ahead(&worktree, (&logs, &name), &program, (&main, &checked_on, &ticket), claim));
 }
 
 fn compiled_ahead(worktree: &Path, (logs, name): (&Path, &str), program: &Path, (onto, checked_on, ticket): (&str, &str, &Ticket), claim: Claim) {
