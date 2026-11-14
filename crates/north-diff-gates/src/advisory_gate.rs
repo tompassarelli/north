@@ -153,11 +153,18 @@ fn refresh(database: &Path) -> Result<(), String> {
     if fresh {
         return Ok(());
     }
-    fs::create_dir_all(database).map_err(|error| format!("{}: {error}", database.display()))?;
     let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
     let config = write_config(scratch.path(), database)?;
     fs::write(scratch.path().join("Cargo.toml"), "[workspace]\n").map_err(|error| error.to_string())?;
-    let output = deny(scratch.path()).args(["fetch", "--config"]).arg(&config).arg("db").output().map_err(|error| format!("cargo-deny: {error}"))?;
+    let fetch = || -> Result<std::process::Output, String> {
+        fs::create_dir_all(database).map_err(|error| format!("{}: {error}", database.display()))?;
+        deny(scratch.path()).args(["fetch", "--config"]).arg(&config).arg("db").output().map_err(|error| format!("cargo-deny: {error}"))
+    };
+    let mut output = fetch()?;
+    if !output.status.success() {
+        fs::remove_dir_all(database).map_err(|error| format!("{}: {error}", database.display()))?;
+        output = fetch()?;
+    }
     if !output.status.success() {
         return Err(format!("cannot fetch the advisory database into {}: {}", database.display(), String::from_utf8_lossy(&output.stderr).trim_end()));
     }
