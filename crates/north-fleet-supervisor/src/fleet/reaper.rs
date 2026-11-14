@@ -116,7 +116,7 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
     if !matches!(seen.status, Status::Idle | Status::Parked) {
         return Verdict::Keep;
     }
-    if seen.report.as_ref().is_some_and(|report| finished(seen, report)) {
+    if seen.report.as_ref().is_some_and(|report| finished(seen, report, stale)) {
         return Verdict::Finished;
     }
     if seen.quiet >= stale && !seen.background { Verdict::Stale } else { Verdict::Keep }
@@ -126,12 +126,8 @@ fn finishes(report: &str) -> bool {
     opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split") || opens(report, "Blocked")) && STOP.is_match(report)
 }
 
-fn finished(seen: &Seen, report: &Report) -> bool {
-    report.taken && finishes(&report.text) && !(seen.lane_ahead && waits(&report.text)) && report.unlanded.is_empty() && (opens(&report.text, "Done") || !seen.background)
-}
-
-fn waits(report: &str) -> bool {
-    opens(report, "Not done") || opens(report, "Blocked")
+fn finished(seen: &Seen, report: &Report, stale: Duration) -> bool {
+    report.taken && finishes(&report.text) && !(seen.lane_ahead && !opens(&report.text, "Split")) && report.unlanded.is_empty() && !(seen.background && (!opens(&report.text, "Done") || seen.quiet < stale))
 }
 
 fn waiting(seen: &Seen) -> bool {
@@ -256,7 +252,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             }
             if judged == Verdict::Keep {
                 let background = seen.background.then(|| "its CLI still runs a background task".to_owned());
-                let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| (seen.lane_holds && quiet < stale).then(|| "its queued lane waits on the lander, or the lander's verdict has not woken it yet".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
+                let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| (seen.lane_holds && quiet < stale).then(|| "its queued lane waits on the lander, or the lander's verdict has not woken it yet".to_owned())).or_else(|| seen.lane_ahead.then(|| "its lane holds commits not on origin/main".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
                 reaped.kept.push(Retired { name: record.name.clone(), why });
                 continue;
             }

@@ -144,6 +144,8 @@ fn a_worker_parked_on_an_unlanded_lane_after_a_not_done_report_stays_and_stale_r
     let lead = live(&fleet, "lead");
     reported(&fleet, "held", Some("lead"), "Not done: the commit is on the lane but the coordinator holds hand-ins.\nStop: landing");
     paper.claim_receipt("held", "turn:1", now_ms()).unwrap();
+    reported(&fleet, "unlanded", Some("lead"), "Done: the fix is on the lane.");
+    paper.claim_receipt("unlanded", "turn:1", now_ms()).unwrap();
     for name in ["exited", "slow"] {
         reported(&fleet, name, Some("lead"), "Done: nothing to land.");
         let record = fleet.root.join(name).join("session.json");
@@ -152,21 +154,21 @@ fn a_worker_parked_on_an_unlanded_lane_after_a_not_done_report_stays_and_stale_r
         std::fs::write(&record, stopped.to_string()).unwrap();
     }
     let lane = |path: &str, tip: &str, commits| Unlanded::Ahead(Ahead { path: path.into(), tip: tip.into(), commits });
-    let lanes_ahead = [("held".to_owned(), lane("/home/tom/code/north/worktrees/held-lane", "8ffd6add62", 1)), ("exited".to_owned(), lane("/home/tom/code/north/worktrees/exited-lane", "6d0cecb063", 2)), ("slow".to_owned(), Unlanded::Unread("/home/tom/code/north/worktrees/slow-lane".into()))];
+    let lanes_ahead = [("held".to_owned(), lane("/home/tom/code/north/worktrees/held-lane", "8ffd6add62", 1)), ("exited".to_owned(), lane("/home/tom/code/north/worktrees/exited-lane", "6d0cecb063", 2)), ("unlanded".to_owned(), lane("/home/tom/code/north/worktrees/unlanded-lane", "1f2e3d4c5b", 1)), ("slow".to_owned(), Unlanded::Unread("/home/tom/code/north/worktrees/slow-lane".into()))];
     let evidence = Sight { lanes_ahead: lanes_ahead.into(), ..Sight::default() };
 
     let waiting = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
-    assert!(retired(&waiting).is_empty() && fleet.root.join("held").exists(), "{waiting:?}");
+    assert!(retired(&waiting).is_empty() && fleet.root.join("held").exists() && fleet.root.join("unlanded").exists(), "a Done with a lane ahead of main keeps its session: {waiting:?}");
     let stale = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
 
     let mut gone = retired(&stale);
     gone.sort_unstable();
-    assert_eq!(gone, ["exited", "held"]);
+    assert_eq!(gone, ["exited", "held", "unlanded"]);
     assert!(fleet.session("slow").is_ok(), "a lane probe that timed out keeps its session");
     let frames = lead.frames.lock().unwrap();
     let digests: Vec<&String> = frames.iter().filter(|frame| frame.contains("lanes hold commits not on origin/main")).collect();
     assert_eq!(digests.len(), 1, "one digest per parent and tick: {frames:?}");
-    assert!(digests[0].contains("3 sessions") && digests[0].contains("held: retired; /home/tom/code/north/worktrees/held-lane at 8ffd6add62, 1 commits") && digests[0].contains("exited: retired; /home/tom/code/north/worktrees/exited-lane at 6d0cecb063, 2 commits") && digests[0].contains("slow: kept; its lane /home/tom/code/north/worktrees/slow-lane did not answer"), "{digests:?}");
+    assert!(digests[0].contains("4 sessions") && digests[0].contains("held: retired; /home/tom/code/north/worktrees/held-lane at 8ffd6add62, 1 commits") && digests[0].contains("exited: retired; /home/tom/code/north/worktrees/exited-lane at 6d0cecb063, 2 commits") && digests[0].contains("slow: kept; its lane /home/tom/code/north/worktrees/slow-lane did not answer"), "{digests:?}");
 }
 
 /// On 2026-11-13 the stale-session sweep retired a few sessions per reaper tick and the coordinator was woken every few minutes by one-line digests (north#1235).
@@ -183,7 +185,7 @@ fn retirement_digests_reach_a_parent_at_most_once_per_half_hour_the_first_at_onc
     let retire = |fleet: &Fleet, paper: &Paper, name: &str, at: u64| {
         reported(fleet, name, Some("lead"), "Done: nothing to land.");
         paper.claim_receipt(name, "turn:1", now_ms()).unwrap();
-        assert_eq!(retired(&reap_after(fleet, &evidence, 24 * HOUR, at, true)), [name]);
+        assert_eq!(retired(&reap_after(fleet, &evidence, Duration::ZERO, at, true)), [name]);
     };
 
     for (index, text) in ["alarm: a.service failed", "alarm: b.service failed", "alarm: c.service failed", "alarm: d.service failed", "cleared: /tmp/a ok", "cleared: /tmp/b ok", "cleared: /tmp/c ok", "disk is full", "disk is full", "disk is full", "disk is full", "disk is full"].iter().enumerate() {
@@ -280,7 +282,7 @@ fn a_message_to_a_retired_session_reaches_its_parent_as_one_turn_and_never_reviv
 }
 
 #[test]
-fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_when_its_host_ended_it_at_idle_exit_or_when_quiet_past_the_stale_window_unless_a_wait_gate_lane_job_or_unfinished_task_would_wake_it() {
+fn a_session_retires_when_finished_and_its_cli_runs_nothing_when_its_host_ended_it_at_idle_exit_or_when_quiet_past_the_stale_window_unless_a_wait_gate_lane_job_or_unfinished_task_would_wake_it() {
     {
         let home = tempfile::tempdir().unwrap();
         let (fleet, paper) = fleet(home.path());
@@ -326,6 +328,9 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
     fleet.waits().register("ended", Run::Process { pid: 1, started: 1 }, Path::new("/tmp"), Some("sh -c d=$0 u=$1 limit=$2")).unwrap();
     let running = ["finished", "monitoring", "queued"].map(|name| (name.to_owned(), Work::Cli)).into();
     let evidence = Sight { landed: ["1af7168df".to_owned()].into(), running, ..Sight::default() };
+
+    let fresh = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), false);
+    assert_eq!(retired(&fresh), ["ended"], "a Done whose own build still runs keeps its session inside the stale window: {fresh:?}");
 
     let reaped = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
 
