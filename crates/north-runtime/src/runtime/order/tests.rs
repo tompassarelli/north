@@ -4,14 +4,16 @@ use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
 use super::super::after_landing::Landing;
-use super::super::review_hold::{self, Ask, Caller, Holds, Screen, landed_in, lane_of, now};
+use super::super::review_hold::{self, Ask, Caller, Holds, Screen, answered_in, landed_in, lane_of, now};
 use super::super::main_runs::{Kept, MainRun, MainRuns};
 use super::super::trip::Trips;
 use super::super::update::{self, Flight};
 use super::{Host, Order, run};
 use std::fs;
 use std::os::unix::fs::symlink;
-use std::path::PathBuf;
+use north_base::platform::review_accept::{Accept, Accepts, patch_id};
+use north_trusted_mirror::Mirror;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const OLD: &str = "1111111111111111111111111111111111111111";
@@ -355,7 +357,7 @@ const HOSTED_LOG: &str = "test\tTest\t2026-11-13T19:24:41.7710459Z [2026-11-13T1
 const TIMED_OUT_LOG: &str = "test\tTest\t2026-11-14T14:34:01.4024061Z [2026-11-14T14:34:01.347+00:00]      TIMEOUT [ 122.659s] north-landing land::queue::tests::two_threads_finishing_one_ticket_leave_it_whole\ntest\tTest\t2026-11-14T14:43:02.4961561Z [2026-11-14T14:43:02.494+00:00] ✉ Timeout: root//crates/north-lander:north-lander-test-it (10:00.0s)";
 
 fn screen_of(holds: Holds, contains: fn(&str, &str) -> Result<bool, String>, landed: fn(&str) -> Result<Vec<String>, String>) -> Screen {
-    Screen { holds, contains: Box::new(move |commit, head| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(landed), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }
+    Screen { holds, contains: Box::new(move |commit, head| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR || contains(commit, head)?)), landed: Box::new(landed), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }
 }
 
 #[test]
@@ -371,7 +373,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let checkout = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
     git(&["init", "-q"]);
-    let absent = Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() };
+    let absent = Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() };
     let refused = Holds(state.path().join("absent-holds")).serve(absent, &Caller { session: "f-review".to_owned(), coordinator: false, reviewer: false }, now(), checkout.path()).unwrap_err();
     assert!(refused.contains(REVIEWED) && refused.contains("no commit in the north checkout"), "a hold placed on a commit the checkout lacks made every later screen fail: {refused}");
     git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "reviewed"]);
@@ -383,7 +385,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
     let session = |name: &str| Caller { session: name.to_owned(), coordinator: false, reviewer: false };
     let (reviewer, author) = (session("f-review"), session("f-holds"));
-    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now(), checkout.path());
+    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() }, caller, now(), checkout.path());
     let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: held.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now(), checkout.path());
     place(&reviewer).unwrap();
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
@@ -428,7 +430,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
         ("an entry that is no hold", screen_of(Holds(unparsed), squashed, landings), "broken.json"),
         ("an entry not named for its hold", screen_of(Holds(misnamed), squashed, landings), "not the hold its name says"),
         ("git failing", screen_of(Holds(store.clone()), |_, _| Err("fatal: no such object".to_owned()), landings), "no such object"),
-        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: landed_in(state.path().join("pushes.tsv")), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }, "pushes.tsv"),
+        ("a push ledger that does not exist", Screen { holds: Holds(store), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: landed_in(state.path().join("pushes.tsv")), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) }, "pushes.tsv"),
     ];
     for (case, screen, says) in failing {
         let refused = screen.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
@@ -520,4 +522,83 @@ fn a_red_run_that_cannot_be_read_refuses_the_head_and_records_nothing_until_a_re
     assert!(unread_refusal.contains("is not screened") && !Trips(unread_trips.clone()).unjudged(SQUASHED).unwrap(), "a review on 2026-11-15 found that a failed read of a red run marked it not judged for good, so a red run could promote: such a record counts as absent, and a failed read refuses the head and records nothing: {unread_refusal}");
     let reread = unread.order(NEW, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
     assert!(reread.contains("golden_path::a_brief_becomes") && Trips(unread_trips).read(SQUASHED).unwrap().is_some(), "the next screen reads the run again and trips on its failed case: {reread}");
+}
+
+const PLACER: &str = "f-review";
+
+fn git_in(checkout: &Path, arguments: &[&str]) -> String {
+    let output = std::process::Command::new("git").current_dir(checkout).args(["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false"]).args(arguments).env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").output().unwrap();
+    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+fn committed(checkout: &Path, file: &str, text: &str) -> String {
+    fs::write(checkout.join(file), text).unwrap();
+    git_in(checkout, &["add", file]);
+    git_in(checkout, &["commit", "-q", "-m", text]);
+    git_in(checkout, &["rev-parse", "HEAD"])
+}
+
+fn until_checkout(root: &Path) -> (PathBuf, PathBuf, String) {
+    let main = root.join("main");
+    fs::create_dir_all(&main).unwrap();
+    git_in(&main, &["init", "-q"]);
+    committed(&main, "README", "north\n");
+    let held = committed(&main, "lock.rs", "wrong lock\n");
+    (main, root.join("state"), held)
+}
+
+fn accepted(state: &Path, checkout: &Path, commit: &str, session: &str) {
+    let patch_id = patch_id(checkout, &format!("{commit}^"), commit).unwrap();
+    Accepts(state.join("accepts")).record(&Accept { patch_id, session: session.to_owned(), at: now() }).unwrap();
+}
+
+fn until_screen(state: &Path, checkout: &Path, held: &str) -> Screen {
+    let screen = Screen { holds: Holds(state.join("holds")), contains: Box::new(|_, _| Ok(true)), landed: landed_in(state.join("pushes.tsv")), answered: answered_in(checkout, Accepts(state.join("accepts"))), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) };
+    let ask = Ask::Place { commit: held.to_owned(), lane: "f-broken".to_owned(), host: None, until: Some("f-cure".to_owned()), why: "the canary reads the wrong lock until f-cure lands".to_owned() };
+    screen.holds.serve(ask, &Caller { session: PLACER.to_owned(), coordinator: false, reviewer: true }, now(), checkout).unwrap();
+    screen
+}
+
+fn land(state: &Path, landed: &str) {
+    let ledger = state.join("pushes.tsv");
+    let rows = fs::read_to_string(&ledger).unwrap_or_default();
+    fs::write(&ledger, format!("{rows}1794600000\tnorth\tf-cure\t{OLD}\t{landed}\tf-cure\n")).unwrap();
+}
+
+#[test]
+fn a_hold_naming_the_lane_whose_landing_lifts_it_lifts_on_its_placers_accepted_landing_read_in_the_trusted_mirror_and_a_trivial_lane_under_the_until_name_does_not_lift_a_review_hold() {
+    let root = tempfile::tempdir().unwrap();
+    let (main, state, held) = until_checkout(root.path());
+    let trivial = committed(&main, "README", "north, cured\n");
+    let unaccepted = committed(&main, "lock.rs", "another lock\n");
+    let cure = committed(&main, "lock.rs", "right lock\n");
+    let forged = committed(&main, "lock.rs", "a worker's lock\n");
+    accepted(&state, &main, &trivial, PLACER);
+    accepted(&state, &main, &unaccepted, "f-other-review");
+    accepted(&state, &main, &cure, PLACER);
+    git_in(&main, &["replace", &forged, &cure]);
+    assert_eq!(patch_id(&main, &format!("{forged}^"), &forged), patch_id(&main, &format!("{cure}^"), &cure), "the planted replace object does not make the checkout answer the accepted cure's patch for the worker's landing");
+    Mirror::open(&main).unwrap();
+    git_in(&main, &["switch", "-q", "-c", "f-cure", &cure]);
+    let late = committed(&main, "lock.rs", "a later right lock\n");
+    accepted(&state, &main, &late, PLACER);
+    let screen = until_screen(&state, &main, &held);
+    for (landed, why) in [
+        ("", "a hold whose cure is queued but not landed"),
+        (trivial.as_str(), "a landing under the --until name that changes none of the held commit's files"),
+        (unaccepted.as_str(), "a landing under the --until name that edits the held file without its placer's accept"),
+        (forged.as_str(), "a worker's landing that a replace object in the checkout passes off as the accepted cure"),
+        (late.as_str(), "an accepted landing the trusted mirror lacks"),
+    ] {
+        land(&state, landed);
+        let refused = screen.order(&late, &["whiterabbit"], now()).err().unwrap_or_default();
+        assert!(refused.contains(&held) && !refused.contains("not screened"), "{why} lifted the hold or refused the head as unscreened: {refused:?}");
+    }
+
+    Mirror::open(&main).unwrap().publish_lane(&main, "f-cure", &late).unwrap();
+    let named = screen.order(&late, &["whiterabbit"], now()).unwrap();
+    assert!(named.iter().any(|line| line.contains("f-cure landed as") && line.contains(&late)), "on 2026-11-14 a hold stood about an hour after the fix it named had landed, until its placer lifted it by hand: {named:?}");
+    let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.display().to_string())];
+    assert!(review_hold::standing(&environment, &state).unwrap().is_empty(), "the landed lane leaves no hold standing");
 }

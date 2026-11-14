@@ -127,7 +127,7 @@ fn a_failed_spine_walk_keeps_the_failing_step_s_report_and_log() {
 }
 
 fn screen_holding(holds: &std::path::Path) -> Screen {
-    Screen { holds: Holds(holds.to_path_buf()), contains: Box::new(|_, _| Ok(true)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Some(Box::new(|_| Landing::Green)), runs: MainRuns::none(), trips: Trips(holds.join("trips")), revert: Box::new(|_| Ok(())) }
+    Screen { holds: Holds(holds.to_path_buf()), contains: Box::new(|_, _| Ok(true)), landed: Box::new(|_| Ok(Vec::new())), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| Landing::Green)), runs: MainRuns::none(), trips: Trips(holds.join("trips")), revert: Box::new(|_| Ok(())) }
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn a_hold_naming_one_host_leaves_only_that_host_out_of_the_ship_and_a_hold_namin
 
     let scoped = tempfile::tempdir().unwrap();
     let screen = screen_holding(scoped.path());
-    let place = |host: Option<&str>| Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), why: "the elsewhere canary reads the wrong lock".to_owned() };
+    let place = |host: Option<&str>| Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), until: None, why: "the elsewhere canary reads the wrong lock".to_owned() };
     screen.holds.serve(place(Some("elsewhere")), &caller, now(), checkout.path()).unwrap();
     assert!(screen.order(MAIN, &[here.as_str()], now()).is_ok(), "a hold naming another host refused this host's own ship");
     let (kept, left_out) = held_out(&plan, &screen, MAIN, now());

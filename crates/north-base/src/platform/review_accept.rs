@@ -31,10 +31,17 @@ fn is_session(word: &str) -> bool {
     !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+/// The `git diff` a patch id is read from, before its two commits: the stored bytes of every file, never what a configured external diff or textconv filter makes of them.
+pub const PATCH_DIFF: [&str; 5] = ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--binary"];
+
 /// `git patch-id --stable` of the change from `from` to `to` in `directory`.
 pub fn patch_id(directory: &Path, from: &str, to: &str) -> Result<String, String> {
-    let diff = git::stdout(directory, &["diff", "--no-ext-diff", "--no-renames", "--binary", from, to], |output| format!("git diff {from} {to}: {}", String::from_utf8_lossy(&output.stderr).trim()))?;
-    let output = process::run_with_input_within("git", &["patch-id", "--stable"], Some(&diff), PATCH_ID_LIMIT).filter(|output| output.status.success()).ok_or_else(|| format!("git patch-id --stable of {from}..{to} did not answer"))?;
+    patch_id_of(&git::stdout(directory, &[&PATCH_DIFF[..], &[from, to]].concat(), |output| format!("git diff {from} {to}: {}", String::from_utf8_lossy(&output.stderr).trim()))?, from, to)
+}
+
+/// `git patch-id --stable` of `diff`, the [`PATCH_DIFF`] of `from`..`to`.
+pub fn patch_id_of(diff: &[u8], from: &str, to: &str) -> Result<String, String> {
+    let output = process::run_with_input_within("git", &["patch-id", "--stable"], Some(diff), PATCH_ID_LIMIT).filter(|output| output.status.success()).ok_or_else(|| format!("git patch-id --stable of {from}..{to} did not answer"))?;
     String::from_utf8_lossy(&output.stdout).split_whitespace().next().filter(|id| is_patch_id(id)).map(str::to_owned).ok_or_else(|| format!("{from}..{to} changes nothing, so it has no patch id"))
 }
 
