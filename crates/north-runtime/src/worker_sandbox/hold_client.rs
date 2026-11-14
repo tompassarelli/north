@@ -5,6 +5,7 @@ use north_base::platform::review_accept::Accepts;
 use super::{MARK, broker, hold_request, lane_grant};
 use crate::runtime::review_accept::{self, Accept};
 use crate::runtime::review_hold::{self, Ask, Caller, Holds, now};
+use crate::runtime::update;
 
 /// `north runtime hold` on a host that `settles` the fleet, or not (runtime/review_hold.rs); its exit code.
 pub fn command(arguments: &[String], settles: bool) -> u8 {
@@ -34,7 +35,7 @@ fn own_caller() -> Result<Caller, String> {
 fn hold(ask: Ask) -> Result<String, String> {
     match brokered(&ask.words(), "hold") {
         Some(told) => told,
-        None => Holds::here().serve(ask, &own_caller()?, now()),
+        None => Holds::here().serve(ask, &own_caller()?, now(), &update::checkout()),
     }
 }
 

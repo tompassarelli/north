@@ -391,7 +391,7 @@ fn reused(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> boo
     reuse::reuse(layout, checkout, target, runtime, land_offload::settles_fleet_here())
 }
 
-pub(super) fn checkout() -> PathBuf {
+pub(crate) fn checkout() -> PathBuf {
     std::env::var_os("NORTH_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| layout::home().join(CHECKOUT))

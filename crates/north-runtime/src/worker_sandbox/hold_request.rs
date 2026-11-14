@@ -8,7 +8,8 @@ use north_base::platform::review_accept::Accepts;
 
 use super::lane_grant::{self, Host};
 use crate::runtime::review_accept::Accept;
-use crate::runtime::review_hold::{self, Ask, COORDINATOR, Caller, Holds, REVIEWER, now};
+use crate::runtime::update;
+use crate::runtime::review_hold::{Ask, COORDINATOR, Caller, Holds, REVIEWER, now};
 
 /// The session whose scope `cgroup` names on `host`, and whether its fleet record names it the coordinator.
 pub(super) fn caller(cgroup: &str, host: &Host) -> Result<Caller, String> {
@@ -21,10 +22,7 @@ pub(super) fn caller(cgroup: &str, host: &Host) -> Result<Caller, String> {
 /// Places or lifts what `ask` names for the session `cgroup` names, in the verdict store of the broker's own environment, placing no hold on a commit the north checkout lacks; the line saying what was done.
 fn served(ask: Ask, cgroup: &str, host: &Host) -> Result<String, String> {
     let caller = caller(cgroup, host)?;
-    if let Ask::Place { commit, .. } = &ask {
-        review_hold::in_checkout(&review_hold::checkout(), commit)?;
-    }
-    Holds::of(&host.environment, &host.home).serve(ask, &caller, now())
+    Holds::of(&host.environment, &host.home).serve(ask, &caller, now(), &update::checkout())
 }
 
 /// Records the accept `accept` names for the session `cgroup` names, in the verdict store of the broker's own environment; the line saying what was done.

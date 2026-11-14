@@ -126,8 +126,6 @@ fn a_failed_spine_walk_keeps_the_failing_step_s_report_and_log() {
     assert!(why.contains(&kept.display().to_string()) && why.contains("did not settle"), "the line runtime-follow.log gets names neither the kept directory nor the step: {why}");
 }
 
-const REVIEWED: &str = "8888888888888888888888888888888888888888";
-
 fn screen_holding(holds: &std::path::Path) -> Screen {
     Screen { holds: Holds(holds.to_path_buf()), contains: Box::new(|_, _| Ok(true)), landed: Box::new(|_| Ok(Vec::new())), after_landing: Box::new(|_| Landing::Green), runs: MainRuns::none(), trips: Trips(holds.join("trips")) }
 }
@@ -138,20 +136,27 @@ fn a_hold_naming_one_host_leaves_only_that_host_out_of_the_ship_and_a_hold_namin
     let here = host::name();
     let plan = Deployment { names: vec![here.clone(), "elsewhere".to_owned()], destinations: vec!["ssh-here".to_owned(), "ssh-elsewhere".to_owned()], ..Default::default() };
 
+    let checkout = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
+    git(&["init", "-q"]);
+    git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "reviewed"]);
+    let head = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap();
+    let held = head.trim();
+
     let scoped = tempfile::tempdir().unwrap();
     let screen = screen_holding(scoped.path());
-    let place = |host: Option<&str>| Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), why: "the elsewhere canary reads the wrong lock".to_owned() };
-    screen.holds.serve(place(Some("elsewhere")), &caller, now()).unwrap();
+    let place = |host: Option<&str>| Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), why: "the elsewhere canary reads the wrong lock".to_owned() };
+    screen.holds.serve(place(Some("elsewhere")), &caller, now(), checkout.path()).unwrap();
     assert!(screen.order(MAIN, &[here.as_str()], now()).is_ok(), "a hold naming another host refused this host's own ship");
     let (kept, left_out) = held_out(&plan, &screen, MAIN, now());
     assert_eq!(kept, vec!["ssh-here".to_owned()], "the held host was not the only one left out");
     assert_eq!(left_out.len(), 1);
     assert_eq!(left_out[0].0, "ssh-elsewhere");
-    assert!(left_out[0].1.contains(REVIEWED), "the left-out host is not named with its hold: {:?}", left_out[0].1);
+    assert!(left_out[0].1.contains(held), "the left-out host is not named with its hold: {:?}", left_out[0].1);
 
     let unscoped = tempfile::tempdir().unwrap();
     let screen = screen_holding(unscoped.path());
-    screen.holds.serve(place(None), &caller, now()).unwrap();
+    screen.holds.serve(place(None), &caller, now(), checkout.path()).unwrap();
     assert!(screen.order(MAIN, &[here.as_str()], now()).is_err(), "a hold naming no host let this host ship");
     assert!(screen.order(MAIN, &["elsewhere"], now()).is_err(), "a hold naming no host let another host ship");
     let (kept, left_out) = held_out(&plan, &screen, MAIN, now());

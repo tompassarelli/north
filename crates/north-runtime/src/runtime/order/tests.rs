@@ -4,7 +4,7 @@ use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
 use super::super::after_landing::Landing;
-use super::super::review_hold::{self, Ask, Caller, Holds, Screen, in_checkout, landed_in, lane_of, now};
+use super::super::review_hold::{self, Ask, Caller, Holds, Screen, landed_in, lane_of, now};
 use super::super::main_runs::{MainRun, MainRuns};
 use super::super::trip::Trips;
 use super::super::update::{self, Flight};
@@ -367,29 +367,38 @@ fn north_holds_lists_review_holds_and_a_reviewers_hold_refuses_an_order_and_the_
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
     let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false, waits: None };
+    let checkout = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
+    git(&["init", "-q"]);
+    let absent = Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() };
+    let refused = Holds(state.path().join("absent-holds")).serve(absent, &Caller { session: "f-review".to_owned(), coordinator: false, reviewer: false }, now(), checkout.path()).unwrap_err();
+    assert!(refused.contains(REVIEWED) && refused.contains("no commit in the north checkout"), "a hold placed on a commit the checkout lacks made every later screen fail: {refused}");
+    git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "reviewed"]);
+    let head = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap();
+    let held = head.trim();
     let store = state.path().join("holds");
     let screen = screen_of(Holds(store.clone()), squashed, landings);
     let cleared = |sha: &str| screen.order(sha, &["whiterabbit"], now());
     let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
     let session = |name: &str| Caller { session: name.to_owned(), coordinator: false, reviewer: false };
     let (reviewer, author) = (session("f-review"), session("f-holds"));
-    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now());
-    let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: REVIEWED.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());
+    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, why: "the canary reads the wrong lock".to_owned() }, caller, now(), checkout.path());
+    let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: held.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now(), checkout.path());
     place(&reviewer).unwrap();
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
     let listed = review_hold::standing(&environment, state.path()).unwrap();
-    assert!(matches!(listed.as_slice(), [held] if held.commit == REVIEWED && held.session == "f-review"), "`north holds` lists a placed hold with its commit and holder: {listed:?}");
+    assert!(matches!(listed.as_slice(), [entry] if entry.commit == held && entry.session == "f-review"), "`north holds` lists a placed hold with its commit and holder: {listed:?}");
 
     let refused = ordered().err().map(|failure| failure.message).unwrap_or_default();
-    assert!(refused.contains(REVIEWED) && refused.contains("f-review"), "a reviewer's hold was a message to the coordinator, who ordered each runtime by hand, and the lander lands the held lane as a squashed commit of its own: {refused:?}");
+    assert!(refused.contains(held) && refused.contains("f-review"), "a reviewer's hold was a message to the coordinator, who ordered each runtime by hand, and the lander lands the held lane as a squashed commit of its own: {refused:?}");
     let promotion = update::slot::held_by_review(&layout, &screen, NEW).unwrap_or_default();
-    assert!(promotion.contains(REVIEWED) && promotion.contains("f-review"), "the slot and Live-fix promotion refuses the same head: {promotion:?}");
+    assert!(promotion.contains(held) && promotion.contains("f-review"), "the slot and Live-fix promotion refuses the same head: {promotion:?}");
     for (settler, case) in [(Ok(true), "another host settles the fleet"), (Err("no such file".to_owned()), "its orchestration configuration cannot be read")] {
         assert!(update::slot::screened(&layout, state.path(), NEW.to_owned(), false, settler, &screen).is_none(), "a host that follows origin/main itself keeps no holds and no push ledger, so it takes no head of its own when {case}");
     }
 
     let not_theirs = lift(&author).unwrap_err();
-    assert!(not_theirs.contains(REVIEWED) && not_theirs.contains("f-review"), "{not_theirs}");
+    assert!(not_theirs.contains(held) && not_theirs.contains("f-review"), "{not_theirs}");
     assert!(ordered().is_err(), "a lift by another session leaves the hold standing");
 
     lift(&reviewer).unwrap();
@@ -412,7 +421,7 @@ fn north_holds_lists_review_holds_and_a_reviewers_hold_refuses_an_order_and_the_
         fs::create_dir_all(store).unwrap();
     }
     fs::write(unparsed.join("broken.json"), "{").unwrap();
-    fs::copy(store.join(format!("{REVIEWED}.f-review.json")), misnamed.join(format!("{NEW}.f-review.json"))).unwrap();
+    fs::copy(store.join(format!("{held}.f-review.json")), misnamed.join(format!("{NEW}.f-review.json"))).unwrap();
     let failing: [(&str, Screen, &str); 5] = [
         ("a store that cannot be listed", screen_of(Holds(unlisted), squashed, landings), "not-a-store"),
         ("an entry that is no hold", screen_of(Holds(unparsed), squashed, landings), "broken.json"),
@@ -458,12 +467,4 @@ fn north_holds_lists_review_holds_and_a_reviewers_hold_refuses_an_order_and_the_
     for branches in [vec!["main".to_owned()], vec!["f-fix".to_owned(), "f-other".to_owned()]] {
         assert!(lane_of(REVIEWED, "", &branches).is_err(), "a hold whose lane is not one branch is refused at placement: {branches:?}");
     }
-    let checkout = tempfile::tempdir().unwrap();
-    let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
-    git(&["init", "-q"]);
-    let absent = in_checkout(checkout.path(), REVIEWED).unwrap_err();
-    assert!(absent.contains(REVIEWED) && absent.contains("no commit in the north checkout"), "a hold placed on a commit the checkout lacks made every later screen fail: {absent}");
-    git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "reviewed"]);
-    let head = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap();
-    assert_eq!(in_checkout(checkout.path(), head.trim()), Ok(()));
 }

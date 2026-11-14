@@ -1,4 +1,4 @@
-//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session lifts it, and the record keeps who lifted it and why. A session in the coordinator role (a record naming the role `proxy`) is refused both, since the client window it also runs in runs in no session's scope (north#1281). Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. The broker places no hold on a commit the north checkout lacks. The switch `review_holds` in harness/defaults.toml turns every screen off.
+//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session lifts it, and the record keeps who lifted it and why. A session in the coordinator role (a record naming the role `proxy`) is refused both, since the client window it also runs in runs in no session's scope (north#1281). Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. No hold is placed on a commit the north checkout lacks, by the broker or the direct path. The switch `review_holds` in harness/defaults.toml turns every screen off.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -175,13 +175,16 @@ impl Holds {
         }
     }
 
-    /// Places or lifts what `ask` names for `caller` at `now`, and the line that says what was done.
-    pub(crate) fn serve(&self, ask: Ask, caller: &Caller, now: u64) -> Result<String, String> {
+    /// Places or lifts what `ask` names for `caller` at `now`, placing no hold on a commit `checkout` lacks, and the line that says what was done.
+    pub(crate) fn serve(&self, ask: Ask, caller: &Caller, now: u64, checkout: &Path) -> Result<String, String> {
         if !named(&caller.session) || caller.session.contains('/') {
             return Err(format!("{:?} names no fleet session", caller.session));
         }
         if caller.coordinator {
             return Err(format!("{} runs in the coordinator role, which neither places nor lifts a hold: the coordinator's client window runs in no fleet session's scope and cannot, so the coordinator cannot in the screen either", caller.session));
+        }
+        if let Ask::Place { commit, .. } = &ask {
+            in_checkout(checkout, commit)?;
         }
         let holds = self.all()?;
         self.prune(&holds, now);
@@ -337,18 +340,13 @@ fn refusal(hold: &Hold) -> String {
 }
 
 /// Refuses a hold on `commit` unless `checkout` holds it as a commit, since every screen asks git there about each hold and one on a commit git cannot find refuses every head.
-pub(crate) fn in_checkout(checkout: &Path, commit: &str) -> Result<(), String> {
+fn in_checkout(checkout: &Path, commit: &str) -> Result<(), String> {
     let object = format!("{commit}^{{commit}}");
     let output = crate::platform::process::run("git", Some(checkout), &["cat-file", "-e", object.as_str()]).map_err(|error| format!("git cat-file: {error}"))?;
     match output.status.success() {
         true => Ok(()),
         false => Err(format!("{commit} is no commit in the north checkout {}, and a hold on it would refuse every head the order and the promotions screen: {}", checkout.display(), String::from_utf8_lossy(&output.stderr).trim())),
     }
-}
-
-/// The north checkout the order and the promotions screen heads in.
-pub(crate) fn checkout() -> PathBuf {
-    super::update::checkout()
 }
 
 /// Whether `head` is `commit` or descends from it in `checkout`: git's exit 1 is no, and any other failure is an error, never a no.

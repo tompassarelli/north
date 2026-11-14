@@ -576,7 +576,11 @@ fn review_pass_records_only_a_reviewer_session_s_accept_and_a_forged_session_nev
 fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
     use crate::runtime::review_hold::{Ask, Holds};
 
-    const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+    let checkout = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
+    git(&["init", "-q"]);
+    git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "held"]);
+    let commit = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap().trim().to_owned();
     let unit = |name: &str| format!("north-session-{name}.scope");
     let cgroup = |name: &str| format!("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/{}\n", unit(name));
     let root = tempfile::tempdir().unwrap();
@@ -590,17 +594,17 @@ fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
     let host = super::lane_grant::Host { fleet, home: root.path().join("home"), code: Vec::new(), environment: Vec::new(), cgroups: root.path().join("cgroup") };
     let holds = Holds::of(&[("NORTH_VERDICT_CACHE_DIR".to_owned(), root.path().join("verdicts").display().to_string())], &host.home);
     let caller = |name: &str| super::hold_request::caller(&cgroup(name), &host).unwrap();
-    let place = || Ask::Place { commit: COMMIT.to_owned(), lane: "f-fix".to_owned(), host: None, why: "held for review".to_owned() };
-    let lift = || Ask::Lift { commit: COMMIT.to_owned(), why: "reviewed".to_owned() };
+    let place = || Ask::Place { commit: commit.clone(), lane: "f-fix".to_owned(), host: None, why: "held for review".to_owned() };
+    let lift = || Ask::Lift { commit: commit.clone(), why: "reviewed".to_owned() };
     let refusal = "proxy-session runs in the coordinator role, which neither places nor lifts a hold";
 
-    let placed = holds.serve(place(), &caller("proxy-session"), 1);
+    let placed = holds.serve(place(), &caller("proxy-session"), 1, checkout.path());
     assert!(placed.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session placed a hold its client window cannot: {placed:?}");
-    let placed = holds.serve(place(), &caller("lead-session"), 2);
+    let placed = holds.serve(place(), &caller("lead-session"), 2, checkout.path());
     assert!(placed.as_ref().is_ok_and(|line| line.contains("lead-session holds")), "a lead lost its hold: {placed:?}");
-    let lifted = holds.serve(lift(), &caller("proxy-session"), 3);
+    let lifted = holds.serve(lift(), &caller("proxy-session"), 3, checkout.path());
     assert!(lifted.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session lifted a hold its client window cannot: {lifted:?}");
-    let lifted = holds.serve(lift(), &caller("lead-session"), 4);
+    let lifted = holds.serve(lift(), &caller("lead-session"), 4, checkout.path());
     assert!(lifted.as_ref().is_ok_and(|line| line.contains("lead-session lifted the hold of lead-session")), "a lead lost its lift: {lifted:?}");
 }
 

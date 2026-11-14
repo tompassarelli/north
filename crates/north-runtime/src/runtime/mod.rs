@@ -35,7 +35,7 @@ mod after_landing;
 mod settle;
 mod store;
 mod tree_build;
-mod update;
+pub(crate) mod update;
 mod verdict;
 mod walk;
 mod watch;
