@@ -11,6 +11,7 @@ use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
 
 mod acceptance;
+mod early_facts;
 mod kept;
 mod lane_sync;
 mod other_lanes;
@@ -143,7 +144,9 @@ fn paths(rest: &[String]) -> Vec<PathBuf> {
 }
 
 fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
-    let named = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| name(&directory, request, &road)).and_then(|named| apply(named, &request.files));
+    let directory = std::env::current_dir().map_err(|error| format!("current directory: {error}"));
+    let facts = directory.as_deref().ok().and_then(|directory| early_facts::early_facts(directory, request, &road));
+    let named = directory.and_then(|directory| name(&directory, request, &road)).and_then(|named| apply(named, &request.files));
     let named = match named {
         Ok(named) => named,
         Err(refusal) => {
@@ -151,7 +154,6 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
             return 1;
         }
     };
-    let facts = Facts::start(&named.lane.root, &named.lane.destination, &Denylist::from_env());
     facts.iter().for_each(Facts::keep);
     if let Some(rebased) = rebase_onto_destination(&named.lane, facts.as_ref()) {
         println!("{verb}: {rebased}");
