@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use super::fleet::entered;
-use crate::ops::remote_serve::{self, Grants, Job, Jobs, Launch, Plan, REMOTE_PEER, Refusal, log};
+use crate::remote_serve::{self, Grants, Job, Jobs, Launch, Plan, REMOTE_PEER, Refusal, log};
 
 const LAPTOP_JOB: i64 = 1;
 const GALILEO_JOB: i64 = 2;

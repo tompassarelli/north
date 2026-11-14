@@ -964,6 +964,7 @@ dependencies = [
  "north-convo",
  "north-core",
  "north-coverage",
+ "north-credentials",
  "north-desktop",
  "north-dispatch",
  "north-docs",
@@ -992,6 +993,7 @@ dependencies = [
  "north-providers",
  "north-reclaim",
  "north-registries",
+ "north-remote-serve",
  "north-replay",
  "north-runtime",
  "north-safe-push",
@@ -1285,6 +1287,23 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "north-credentials"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cbc",
+ "north-base",
+ "pbkdf2",
+ "rusqlite",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tempfile",
+ "time",
+ "toml_edit",
 ]
 
 [[package]]
@@ -1845,8 +1864,6 @@ dependencies = [
 name = "north-ops"
 version = "0.1.0"
 dependencies = [
- "aes",
- "cbc",
  "fancy-regex",
  "north-base",
  "north-calibration",
@@ -1860,7 +1877,6 @@ dependencies = [
  "north-providers",
  "north-registries",
  "north-threads",
- "pbkdf2",
  "percent-encoding",
  "proptest",
  "regex",
@@ -1868,7 +1884,6 @@ dependencies = [
  "rustix 0.38.44",
  "serde",
  "serde_json",
- "sha1",
  "sha2",
  "tempfile",
  "time",
@@ -1970,6 +1985,19 @@ name = "north-registries"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "north-remote-serve"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-calibration",
+ "north-fleet-supervisor",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

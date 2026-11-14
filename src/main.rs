@@ -18,7 +18,6 @@ use north_land_watch::watch;
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land_abandon, landing, language_gate, provenance};
 use north_github_mirror as github_mirror;
 use north_tui::tui;
-use north_ops::ops;
 use north_ci::{ci_watch, private_check};
 use north_github_broker::gh_broker;
 use north_desktop::{agent_capture, private_desktop, warcraft_close, wc3_login_field};
@@ -30,6 +29,8 @@ use north_convo::{context_audit, convo, policy_replay};
 use north_timers::{privacy, runtime_access, timers};
 use north_issue_boxes::{cargo_boxes, done_when_boxes, issue_child, issue_convert, observation_boxes, stale_issues};
 use north_claims::{citation_check, review_items};
+use north_credentials::credentials;
+use north_remote_serve::remote_serve;
 
 static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },
