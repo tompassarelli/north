@@ -1,4 +1,4 @@
-//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session lifts it by hand, and the record keeps who lifted it and why. A hold placed with `--until LANE` names the lane whose landing lifts it: the first screen of a head containing a landing of that lane that changes a file the held commit changes and whose patch carries the placer's `north runtime accept` lifts it in its record, reading both only in the trusted mirror beside the checkout, which no worker writes (north#1540). A session in the coordinator role (a record naming the role `proxy`) is refused both, since the client window it also runs in runs in no session's scope (north#1281). Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened, such as one on a commit the checkout lacks, is passed over. No hold is placed on a commit the north checkout lacks, by the broker or the direct path. The switch `review_holds` in harness/defaults.toml turns every screen off.
+//! A reviewer's hold on a commit (north#1022): a record in the verdict store, which no worker domain writes, that keeps every head containing the commit, or a landing of the lane that holds it, from going live. `north runtime order` refuses such a head and so do the slot and `Live-fix:` promotions, each naming the commit and the reviewer. `north runtime hold` places and lifts a hold for the fleet session the caller's cgroup scope names, read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or a trailer; only that session lifts it by hand, and the record keeps who lifted it and why. A hold placed with `--until LANE` names the lane whose landing lifts it: the first screen of a head containing a landing of that lane that changes a file the held commit changes and whose patch carries the placer's `north runtime accept` lifts it in its record, reading both only in the trusted mirror beside the checkout, which no worker writes (north#1540). A session in the coordinator role (a record naming the role `proxy`) is refused both, since the client window it also runs in runs in no session's scope (north#1281). Every read for a standing hold fails closed: a store, a ledger or a git answer that cannot be read refuses the head, while a lifted hold that cannot be screened is passed over. Every screen asks git in the trusted mirror, never in the north checkout, whose refs and replace refs a worker writes (south#138); a held commit the mirror lacks, such as a lane commit that has not landed, is in no head the mirror holds, since a fetch brings every ancestor of what it fetches. The switch `review_holds` in harness/defaults.toml turns every screen off.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use north_base::platform::finish_record::verdict_store;
 use north_base::platform::harness::{DEFAULTS, document};
 use north_base::platform::review_accept::{Accepts, PATCH_DIFF, patch_id_of};
-use north_trusted_mirror::Mirror;
 use serde::{Deserialize, Serialize};
 
 use super::after_landing::{self, AfterLanding, Ledger};
@@ -180,16 +179,13 @@ impl Holds {
         }
     }
 
-    /// Places or lifts what `ask` names for `caller` at `now`, placing no hold on a commit `checkout` lacks, and the line that says what was done.
-    pub(crate) fn serve(&self, ask: Ask, caller: &Caller, now: u64, checkout: &Path) -> Result<String, String> {
+    /// Places or lifts what `ask` names for `caller` at `now`, and the line that says what was done.
+    pub(crate) fn serve(&self, ask: Ask, caller: &Caller, now: u64) -> Result<String, String> {
         if !named(&caller.session) || caller.session.contains('/') {
             return Err(format!("{:?} names no fleet session", caller.session));
         }
         if caller.coordinator {
             return Err(format!("{} runs in the coordinator role, which neither places nor lifts a hold: the coordinator's client window runs in no fleet session's scope and cannot, so the coordinator cannot in the screen either", caller.session));
-        }
-        if let Ask::Place { commit, .. } = &ask {
-            in_checkout(checkout, commit)?;
         }
         let holds = self.all()?;
         self.prune(&holds, now);
@@ -250,12 +246,11 @@ fn unscreened(head: &str, why: String) -> String {
 }
 
 impl Screen {
-    /// The screen on this host: its holds, git's answer in `checkout`, the landings of this host's push ledger and the open Buck2 trips.
-    pub(crate) fn here(checkout: &Path) -> Self {
-        let checkout = checkout.to_path_buf();
+    /// The screen on this host: its holds, git's answer in the trusted mirror `store` (update::trusted_store), the landings of this host's push ledger and the open Buck2 trips.
+    pub(crate) fn here(store: &Path) -> Self {
         let ledger = state_home().join(PUSH_LEDGER);
-        let after = Ledger::here(&checkout);
-        Self { holds: Holds::here(), contains: Box::new({ let checkout = checkout.clone(); move |commit, head| contained(&checkout, commit, head) }), landed: landed_in(ledger), answered: answered_in(&checkout, Accepts::here()), after_landing: after_landing::enabled().then(|| Box::new(move |head: &str| after.landing(head, now())) as AfterLanding), trips: Trips::here(), runs: MainRuns::main(), revert: Box::new(move |trip| super::trip::ask_revert(&checkout, trip)) }
+        let after = Ledger::here(store);
+        Self { holds: Holds::here(), contains: contains_in(store.to_path_buf()), landed: landed_in(ledger), answered: answered_in(store.to_path_buf(), Accepts::here()), after_landing: after_landing::enabled().then(|| Box::new(move |head: &str| after.landing(head, now())) as AfterLanding), trips: Trips::here(), runs: MainRuns::main(), revert: { let store = store.to_path_buf(); Box::new(move |trip| super::trip::ask_revert(&store, trip)) } }
     }
 
     /// Why `head` may not go live through an order that promotes the hosts `hosts`: a standing hold that `head` holds and that names no host or one of them, or a fact that cannot be read; else a line for each hold `head` holds that was lifted within the last day, naming who lifted it and why.
@@ -422,22 +417,15 @@ fn refusal(hold: &Hold) -> String {
     format!("{} of the lane {}, held{on} by {}: {}; only {} lifts it (north runtime hold --lift {} --why TEXT)", hold.commit, hold.lane, hold.session, hold.why, hold.session, hold.commit)
 }
 
-/// Refuses a hold on `commit` unless `checkout` holds it as a commit, since every screen asks git there about each hold and one on a commit git cannot find refuses every head.
-fn in_checkout(checkout: &Path, commit: &str) -> Result<(), String> {
-    let object = format!("{commit}^{{commit}}");
-    let output = crate::platform::process::run("git", Some(checkout), &["cat-file", "-e", object.as_str()]).map_err(|error| format!("git cat-file: {error}"))?;
-    match output.status.success() {
-        true => Ok(()),
-        false => Err(format!("{commit} is no commit in the north checkout {}, and a hold on it would refuse every head the order and the promotions screen: {}", checkout.display(), String::from_utf8_lossy(&output.stderr).trim())),
-    }
+/// Whether `head` is `commit` or descends from it, as git in `store` answers: a commit the store lacks or an exit 1 is no, and any other failure is an error, never a no.
+pub(crate) fn contains_in(store: PathBuf) -> Contains {
+    Box::new(move |commit, head| contained(&store, commit, head))
 }
 
-/// Whether a landing answers a hold, read only in the trusted mirror beside `checkout` (north_trusted_mirror), since a worker writes the checkout's store and could plant a replace object there that forges either answer: the landing changes a file the held commit changes, and the patch it made over its parent carries an accept in `accepts` by the session that placed the hold. A landing or held commit the mirror lacks, or an answer that cannot be read, answers nothing, so the hold stands until its placer lifts it.
-pub(crate) fn answered_in(checkout: &Path, accepts: Accepts) -> Answered {
-    let checkout = checkout.to_path_buf();
+/// Whether a landing answers a hold, read only in the trusted mirror's `store` (north_trusted_mirror), since a worker writes the checkout's store and could plant a replace object there that forges either answer: the landing changes a file the held commit changes, and the patch it made over its parent carries an accept in `accepts` by the session that placed the hold. A landing or held commit the mirror lacks, or an answer that cannot be read, answers nothing, so the hold stands until its placer lifts it.
+pub(crate) fn answered_in(store: PathBuf, accepts: Accepts) -> Answered {
     Box::new(move |hold, landed| {
-        let Ok(mirror) = Mirror::open(&checkout) else { return false };
-        let git = |arguments: &[&str]| north_trusted_mirror::command(mirror.git_dir()).args(arguments).output().ok().filter(|output| output.status.success()).map(|output| output.stdout);
+        let git = |arguments: &[&str]| north_trusted_mirror::command(&store).args(arguments).output().ok().filter(|output| output.status.success()).map(|output| output.stdout);
         let files = |commit: &str| git(&["diff-tree", "-r", "-z", "--root", "--no-commit-id", "--name-only", "--no-renames", commit]).map(|names| names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(<[u8]>::to_vec).collect::<std::collections::BTreeSet<_>>());
         let (Some(held), Some(changed)) = (files(&hold.commit), files(landed)) else { return false };
         let parent = format!("{landed}^");
@@ -446,13 +434,17 @@ pub(crate) fn answered_in(checkout: &Path, accepts: Accepts) -> Answered {
     })
 }
 
-/// Whether `head` is `commit` or descends from it in `checkout`: git's exit 1 is no, and any other failure is an error, never a no.
-fn contained(checkout: &Path, commit: &str, head: &str) -> Result<bool, String> {
-    let output = crate::platform::process::run("git", Some(checkout), &["merge-base", "--is-ancestor", commit, head]).map_err(|error| format!("git merge-base: {error}"))?;
+fn contained(store: &Path, commit: &str, head: &str) -> Result<bool, String> {
+    let object = format!("{commit}^{{commit}}");
+    let present = crate::platform::process::run("git", Some(store), &["rev-parse", "--verify", "--quiet", object.as_str()]).map_err(|error| format!("git rev-parse: {error}"))?;
+    if present.status.code() == Some(1) {
+        return Ok(false);
+    }
+    let output = crate::platform::process::run("git", Some(store), &["merge-base", "--is-ancestor", commit, head]).map_err(|error| format!("git merge-base: {error}"))?;
     match output.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),
-        code => Err(format!("git merge-base --is-ancestor {commit} {head} in {} ended {code:?}: {}", checkout.display(), String::from_utf8_lossy(&output.stderr).trim())),
+        code => Err(format!("git merge-base --is-ancestor {commit} {head} in {} ended {code:?}: {}", store.display(), String::from_utf8_lossy(&output.stderr).trim())),
     }
 }
 

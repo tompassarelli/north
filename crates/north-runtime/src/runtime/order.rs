@@ -48,8 +48,8 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     if !land_offload::settles_fleet_here() {
         return Err(failed(64, format!("this host does not settle the fleet; run it on the host that does\n{USAGE}")));
     }
-    let checkout = update::checkout();
-    let sha = resolve(&checkout, commit.as_deref())?;
+    let store = update::trusted_store()?;
+    let sha = resolve(&store, commit.as_deref())?;
     let name = crate::platform::host::name();
     let here = Here { layout, shell: Shell::Here(name.clone()) };
     let deployment = land_offload::deployment();
@@ -58,7 +58,7 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     }
     let (kept, left_out) = leave_out(&deployment, &except, &name)?;
     let promoted: Vec<&str> = std::iter::once(name.as_str()).chain(deployment.names.iter().zip(&deployment.destinations).filter(|(_, destination)| kept.contains(destination)).map(|(host, _)| host.as_str())).collect();
-    let screen = Screen::here(&checkout);
+    let screen = Screen::here(&store);
     let order = Order::cleared(sha, reason, orderer(), |sha| screen.order(sha, &promoted, review_hold::now()))?;
     let others: Vec<Elsewhere> = kept.iter().map(|destination| Elsewhere { layout, shell: Shell::Ssh(destination.clone()) }).collect();
     let others: Vec<&dyn Host> = others.iter().map(|other| other as &dyn Host).collect();
@@ -103,11 +103,11 @@ fn parse(flags: &[String]) -> Result<(Option<String>, String, Vec<String>), Fail
     }
 }
 
-fn resolve(checkout: &std::path::Path, commit: Option<&str>) -> Result<String, Failure> {
-    update::fetch(checkout)?;
+fn resolve(store: &std::path::Path, commit: Option<&str>) -> Result<String, Failure> {
+    update::fetch(store)?;
     let named = commit.unwrap_or("origin/main");
-    let sha = update::git(checkout, &["rev-parse", "--verify", &format!("{named}^{{commit}}")])?;
-    match super::settle::ancestor(checkout, &sha, "origin/main") {
+    let sha = update::git(store, &["rev-parse", "--verify", &format!("{named}^{{commit}}")])?;
+    match super::settle::ancestor(store, &sha, "origin/main") {
         true => Ok(sha),
         false => Err(failed(1, format!("{} is not an ancestor of origin/main", layout::short(&sha)))),
     }
@@ -320,3 +320,6 @@ impl Host for Elsewhere<'_> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod trusted_store_tests;

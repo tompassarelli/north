@@ -373,9 +373,6 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let checkout = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
     git(&["init", "-q"]);
-    let absent = Ask::Place { commit: REVIEWED.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() };
-    let refused = Holds(state.path().join("absent-holds")).serve(absent, &Caller { session: "f-review".to_owned(), coordinator: false, reviewer: false }, now(), checkout.path()).unwrap_err();
-    assert!(refused.contains(REVIEWED) && refused.contains("no commit in the north checkout"), "a hold placed on a commit the checkout lacks made every later screen fail: {refused}");
     git(&["-c", "user.name=north", "-c", "user.email=north@invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "reviewed"]);
     let head = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap();
     let held = head.trim();
@@ -385,8 +382,8 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
     let session = |name: &str| Caller { session: name.to_owned(), coordinator: false, reviewer: false };
     let (reviewer, author) = (session("f-review"), session("f-holds"));
-    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() }, caller, now(), checkout.path());
-    let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: held.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now(), checkout.path());
+    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() }, caller, now());
+    let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: held.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());
     place(&reviewer).unwrap();
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
     let listed = review_hold::standing(&environment, state.path()).unwrap();
@@ -508,6 +505,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     for branches in [vec!["main".to_owned()], vec!["f-fix".to_owned(), "f-other".to_owned()]] {
         assert!(lane_of(REVIEWED, "", &branches).is_err(), "a hold whose lane is not one branch is refused at placement: {branches:?}");
     }
+    super::trusted_store_tests::a_promotion_an_order_and_a_review_screen_refuse_what_a_worker_writes_into_the_main_store();
 }
 
 #[test]
@@ -554,9 +552,9 @@ fn accepted(state: &Path, checkout: &Path, commit: &str, session: &str) {
 }
 
 fn until_screen(state: &Path, checkout: &Path, held: &str) -> Screen {
-    let screen = Screen { holds: Holds(state.join("holds")), contains: Box::new(|_, _| Ok(true)), landed: landed_in(state.join("pushes.tsv")), answered: answered_in(checkout, Accepts(state.join("accepts"))), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) };
+    let screen = Screen { holds: Holds(state.join("holds")), contains: Box::new(|_, _| Ok(true)), landed: landed_in(state.join("pushes.tsv")), answered: answered_in(Mirror::open(checkout).unwrap().git_dir().to_path_buf(), Accepts(state.join("accepts"))), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())) };
     let ask = Ask::Place { commit: held.to_owned(), lane: "f-broken".to_owned(), host: None, until: Some("f-cure".to_owned()), why: "the canary reads the wrong lock until f-cure lands".to_owned() };
-    screen.holds.serve(ask, &Caller { session: PLACER.to_owned(), coordinator: false, reviewer: true }, now(), checkout).unwrap();
+    screen.holds.serve(ask, &Caller { session: PLACER.to_owned(), coordinator: false, reviewer: true }, now()).unwrap();
     screen
 }
 

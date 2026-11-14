@@ -18,6 +18,7 @@ use super::super::pin::{self, Event};
 use super::super::pull;
 use super::super::remote;
 use north_offload::land_offload::{self, BuildHost};
+use north_trusted_mirror::Mirror;
 use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::fs::{self, File};
@@ -398,19 +399,20 @@ fn candidate_ref(commit: &str) -> String {
 }
 
 fn send(checkout: &Path, host: &BuildHost, commit: &str) -> Result<(), Failure> {
+    let mirror = Mirror::repository(Path::new(super::CHECKOUT)).map_err(|why| failed(1, why))?;
     let mut push = Command::new("git");
-    push.arg("-C").arg(checkout).args(["push", "-q", "--no-verify"]).arg(format!("{}:{}", host.ssh, super::CHECKOUT)).arg(format!("{commit}:{}", candidate_ref(commit))).env("GIT_SSH_COMMAND", format!("{} -o BatchMode=yes -o ConnectTimeout=20", remote::OWN_RSH));
+    push.arg("-C").arg(checkout).args(["push", "-q", "--no-verify"]).arg(format!("{}:{}", host.ssh, mirror.display())).arg(format!("{commit}:{}", candidate_ref(commit))).env("GIT_SSH_COMMAND", format!("{} -o BatchMode=yes -o ConnectTimeout=20", remote::OWN_RSH));
     remote::run(&host.name, "sending the candidate commit", &mut push, SEND)
 }
 
-/// On a build host: whether `commit` was sent here as a lander's candidate.
-pub(super) fn sent(checkout: &Path, commit: &str) -> bool {
-    process::run("git", Some(checkout), &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", candidate_ref(commit))]).is_ok_and(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == commit)
+/// On a build host: whether `commit` was sent to its trusted mirror `store` as a lander's candidate.
+pub(super) fn sent(store: &Path, commit: &str) -> bool {
+    process::run("git", Some(store), &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", candidate_ref(commit))]).is_ok_and(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == commit)
 }
 
 /// On a build host: drops the ref a candidate was sent under once its build ended, so the refs never pile up.
-pub(super) fn forget(checkout: &Path, commit: &str) {
-    let _ = process::run("git", Some(checkout), &["update-ref", "-d", &candidate_ref(commit)]);
+pub(super) fn forget(store: &Path, commit: &str) {
+    let _ = process::run("git", Some(store), &["update-ref", "-d", &candidate_ref(commit)]);
 }
 
 /// Completes the artifact a build host's programs were taken into, then gives it the name a promotion finds by tree

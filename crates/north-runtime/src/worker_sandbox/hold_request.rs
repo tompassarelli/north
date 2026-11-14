@@ -9,7 +9,6 @@ use north_base::platform::review_accept::Accepts;
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
 use crate::runtime::review_accept::Accept;
-use crate::runtime::update;
 use crate::runtime::review_hold::{Ask, COORDINATOR, Caller, Holds, REVIEWER, now};
 
 /// The session the caller `peer` runs in on `host`, and whether its fleet record names it the coordinator.
@@ -20,10 +19,10 @@ pub(super) fn caller(peer: &Peer, host: &Host) -> Result<Caller, String> {
     Ok(Caller { session, coordinator: role == Some(COORDINATOR), reviewer: role == Some(REVIEWER) })
 }
 
-/// Places or lifts what `ask` names for the session the caller `peer` runs in, in the verdict store of the broker's own environment, placing no hold on a commit the north checkout lacks; the line saying what was done.
+/// Places or lifts what `ask` names for the session the caller `peer` runs in, in the verdict store of the broker's own environment; the line saying what was done.
 fn served(ask: Ask, peer: &Peer, host: &Host) -> Result<String, String> {
     let caller = caller(peer, host)?;
-    Holds::of(&host.environment, &host.home).serve(ask, &caller, now(), &update::checkout())
+    Holds::of(&host.environment, &host.home).serve(ask, &caller, now())
 }
 
 /// Records the accept `accept` names for the session the caller `peer` runs in, in the verdict store of the broker's own environment; the line saying what was done.

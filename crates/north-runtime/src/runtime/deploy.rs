@@ -5,7 +5,7 @@ use super::layout::{self, BUILT_FROM, Layout, PROGRAMS, TREE};
 use super::pin::{self, Event};
 use super::remote::{OWN_RSH, limit, output, run, run_reporting, ssh};
 use super::store::references;
-use super::update::{built_main, checkout, named_lock_waiting, promotion_waiting};
+use super::update::{built_main, named_lock_waiting, promotion_waiting, trusted_store};
 use north_offload::land_offload;
 use std::collections::BTreeSet;
 use std::fs;
@@ -27,7 +27,7 @@ const UNKNOWN_FLAG: u8 = 64;
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     let (target, runtime) = {
         let _building = promotion_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
-        built_main(layout, &checkout())?
+        built_main(layout, &trusted_store()?)?
     };
     ship_to(layout, &target, &runtime, hosts, Arc::new(|| false))
 }

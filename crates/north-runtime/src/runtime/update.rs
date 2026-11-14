@@ -14,6 +14,7 @@ use super::reuse;
 use super::review_hold;
 use super::store;
 use north_offload::land_offload;
+use north_trusted_mirror::Mirror;
 use crate::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
@@ -76,9 +77,9 @@ pub(super) fn update(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Fl
 
 /// A caller that waits for the running promotion still dates its landing, so landing to live counts from the landing, not from when the lock came free.
 fn note_landing(layout: &Layout) {
-    let checkout = checkout();
-    if let Ok(main) = main_commit(&checkout) {
-        pin::observe(layout, &checkout, &main);
+    let Ok(store) = trusted_store() else { return };
+    if let Ok(main) = main_commit(&store) {
+        pin::observe(layout, &store, &main);
     }
 }
 
@@ -113,24 +114,24 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
         return Err(failed(1, format!("this host settles the fleet and promotes only a runtime it built or had a build host build, not {} shipped from another host", layout::short(target))));
     }
     let _promoting = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha")?;
-    let checkout = checkout();
+    let store = trusted_store()?;
     let previous = fs::read_link(layout.current()).ok();
-    match shipped(layout, &checkout, target, previous.as_deref()) {
+    match shipped(layout, &store, target, previous.as_deref()) {
         Shipped::Current => println!("north runtime current: {}", layout::short(target)),
         Shipped::Older(newer) => println!("north runtime: not moving {} back from {} to {}", host::name(), layout::short(&newer), layout::short(target)),
         Shipped::Missing => return Err(failed(1, format!("{} was not shipped to this host; runtime unchanged", layout::short(target)))),
-        Shipped::Promote => return advance(layout, &checkout, target, previous.as_deref()).map(|_| ()),
+        Shipped::Promote => return advance(layout, &store, target, previous.as_deref()).map(|_| ()),
     }
     Ok(())
 }
 
 /// One build for another host runs here at a time, since each borrows the one runtime-build lane and kept target; a commit neither on origin/main nor sent here ahead of its landing as a lander's candidate is refused, so a build host builds only what landed or what a lander is checking.
 pub(super) fn build_for_peer(layout: &Layout, target: &str) -> Result<(), Failure> {
-    let checkout = checkout();
-    let candidate = ahead::sent(&checkout, target);
-    let built = build_landed_or_candidate(layout, &checkout, target, candidate);
+    let store = trusted_store()?;
+    let candidate = ahead::sent(&store, target);
+    let built = build_landed_or_candidate(layout, &store, target, candidate);
     if candidate {
-        ahead::forget(&checkout, target);
+        ahead::forget(&store, target);
     }
     built
 }
@@ -208,11 +209,11 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
         }
         return Ok(Pass::Settled);
     }
-    let checkout = checkout();
-    let main = main_commit(&checkout)?;
+    let store = trusted_store()?;
+    let main = main_commit(&store)?;
     let settles = land_offload::settles_fleet_here();
-    let Some(target) = slot::screened(layout, &checkout, main, settles, land_offload::settled_elsewhere(), &review_hold::Screen::here(&checkout)) else { return Ok(Pass::Settled) };
-    let advanced = advance_to(layout, &checkout, &target);
+    let Some(target) = slot::screened(layout, &store, main, settles, land_offload::settled_elsewhere(), &review_hold::Screen::here(&store)) else { return Ok(Pass::Settled) };
+    let advanced = advance_to(layout, &store, &target);
     if settles && matches!(advanced, Ok(Pass::Promoted)) {
         cadence::note_outcome(layout, pin::now(), Outcome::Promoted);
         pin::promoted(layout, &target);
@@ -395,6 +396,15 @@ pub(crate) fn checkout() -> PathBuf {
     std::env::var_os("NORTH_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| layout::home().join(CHECKOUT))
+}
+
+/// The git store a promotion, an order, a settle and a review screen read commits from: the trusted mirror beside the checkout (north-trusted-mirror), which only a fetch of origin writes, never the checkout's own store, whose refs, replace refs and configuration a worker writes.
+pub(super) fn trusted_store() -> Result<PathBuf, Failure> {
+    trusted_store_of(&checkout())
+}
+
+pub(super) fn trusted_store_of(checkout: &Path) -> Result<PathBuf, Failure> {
+    Mirror::open(checkout).map(|mirror| mirror.git_dir().to_owned()).map_err(|why| failed(1, format!("the trusted mirror of {}: {why}", checkout.display())))
 }
 
 pub(super) fn git<S: AsRef<OsStr>>(checkout: &Path, args: &[S]) -> Result<String, Failure> {

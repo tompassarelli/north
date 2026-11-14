@@ -2,7 +2,7 @@ use super::super::failure::{Failure, failed};
 use super::super::layout::{self, Layout};
 use super::super::pin;
 use super::super::remote;
-use super::{Flight, PINNED_LOCK_WAIT, PROMOTE_LOCK, advance, built, caller, checkout, follow_main, named_lock, named_lock_waiting, promotion_waiting, usable};
+use super::{Flight, PINNED_LOCK_WAIT, PROMOTE_LOCK, advance, built, caller, follow_main, named_lock, named_lock_waiting, promotion_waiting, trusted_store, usable};
 use north_offload::land_offload;
 use rustix::fs::FlockOperation;
 use std::fs::{self, File};
@@ -41,10 +41,10 @@ pub(in crate::runtime) fn go_live_ordered(layout: &Layout, target: &str) -> Resu
 }
 
 fn move_to_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
-    let checkout = checkout();
+    let store = trusted_store()?;
     let previous = fs::read_link(layout.current()).ok();
     if previous.as_deref() != Some(layout::link(target).as_path()) {
-        advance(layout, &checkout, target, previous.as_deref())?;
+        advance(layout, &store, target, previous.as_deref())?;
         if layout.live_sha().as_deref() != Some(target) {
             return Err(failed(1, format!("{} did not go live here: current is {}", layout::short(target), layout.live_sha().as_deref().map_or("missing", layout::short))));
         }
@@ -53,7 +53,7 @@ fn move_to_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
 }
 
 pub(in crate::runtime) fn build_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
-    built(layout, &checkout(), target).map(|_| ())
+    built(layout, &trusted_store()?, target).map(|_| ())
 }
 
 pub(in crate::runtime) fn order_marked(layout: &Layout) -> Result<File, Failure> {

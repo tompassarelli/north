@@ -57,9 +57,9 @@ pub(crate) struct Ledger {
 }
 
 impl Ledger {
-    /// The ledger and the lander queue of `checkout`'s repository on this host.
-    pub(crate) fn here(checkout: &Path) -> Self {
-        let origin = crate::platform::process::run("git", Some(checkout), &["remote", "get-url", "origin"]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
+    /// The ledger and the lander queue, on this host, of the repository the git store `store` fetches as origin.
+    pub(crate) fn here(store: &Path) -> Self {
+        let origin = crate::platform::process::run("git", Some(store), &["remote", "get-url", "origin"]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
         Self::of(&state_home(), &origin)
     }
 

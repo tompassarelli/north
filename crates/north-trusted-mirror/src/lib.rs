@@ -1,4 +1,4 @@
-//! The trusted mirror of a project (south#128): a bare repository at `CODE/PROJECT/trusted/repo.git`, beside the main checkout and outside every worker sandbox grant, written by no worker either by path or through git. A lane shares the git store of `PROJECT/main`, which a worker writes, so nothing in that store decides trust. The mirror takes objects only by fetching, which hashes each object received, and writes `refs/remotes/origin/main` only by fetching origin, whose address its own configuration keeps from the moment it is made. A check run outside the sandbox reads this repository or a worktree of it under `trusted/worktrees`, never the main checkout's store. It depends on std and tempfile alone.
+//! The trusted mirror of a project (south#128): a bare repository at `CODE/PROJECT/trusted/repo.git`, beside the main checkout and outside every worker sandbox grant, written by no worker either by path or through git. A lane shares the git store of `PROJECT/main`, which a worker writes, so nothing in that store decides trust. The mirror takes objects only by fetching, which hashes each object received, or, on a build host, by the operator's push of a lander's candidate to a ref under `refs/build-ahead`, which hashes them too, and writes `refs/remotes/origin/main` only by fetching origin, whose address its own configuration keeps from the moment it is made. A check run outside the sandbox reads this repository or a worktree of it under `trusted/worktrees`, never the main checkout's store. It depends on std and tempfile alone.
 #![forbid(unsafe_code)]
 
 use std::fs;
@@ -49,8 +49,12 @@ impl Mirror {
         Ok(container.join(DIRECTORY))
     }
 
+    pub fn repository(main: &Path) -> Result<PathBuf, String> {
+        Ok(Self::directory(main)?.join(REPOSITORY))
+    }
+
     pub fn open(main: &Path) -> Result<Self, String> {
-        let git_dir = Self::directory(main)?.join(REPOSITORY);
+        let git_dir = Self::repository(main)?;
         if git_dir.join("HEAD").is_file() {
             return Ok(Self { git_dir });
         }

@@ -44,28 +44,28 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         let error = Command::new(layout.runtime(&live).join("north")).args(["runtime", "settle"]).exec();
         return Err(failed(1, format!("could not hand settle to the live runtime {}: {error}", layout::short(&live))));
     }
-    let checkout = update::checkout();
+    let store = update::trusted_store()?;
     let hosts = fleet_hosts();
-    let landing = due_landing(layout, &checkout)?;
-    let live = |runtime: &str| landing.as_ref().is_none_or(|landing| runtime == landing.sha || ancestor(&checkout, &landing.sha, runtime));
+    let landing = due_landing(layout, &store)?;
+    let live = |runtime: &str| landing.as_ref().is_none_or(|landing| runtime == landing.sha || ancestor(&store, &landing.sha, runtime));
     let mut records = Vec::new();
     let mut failing = Vec::new();
     let mut broken = Vec::new();
     let judging = landing.as_ref().filter(|landing| !judged(layout, &landing.sha));
-    let code_changed = judging.is_none_or(|landing| changes_code(&checkout, &landing.sha));
+    let code_changed = judging.is_none_or(|landing| changes_code(&store, &landing.sha));
     let mut history = History::load(layout);
     let mut growth = Growth::load(layout);
     let mut incidents = Vec::new();
-    let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
-    let here = walk_and_ship(layout, &hosts, &checkout);
+    let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&store).is_some_and(|head| head != landing.sha));
+    let here = walk_and_ship(layout, &hosts, &store);
     let others = if canaries_at_once() { judged_at_once(layout, &hosts[1..]) } else { hosts[1..].iter().map(|host| probed(layout, host).0).collect() };
     for mut facts in std::iter::once(here).chain(others) {
-        let (problems, window) = judged_problems(&mut facts, landing.as_ref(), &checkout, live, &mut growth);
+        let (problems, window) = judged_problems(&mut facts, landing.as_ref(), &store, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict::verdict(&facts, &problems, landing.is_some()));
         print_north(&facts, window.as_deref());
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
-            let inherited = judging.map_or(&[][..], |landing| history.before(&facts.host, &landing.sha, |earlier| ancestor(&checkout, earlier, &landing.sha)));
+            let inherited = judging.map_or(&[][..], |landing| history.before(&facts.host, &landing.sha, |earlier| ancestor(&store, earlier, &landing.sha)));
             let (own, elsewhere) = blame(&problems, moved_on, inherited, code_changed);
             broken.extend(own.is_empty().not().then(|| format!("{}: {}", facts.host, own.join("; "))));
             incidents.extend(elsewhere.is_empty().not().then(|| format!("{}: {}", facts.host, elsewhere.join("; "))));
@@ -84,7 +84,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let report = json!({"checkedAt": now(), "landing": landing.as_ref().map(|landing| &landing.sha), "hostIncidents": incidents, "hosts": records});
     fs::write(layout.state.join("runtime-settle.json"), format!("{report:#}\n"))?;
     if let Some(landing) = landing.filter(|landing| !judged(layout, &landing.sha)) {
-        judge(layout, &checkout, &landing, &broken);
+        judge(layout, &update::checkout(), &landing, &broken);
     }
     outcome(promoted, &failing)
 }
@@ -111,16 +111,16 @@ fn fleet_hosts() -> Vec<Shell> {
 }
 
 /// Probes this host first, so its canary walks the spine on the live runtime, and ships that runtime to the hosts behind it only when it passed; the lander link follows the runtime as soon as that canary passed, while the ship runs.
-fn walk_and_ship(layout: &Layout, hosts: &[Shell], checkout: &Path) -> probe::Facts {
+fn walk_and_ship(layout: &Layout, hosts: &[Shell], store: &Path) -> probe::Facts {
     let (facts, judged) = probed(layout, &hosts[0]);
     let live = layout.live_sha();
     let walk = walk::walk_of(layout, &facts.host, live.as_deref(), judged.as_ref().map(|(sha, verdict)| (sha.as_str(), verdict)));
     let follow = walk.is_ok();
     let shipped = std::thread::scope(|scope| {
         let following = follow.then(|| scope.spawn(|| follow::follow_lander(layout)));
-        let shipped = walk::ship_if_walked(layout, walk, &Screen::here(checkout), |here, kept| {
+        let shipped = walk::ship_if_walked(layout, walk, &Screen::here(store), |here, kept| {
             let behind: Vec<&Shell> = hosts[1..].iter().filter(|host| kept.iter().any(|destination| destination == host.name())).collect();
-            ship_behind(&behind, here, &layout.runtime(here), checkout);
+            ship_behind(&behind, here, &layout.runtime(here), store);
             Ok(())
         });
         if let Some(handle) = following {
@@ -150,11 +150,11 @@ fn canaries_at_once() -> bool {
     north_base::platform::harness::document(north_base::platform::harness::DEFAULTS).get("settle_remote_canaries_at_once").and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true)
 }
 
-fn ship_behind(hosts: &[&Shell], here: &str, runtime: &Path, checkout: &Path) {
+fn ship_behind(hosts: &[&Shell], here: &str, runtime: &Path, store: &Path) {
     std::thread::scope(|scope| {
         for host in hosts {
             scope.spawn(move || {
-                let behind = probe::live_runtime(host).is_none_or(|remote| remote != here && ancestor(checkout, &remote, here));
+                let behind = probe::live_runtime(host).is_none_or(|remote| remote != here && ancestor(store, &remote, here));
                 if !behind {
                     return;
                 }
@@ -184,15 +184,15 @@ fn handed_to_live(layout: &Layout) -> Option<String> {
 }
 
 /// The standing hold that keeps `landing` off the host `facts` describe while its runtime predates the landing, read under the deploy name a hold names that host by.
-fn held_off(landing: Option<&Landing>, checkout: &Path, facts: &probe::Facts, live: impl Fn(&str) -> bool) -> Option<String> {
+fn held_off(landing: Option<&Landing>, store: &Path, facts: &probe::Facts, live: impl Fn(&str) -> bool) -> Option<String> {
     let landing = landing.filter(|_| facts.runtime.as_deref().is_some_and(|runtime| !live(runtime)))?;
     let deployment = land_offload::deployment();
     let name = deployment.destinations.iter().position(|destination| *destination == facts.host).map_or(facts.host.as_str(), |at| deployment.names[at].as_str());
-    Screen::here(checkout).holding(&landing.sha, name)
+    Screen::here(store).holding(&landing.sha, name)
 }
 
-fn judged_problems(facts: &mut probe::Facts, landing: Option<&Landing>, checkout: &Path, live: impl Fn(&str) -> bool, growth: &mut Growth) -> (Vec<String>, Option<String>) {
-    facts.held = held_off(landing, checkout, facts, &live);
+fn judged_problems(facts: &mut probe::Facts, landing: Option<&Landing>, store: &Path, live: impl Fn(&str) -> bool, growth: &mut Growth) -> (Vec<String>, Option<String>) {
+    facts.held = held_off(landing, store, facts, &live);
     let mut problems = probe::problems(facts, live);
     let mut window = None;
     if let (Some(north), None, false) = (&facts.north, &facts.unreachable, probe::installing(facts)) {
@@ -203,14 +203,14 @@ fn judged_problems(facts: &mut probe::Facts, landing: Option<&Landing>, checkout
     (problems, window)
 }
 
-fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Failure> {
+fn due_landing(layout: &Layout, store: &Path) -> Result<Option<Landing>, Failure> {
     let seen_path = layout.state.join("runtime-settle-seen");
     let mut seen: Vec<(u64, String)> = fs::read_to_string(&seen_path)
         .unwrap_or_default()
         .lines()
         .filter_map(|line| line.split_once(' ').and_then(|(at, sha)| Some((at.parse().ok()?, sha.to_owned()))))
         .collect();
-    let head = origin_head(checkout);
+    let head = origin_head(store);
     if let Some(head) = head.filter(|head| seen.last().is_none_or(|(_, last)| last != head)) {
         seen.push((now(), head));
         let kept = &seen[seen.len().saturating_sub(SEEN_KEPT)..];
@@ -219,11 +219,11 @@ fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Fail
     let deadline = probe::default_number("landing_live_deadline_sec") as u64;
     let pinned = layout.live_sha();
     let promoted_at = pinned.as_deref().map_or(0, |pinned| promoted_at(&pin::read(&layout.state), pinned));
-    let held = |sha: &str| pinned.as_deref().is_some_and(|pinned| sha == pinned || ancestor(checkout, sha, pinned));
+    let held = |sha: &str| pinned.as_deref().is_some_and(|pinned| sha == pinned || ancestor(store, sha, pinned));
     let Some(sha) = due_in(&seen, promoted_at, deadline, now(), held) else {
         return Ok(None);
     };
-    let subject = process::run("git", Some(checkout), &["log", "-1", "--format=%s", sha]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
+    let subject = process::run("git", Some(store), &["log", "-1", "--format=%s", sha]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
     Ok(Some(Landing { sha: sha.to_owned(), subject }))
 }
 
@@ -243,15 +243,15 @@ fn blame<'a>(problems: &'a [String], moved_on: bool, inherited: &[String], code_
     problems.iter().map(String::as_str).partition(|problem| code_changed && !(moved_on && problem.starts_with(probe::LAGS)) && !inherited.iter().any(|known| known == problem))
 }
 
-fn changes_code(checkout: &Path, sha: &str) -> bool {
-    let Ok(output) = process::run("git", Some(checkout), &["show", "--format=", "--name-only", sha]) else {
+fn changes_code(store: &Path, sha: &str) -> bool {
+    let Ok(output) = process::run("git", Some(store), &["show", "--format=", "--name-only", sha]) else {
         return true;
     };
     String::from_utf8_lossy(&output.stdout).lines().any(|path| !path.starts_with("docs/") && !path.ends_with(".md"))
 }
 
-fn origin_head(checkout: &Path) -> Option<String> {
-    process::run("git", Some(checkout), &["rev-parse", "--verify", "origin/main^{commit}"]).ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|sha| layout::is_sha(sha))
+fn origin_head(store: &Path) -> Option<String> {
+    process::run("git", Some(store), &["rev-parse", "--verify", "origin/main^{commit}"]).ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|sha| layout::is_sha(sha))
 }
 
 fn judged(layout: &Layout, sha: &str) -> bool {
@@ -272,8 +272,8 @@ fn judge(layout: &Layout, checkout: &Path, landing: &Landing, broken: &[String])
     }
 }
 
-pub(super) fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
-    process::run("git", Some(checkout), &["merge-base", "--is-ancestor", earlier, later]).is_ok_and(|output| output.status.success())
+pub(super) fn ancestor(store: &Path, earlier: &str, later: &str) -> bool {
+    process::run("git", Some(store), &["merge-base", "--is-ancestor", earlier, later]).is_ok_and(|output| output.status.success())
 }
 
 fn now() -> u64 {

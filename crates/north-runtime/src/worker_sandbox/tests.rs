@@ -605,13 +605,13 @@ fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
     let lift = || Ask::Lift { commit: commit.clone(), why: "reviewed".to_owned() };
     let refusal = "proxy-session runs in the coordinator role, which neither places nor lifts a hold";
 
-    let placed = holds.serve(place(), &caller("proxy-session"), 1, checkout.path());
+    let placed = holds.serve(place(), &caller("proxy-session"), 1);
     assert!(placed.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session placed a hold its client window cannot: {placed:?}");
-    let placed = holds.serve(place(), &caller("lead-session"), 2, checkout.path());
+    let placed = holds.serve(place(), &caller("lead-session"), 2);
     assert!(placed.as_ref().is_ok_and(|line| line.contains("lead-session holds")), "a lead lost its hold: {placed:?}");
-    let lifted = holds.serve(lift(), &caller("proxy-session"), 3, checkout.path());
+    let lifted = holds.serve(lift(), &caller("proxy-session"), 3);
     assert!(lifted.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session lifted a hold its client window cannot: {lifted:?}");
-    let lifted = holds.serve(lift(), &caller("lead-session"), 4, checkout.path());
+    let lifted = holds.serve(lift(), &caller("lead-session"), 4);
     assert!(lifted.as_ref().is_ok_and(|line| line.contains("lead-session lifted the hold of lead-session")), "a lead lost its lift: {lifted:?}");
 }
 

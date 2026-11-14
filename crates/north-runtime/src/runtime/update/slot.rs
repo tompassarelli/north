@@ -4,7 +4,7 @@ use super::super::pin;
 use super::super::pin::Outcome;
 use super::super::review_hold::{self, Screen};
 use super::sync::send_alert;
-use super::{ahead, ancestor, built, checkout, named_lock, usable};
+use super::{ahead, ancestor, built, named_lock, trusted_store, usable};
 use north_offload::land_offload;
 use crate::platform::host;
 use rustix::fs::FlockOperation;
@@ -62,7 +62,7 @@ pub(in super::super) fn held_by_review(layout: &Layout, screen: &Screen, target:
 /// Pages the coordinator when a promotion that fell due is not live five minutes later (pin::page); only the host that settles the fleet promotes on the schedule, so only it has a due promotion to page about, and the caller holding the page lock is the only one that reads the journal, sends and records.
 pub(super) fn page_overdue(layout: &Layout) {
     if land_offload::settles_fleet_here() && let Ok(Some(_paging)) = named_lock(layout, PAGE_LOCK, FlockOperation::NonBlockingLockExclusive) {
-        let checkout = checkout();
-        pin::page(layout, pin::now(), &host::name(), &mut |live, due| ancestor(&checkout, due, live), &mut |text| send_alert(text));
+        let Ok(store) = trusted_store() else { return };
+        pin::page(layout, pin::now(), &host::name(), &mut |live, due| ancestor(&store, due, live), &mut |text| send_alert(text));
     }
 }

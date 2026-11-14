@@ -99,7 +99,7 @@ fn walked_and_shipped(layout: &Layout) -> Result<(), Failure> {
     let follow = walked.is_ok();
     std::thread::scope(|scope| {
         let following = follow.then(|| scope.spawn(|| follow_lander(layout)));
-        let shipped = walk::ship_if_walked(layout, walked, &Screen::here(&update::checkout()), |_, kept| deploy::deploy_live(layout, kept)).map(|_| ());
+        let shipped = walk::ship_if_walked(layout, walked, &Screen::here(&update::trusted_store()?), |_, kept| deploy::deploy_live(layout, kept)).map(|_| ());
         let followed = following.map(|handle| handle.join().unwrap_or_else(|_| Err(failed(1, "the lander link follow panicked"))));
         match followed {
             Some(result) => shipped.and(result),
@@ -139,7 +139,7 @@ pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
         return Ok(());
     }
     if land_offload::settles_fleet_here() {
-        lander_cleared(layout, &Screen::here(&update::checkout()))?;
+        lander_cleared(layout, &Screen::here(&update::trusted_store()?))?;
     }
     request_newest(layout);
     let mut retaking = Duration::ZERO;
