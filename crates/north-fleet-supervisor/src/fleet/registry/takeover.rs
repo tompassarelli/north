@@ -25,6 +25,20 @@ impl Predecessor {
     pub(super) fn addressed_since(&self) -> u64 {
         self.record.addressed_since()
     }
+
+    /// Whether the seat taken over keeps its claims: the launch names no task, or only tasks the seat held, as a relaunch of its own record does.
+    pub(super) fn carries_for(&self, named: &[String]) -> bool {
+        named.iter().all(|task| self.record.tasks().any(|held| held == task))
+    }
+
+    /// Puts every task and claim the taken-over seat held into its successor's `record`, so a lead keeps the task that binds it to the lead grant; returns the claim keys the successor takes in the ledger.
+    pub(super) fn carry_into(&self, record: &mut SessionRecord) -> Vec<String> {
+        record.task_ref = self.record.task_ref.clone();
+        record.extra_tasks = self.record.extra_tasks.clone();
+        record.claim_box = self.record.claim_box.clone();
+        record.other_claims = self.record.other_claims.clone();
+        record.claim_keys()
+    }
 }
 
 impl Fleet {
@@ -139,7 +153,7 @@ mod tests {
 
     use crate::error::NorthError;
     use crate::fleet::fakes::{Paper, Stream};
-    use crate::fleet::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
+    use crate::fleet::model::{Account, LaunchRequest, ProviderName, Quota, Role, Transcript};
     use crate::fleet::roster::Roster;
     use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime};
     use crate::fleet::runtimes::Runtimes;
@@ -237,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn a_take_over_racing_a_revive_leaves_one_running_session_in_its_own_conversation() {
+    fn a_taken_over_lead_seat_keeps_its_task_and_extra_tasks() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
         let dir = fleet.root.join("worker");
@@ -264,7 +278,36 @@ mod tests {
         assert!(matches!(running.as_slice(), [record] if record.live() && record.created_ms == 2 && record.conversation.as_deref() == Some("worker")), "{running:?}");
         assert!(successor.frames.lock().unwrap().iter().any(|frame| frame.contains("carry on with the build")), "the message never reached the successor");
         let _next = fleet.start_lock("worker").unwrap();
-        let free = std::thread::spawn(move || fleet.try_start_lock("worker").unwrap().is_some()).join().unwrap();
+        let free = { let fleet = fleet.clone(); std::thread::spawn(move || fleet.try_start_lock("worker").unwrap().is_some()).join().unwrap() };
         assert!(!free, "the next take-over on this thread left the name unlocked");
+
+        let main = fleet.home.join("code/north/main");
+        std::fs::create_dir_all(&main).unwrap();
+        let seat = fleet.root.join("seat");
+        std::fs::create_dir_all(&seat).unwrap();
+        let held = serde_json::json!({"name": "seat", "provider": "claude", "account": "a", "cwd": main, "model": null, "created_ms": 1, "host_pid": null, "conversation": "seat", "host_dir": seat, "stream_offset": 0, "role": "lead", "task_ref": "north#1054", "extra_tasks": ["north#1055", "north#1056"]});
+        std::fs::write(seat.join("session.json"), held.to_string()).unwrap();
+        let request = LaunchRequest { prompt: "carry on".into(), task_ref: None, claim_box: None, ..LaunchRequest::relaunching(&fleet.session("seat").unwrap()) };
+        let (taken, claimed) = fleet
+            .succeed("seat", Claim::TakeOver, |predecessor| {
+                let predecessor = predecessor.unwrap();
+                assert!(predecessor.carries_for(&request.tasks()));
+                let mut successor = request.record(None, Some("seat".into()), false, 2);
+                successor.host_dir = seat.clone();
+                let claimed = predecessor.carry_into(&mut successor);
+                std::fs::create_dir_all(&seat).unwrap();
+                write_record(&seat, &successor).unwrap();
+                Ok((successor, claimed))
+            })
+            .unwrap();
+        assert_eq!((taken.role(), taken.tasks().collect::<Vec<_>>()), (Role::Lead, ["north#1054", "north#1055", "north#1056"].to_vec()));
+        assert_eq!(claimed, ["north#1054", "north#1055", "north#1056"]);
+        assert_eq!(fleet.granted_launch("seat", &["--name", "n1054-child", "--task", "north#1054", "brief"].map(str::to_owned)).unwrap().name, "n1054-child");
+
+        let bare = fleet.root.join("bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        std::fs::write(bare.join("session.json"), serde_json::json!({"name": "bare", "provider": "claude", "account": "a", "cwd": main, "model": null, "created_ms": 1, "host_pid": null, "conversation": "bare", "host_dir": bare, "stream_offset": 0, "role": "lead"}).to_string()).unwrap();
+        let refused = fleet.granted_launch("bare", &["--name", "n1054-child", "--task", "north#1054", "brief"].map(str::to_owned)).unwrap_err();
+        assert!(refused.contains("bare's record holds no task"), "{refused}");
     }
 }

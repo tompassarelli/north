@@ -57,7 +57,7 @@ impl Fleet {
             return Err(format!("{writer} runs as a {}, and only a lead's spool carries fleet launch, revive, hold and forget; its parent restaffs it", record.role().label()));
         }
         if record.task_ref.is_none() {
-            return Err(format!("{writer} is a lead with no task, which runs unconfined and writes the fleet's records itself"));
+            return Err(format!("{writer}'s record holds no task: a lead with an empty record runs unconfined and writes the fleet's records itself, so its launch is not granted"));
         }
         let main = own_main(writer, &record.cwd, &self.home.join("code"))?;
         Ok(Lead { record, main })

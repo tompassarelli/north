@@ -94,6 +94,7 @@ impl Fleet {
             }
             let launched = self.succeed(&request.name, claim, |predecessor| {
                 record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
+                let tasks = predecessor.as_ref().filter(|predecessor| predecessor.carries_for(&request.tasks())).map_or_else(|| tasks.clone(), |predecessor| predecessor.carry_into(&mut record));
                 let claimed = self.claim_before_start(request, &tasks, verification);
                 let opened = joined();
                 if let Err(error) = claimed {
