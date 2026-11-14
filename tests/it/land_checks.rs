@@ -552,7 +552,7 @@ fn run_head_north_releasing(fixture: &Fixture, command: &str, waiting_line: &str
 }
 
 fn run_head_north(fixture: &Fixture, command: &str) -> Output {
-    head_north_command(fixture, command).output().unwrap()
+    head_north_command(fixture, command).env("HEAD_NORTH_SETTLE", "0").output().unwrap()
 }
 
 fn head_north_command(fixture: &Fixture, command: &str) -> Command {
@@ -627,7 +627,7 @@ fn a_land_check_runs_on_the_trees_own_north_when_the_live_runtime_stays_unreadab
     let refused = run_head_north(&fixture, "./bin/head-north --code docs/ --no-build docs --help");
     assert_eq!(refused.status.code(), Some(1), "{}", text(&refused));
     assert!(text(&refused).contains("stayed unreadable"), "{}", text(&refused));
-    let in_slot = |fixture: &Fixture| head_north_command(fixture, "./bin/head-north --code docs/ docs --help").env("NORTH_OFFLOAD_SLOT", "slot-1").output().unwrap();
+    let in_slot = |fixture: &Fixture| head_north_command(fixture, "./bin/head-north --code docs/ docs --help").env("HEAD_NORTH_SETTLE", "0").env("NORTH_OFFLOAD_SLOT", "slot-1").output().unwrap();
     for state in ["unreadable", "absent"] {
         if state == "absent" {
             fs::remove_file(fixture.path("state/north/current/north")).unwrap();
