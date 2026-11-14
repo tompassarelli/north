@@ -39,11 +39,9 @@ pub struct Taken {
     pub conversation: String,
 }
 
-/// What a fill reads of a build host: its load, threads and available memory, and the spares its pool holds.
+/// What a fill reads of a build host: its available memory, and the spares its pool holds.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Pool {
-    pub load: u64,
-    pub threads: u64,
     pub memory_kb: u64,
     pub entries: Vec<String>,
 }
@@ -144,11 +142,11 @@ pub fn release(place: &Place, taken: &Taken) {
     let _ = run(place, &format!("systemctl --user stop --no-block {}", quote(&taken.running.unit)));
 }
 
-/// The build host's load and the live spares its pool holds, removing the entries of units that are gone and retiring at once any spare whose directory is gone or is no longer the one it started in, so its slot counts free; None when it does not answer.
+/// The build host's available memory and the live spares its pool holds, removing the entries of units that are gone and retiring at once any spare whose directory is gone or is no longer the one it started in, so its slot counts free; None when it does not answer.
 pub fn survey(place: &Place) -> Option<Pool> {
     let script = format!(
         r#"pool={}
-read -r l _ < /proc/loadavg; echo "${{l%%.*}} $(nproc) $(awk '/^MemAvailable:/ {{print $2}}' /proc/meminfo)"
+awk '/^MemAvailable:/ {{print $2}}' /proc/meminfo
 [ -d "$pool" ] && [ -O "$pool" ] || exit 0
 {drop}
 for e in "$pool"/*; do
@@ -164,18 +162,17 @@ done"#,
     );
     let (0, out) = run(place, &script)? else { return None };
     let mut lines = out.lines();
-    let mut head = lines.next()?.split_whitespace().map(str::parse::<u64>);
-    let (Some(Ok(load)), Some(Ok(threads)), Some(Ok(memory_kb))) = (head.next(), head.next(), head.next()) else { return None };
-    Some(Pool { load, threads, memory_kb, entries: lines.map(str::to_owned).collect() })
+    let memory_kb = lines.next()?.trim().parse().ok()?;
+    Some(Pool { memory_kb, entries: lines.map(str::to_owned).collect() })
 }
 
-/// The entries of `kind` a fill retires, because their fingerprint is not `fingerprint`, and how many spares it starts: up to [`PER_KIND`] of the kind and [`PER_HOST`] in all, and none while the host is at or over its thread count or under the memory floor.
+/// The entries of `kind` a fill retires, because their fingerprint is not `fingerprint`, and how many spares it starts: up to [`PER_KIND`] of the kind and [`PER_HOST`] in all, and none while the host is under the memory floor: a spare waits idle, so a loaded host still keeps them.
 pub fn wanted(pool: &Pool, kind: &str, fingerprint: &str) -> (Vec<String>, usize) {
     let of_kind = |entry: &&String| entry.starts_with(&format!("{kind}-"));
     let current = |entry: &&String| entry.starts_with(&format!("{kind}-{fingerprint}-"));
     let stale: Vec<String> = pool.entries.iter().filter(of_kind).filter(|entry| !current(entry)).cloned().collect();
     let held = pool.entries.len() - stale.len();
-    let busy = pool.load >= pool.threads || pool.memory_kb < MEMORY_FLOOR_KB;
+    let busy = pool.memory_kb < MEMORY_FLOOR_KB;
     let room = PER_KIND.saturating_sub(pool.entries.iter().filter(current).count()).min(PER_HOST.saturating_sub(held));
     (stale, if busy { 0 } else { room })
 }

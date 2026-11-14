@@ -276,7 +276,7 @@ async fn a_spare_whose_directory_was_removed_is_retired_by_the_next_survey_and_i
     fs::remove_dir_all(&kept).unwrap();
     fs::create_dir_all(&kept).unwrap();
     assert_eq!(pooled(&place), Vec::<String>::new(), "a directory made again under the same name is not the worktree the spare started in");
-    let quiet = spares::Pool { load: 0, threads: 8, memory_kb: u64::MAX, ..spares::survey(&place).unwrap() };
+    let quiet = spares::Pool { memory_kb: u64::MAX, ..spares::survey(&place).unwrap() };
     assert_eq!(spares::wanted(&quiet, "kind", "fp").1, spares::PER_KIND, "the retired spares' slots are free");
     let held = home.join(".local/state/north/held");
     north_base::platform::wait::until_async(WAIT, || holding(&held).is_empty()).await;
