@@ -46,6 +46,7 @@ mod tree;
 mod turn_json;
 pub(super) mod usage;
 mod proxy_move;
+mod rooms;
 mod withheld;
 mod drafts;
 mod view;

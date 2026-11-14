@@ -19,6 +19,14 @@ const UPKEEP_INTERVAL: Duration = Duration::from_secs(30);
 const GATE_RETRY: Duration = Duration::from_secs(2);
 const STATUS_INTERVAL: Duration = Duration::from_secs(300);
 const BOARD_INTERVAL: Duration = Duration::from_secs(30);
+const ROOMS_INTERVAL: Duration = Duration::from_secs(60);
+
+/// What an account has left of its week, listed in the order `north accounts` places the accounts: the first is placed first.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccountRoom {
+    pub label: String,
+    pub week_left: Option<f64>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSummary {
@@ -38,6 +46,7 @@ pub trait SessionDesk {
     fn digest(&self) -> Digest;
     fn project_status(&self) -> Vec<String> { Vec::new() }
     fn board(&self) -> Board { Board::default() }
+    fn rooms(&self) -> Vec<AccountRoom> { Vec::new() }
     fn choices(&self) -> Vec<Choices> { Vec::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
@@ -97,12 +106,13 @@ pub struct FleetDesk {
     upkeep: Upkeep,
     status: Periodic,
     board: BoardRead,
+    rooms: RoomsRead,
 }
 
 impl FleetDesk {
-    /// `board` reads the four-panel snapshot in the background, the same one `north dash` prints.
-    pub fn new(fleet: Fleet, board: fn(&Fleet) -> Board) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), board: BoardRead::of(board) }
+    /// `board` reads the four-panel snapshot in the background, the same one `north dash` prints; `rooms` reads each account's week left the same way.
+    pub fn new(fleet: Fleet, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> Self {
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), board: BoardRead::of(board), rooms: RoomsRead::of(rooms) }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -166,7 +176,7 @@ impl SessionDesk for FleetDesk {
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
         let measured = self.upkeep.tend(&self.fleet, &self.digest)?;
-        Ok(changed | measured | self.status.tend() | self.board.tend(&self.fleet))
+        Ok(changed | measured | self.status.tend() | self.board.tend(&self.fleet) | self.rooms.tend(&self.fleet))
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -200,6 +210,8 @@ impl SessionDesk for FleetDesk {
     fn project_status(&self) -> Vec<String> { self.status.lines.clone() }
 
     fn board(&self) -> Board { self.board.board.clone() }
+
+    fn rooms(&self) -> Vec<AccountRoom> { self.rooms.rooms.clone() }
 
     fn choices(&self) -> Vec<Choices> {
         self.fleet.choices()
@@ -289,6 +301,35 @@ impl Periodic {
         }
         if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= STATUS_INTERVAL) {
             self.job = Some(thread::spawn(self.read));
+            self.last = Some(Instant::now());
+        }
+        changed
+    }
+}
+
+struct RoomsRead {
+    read: fn(&Fleet) -> Vec<AccountRoom>,
+    job: Option<JoinHandle<Vec<AccountRoom>>>,
+    rooms: Vec<AccountRoom>,
+    last: Option<Instant>,
+}
+
+impl RoomsRead {
+    fn of(read: fn(&Fleet) -> Vec<AccountRoom>) -> Self {
+        Self { read, job: None, rooms: Vec::new(), last: None }
+    }
+
+    fn tend(&mut self, fleet: &Arc<Fleet>) -> bool {
+        let mut changed = false;
+        if let Some(job) = self.job.take_if(|job| job.is_finished()) {
+            let rooms = job.join().unwrap_or_default();
+            changed = rooms != self.rooms;
+            self.rooms = rooms;
+        }
+        if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= ROOMS_INTERVAL) {
+            let fleet = fleet.clone();
+            let read = self.read;
+            self.job = Some(thread::spawn(move || read(&fleet)));
             self.last = Some(Instant::now());
         }
         changed

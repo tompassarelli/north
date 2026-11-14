@@ -20,7 +20,7 @@ use crate::fleet::registry::Choices;
 
 use super::attach::Attachments;
 use super::clipboard::Clipboard;
-use super::desk::SessionSummary;
+use super::desk::{AccountRoom, SessionSummary};
 use super::digest::{DigestPane, SessionFacts};
 use super::form::LaunchForm;
 use super::help_panel::HelpPanel;
@@ -96,6 +96,7 @@ pub struct Screen {
     page: u16,
     accounts: Vec<Account>,
     choices: Vec<Choices>,
+    rooms: Vec<AccountRoom>,
     cwd: PathBuf,
     quitting: bool,
 }
@@ -127,6 +128,7 @@ impl Screen {
             page: 10,
             accounts,
             choices: Vec::new(),
+            rooms: Vec::new(),
             cwd,
             quitting: false,
         }
@@ -134,6 +136,10 @@ impl Screen {
 
     pub fn offer(&mut self, choices: Vec<Choices>) {
         self.choices = choices;
+    }
+
+    pub fn offer_rooms(&mut self, rooms: Vec<AccountRoom>) {
+        self.rooms = rooms;
     }
 
     pub fn accounts(&self) -> &[Account] {

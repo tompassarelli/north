@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 
-use crate::fleet::model::{SessionRecord, Status, Transcript};
+use crate::fleet::model::{Account, Effort, SessionRecord, Status, Transcript};
 
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
@@ -150,23 +150,27 @@ fn draw_confirm_stop(frame: &mut Frame<'_>, name: &str) {
 }
 
 fn draw_launch_form(frame: &mut Frame<'_>, form: &LaunchForm) {
-    let area = centered(frame.area(), 72, 18);
+    let area = centered(frame.area(), 84, 20);
     frame.render_widget(Clear, area);
     let block = pane(Line::from(" new session "), true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)])
+        .constraints(Field::ORDER.map(|field| match field {
+            Field::Account => Constraint::Length(2),
+            Field::Prompt => Constraint::Min(3),
+            _ => Constraint::Length(1),
+        }).into_iter().chain([Constraint::Length(2)]))
         .split(inner);
     for (index, field) in Field::ORDER.iter().enumerate() {
         draw_form_field(frame, form, *field, rows[index]);
     }
     let footer = match &form.problem {
         Some(problem) => Span::styled(problem.clone(), Style::default().fg(Color::Red)),
-        None => Span::styled("Tab next field · ←/→ choose · Enter launches · Alt+Enter newline · Esc cancels", MUTED),
+        None => Span::styled("Tab next · ←/→ choose · Enter launches · Alt+Enter newline · Esc cancels", MUTED),
     };
-    frame.render_widget(Paragraph::new(footer), rows[6]);
+    frame.render_widget(Paragraph::new(footer).wrap(Wrap { trim: true }), rows[Field::ORDER.len()]);
 }
 
 fn draw_form_field(frame: &mut Frame<'_>, form: &LaunchForm, field: Field, area: Rect) {
@@ -176,16 +180,38 @@ fn draw_form_field(frame: &mut Frame<'_>, form: &LaunchForm, field: Field, area:
     let value = Rect { x: area.x + 10.min(area.width), width: area.width.saturating_sub(10), ..area };
     match field {
         Field::Provider => frame.render_widget(Paragraph::new(choice(form.provider.label(), active)), value),
-        Field::Account => {
-            let label = form.chosen_account().map_or_else(|| format!("no {} account", form.provider.label()), |account| format!("{} ({} of {})", account.label, form.account + 1, form.provider_accounts().len()));
-            frame.render_widget(Paragraph::new(choice(&label, active)), value);
-        }
+        Field::Account => frame.render_widget(Paragraph::new(account_choices(form, active)).wrap(Wrap { trim: false }), value),
+        Field::Effort => frame.render_widget(Paragraph::new(choice(form.effort.map_or("default", Effort::label), active)), value),
         _ => {
             if let Some(area) = form.text_area(field) {
                 frame.render_widget(area, value);
             }
         }
     }
+}
+
+fn account_choices(form: &LaunchForm, active: bool) -> Line<'static> {
+    let accounts = form.provider_accounts();
+    if accounts.is_empty() {
+        return choice(&format!("no {} account", form.provider.label()), active);
+    }
+    let spans = accounts.iter().enumerate().flat_map(|(index, account)| account_spans(form, account, index == form.account, active)).collect::<Vec<_>>();
+    Line::from(spans)
+}
+
+fn account_spans(form: &LaunchForm, account: &Account, selected: bool, active: bool) -> Vec<Span<'static>> {
+    let out = form.is_out(account);
+    let week = match form.week_left(account) {
+        _ if out => "week out".to_owned(),
+        Some(left) => format!("{left:.0}% of week left"),
+        None => "week unread".to_owned(),
+    };
+    let label = format!("{} {week}", account.label);
+    if !selected || out {
+        return vec![Span::styled(format!("  {label}  "), if out { MUTED.add_modifier(Modifier::CROSSED_OUT) } else { MUTED })];
+    }
+    let style = if active { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default().add_modifier(Modifier::BOLD) };
+    vec![Span::styled("‹ ", MUTED), Span::styled(label, style), Span::styled(" ›", MUTED)]
 }
 
 fn choice(label: &str, active: bool) -> Line<'static> {

@@ -4,9 +4,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Modifier, Style};
 use tui_textarea::TextArea;
 
-use crate::fleet::model::{Account, LaunchRequest, ProviderName};
+use crate::fleet::model::{Account, Effort, LaunchRequest, ProviderName};
 use crate::fleet::prompt::PromptMode;
 
+use super::desk::AccountRoom;
 use super::editor::edit_textarea;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -16,11 +17,14 @@ pub enum Field {
     Name,
     Directory,
     Model,
+    Effort,
+    Task,
+    Box,
     Prompt,
 }
 
 impl Field {
-    pub const ORDER: [Field; 6] = [Field::Provider, Field::Account, Field::Name, Field::Directory, Field::Model, Field::Prompt];
+    pub const ORDER: [Field; 9] = [Field::Provider, Field::Account, Field::Name, Field::Directory, Field::Model, Field::Effort, Field::Task, Field::Box, Field::Prompt];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -29,6 +33,9 @@ impl Field {
             Field::Name => "name",
             Field::Directory => "directory",
             Field::Model => "model",
+            Field::Effort => "effort",
+            Field::Task => "task",
+            Field::Box => "box",
             Field::Prompt => "prompt",
         }
     }
@@ -50,10 +57,14 @@ pub struct LaunchForm {
     pub provider: ProviderName,
     pub accounts: Vec<Account>,
     pub account: usize,
+    pub rooms: Vec<AccountRoom>,
+    pub effort: Option<Effort>,
     pub field: Field,
     pub name: TextArea<'static>,
     pub directory: TextArea<'static>,
     pub model: TextArea<'static>,
+    pub task: TextArea<'static>,
+    pub claim_box: TextArea<'static>,
     pub prompt: TextArea<'static>,
     pub problem: Option<String>,
     parent: Option<String>,
@@ -66,10 +77,14 @@ impl LaunchForm {
             provider,
             accounts,
             account: 0,
+            rooms: Vec::new(),
+            effort: None,
             field: Field::ORDER[0],
             name: line(&unique_name(cwd, taken), ""),
             directory: line(&cwd.display().to_string(), ""),
             model: line("", "default"),
+            task: line("", "REPO#N, none by default"),
+            claim_box: line("", "the box text, when the issue has more than one open box"),
             prompt: prompt_area(),
             problem: None,
             parent: parent.filter(|parent| !parent.is_empty()),
@@ -81,7 +96,7 @@ impl LaunchForm {
     }
 
     pub fn chosen_account(&self) -> Option<&Account> {
-        self.provider_accounts().get(self.account).copied()
+        self.provider_accounts().get(self.account).copied().filter(|account| !self.is_out(account))
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FormOutcome {
@@ -107,8 +122,10 @@ impl LaunchForm {
             Field::Name => Some(&self.name),
             Field::Directory => Some(&self.directory),
             Field::Model => Some(&self.model),
+            Field::Task => Some(&self.task),
+            Field::Box => Some(&self.claim_box),
             Field::Prompt => Some(&self.prompt),
-            Field::Provider | Field::Account => None,
+            Field::Provider | Field::Account | Field::Effort => None,
         }
     }
 
@@ -117,8 +134,10 @@ impl LaunchForm {
             Field::Name => Some(&mut self.name),
             Field::Directory => Some(&mut self.directory),
             Field::Model => Some(&mut self.model),
+            Field::Task => Some(&mut self.task),
+            Field::Box => Some(&mut self.claim_box),
             Field::Prompt => Some(&mut self.prompt),
-            Field::Provider | Field::Account => None,
+            Field::Provider | Field::Account | Field::Effort => None,
         }
     }
 
@@ -126,9 +145,10 @@ impl LaunchForm {
         let forward = matches!(key.code, KeyCode::Right | KeyCode::Char(' ') | KeyCode::Down);
         let backward = matches!(key.code, KeyCode::Left | KeyCode::Up);
         match self.field {
-            Field::Provider if forward || backward => self.toggle_provider(),
+            Field::Provider if forward || backward => self.step_provider(forward),
             Field::Account if forward || backward => self.cycle_account(forward),
-            Field::Provider | Field::Account => {}
+            Field::Effort if forward || backward => self.step_effort(forward),
+            Field::Provider | Field::Account | Field::Effort => {}
             _ => {
                 if let Some(area) = self.text_field() {
                     edit_textarea(area, key);
@@ -137,25 +157,61 @@ impl LaunchForm {
         }
     }
 
-    fn toggle_provider(&mut self) {
+    fn step_provider(&mut self, forward: bool) {
         let mut providers: Vec<&ProviderName> = Vec::new();
         for account in &self.accounts {
             if !providers.contains(&&account.provider) {
                 providers.push(&account.provider);
             }
         }
+        let count = providers.len().max(1);
         let current = providers.iter().position(|provider| **provider == self.provider).unwrap_or(0);
-        if let Some(next) = providers.get((current + 1) % providers.len().max(1)) {
+        let next = if forward { (current + 1) % count } else { (current + count - 1) % count };
+        if let Some(next) = providers.get(next) {
             self.provider = (*next).clone();
         }
-        self.account = 0;
+        self.account = self.first_offered();
+    }
+
+    fn step_effort(&mut self, forward: bool) {
+        let choices: Vec<Option<Effort>> = std::iter::once(None).chain(Effort::ALL.map(Some)).collect();
+        let current = choices.iter().position(|choice| *choice == self.effort).unwrap_or(0);
+        let count = choices.len();
+        self.effort = choices[if forward { (current + 1) % count } else { (current + count - 1) % count }];
     }
 
     fn cycle_account(&mut self, forward: bool) {
         let count = self.provider_accounts().len();
-        if count > 0 {
-            self.account = if forward { (self.account + 1) % count } else { (self.account + count - 1) % count };
+        for step in 1..count {
+            let next = if forward { (self.account + step) % count } else { (self.account + count - step) % count };
+            if self.provider_accounts().get(next).is_some_and(|account| !self.is_out(account)) {
+                self.account = next;
+                return;
+            }
         }
+    }
+
+    fn first_offered(&self) -> usize {
+        self.provider_accounts().iter().position(|account| !self.is_out(account)).unwrap_or(0)
+    }
+
+    pub fn is_out(&self, account: &Account) -> bool {
+        self.week_left(account).is_some_and(|left| left <= 0.0)
+    }
+
+    pub fn week_left(&self, account: &Account) -> Option<f64> {
+        self.rooms.iter().find(|room| room.label == account.label).and_then(|room| room.week_left)
+    }
+
+    pub fn with_rooms(mut self, rooms: &[AccountRoom]) -> Self {
+        let rank = |account: &Account| rooms.iter().position(|room| room.label == account.label).unwrap_or(rooms.len());
+        self.accounts.sort_by_key(rank);
+        self.rooms = rooms.to_vec();
+        if let Some(first) = self.accounts.first() {
+            self.provider = first.provider.clone();
+        }
+        self.account = self.first_offered();
+        self
     }
 
     fn submit(&mut self) -> FormOutcome {
@@ -169,7 +225,10 @@ impl LaunchForm {
     }
 
     fn request(&self) -> Result<LaunchRequest, String> {
-        let account = self.chosen_account().ok_or_else(|| format!("no {} account is configured", self.provider.label()))?;
+        let account = self.chosen_account().ok_or_else(|| {
+            let label = self.provider.label();
+            if self.provider_accounts().is_empty() { format!("no {label} account is configured") } else { format!("every {label} account has nothing left of its week") }
+        })?;
         let name = text(&self.name);
         let directory = text(&self.directory);
         let prompt = self.prompt.lines().join("\n");
@@ -183,6 +242,8 @@ impl LaunchForm {
             return Err("prompt is empty".into());
         }
         let model = text(&self.model);
+        let task = text(&self.task);
+        let claim_box = text(&self.claim_box);
         Ok(LaunchRequest {
             verification: false,
             gates_aside: false,
@@ -194,15 +255,15 @@ impl LaunchForm {
             account: account.label.clone(),
             cwd: PathBuf::from(directory),
             model: (!model.is_empty()).then_some(model),
-            effort: None,
+            effort: self.effort,
             prompt,
             system_prompt: None,
             foreground_cap_secs: None,
             prompt_mode: PromptMode::North,
             idle_exit_minutes: None,
             parent: self.parent.clone(),
-            task_ref: None,
-            claim_box: None,
+            task_ref: (!task.is_empty()).then_some(task),
+            claim_box: (!claim_box.is_empty()).then_some(claim_box),
             placement: None,
             machine: None,
             capacity_need: None,
@@ -212,7 +273,7 @@ impl LaunchForm {
             dispatched: false,
             surface: Default::default(),
             route: None,
-                    })
+        })
     }
 }
 

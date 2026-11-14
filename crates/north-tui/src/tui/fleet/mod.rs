@@ -39,6 +39,7 @@ use crate::fleet::board::Board;
 use crate::fleet::model::{Status, Transcript};
 use crate::fleet::registry::Fleet;
 
+pub use desk::AccountRoom;
 use desk::{FleetDesk, SessionDesk};
 use digest::SessionFacts;
 use painter::TranscriptPainter;
@@ -47,17 +48,17 @@ use screen::{Command, Screen};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// `board` reads the four-panel snapshot the digest shows.
-pub fn run(fleet: Fleet, board: fn(&Fleet) -> Board) -> NorthResult<()> {
-    run_focused(fleet, None, board)
+/// `board` reads the four-panel snapshot the digest shows; `rooms` reads each account's week left for the new-session form.
+pub fn run(fleet: Fleet, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> NorthResult<()> {
+    run_focused(fleet, None, board, rooms)
 }
 
-pub fn run_on(fleet: Fleet, session: &str, board: fn(&Fleet) -> Board) -> NorthResult<()> {
-    run_focused(fleet, Some(session.to_owned()), board)
+pub fn run_on(fleet: Fleet, session: &str, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> NorthResult<()> {
+    run_focused(fleet, Some(session.to_owned()), board, rooms)
 }
 
-fn run_focused(fleet: Fleet, session: Option<String>, board: fn(&Fleet) -> Board) -> NorthResult<()> {
-    let mut desk = FleetDesk::new(fleet, board);
+fn run_focused(fleet: Fleet, session: Option<String>, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> NorthResult<()> {
+    let mut desk = FleetDesk::new(fleet, board, rooms);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
     screen.selected = session;
     screen.offer(desk.choices());
@@ -175,6 +176,7 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
             screen.observe(desk.digest(), facts);
             screen.digest.project_status = desk.project_status();
             screen.digest.board = desk.board();
+            screen.offer_rooms(desk.rooms());
             true
         }
         Err(error) => {

@@ -14,7 +14,7 @@ use crate::fleet::gates::{Decision, Gate, GateRequest};
 use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionPhase, Status, Transcript};
 
 use super::clipboard::Clipboard;
-use super::desk::{SessionActions, SessionDesk, SessionSummary};
+use super::desk::{AccountRoom, SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
 use super::form::{Field, FormOutcome, LaunchForm};
 use super::runner::Runner;
@@ -351,6 +351,70 @@ fn a_paste_with_carriage_returns_keeps_its_lines() {
     let mut screen = screen(&desk);
     apply_event(&mut screen, Event::Paste("first line\rsecond line\r\nthird line".into()));
     assert_eq!(screen.composer.lines(), ["first line", "second line", "third line"]);
+}
+
+fn form_frame(screen: &mut Screen, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    let mut painter = super::painter::TranscriptPainter::default();
+    terminal.draw(|frame| super::view::draw(frame, screen, None, &mut painter, 0)).unwrap();
+    let buffer = terminal.backend().buffer();
+    buffer.content().chunks(usize::from(width)).map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+fn form_of(screen: &Screen) -> &LaunchForm {
+    let Some(Dialog::Launch(form)) = &screen.dialog else { panic!("no launch form is open") };
+    form
+}
+
+#[test]
+fn the_launch_form_sets_effort_and_task_and_shows_each_accounts_week() {
+    let mut desk = desk();
+    desk.accounts = vec![account("claude", "a"), account("claude", "b"), account("claude", "c"), account("codex", "plus"), account("pi", "local")];
+    let mut screen = screen(&desk);
+    let room = |label: &str, week_left: f64| AccountRoom { label: label.into(), week_left: Some(week_left) };
+    screen.offer_rooms(vec![room("b", 63.0), room("a", 12.0), room("c", 0.0)]);
+    key(&mut desk, &mut screen, control('n'));
+
+    let frame = form_frame(&mut screen, 80, 30);
+    let (b, a, c) = (frame.find("b 63% of week left"), frame.find("a 12% of week left"), frame.find("c week out"));
+    assert!(b.is_some() && a.is_some() && c.is_some(), "an account's week is missing from the form:\n{frame}");
+    assert!(b < a && a < c, "the accounts are not in the order north accounts places them:\n{frame}");
+    assert!(frame.contains("Tab next · ←/→ choose · Enter launches · Alt+Enter newline · Esc cancels"), "the footer is cut:\n{frame}");
+    assert!(frame.contains("effort") && frame.contains("task"), "the form has no effort or task:\n{frame}");
+    assert_eq!(form_of(&screen).chosen_account().map(|account| account.label.as_str()), Some("b"));
+
+    key(&mut desk, &mut screen, press(KeyCode::Left));
+    assert_eq!(form_of(&screen).provider.label(), "pi");
+    key(&mut desk, &mut screen, press(KeyCode::Right));
+    assert_eq!(form_of(&screen).provider.label(), "claude");
+
+    key(&mut desk, &mut screen, press(KeyCode::Tab));
+    for (arrow, expected) in [(KeyCode::Right, "a"), (KeyCode::Right, "b"), (KeyCode::Left, "a"), (KeyCode::Left, "b")] {
+        key(&mut desk, &mut screen, press(arrow));
+        assert_eq!(form_of(&screen).chosen_account().map(|account| account.label.as_str()), Some(expected));
+    }
+
+    for _ in 0..4 {
+        key(&mut desk, &mut screen, press(KeyCode::Tab));
+    }
+    for arrow in [KeyCode::Right, KeyCode::Right, KeyCode::Right, KeyCode::Left] {
+        key(&mut desk, &mut screen, press(arrow));
+    }
+    assert_eq!(form_of(&screen).effort, Some(Effort::Medium));
+    key(&mut desk, &mut screen, press(KeyCode::Tab));
+    screen.paste("tompassarelli/north#1281");
+    key(&mut desk, &mut screen, press(KeyCode::Tab));
+    screen.paste("the form box");
+    key(&mut desk, &mut screen, press(KeyCode::Tab));
+    screen.paste("do the work");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+
+    let performed = desk.performed();
+    let [Command::Launch(request)] = performed.as_slice() else { panic!("the form sent {performed:?}") };
+    assert_eq!(request.account, "b");
+    assert_eq!(request.effort, Some(Effort::Medium));
+    assert_eq!(request.task_ref.as_deref(), Some("tompassarelli/north#1281"));
+    assert_eq!(request.claim_box.as_deref(), Some("the form box"));
 }
 
 fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
