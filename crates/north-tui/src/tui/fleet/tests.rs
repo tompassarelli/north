@@ -17,8 +17,8 @@ use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
 use super::form::{Field, FormOutcome, LaunchForm};
 use super::runner::Runner;
-use super::screen::{Command, Dialog, Focus, Screen};
-use super::{apply_event, drive};
+use super::screen::{Command, Dialog, Focus, Notice, Screen};
+use super::{apply_event, drive, slash};
 
 const HANG: Duration = Duration::from_secs(3600);
 
@@ -264,17 +264,26 @@ fn a_blocking_stop_leaves_the_loop_responsive() {
 }
 
 #[test]
-fn one_enter_sends_a_slash_command_while_its_suggestions_are_open() {
+fn a_slash_command_the_screen_lacks_is_refused_and_named_not_sent() {
     let mut desk = desk();
     let mut screen = screen(&desk);
     type_text(&mut desk, &mut screen, "/compact");
     key(&mut desk, &mut screen, press(KeyCode::Enter));
-    type_text(&mut desk, &mut screen, "/comp");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    let compact = Command::Send { name: "parser".into(), text: "/compact".into(), delivery: Delivery::Queued, deepen: false };
-    assert_eq!(desk.performed(), [compact.clone(), compact]);
-    assert_eq!(screen.pending_for("parser"), ["/compact", "/compact"]);
+    assert!(desk.performed().is_empty());
+    assert!(matches!(&screen.notice, Some(Notice::Error(text)) if text.contains("/model") && text.contains("/effort")));
     assert!(screen.composer.is_empty());
+}
+
+#[test]
+fn every_command_the_help_lists_has_a_handler() {
+    for (name, _) in slash::COMMANDS {
+        let mut desk = desk();
+        let mut screen = screen(&desk);
+        type_text(&mut desk, &mut screen, name);
+        key(&mut desk, &mut screen, press(KeyCode::Enter));
+        assert!(desk.performed().is_empty(), "{name} reached the client");
+        assert!(matches!(&screen.notice, Some(Notice::Info(_))) || screen.help.tab().is_some(), "{name} has no handler");
+    }
 }
 
 #[test]

@@ -3,7 +3,11 @@
 use crate::fleet::gates::{Decision, Gate};
 use crate::fleet::model::{Delivery, Effort};
 
+use super::super::help_panel::Tab;
+use super::super::slash;
 use super::{composer_area, Command, Notice, Screen};
+
+const NO_SESSION: &str = "no session selected; Ctrl+N starts one";
 
 impl Screen {
     pub fn submit(&mut self, delivery: Delivery) -> Option<Command> {
@@ -18,18 +22,35 @@ impl Screen {
             let option = chosen_option(gate, &text);
             return self.answer_gate(id, option, text);
         }
+        if let Some(command) = Slash::parse(&text) {
+            self.composer = composer_area();
+            return self.handle_slash(command);
+        }
         let Some(session) = self.selected_session() else {
-            self.notice = Some(Notice::Error("no session selected; Ctrl+N starts one".into()));
+            self.notice = Some(Notice::Error(NO_SESSION.into()));
             return None;
         };
         let name = session.record.name.clone();
         let text = self.attachments.expand(&text);
         self.composer = composer_area();
-        if let Some(tuning) = Tuning::parse(&text) {
-            return self.tune(tuning);
-        }
         self.scroll = 0;
         Some(Command::Send { name, text, delivery, deepen: false })
+    }
+
+    fn handle_slash(&mut self, command: Slash<'_>) -> Option<Command> {
+        match command {
+            Slash::Help => {
+                self.composer.insert_str("?");
+                self.help.open(Tab::General);
+                None
+            }
+            Slash::Tuning(tuning) => self.tune(tuning),
+            Slash::Unknown(word) => {
+                let commands: Vec<&str> = slash::COMMANDS.iter().map(|(name, _)| *name).collect();
+                self.notice = Some(Notice::Error(format!("{word} is not a command here; the commands are {}", commands.join(", "))));
+                None
+            }
+        }
     }
 
     fn answer_gate(&mut self, id: i64, option: Option<usize>, text: String) -> Option<Command> {
@@ -58,7 +79,10 @@ impl Screen {
     }
 
     fn tune(&mut self, tuning: Tuning<'_>) -> Option<Command> {
-        let session = self.selected_session()?;
+        let Some(session) = self.selected_session() else {
+            self.notice = Some(Notice::Error(NO_SESSION.into()));
+            return None;
+        };
         let record = session.record.clone();
         let choices = self.choices.iter().find(|choices| choices.provider == record.provider);
         let name = record.name.clone();
@@ -102,19 +126,33 @@ fn chosen_option(gate: &Gate, text: &str) -> Option<usize> {
     gate.request.options.iter().position(|option| option.trim().eq_ignore_ascii_case(text)).map(|index| index + 1)
 }
 
-enum Tuning<'a> {
-    Model(Option<&'a str>),
-    Effort(Option<&'a str>),
+enum Slash<'a> {
+    Help,
+    Tuning(Tuning<'a>),
+    Unknown(&'a str),
 }
 
-impl<'a> Tuning<'a> {
+impl<'a> Slash<'a> {
     fn parse(text: &'a str) -> Option<Self> {
         let text = text.trim();
         let (word, argument) = text.split_once(char::is_whitespace).map_or((text, None), |(word, rest)| (word, Some(rest.trim()).filter(|rest| !rest.is_empty())));
-        match word {
-            "/model" => Some(Self::Model(argument)),
-            "/effort" => Some(Self::Effort(argument)),
-            _ => None,
+        if !is_command_word(word) {
+            return None;
         }
+        Some(match word {
+            "/help" => Self::Help,
+            "/model" => Self::Tuning(Tuning::Model(argument)),
+            "/effort" => Self::Tuning(Tuning::Effort(argument)),
+            _ => Self::Unknown(word),
+        })
     }
+}
+
+fn is_command_word(word: &str) -> bool {
+    word.strip_prefix('/').is_some_and(|name| name.chars().all(|c| c.is_ascii_alphabetic() || c == '-'))
+}
+
+enum Tuning<'a> {
+    Model(Option<&'a str>),
+    Effort(Option<&'a str>),
 }
