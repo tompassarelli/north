@@ -41,6 +41,7 @@ store() {
 from_tree() {
   if ! tree=$(clean_tree); then
     north=$(build)
+    export NORTH_HOME=${NORTH_HOME:-$root}
     return
   fi
   mkdir -p "$cache"
