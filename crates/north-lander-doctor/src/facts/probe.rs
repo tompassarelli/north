@@ -8,6 +8,7 @@ use super::SlotHold;
 pub struct Probe {
     pub free_percent: f64,
     pub free_gib: f64,
+    pub size_gib: f64,
     pub slots: Vec<SlotHold>,
     pub prunable: Vec<(PathBuf, usize)>,
     /// Land queues under the probe's state home that hold no ticket in any area and that no lander holds.
@@ -83,7 +84,7 @@ pub fn parse_probe(text: &str) -> Result<Probe, String> {
         match words.as_slice() {
             ["disk", used, available] => {
                 let (used, available): (f64, f64) = (used.parse().map_err(|_| format!("disk line {line:?}"))?, available.parse().map_err(|_| format!("disk line {line:?}"))?);
-                disk = Some((available * 100.0 / (used + available).max(1.0), available / (1u64 << 20) as f64));
+                disk = Some((available * 100.0 / (used + available).max(1.0), available / (1u64 << 20) as f64, (used + available) / (1u64 << 20) as f64));
             }
             ["slot", slot, held, pgid, state @ ("locked" | "free")] => probe.slots.push(SlotHold { slot: (*slot).to_owned(), held: held.parse().map_err(|_| format!("slot line {line:?}"))?, pgid: pgid.parse().ok().filter(|pgid| *pgid > 1), locked: *state == "locked" }),
             ["prunable", count, repo] => probe.prunable.push((PathBuf::from(repo), count.parse().map_err(|_| format!("prunable line {line:?}"))?)),
@@ -91,9 +92,10 @@ pub fn parse_probe(text: &str) -> Result<Probe, String> {
             _ => {}
         }
     }
-    let (free_percent, free_gib) = disk.ok_or_else(|| "the probe printed no disk line".to_owned())?;
+    let (free_percent, free_gib, size_gib) = disk.ok_or_else(|| "the probe printed no disk line".to_owned())?;
     probe.free_percent = free_percent;
     probe.free_gib = free_gib;
+    probe.size_gib = size_gib;
     Ok(probe)
 }
 

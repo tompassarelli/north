@@ -9,7 +9,7 @@ Each fault gets a fresh directory with its own home, state, runtime directory, g
 ## Faults and the remedies they prove
 
 - held link on a replay that reached no verdict: the doctor's promotion retry, run as `north land promote` against a scratch repository with one recorded landed round and a candidate that replays it landed; the lander link must follow current. `north runtime promote` runs this same command for the lander link after its own update steps, which a scratch lander has none of.
-- full disk: `north capacity disk keep` under the scratch home, whose offload-cache eviction must bring a 64 MiB tmpfs filled to 95% by an unlocked offload slot back over 10% free.
+- full disk: `north capacity disk keep` under the scratch home, whose offload-cache eviction must bring a 64 MiB tmpfs filled to 95% by an unlocked offload slot back over the line its lease reaper holds (25% free on so small a disk).
 - wedged lander unit: restarting a scratch user unit that is alive but has not written its rounds file for 20 minutes.
 - check refused because its host lacks the runtime: requeueing the ticket once, while a scratch lander unit serves the queue.
 - dead offload slot: ending the process group of a job that holds its slot's lock past the slot's deadline.

@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use crate::book::Book;
 use crate::facts::{Facts, LinkFacts, Place, PlaceFacts, QueueFacts, SlotHold};
+use north_base::platform::disk_budget::DiskBudget;
+use north_base::platform::disk_line::Line;
 use north_check_environment::Environment;
 use north_lander::landing::check_timings::CEILING;
 
@@ -15,7 +17,6 @@ pub const BEHIND_SECS: u64 = 15 * 60;
 pub const REPAGE_SECS: u64 = 30 * 60;
 pub const SLOT_GRACE_SECS: u64 = 900;
 pub const SLOT_DEADLINE_SECS: u64 = CEILING + SLOT_GRACE_SECS;
-pub const DISK_FREE_PERCENT: f64 = 10.0;
 pub const PATIENCE_SECS: u64 = 5 * 60;
 pub const NO_VERDICT_PROMOTIONS: u32 = 3;
 pub const BASE_BROKEN_SECS: u64 = 10 * 60;
@@ -71,7 +72,7 @@ impl Bound {
             Bound::Behind => format!("{BEHIND_LANDINGS} landings or {}", minutes(BEHIND_SECS)),
             Bound::BaseBroken => minutes(BASE_BROKEN_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
-            Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
+            Bound::DiskFree => "the free GiB its lease reaper holds".to_owned(),
             Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::OrphanQueues | Bound::SourceBuilds | Bound::NoVerdict | Bound::Reach | Bound::AgentLink => "0".to_owned(),
         }
     }
@@ -377,8 +378,9 @@ fn judge_place(place: &PlaceFacts) -> Vec<Finding> {
         Err(error) => return vec![Finding::over(Bound::DiskFree, subject, "unread".to_owned(), State::Unknown(format!("cannot read {subject}: {error}")))],
     };
     let mut findings = Vec::new();
+    let held = Line::held(DiskBudget::of(subject).dispatch_bound_gib(), probe.size_gib);
     let free = format!("{:.0}% free ({:.0} GiB)", probe.free_percent, probe.free_gib);
-    findings.push(if probe.free_percent >= DISK_FREE_PERCENT {
+    findings.push(if !held.passed(probe.free_gib, probe.size_gib) {
         Finding::healthy(Bound::DiskFree, subject, free)
     } else {
         Finding::over(Bound::DiskFree, subject, free, known("disk pressure", Remedy::Evict { place: place.place.clone() }))

@@ -3,7 +3,10 @@
 //! one rule above it, the closing line plus one warm slot of margin: every pass under that line trims regenerable caches least
 //! recently used first toward the low watermark, far roomier, and takes warm stores until the disk is back over it, so a host
 //! is closed only once nothing its rules may reclaim is left.
-use super::admission::default_mib as default_number;
+fn default_number(name: &str) -> f64 {
+    let value = &super::harness::document(super::harness::DEFAULTS)[name]["value"];
+    value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
+}
 
 const LOW_WATERMARK_FREE_SHARE: f64 = 0.40;
 const EVICT_FREE_SHARE: f64 = 0.20;

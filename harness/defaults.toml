@@ -702,7 +702,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB free on a build host's root disk under which the lease reaper evicts offload slots and trims the shared cargo targets and sccache to their caps, and under which dispatch and fleet placement send the host no new session, so a refused host is always being reclaimed; a disk too small to spare it uses 20% free instead"
 source = "measured: the 80% line was set when the GPU host had a 468 GiB disk, 94 GiB free; after the 2026-10-31 reshape to 936 GiB it fired at 187 GiB free, and on 2026-11-06 the reaper evicted land-offload slots dozens of times with sccache (30 GiB) and the shared cargo targets (20 GiB) already at their caps while the uncapped Mak'gora and wisp stores (about 220 GiB) held the disk near 80% (north#634)"
 fallback = "none: the reaper always applies it"
-consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-offload/src/offload_cache/mod.rs", "crates/north-capacity/src/capacity/saturation.rs"]
+consumers = ["crates/north-base/src/platform/disk_line.rs", "crates/north-offload/src/offload_cache/mod.rs", "crates/north-capacity/src/capacity/saturation.rs"]
 
 [offload_evict_stop_free_gib]
 value = 130
@@ -710,7 +710,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB free a build host's lease reaper holds its root disk over when the host has no disk_free_gib bound of its own, and with one, the bound plus this line's margin over offload_evict_free_gib: every pass under it trims the caches toward the low watermark and takes warm stores until the disk is back over it, so the host closes to new work only once nothing its rules may reclaim is left; a disk too small to spare it uses 25% free instead"
 source = "measured: on 2026-11-10 from 3:55 PM the GPU host read 92 to 99 GiB free and refused launches, because each pass stopped at 94 GiB after taking 0.5 to 2 GiB of caches, until a pass at 4:04 PM took one 38 GiB land slot (94 to 126 GiB); 36 GiB over the line is one warm land slot of margin (north#1036)"
 fallback = "none: the reaper always applies it"
-consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-offload/src/offload_cache/mod.rs"]
+consumers = ["crates/north-base/src/platform/disk_line.rs", "crates/north-offload/src/offload_cache/mod.rs"]
 
 [disk_low_watermark_free_gib]
 value = 400
@@ -718,7 +718,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB free a build host's cleanup pass runs down to: once the root disk is under its held line (offload_evict_stop_free_gib) the lease reaper trims the regenerable caches harness/disk-ledger.toml lists for its own passes (build-offload slots, the shared cargo targets, wisp window builds, sccache), least recently used first and past their caps, in one pass until the disk is back over this line or nothing regenerable is left; a disk too small to spare it uses 40% free instead, so the 936 GiB host cleans from 86% used to about 60%"
 source = "measured: on 2026-11-07 the 936 GiB build host fell from 164 to 147 GiB free at the top of each hour over a day (about 17 GiB a day net) with swings of 100 to 190 GiB from transient jobs, so 40% free leaves about two weeks of net growth before the held line; wide hysteresis replaced trimming just back over one line on 2026-11-07 (north#725)"
 fallback = "none: the reaper always applies it"
-consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-offload/src/offload_cache/mod.rs"]
+consumers = ["crates/north-base/src/platform/disk_line.rs", "crates/north-offload/src/offload_cache/mod.rs"]
 
 [build_disk_free_gib]
 value = 15

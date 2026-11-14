@@ -4,7 +4,7 @@
 //! target (`pressure_target`). Placement skips a host with a backlog at launch so the pile does not deepen while another
 //! host idles, and alerts on a stalled fleet read the same signals through `Saturation::refusal`.
 use super::admission::{self, Class, default_mib as default};
-use super::disk_line::Line;
+use north_base::platform::disk_line::Line;
 use north_base::platform::pushed_token::FRESH_SECONDS;
 
 const DISK_FLOOR: &str = "build_disk_free_gib";

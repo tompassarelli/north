@@ -44,8 +44,12 @@ impl DiskBudget {
     }
 
     pub fn local() -> Self {
+        Self::of(&super::host::name())
+    }
+
+    pub fn of(host: &str) -> Self {
         let text = std::fs::read_to_string(super::orchestration::path()).unwrap_or_default();
-        Self::parse(&text, &super::host::name())
+        Self::parse(&text, host)
     }
 
     pub fn gib(&self, share: Share) -> Option<f64> {

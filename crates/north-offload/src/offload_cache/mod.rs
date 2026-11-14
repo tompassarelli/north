@@ -21,7 +21,7 @@ use crate::land_offload::slot_lock;
 use north_base::platform::disk_budget::DiskBudget;
 use north_base::platform::disk_ledger::{self, Kind, Ledger};
 use north_base::platform::shared_target::{self, allocated_tree};
-pub use north_capacity_host::capacity::disk_line::Line;
+pub use north_base::platform::disk_line::Line;
 pub use page::alarm;
 use page::{largest, page, record};
 

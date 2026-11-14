@@ -126,7 +126,7 @@ fn at(place: Place, probe: Probe) -> Facts {
 }
 
 fn roomy() -> Probe {
-    Probe { free_percent: 60.0, free_gib: 300.0, ..Probe::default() }
+    Probe { free_percent: 60.0, free_gib: 300.0, size_gib: 500.0, ..Probe::default() }
 }
 
 fn busy_queue(silence: u64) -> QueueFacts {
@@ -287,7 +287,7 @@ fn age_holder(root: &Path, slot: &str) {
 fn probed(root: &Path) -> Probe {
     let output = Command::new("bash").args(["-c", &facts::probe()]).env("NORTH_OFFLOAD_ROOT", root).env("HOME", root).output().unwrap();
     let probe = facts::parse_probe(&String::from_utf8_lossy(&output.stdout)).unwrap();
-    Probe { free_percent: 60.0, free_gib: 300.0, ..probe }
+    Probe { free_percent: 60.0, free_gib: 300.0, size_gib: 500.0, ..probe }
 }
 
 #[test]
@@ -384,7 +384,10 @@ fn a_check_refused_by_an_infrastructure_failure_its_log_names_is_rerun_once() {
 
 #[test]
 fn disk_pressure_evicts_caches_and_each_remedy_and_unknown_state_writes_one_incident_row_and_one_page() {
-    let facts = at(gex45(), Probe { free_percent: 4.0, free_gib: 12.0, ..Probe::default() });
+    let large = Fake::default();
+    cure(&at(gex45(), Probe { free_percent: 9.4, free_gib: 351.0, size_gib: 3726.0, ..Probe::default() }), &mut Book::default(), &large, NOW);
+    assert!(large.applied.borrow().is_empty(), "a 3.7 TB disk at 351 GiB free sits over the 130 GiB its reaper holds, so no eviction is due (north#1545)");
+    let facts = at(gex45(), Probe { free_percent: 4.0, free_gib: 12.0, size_gib: 300.0, ..Probe::default() });
     let mut book = Book::default();
     let hands = Fake::default();
     cure(&facts, &mut book, &hands, NOW);
@@ -395,7 +398,7 @@ fn disk_pressure_evicts_caches_and_each_remedy_and_unknown_state_writes_one_inci
     cure(&facts, &mut book, &hands, NOW + PATIENCE_SECS + 120);
     assert_eq!(hands.applied.borrow().len(), 1);
     assert_eq!(hands.pages.borrow().len(), 1);
-    assert!(hands.pages.borrow()[0].starts_with("north land doctor: unknown lander state: disk-free gex45 reads 4% free (12 GiB) (bound 10% free): "));
+    assert!(hands.pages.borrow()[0].starts_with("north land doctor: unknown lander state: disk-free gex45 reads 4% free (12 GiB) (bound the free GiB its lease reaper holds): "));
     let rows = hands.incidents.borrow().clone();
     assert_eq!(rows, [("lander-disk-pressure".to_owned(), format!("lander-disk-pressure:disk-free:gex45@{NOW}#1")), (UNKNOWN.to_owned(), format!("{UNKNOWN}:disk-free:gex45@{NOW}"))]);
     let unserved = QueueFacts { name: "clause".to_owned(), unit: "north-land@clause.service".to_owned(), unit_state: Some(facts::MISSING_UNIT.to_owned()), ..busy_queue(ROUND_SILENCE_SECS * 50) };
