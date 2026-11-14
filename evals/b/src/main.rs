@@ -89,6 +89,7 @@ fn ladder(flags: &BTreeMap<String, String>, argv: &str) -> Result<(), String> {
         let handles: Vec<_> = plan.hosts.iter().map(|h| scope.spawn(|| scratch::prepare_host(h, &branches))).collect();
         handles.into_iter().try_for_each(|h| h.join().unwrap_or_else(|_| Err("a host setup panicked".to_owned())))
     })?;
+    ladder::fill(&plan, &stamp);
     let mut lander = scratch::Lander::start(&plan.work.join("lander.log"))?;
     std::thread::sleep(std::time::Duration::from_secs(3));
     if !lander.alive() {
