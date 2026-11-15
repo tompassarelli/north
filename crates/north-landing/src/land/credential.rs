@@ -6,6 +6,8 @@ use super::candidate;
 pub const TOKEN_ENV: &str = "NORTH_LAND_PUSH_TOKEN";
 const KEY: &str = "landing.push-app";
 const DEFAULT_APP: &str = "agent";
+const WORKFLOWS: &str = ".github/workflows";
+const CONTENTS_ONLY: &[&str] = &["--permission", "contents:write"];
 const HELPER: &str = "!f() { test \"$1\" = get && printf 'username=x-access-token\\npassword=%s\\n' \"$NORTH_LAND_PUSH_TOKEN\"; }; f";
 const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
@@ -36,10 +38,10 @@ pub fn mint_program() -> Vec<String> {
     vec![north, "broker".to_owned(), "github-token".to_owned()]
 }
 
-pub fn mint(program: &[String], app: &str) -> Result<String, String> {
+pub fn mint(program: &[String], app: &str, scope: &[&str]) -> Result<String, String> {
     let (command, leading) = program.split_first().ok_or("no token program is configured")?;
     let mut mint = Command::new(command);
-    mint.args(leading).args(["--app", app]);
+    mint.args(leading).args(["--app", app]).args(scope);
     let output = match north_base::platform::process::try_run_group_traced_within(mint, candidate::DEADLINE) {
         Ok(Ok(output)) => output,
         Ok(Err(stalled)) => return Err(format!("{command} --app {app} gave no answer within {} s and was killed: {stalled}", candidate::DEADLINE.as_secs())),
@@ -53,6 +55,10 @@ pub fn mint(program: &[String], app: &str) -> Result<String, String> {
         return Err(format!("{command} --app {app} printed no token"));
     }
     Ok(token)
+}
+
+fn changes_workflows(worktree: &Path, base: &str) -> Result<bool, String> {
+    Ok(candidate::output(worktree, &["cat-file", "-e", &format!("{base}:{WORKFLOWS}")])?.status.success())
 }
 
 fn is_local(remote: &str) -> bool {
@@ -71,7 +77,8 @@ pub fn for_push(worktree: &Path, base: &str, program: &[String]) -> Result<Optio
     if pushes_locally(worktree) {
         return Ok(None);
     }
-    mint(program, &configured(worktree, base)?).map(Some)
+    let scope = if changes_workflows(worktree, base)? { &[][..] } else { CONTENTS_ONLY };
+    mint(program, &configured(worktree, base)?, scope).map(Some)
 }
 
 pub fn apply(push: &mut Command, token: &str) {
