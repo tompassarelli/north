@@ -1,7 +1,7 @@
 use super::gate::gate;
 use super::state::State;
 use std::path::PathBuf;
-use std::process::Command;
+use north_base::test_inputs::git::git_in;
 
 struct Repo {
     _root: tempfile::TempDir,
@@ -16,13 +16,8 @@ impl Repo {
         std::fs::create_dir_all(&repo).unwrap();
         let state = root.path().join("state");
         let made = Self { _root: root, repo, state };
-        made.git(&["init", "-q", "-b", "main"]);
+        git_in(&made.repo, &["init", "-q", "-b", "main"]);
         made
-    }
-
-    fn git(&self, args: &[&str]) -> String {
-        let output = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).current_dir(&self.repo).output().unwrap();
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
     fn commit(&self, files: &[(&str, String)]) -> String {
@@ -31,9 +26,9 @@ impl Repo {
             std::fs::create_dir_all(out.parent().unwrap()).unwrap();
             std::fs::write(out, text).unwrap();
         }
-        self.git(&["add", "-A"]);
-        self.git(&["commit", "-qm", "land"]);
-        self.git(&["rev-parse", "HEAD"])
+        git_in(&self.repo, &["add", "-A"]);
+        git_in(&self.repo, &["commit", "-qm", "land"]);
+        git_in(&self.repo, &["rev-parse", "HEAD"])
     }
 
     fn gate(&self, base: &str, head: &str) -> super::gate::GateResult {
@@ -112,8 +107,8 @@ fn a_revert_that_restores_debt_its_commit_removed_is_not_new_debt() {
     repo.commit(&[("structure.toml", "[thresholds]\nfunction_complexity = 2\n".to_owned()), ("src/a.rs", nested.to_owned())]);
     let fixed = repo.commit(&[("src/a.rs", "pub fn f(_: bool, _: bool) -> u8 {\n    0\n}\n".to_owned())]);
     let base = repo.commit(&[("src/b.rs", "pub const B: u8 = 1;\n".to_owned())]);
-    repo.git(&["revert", "--no-edit", &fixed]);
-    let head = repo.git(&["rev-parse", "HEAD"]);
+    git_in(&repo.repo, &["revert", "--no-edit", &fixed]);
+    let head = git_in(&repo.repo, &["rev-parse", "HEAD"]);
     assert_ne!(head, base);
     let violations: Vec<String> = repo.gate(&base, &head).violations.iter().map(|violation| violation.shown()).collect();
     assert!(violations.is_empty(), "{violations:?}");

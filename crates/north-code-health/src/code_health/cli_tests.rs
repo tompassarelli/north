@@ -1,7 +1,7 @@
 use super::cli::{Io, run_with as run};
 use super::state::State;
 use std::path::PathBuf;
-use std::process::Command;
+use north_base::test_inputs::git::git_in;
 
 struct Repo {
     _root: tempfile::TempDir,
@@ -16,13 +16,8 @@ impl Repo {
         std::fs::create_dir_all(&repo).unwrap();
         let state = root.path().join("state");
         let made = Self { _root: root, repo, state };
-        made.git(&["init", "-q", "-b", "main"]);
+        git_in(&made.repo, &["init", "-q", "-b", "main"]);
         made
-    }
-
-    fn git(&self, args: &[&str]) -> String {
-        let output = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).current_dir(&self.repo).output().unwrap();
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
     fn write(&self, files: &[(&str, String)]) {
@@ -35,9 +30,9 @@ impl Repo {
 
     fn commit(&self, files: &[(&str, String)]) -> String {
         self.write(files);
-        self.git(&["add", "-A"]);
-        self.git(&["commit", "-qm", "land"]);
-        self.git(&["rev-parse", "HEAD"])
+        git_in(&self.repo, &["add", "-A"]);
+        git_in(&self.repo, &["commit", "-qm", "land"]);
+        git_in(&self.repo, &["rev-parse", "HEAD"])
     }
 
     fn north(&self, args: &[&str]) -> (u8, String, String) {
@@ -118,7 +113,7 @@ fn changes_since_review_fire_on_a_hidden_link_show_in_the_budget_and_record_file
     for n in 1..5 {
         last = repo.commit(&[("src/left/a.ts", format!("let _ = {n};\n")), ("src/right/b.ts", format!("export const b = {n};\n"))]);
     }
-    repo.git(&["revert", "--no-edit", &last]);
+    git_in(&repo.repo, &["revert", "--no-edit", &last]);
     repo.commit(&[("src/left/c.ts", "export const c = 1;\n".to_owned())]);
     assert_eq!(repo.fire(&["--record"]).1, "FIRE hidden links grew 0 -> 1 since review (limit +1)");
     let (code, out, err) = repo.north(&["budget"]);
