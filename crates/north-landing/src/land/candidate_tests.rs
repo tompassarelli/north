@@ -220,6 +220,8 @@ fn an_origin_main_a_worker_moves_in_the_main_store_is_not_the_one_the_lander_rea
     let (_, main, base) = origin_and_main(dir.path());
     let worktree = lander_worktree(&main, "lander").unwrap();
     ensure(&main, &worktree).unwrap();
+    let store = git(&worktree, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).unwrap();
+    assert_eq!(Path::new(&store), Mirror::repository(&main).unwrap(), "the lander worktree keeps its store in the trusted mirror, never the main checkout's store a worker writes (north#1513)");
     let forged = forged(&main, &base);
     git(&main, &["update-ref", "refs/remotes/origin/main", &forged]).unwrap();
     assert_eq!(git(&worktree, &["rev-parse", "refs/remotes/origin/main"]).unwrap(), base, "the lander reads origin/main as its own fetch of origin left it, not as the main checkout's store says (north#1513)");
