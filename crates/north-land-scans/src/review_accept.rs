@@ -14,6 +14,7 @@ use toml_edit::DocumentMut;
 use crate::{Range, git, holdlist};
 
 const SELF: &str = "review-accept";
+const DELETIONS: &str = "review-accept-deletions";
 const REVERTS: [&str; 2] = ["This reverts commit ", "Reverts: "];
 
 fn changed(directory: &Path, fork: &str, head: &str) -> Option<Vec<String>> {
@@ -63,7 +64,7 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
     Ok((patch, accepted))
 }
 
-/// `Err` is a lane that changes a `trust_boundary_paths` file of the harness/defaults.toml at its landing `base` or deletes a test function, and holds no accept of its patch id from a reviewer session that did not author the lane.
+/// `Err` is a lane that changes a `trust_boundary_paths` file of the harness/defaults.toml at its landing `base` and holds no accept of its patch id from a reviewer session that did not author the lane.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     check_listed(directory, base, base, head, accepts, finished)
 }
@@ -73,16 +74,14 @@ fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accep
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
     let lists = lists_at(directory, listed_at)?;
     let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {listed_at} lists no trust_boundary_paths, so no change can be told to cross one"))?;
-    let deleted = deleted_tests(directory, &fork, head, &files);
-    let changes: Vec<String> = [(!crossing.is_empty()).then(|| format!("changes {} of trust_boundary_paths", crossing.join(", "))), (!deleted.is_empty()).then(|| format!("deletes test functions {}", deleted.join(", ")))].into_iter().flatten().collect();
-    if changes.is_empty() {
+    if crossing.is_empty() {
         return Ok(());
     }
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
     if !accepted.is_empty() {
         return Ok(());
     }
-    Err(format!("the lane {} and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", changes.join(" and ")))
+    Err(format!("the lane changes {} of trust_boundary_paths and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
 }
 
 /// The test functions the lane `fork..head` removes from each Rust file it changes, by name: those its base defines and its head does not, whether it deletes or renames them.
@@ -92,6 +91,16 @@ fn deleted_tests(directory: &Path, fork: &str, head: &str, files: &[String]) -> 
         .filter(|file| file.ends_with(".rs"))
         .flat_map(|file| test_functions(&source_at(directory, fork, file)).difference(&test_functions(&source_at(directory, head, file))).cloned().collect::<Vec<_>>())
         .collect()
+}
+
+/// The refusal of the shadow gate `DELETIONS` for the lane `base..head`: the test functions it removes, unless it is an exact revert of main or holds a reviewer accept of its patch from a session that did not author it.
+fn deleted_refusal(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<Option<String>, String> {
+    let fork = git::merge_base(directory, base, head);
+    let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
+    let deleted = deleted_tests(directory, &fork, head, &files);
+    let reverting = patch_id(directory, &fork, head).ok().and_then(|patch| reverted(directory, &fork, head, &patch));
+    let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
+    Ok(Some(deleted).filter(|deleted| !deleted.is_empty()).filter(|_| reverting.is_none()).filter(|_| accepted.is_empty()).map(|deleted| format!("the lane deletes test functions {} and holds no review accept of its patch {patch} from a reviewer session that did not author the lane", deleted.join(", "))))
 }
 
 fn source_at(directory: &Path, revision: &str, file: &str) -> String {
@@ -130,6 +139,8 @@ pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, fini
     let finished = finished.all();
     let outcome = each_commit(directory, base, head, |from, to| check_listed(directory, base, from, to, accepts, &finished));
     let fork = git::merge_base(directory, base, head);
+    let deletions = deleted_refusal(directory, base, head, accepts, &finished);
+    holdlist::record(state, DELETIONS, (head, patch_id(directory, &fork, head).ok().as_deref()), deletions.as_ref().ok().and_then(|found| found.as_deref()));
     let enforce = holdlist::enforcing(directory, SELF, [base, head]);
     if !enforce {
         holdlist::record(state, SELF, (head, patch_id(directory, &fork, head).ok().as_deref()), outcome.as_ref().err().map(String::as_str));

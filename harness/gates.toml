@@ -110,3 +110,7 @@ correct = 17
 # The after-landing run reverts, through the landing queue, the landing that turned a contract concern of concerns.toml red: red in the landed tree twice and green at the landing's base (north#1537). Read from the landed tree's harness/gates.toml, so a mode change takes effect at the next landing, not the next promotion. Shadow rows: $XDG_STATE_HOME/north/gates/concern-revert.jsonl on the lander host. On 2026-11-15 it reverted 7 unrelated landings in an hour for features-index-current, whose oracle checks the git-ignored docs/features.md the lander generates, so its reading turned on whether a tree had just generated that file; the coordinator ordered it to shadow until a base and a candidate are each read twice in the same slot (concern-1537).
 [gate.concern-revert]
 mode = "shadow"
+
+# A lane that removes a `#[test]` function from a Rust file it changes is refused until a reviewer accepts its patch id, as a trust-boundary path is, except an exact revert of main (north#1631, the deletion half of review-accept). Shadow rows: $XDG_STATE_HOME/north/gates/review-accept-deletions.jsonl on the host that runs the lane's checks before queueing; it refuses nothing until a reviewer reads those would-be refusals.
+[gate.review-accept-deletions]
+mode = "shadow"
