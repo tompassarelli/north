@@ -109,6 +109,11 @@ impl Lane {
         command
     }
 
+    /// Whether the repository's own settings turn on per-worktree config, which lets a lane's own settings file name what the lander reads from it.
+    pub fn per_worktree_config(&self, jail: &[OsString]) -> bool {
+        self.git(jail, &["config", "--type=bool", "--get", "extensions.worktreeConfig"]).is_some_and(|value| value == "true")
+    }
+
     pub fn git(&self, jail: &[OsString], arguments: &[&str]) -> Option<String> {
         let output = self.git_command(jail).args(arguments).stderr(Stdio::null()).output().ok()?;
         output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
@@ -145,7 +150,7 @@ pub fn orphans(inputs: &Inputs, sessions: &impl Sessions) -> Vec<Orphan> {
     if finished.is_empty() {
         return Vec::new();
     }
-    let lanes = lanes(&inputs.code);
+    let lanes: Vec<Lane> = lanes(&inputs.code).into_iter().filter(|lane| !lane.main().per_worktree_config(&inputs.jail)).collect();
     let mut trees = BTreeMap::new();
     for lane in &lanes {
         if !trees.contains_key(&lane.common) {

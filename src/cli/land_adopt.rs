@@ -42,7 +42,7 @@ impl Adopter for SafePush<'_> {
         let item = git(&["log", "-1", "--format=%(trailers:key=Item,valueonly)"]).and_then(|items| items.lines().next().map(str::to_owned)).filter(|item| !item.is_empty()).or_else(recorded).ok_or("the lane names no issue in an Item: trailer or its lane record")?;
         let (repo, number) = item.trim().split_once('#').ok_or_else(|| format!("{item} is not REPO#N"))?;
         let number: u64 = number.parse().map_err(|_| format!("{item} is not REPO#N"))?;
-        let origin = git(&["remote", "get-url", "origin"]).as_deref().and_then(origin_repository).ok_or("the main repository's origin names no GitHub repository")?;
+        let origin = lane.main().git(self.jail, &["remote", "get-url", "origin"]).as_deref().and_then(origin_repository).ok_or("the main repository's origin names no GitHub repository")?;
         let named = if repo.contains('/') { repo.to_owned() } else { format!("{}/{repo}", origin.split_once('/').map_or("", |(owner, _)| owner)) };
         if !named.eq_ignore_ascii_case(&origin) {
             return Err(format!("{item} names an issue outside {origin}, the lane's own repository"));

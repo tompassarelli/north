@@ -82,6 +82,9 @@ fn orphan_lane_of_a_retired_session_lands_with_no_session() {
     assert!(adopt::orphans(&inputs, &Retired(true)).is_empty(), "a lane whose session is live was adopted");
     assert!(!marker.exists(), "git ran the fsmonitor of a repository a lane's planted gitfile names");
     assert_eq!(adopt::orphans(&inputs, &Retired(false)).len(), 1, "the retired session's finished lane was not found");
+    git(&north.checkout, &["config", "extensions.worktreeConfig", "true"]);
+    assert!(adopt::orphans(&inputs, &Retired(false)).is_empty(), "a lane was adopted from a repository with per-worktree config on");
+    git(&north.checkout, &["config", "--unset", "extensions.worktreeConfig"]);
     let lines = adopt::adopt(&inputs, &Retired(false), &Lander { world: &world, north: &north }, false);
     assert!(lines.iter().any(|line| line.contains("landed ")), "{lines:?}");
     let subjects = git(&north.origin, &["log", "--format=%s", "main"]);
