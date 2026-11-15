@@ -259,6 +259,11 @@ fn reclaim_disk() -> Option<f64> {
     north_offload::offload_cache::reclaim(north_reclaim::reclaim::before_disk_defer_here)
 }
 
+fn keep_disk() {
+    north_reclaim::reclaim::sweep_here();
+    north_offload::offload_cache::keep();
+}
+
 fn config(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((noun, rest)) if noun == "context" => crate::context_audit::run(rest, agent_config_check::startup_tokens),
@@ -303,5 +308,5 @@ fn desktop(arguments: &[String]) -> u8 {
 }
 
 fn capacity_host() -> capacity::effects::Host {
-    capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, gpu_slots: crate::pacing::placement::local_gpu_slots, offload: north_offload::land_offload::run, stage_runtime: north_runtime::runtime::stage_on, reenter_outside: crate::worker_sandbox::reenter_outside, build_offload: north_offload::build_offload::offload, hand_over: north_offload::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, build_host: north_offload::land_offload::builds_for_peers, session_builds: crate::pacing::placement::local_session_builds, reclaim_disk, tend_disk: north_offload::offload_cache::tend, keep_disk: north_offload::offload_cache::keep, tend_slots: north_offload::land_offload::warm::tend }
+    capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, gpu_slots: crate::pacing::placement::local_gpu_slots, offload: north_offload::land_offload::run, stage_runtime: north_runtime::runtime::stage_on, reenter_outside: crate::worker_sandbox::reenter_outside, build_offload: north_offload::build_offload::offload, hand_over: north_offload::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, build_host: north_offload::land_offload::builds_for_peers, session_builds: crate::pacing::placement::local_session_builds, reclaim_disk, tend_disk: north_offload::offload_cache::tend, keep_disk, tend_slots: north_offload::land_offload::warm::tend }
 }

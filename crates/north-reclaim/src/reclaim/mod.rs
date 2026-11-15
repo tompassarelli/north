@@ -208,6 +208,18 @@ pub fn before_disk_defer_here() -> Option<f64> {
     before_disk_defer(&crate::capacity::agent_load::capacity_root().join("disk-reclaim.stamp"), crate::capacity::enrich::root_disk_free_gib)
 }
 
+/// Every reclaim sweep once, with no cooldown: the disk pass reaches idle lane build output, which evicting offload slots alone leaves standing.
+pub fn sweep_here() {
+    if env::var_os("AGENT_CAPACITY_DISK_FREE_GIB").is_some() {
+        return;
+    }
+    let policy = Policy::everything(Duration::from_secs(DEFAULT_IDLE_HOURS * 3600));
+    match reclaim(&Inputs::from_env(), &policy) {
+        Ok(reclaimed) => eprintln!("north capacity: disk pass reclaimed idle build output: {}", summary(&reclaimed.removals, false)),
+        Err(error) => eprintln!("north capacity: disk pass reclaim failed: {error}"),
+    }
+}
+
 /// Runs every reclaim sweep once before admission defers on the disk floor, at most once per `disk_reclaim_cooldown_minutes` on this host, and
 /// returns the root disk's free GiB afterwards; `None` when it did not run.
 fn before_disk_defer(stamp: &Path, free_gib: fn() -> Option<f64>) -> Option<f64> {
