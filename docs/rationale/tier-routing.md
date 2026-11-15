@@ -28,8 +28,8 @@ arm with the lower spend per kept closed arm box. The count is stamped runs and 
 boxes on the tier, because a tier's unstamped work carries the earlier routing's selection bias: counting those runs
 settled every category on 31 Oct with the Opus arm at 8 to 11 runs, and pricing those boxes made Opus look 2.4 times
 dearer on feature than its own arm boxes show (Arm result, 2026-11-05). Sonnet
-runs at medium or high effort: a launch without an effort takes the account default, medium, so the session registry
-pins Sonnet to high when none is asked and accepts an explicit medium; xhigh stays excluded, and max stays out for cost. Dispatch's launch build passes
+runs at low, medium or high effort: a launch without an effort takes the account default, medium, so the session registry
+pins Sonnet to high when none is asked and accepts an explicit low or medium (north#1438); xhigh stays excluded, and max stays out for cost. Dispatch's launch build passes
 the effort the launcher admits, so it never plans a launch the launcher refuses (north#1054).
 
 `north tune` tells each settled category's route to the graph as writer `tune` once a day, and dispatch

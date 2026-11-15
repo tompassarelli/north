@@ -39,6 +39,7 @@ pub fn evidenced() -> Vec<&'static str> {
 /// The effort an Opus box runs at, compared as an arm on its own `Arm:` stamp.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Effort {
+    Low,
     Medium,
     High,
     Xhigh,
@@ -46,11 +47,12 @@ pub enum Effort {
 }
 
 impl Effort {
-    pub const ALL: [Self; 4] = [Self::Medium, Self::High, Self::Xhigh, Self::Max];
+    pub const ALL: [Self; 5] = [Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
 
     /// The `--effort` word Claude Code takes.
     pub fn name(self) -> &'static str {
         match self {
+            Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
             Self::Xhigh => "xhigh",
@@ -61,6 +63,7 @@ impl Effort {
     /// The `Arm:` stamp a box on this effort's arm carries, which the ledger records.
     pub fn arm(self) -> &'static str {
         match self {
+            Self::Low => "effort-low",
             Self::Medium => "effort-medium",
             Self::High => "effort-high",
             Self::Xhigh => "effort-xhigh",

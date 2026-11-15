@@ -1,9 +1,9 @@
 # The model and effort cells a launch may draw (north#939), and every cell it may not, with the
 # reason the cell is out. A category draws every model at every effort below unless a row names it.
-# Tom, 2026-11-09: low and max stay out of the arm set until the fleet is stable; max is reached
-# only by escalation (north#940).
+# Low is an arm for every model (north#1438), so the calibration measures each model's low-effort cell on
+# north's own tasks; max stays out of the arm set and is reached only by escalation (north#940).
 models = ["haiku", "sonnet", "opus"]
-efforts = ["medium", "high", "xhigh"]
+efforts = ["low", "medium", "high", "xhigh"]
 
 [[exclude]]
 model = "haiku"
@@ -13,7 +13,7 @@ reason = "its token spend approaches Sonnet medium at a lower effort, which is s
 [[exclude]]
 model = "sonnet"
 effort = "xhigh"
-reason = "the workers policy staffs a Sonnet session at medium or high effort, so the launcher refuses xhigh"
+reason = "the workers policy staffs a Sonnet session at low, medium or high effort, so the launcher refuses xhigh"
 
 [[exclude]]
 model = "sonnet"
