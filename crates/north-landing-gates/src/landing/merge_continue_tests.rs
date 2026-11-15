@@ -38,11 +38,19 @@ fn derived_files_regenerate_at_landing_from_a_lane_that_changes_only_their_input
     merge_set::run_drivers_with(&north);
 
     commit(root, &[("crates/docs/Cargo.toml", "serde_json\ntoml_edit\n")], "a lane adds a dependency to a manifest and leaves its BUCK file stale");
-    assert_eq!(refresh(root, &main, &main).unwrap(), ["crates/**/BUCK"]);
+    assert_eq!(refresh(root, &main, &main, false).unwrap(), ["crates/**/BUCK"]);
     assert_eq!(git(root, &["show", "HEAD:crates/docs/BUCK"]), "serde_json\ntoml_edit", "the landing commit does not carry the BUCK file the generator writes from the lane's manifest");
     assert_eq!(git(root, &["rev-list", "--count", &format!("{main}..HEAD")]), "1", "the regenerated file is not folded into the lane's own commit");
 
     let landed = git(root, &["rev-parse", "HEAD"]);
     commit(root, &[("notes.md", "a lane that changes no generator input\n"), ("targets.sh", "exit 3\n")], "a lane outside every input");
-    assert!(refresh(root, &main, &landed).unwrap().is_empty(), "a landing that changes no generator input ran a generator");
+    assert!(refresh(root, &main, &landed, false).unwrap().is_empty(), "a landing that changes no generator input ran a generator");
+
+    north_base::foundation::shim::write_script(&north, "case \"$1 $2\" in\n\"--worker-sandbox --candidate\") shift 3; exec \"$@\" ;;\n\"runtime build-ahead\") echo every build host is over its admission limit >&2; exit 75 ;;\n\"runtime covers\") exit 1 ;;\n\"buck targets\") cp crates/docs/Cargo.toml crates/docs/BUCK ;;\n*) exit 9 ;;\nesac\n");
+    let list = "[[set]]\npath = \"crates/**/BUCK\"\nkind = \"regenerate\"\ncommand = \"north buck targets\"\nsources = [\"**/Cargo.toml\"]\ngenerator = [\"targets/**\"]\n";
+    let fixed = commit(root, &[("harness/merge-sets.toml", list), ("targets/mod.rs", "old\n")], "main lists a north generator");
+    commit(root, &[("targets/mod.rs", "new\n"), ("crates/docs/Cargo.toml", "serde_json\nurgent\n")], "an urgent fix changes the generator code and a manifest");
+    assert!(refresh(root, &fixed, &fixed, false).unwrap_err().message.contains("over its admission limit"), "a lane that changes the generator code ran it on the installed north");
+    assert_eq!(refresh(root, &fixed, &fixed, true).unwrap(), ["crates/**/BUCK"], "an urgent fix waited on a build of its merged tree instead of the installed north");
+    assert_eq!(git(root, &["show", "HEAD:crates/docs/BUCK"]), "serde_json\nurgent");
 }

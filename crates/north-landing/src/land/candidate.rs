@@ -251,7 +251,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
             return refuse(logs, name, "regenerate", &format!("could not read the regenerate rules: {error}; NOT landed."));
         }
     }
-    if let Err(failed) = merge_continue::refresh(worktree, base, &picked_onto) {
+    if let Err(failed) = merge_continue::refresh(worktree, base, &picked_onto, ticket.urgent.is_some() || ticket.red_fix.is_some() || ticket.lander_fix.is_some()) {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         let kind = if failed.no_verdict { format!("regenerate.{}", north_base::foundation::exit::NO_VERDICT_KIND) } else { "regenerate".to_owned() };
         return refuse(logs, name, &kind, &format!("could not regenerate a derived file the lane leaves stale: {}; NOT landed.", failed.message));

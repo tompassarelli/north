@@ -93,7 +93,8 @@ fn refusal(picks: &[Pick], branch: &str) -> Option<String> {
 
 fn land(lander: &Lander, path: &Path, ticket: &Ticket, reason: &str) -> Result<String, String> {
     let base = candidate::prepare(&lander.repo, &lander.worktree)?;
-    let built = candidate::build(&lander.worktree, &base, &[(path.to_path_buf(), ticket.clone())], &[], 1, &lander.queue.join("logs"))?;
+    let urgent = Ticket { urgent: ticket.urgent.clone().or_else(|| Some(reason.to_owned())), ..ticket.clone() };
+    let built = candidate::build(&lander.worktree, &base, &[(path.to_path_buf(), urgent)], &[], 1, &lander.queue.join("logs"))?;
     if let Some(reason) = refusal(&built.picks, &ticket.branch) {
         return Err(format!("{reason}; it does not land on main {base}, and nothing was pushed"));
     }

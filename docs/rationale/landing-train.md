@@ -1203,6 +1203,8 @@ Rules adopted, each in its owner:
 
 Urgent lanes (2026-11-05): a fix that unblocks the queue itself waited behind 45 lanes after the morning fan-out. `north land urgent TICKET --reason TEXT` marks a queued ticket so the lander orders it with red fixes, ahead of older tickets, in both the batch queue and the per-lane prechecks. The coordinator or a lead sets it; the reason is kept on the ticket.
 
+Urgent fixes use the installed north (2026-11-15): from 3:31 to 3:41 PM an accepted urgent fix waited 600 s on `north runtime build-ahead` of its merged tree on a saturated build host and was refused, so the owner pushed it by hand. An urgent, Main-red or lander-fix ticket, and every ticket `north land break-glass` lands, now regenerates its derived files with the north installed on the lander and never asks a build host for a build (north#1631). The installed north may predate the fix's generator change, and a derived file it writes stale fails the checks after the landing like any red main.
+
 ## Land first, test after (2026-11-06)
 
 Tom decided on 2026-11-05 and again on 2026-11-06 that landing takes 10 to 20 seconds, a batched
