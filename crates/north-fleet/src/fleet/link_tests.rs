@@ -154,6 +154,7 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     assert_eq!(placed.cwd, root.path());
     assert!(Link::parse(&placed.argv[2..]).unwrap().launch.contains(&format!("cd {}", quote(&lane.to_string_lossy()))));
     let first = Link::parse(&placed.argv[2..]).unwrap();
+    assert!(first.launch.ends_with(&format!("{} {} {} {}", quote(&first.dir), quote(&first.unit), super::super::remote::UNREGISTERED.as_secs(), quote("opencode"))), "a launch's held unit outlives a link gone before its session registers by the 12 hours a registered one keeps, so 19 dispatch launches that never registered left their units running on cpx62 (2026-11-15): {}", first.launch);
     let launched = &first.launch[..first.launch.find(" && systemd-run").unwrap()];
     let prepare = &launched[launched.find("; mkdir -p ").unwrap() + 2..launched.rfind(" && cd ").unwrap()];
     let bound = Path::new(&first.dir).join(north_base::platform::session_host_files::BOUND_CONVERSATION);
@@ -185,6 +186,7 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     assert!(script.contains("/home/agent/.local/state/north/fleet/placed/conversation-one/"), "the record is not written under the agent's fleet root: {script}");
     assert!(script.contains("/home/agent/.local/state/north/held/north-fleet-agent-first-turn-"), "the bound conversation is not written in the agent's held unit: {script}");
     assert!(!script.contains("/home/tom"), "the agent login was sent a path under the operator's home: {script}");
+    assert!(script.ends_with(&format!("echo {} > '{}/limit'; }}; }}", super::super::remote::DETACHED.as_secs(), super::super::remote::HeldOn::of(&record, None, Path::new("/home/tom")).unwrap().dir.display())), "only a mirrored record lets the held unit outlive its link by the registered limit: {script}");
     let mirrored: serde_json::Value = serde_json::from_slice(&fs::read(root.path().join("record")).unwrap()).unwrap();
     assert_eq!(mirrored["cwd"], "/home/agent/code/north/main", "the record mirrored to an agent login named the operator's checkout, which the host's finish broker serves no project of (north#1508)");
     let (runtime, said) = (root.path().join("runtime"), root.path().join("said"));

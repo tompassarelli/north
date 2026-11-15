@@ -33,7 +33,8 @@ use super::records::record_file;
 use super::runtime::{HostSpec, Runtime, Seen, binary, new_uuid};
 use super::ssh::SSH_WAIT;
 
-const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
+pub(super) const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
+pub(super) const UNREGISTERED: Duration = Duration::from_secs(10 * 60);
 const ABSENT: i32 = 3;
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
@@ -210,7 +211,7 @@ pub(super) fn held_under(spec: HostSpec, conversation: Option<&str>, machine: &M
     let unit = unit(&spec.key);
     let dir = held.join(&unit).to_string_lossy().into_owned();
     let nonce = new_uuid()?;
-    let launch = launch_script(&spec, &held, &Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation }, DETACHED, &[]);
+    let launch = launch_script(&spec, &held, &Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation }, UNREGISTERED, &[]);
     linked(spec, machine, home, Held { unit, dir, nonce, launch }, session, trace)
 }
 
@@ -322,7 +323,7 @@ pub fn leave_record(record: &SessionRecord, placed: &Path) {
     }
 }
 
-/// Mirrors `record` to the machine it runs on, then binds the held unit its CLI runs in there to its conversation, in that unit's own directory under `home`, so the outside broker there takes a caller in that unit for this session and no other (north#1054).
+/// Mirrors `record` to the machine it runs on, then binds the held unit its CLI runs in there to its conversation, in that unit's own directory under `home`, so the outside broker there takes a caller in that unit for this session and no other (north#1054), and lets that unit outlive a gone link by the registered limit, where a launch that never got this far stops once no link has attached for the unregistered one (north#1485).
 pub(super) fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, home: &Path) -> NorthResult<()> {
     let (Some(machine), Some(conversation), Some(HeldOn { dir: held, .. })) = (&record.machine, &record.conversation, HeldOn::of(record, None, home)) else { return Ok(()) };
     let record = &SessionRecord { cwd: machine.session_path(&record.cwd, home), ..record.clone() };
@@ -330,7 +331,7 @@ pub(super) fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, 
     let file = record_file(&directory).to_string_lossy().into_owned();
     let bound = held.join(BOUND_CONVERSATION).to_string_lossy().into_owned();
     let script = format!(
-        "mkdir -p {} && cat > {} && mv {} {} && {{ ! [ -d {} ] || {{ printf %s {} > {} && mv {} {}; }}; }}",
+        "mkdir -p {} && cat > {} && mv {} {} && {{ ! [ -d {} ] || {{ printf %s {} > {} && mv {} {} && echo {} > {}; }}; }}",
         quote(&directory.to_string_lossy()),
         quote(&format!("{file}.tmp")),
         quote(&format!("{file}.tmp")),
@@ -339,7 +340,9 @@ pub(super) fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path, 
         quote(conversation),
         quote(&format!("{bound}.tmp")),
         quote(&format!("{bound}.tmp")),
-        quote(&bound)
+        quote(&bound),
+        DETACHED.as_secs(),
+        quote(&held.join("limit").to_string_lossy())
     );
     let mut child = Command::new(ssh)
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", machine.session_login(), "--", &script])

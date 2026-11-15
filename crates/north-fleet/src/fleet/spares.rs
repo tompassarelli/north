@@ -29,7 +29,6 @@ use super::ssh::SSH_WAIT;
 pub const PER_KIND: usize = 3;
 pub const PER_HOST: usize = 6;
 const IDLE: Duration = Duration::from_secs(30 * 60);
-const TAKEN_DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 const POOL: &str = ".local/state/north/spares";
 const RETIRED_LOG: &str = ".local/state/north/spares-retired.log";
 const IDENTITY: &str = "%d:%i:%W";
@@ -172,7 +171,7 @@ exit 1"#,
         quote(&place.far_home().join(crate::platform::session_host_files::HELD).to_string_lossy()),
         quote(&lane),
         quote(&common),
-        TAKEN_DETACHED.as_secs(),
+        remote::UNREGISTERED.as_secs(),
         GIT = PINNED_GIT,
         STILL = still
     );

@@ -211,7 +211,7 @@ impl Fleet {
                 let ended = opened.abandon().and_then(|()| self.discard_failed_launch(session_dir));
                 ended.and(self.retire_held(held))
             }
-            Err(_) => self.remove_launch_dir(session_dir),
+            Err(_) => self.discard_failed_launch(session_dir),
         };
         if let Err(error) = ended {
             eprintln!("north fleet: a launch that did not register left its session host or directory {}: {}", session_dir.display(), error.user_message());
