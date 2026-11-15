@@ -72,18 +72,20 @@ pub(super) fn from_proxy(fleet: &Fleet, caller: Option<&str>) -> bool {
     caller.is_some_and(|caller| caller == PROXY || fleet.role_of(caller) == Some(Role::Proxy))
 }
 
-/// A launch from a lead or worker starts a worker unless it names the lead role, and holds its launcher's task when it names none.
-pub(super) fn inherit(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<&str>) {
+/// A launch from a lead or worker starts a worker unless it names the lead role, and holds its launcher's task when it names none; a lead's take-over of a lead seat keeps that seat's lead role.
+pub(super) fn inherit(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<&str>, take_over: bool) {
     if let Some(caller) = caller {
-        inherit_from(request, fleet.role_of(caller), fleet.task_of(caller));
+        let seat = take_over.then(|| fleet.role_of(&request.name)).flatten();
+        inherit_from(request, fleet.role_of(caller), fleet.task_of(caller), seat);
     }
 }
 
-fn inherit_from(request: &mut LaunchRequest, launcher: Option<Role>, task: Option<String>) {
+fn inherit_from(request: &mut LaunchRequest, launcher: Option<Role>, task: Option<String>, seat: Option<Role>) {
     if !matches!(launcher, Some(Role::Lead | Role::Worker)) {
         return;
     }
-    request.role.get_or_insert(Role::Worker);
+    let kept = if launcher == Some(Role::Lead) && seat == Some(Role::Lead) { Role::Lead } else { Role::Worker };
+    request.role.get_or_insert(kept);
     if request.tasks().is_empty() {
         request.task_ref = task;
     }
