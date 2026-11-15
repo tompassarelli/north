@@ -12,6 +12,7 @@ pub mod lint_gate;
 pub mod listed_crates;
 pub mod runner;
 pub mod select;
+pub mod test_listing;
 pub mod selection_record;
 pub mod shared_build;
 pub mod tree_wide_units;

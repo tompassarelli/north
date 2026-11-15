@@ -28,6 +28,7 @@ const TREE_BUILD_SWITCH: &str = "buck2_tree_build";
 const CASELESS_CRATES: &str = "buck2_caseless_crates";
 const HOST_CASES_SWITCH: &str = "buck2_host_cases";
 const AFTER_RUN_SWITCH: &str = "buck2_after_run";
+const LISTING_SWITCH: &str = "buck2_listing";
 
 pub trait BuildSystem {
     /// Whether `root` is a workspace this build system builds.
@@ -107,6 +108,12 @@ pub fn for_tree(root: &Path) -> Box<dyn BuildSystem> {
 /// and a tree whose gate script or Buck2 configuration is not `base`'s.
 pub fn lint_gate(root: &Path, base: Option<&str>, declared: &str) -> Option<String> {
     if switched(LINT_SWITCH) { buck2::gate(&deciding(false)?, root, base?, declared) } else { None }
+}
+
+/// The side that builds and lists the tests of the tree at `root` for a land check's selection on this host when `[hosts.NAME] buck2_listing` is true: Buck2, which builds the test binaries on the workers from the shared store as it lists them. `None`, the lines the hand-in formed, for a host without the key or a readable store generation and a tree with no Buck2 targets.
+pub fn listing_side(root: &Path) -> Option<Box<dyn BuildSystem>> {
+    let side = switched(LISTING_SWITCH).then(|| deciding(false)).flatten()?;
+    side.governs(root).then(|| Box::new(side) as Box<dyn BuildSystem>)
 }
 
 /// Whether this host's `[hosts.NAME] buck2_after_run` is true: the run after a landing hands its test and lint lines to `north land crate-tests` and `north land lint` here, which move them to Buck2 under the host's other keys.
@@ -380,7 +387,7 @@ pub fn test_record(command: &str) -> Option<TestRecord> {
 }
 
 /// One test binary a listing found: its id, package, path and test names.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TestBinary {
     pub id: String,
     pub package: String,

@@ -1,0 +1,13 @@
+def _list_impl(ctx: bxl.Context):
+    tests = ctx.uquery().eval(ctx.cli_args.query)
+    ids = {str(target.label): target.get_attr("binary_id") for target in tests}
+    for label, analysis in ctx.analysis(ctx.configured_targets([target.label for target in tests])).items():
+        for binary in analysis.providers()[DefaultInfo].default_outputs:
+            ctx.output.print(ids[str(label.raw_target())], ctx.output.ensure(binary))
+
+list = bxl_main(
+    impl = _list_impl,
+    cli_args = {
+        "query": cli_args.string(),
+    },
+)

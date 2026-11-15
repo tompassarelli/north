@@ -14,6 +14,7 @@ pub(crate) mod test_record;
 mod case_free;
 mod release_build;
 mod test_build;
+mod test_listing;
 
 use case_free::{case_free, stays};
 
@@ -99,8 +100,8 @@ const ON_WORKERS: &str = "--unstable-allow-compatible-tests-on-re";
 const TEST_RULE: &str = "^_north_test$";
 /// The marker line before each test binary's `--list --format terse` text, naming its Buck2 target.
 const BINARY_MARK: &str = "@@ ";
-/// Takes the tree's lock on its isolation directory (north#1403) on descriptor 9, which no Buck2 client keeps open, so the listing runs alone in it wherever it runs, then prints Buck2's binary id of each test target, then each target's binary, built on the workers, under a marker line with the names its own `--list` gives; $1 is the target query, $2 the lock file relative to the tree and the rest the `buck2` words with the shell that gives its build the network.
-const LISTING: &str = r#"set -eo pipefail; query=$1; lock=$2; shift 2; mkdir -p "${lock%/*}"; exec 9>>"$lock"; flock 9; "$@" uquery --json --output-attribute binary_id "$query" 9>&-; labels=$("$@" uquery "$query" 9>&-); [ -z "$labels" ] || "$@" build --remote-only --show-output $labels 9>&- | while read -r label path; do echo "@@ $label"; "$path" --list --format terse; done"#;
+/// Takes the tree's lock on its isolation directory (north#1403) on descriptor 9, which no Buck2 client keeps open, so the listing runs alone in it wherever it runs, then prints each test target's binary, built on the workers, under a marker line naming its binary id, with the names its own `--list` gives; $1 is the target query, $2 the lock file relative to the tree and the rest the `buck2` words with the shell that gives its build the network. One Buck2 command finds, builds and names them, since each enters that shell anew (7.8 s on cpx62b, 2026-11-15).
+const LISTING: &str = r#"set -eo pipefail; query=$1; lock=$2; shift 2; mkdir -p "${lock%/*}"; exec 9>>"$lock"; flock 9; "$@" bxl --remote-only //build/test_listing.bxl:list -- --query "$query" 9>&- | while read -r id path; do echo "@@ $id"; "$path" --list --format terse; done"#;
 /// What a coverage run says on this side until its instrumented binaries are built through Buck2 (north#1115 box 7d-tools).
 const NO_COVERAGE: &str = r#"echo "north: a coverage run is not on the Buck2 side yet" >&2; exit 1"#;
 const CLIPPY_GATE: &str = "//lint/clippy.bxl:clippy";
@@ -511,11 +512,6 @@ pub(crate) fn lints(command: &str) -> bool {
     command.contains(CLIPPY_GATE)
 }
 
-#[derive(Deserialize)]
-struct TestTarget {
-    binary_id: String,
-}
-
 impl BuildSystem for Buck2 {
     fn governs(&self, root: &Path) -> bool {
         root.join(".buckconfig").is_file()
@@ -607,14 +603,7 @@ impl BuildSystem for Buck2 {
     }
 
     fn listing(&self, printed: &str) -> Result<Vec<TestBinary>, String> {
-        let Some((ids, listed)) = printed.split_once(&format!("\n{BINARY_MARK}")) else { return serde_json::from_str::<BTreeMap<String, TestTarget>>(printed).map(|_| Vec::new()).map_err(|error| format!("buck2 uquery printed no JSON map of test targets: {error}")) };
-        let ids: BTreeMap<String, TestTarget> = serde_json::from_str(ids).map_err(|error| format!("buck2 uquery printed no JSON map of test targets: {error}"))?;
-        listed.split(&format!("\n{BINARY_MARK}")).map(|section| {
-            let (label, names) = section.split_once('\n').unwrap_or((section, ""));
-            let id = ids.get(label.trim()).ok_or_else(|| format!("{label} is no test target buck2 uquery named"))?.binary_id.clone();
-            let tests = names.lines().filter_map(|line| line.strip_suffix(": test")).map(str::to_owned).collect();
-            Ok(TestBinary { package: id.split("::").next().unwrap_or_default().to_owned(), id, tests, ..TestBinary::default() })
-        }).collect()
+        test_listing::binaries(printed)
     }
 
     fn check(&self, root: &Path, package: &str, _output: Option<&Path>) -> Invocation {

@@ -5,6 +5,7 @@ Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FI
 Command { name: "follow", usage: "", run: after::follow::run },
 Command { name: "graph-build", usage: "north land graph-build", run: slots::graph_build::run },
 Command { name: "lint", usage: "north land lint available | north land lint -- COMMAND", run: slots::lint_gate::run },
+Command { name: "list-tests", usage: "north land list-tests available | north land list-tests -- [PACKAGE...]", run: slots::test_listing::run },
 Command { name: "profile", usage: "north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--host NAME] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]", run: trace::report::run },
 Command { name: "promote", usage: "north land promote [--dry-run] [--judge CANDIDATE [--held RUNTIME]] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
 Command { name: "machinery-replay", usage: "north land machinery-replay BASE..HEAD [--repo DIR]...", run: promote::machinery_replay },

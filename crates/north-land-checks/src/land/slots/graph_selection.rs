@@ -9,12 +9,14 @@ use north_build_system::{Resolution, Selection, Shell, Step};
 use serde::{Deserialize, Serialize};
 
 use super::guard_suites::Floor;
+use super::test_listing;
 use super::unit_reuse;
 use super::tree_wide_units::Units;
 use crate::land::trace::check_log;
 
 const IT_BINARY: &str = "north::it";
 const IT_PACKAGE: &str = "north";
+const NORTH: &str = "north";
 const FILTER_LIMIT: usize = 96 * 1024;
 
 static LISTING_WAITS: Mutex<Vec<(f64, f64)>> = Mutex::new(Vec::new());
@@ -97,15 +99,26 @@ impl<'a> Away<'a> {
 const AWAY_SECONDS: u64 = 900;
 
 impl Away<'_> {
-    fn command(&self, root: &Path, invocation: &north_build_system::Invocation) -> Command {
+    fn line(root: &Path, invocation: &north_build_system::Invocation) -> String {
         let words = invocation.words.iter().map(|word| match Path::new(word).strip_prefix(root) {
             Ok(inside) => unit_reuse::quote(&format!("./{}", inside.display())),
             Err(_) => unit_reuse::quote(word),
         });
         let environment = invocation.env.iter().map(|(name, value)| format!("{name}={}", unit_reuse::quote(value)));
-        let line = environment.chain(words).collect::<Vec<_>>().join(" ");
+        environment.chain(words).collect::<Vec<_>>().join(" ")
+    }
+
+    fn compile(&self, root: &Path, builder: &dyn north_build_system::BuildSystem, selection: &Selection) {
+        let started = crate::land::telemetry::epoch();
+        let compile = test_listing::skipped(NORTH, &Self::line(root, &builder.tests(&request(root, Step::Compile, selection.clone()))));
+        let exited = run_listing(&mut self.command(root, &compile)).map(|(output, _)| output.status);
+        TEST_BUILDS.lock().unwrap_or_else(PoisonError::into_inner).push((started, crate::land::telemetry::epoch()));
+        no_verdict(self, "build of the test binaries", "the listing builds what it lists itself", exited.as_ref());
+    }
+
+    fn command(&self, root: &Path, line: &str) -> Command {
         let mut command = Command::new(self.program);
-        command.args(["capacity", "offload", "run", "--host", self.host, "--base", self.base, "--head", self.tree, "--timeout", &AWAY_SECONDS.to_string(), "--", &line]).current_dir(root);
+        command.args(["capacity", "offload", "run", "--host", self.host, "--base", self.base, "--head", self.tree, "--timeout", &AWAY_SECONDS.to_string(), "--", line]).current_dir(root);
         if let Some(hold) = self.hold {
             command.env(north_base::foundation::offload::HOLD_ENV, hold).env(north_base::foundation::carry::LANDING, "1");
         }
@@ -113,7 +126,7 @@ impl Away<'_> {
     }
 }
 
-/// Every test the build system lists at `root` in the packages `scope` names, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim: on the build host `away` names when given, so a landing never compiles the workspace on the control host, else here. `None` when the tree is not one this build system builds or the listing fails, so the selection falls back to the crate closure.
+/// Every test the build system lists at `root` in the packages `scope` names, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim: on the build host `away` names when given, so a landing never compiles the workspace on the control host, else here. A build host whose north lists with a side of its own (`north land list-tests`) builds and lists there in place of the lines formed here. `None` when the tree is not one this build system builds or the listing fails, so the selection falls back to the crate closure.
 pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<ListedTests> {
     let builder = north_build_system::here();
     if !builder.governs(root) {
@@ -125,30 +138,45 @@ pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<Liste
         Scope::Packages(packages) => Selection::Packages(packages.iter().cloned().collect()),
     };
     let built = away.and_then(|away| away.built(scope).map(|built| (away, built)));
-    let compiled = built.as_ref().filter(|_| !builder.lists_by_building());
-    let request = |step, selection| north_build_system::Tests { root, step, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None };
-    if let Some((away, selection)) = &compiled {
-        let started = crate::land::telemetry::epoch();
-        let exited = run_listing(&mut away.command(root, &builder.tests(&request(Step::Compile, selection.clone())))).map(|(output, _)| output.status);
-        TEST_BUILDS.lock().unwrap_or_else(PoisonError::into_inner).push((started, crate::land::telemetry::epoch()));
-        no_verdict(away, "build of the test binaries", "the listing builds what it lists itself", exited.as_ref());
+    if let Some((away, selection)) = built.as_ref().filter(|_| !builder.lists_by_building()) {
+        away.compile(root, &*builder, selection);
     }
-    let invocation = builder.tests(&request(Step::List, built.as_ref().map_or(selection, |(_, selection)| selection.clone())));
-    let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &invocation));
-    let started = crate::land::telemetry::epoch();
-    let (output, waited) = run_listing(&mut command)?;
-    if let Some(waited) = waited.filter(|_| away.is_some()) {
-        LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner).push((started, started + waited));
-    }
+    let selection = built.as_ref().map_or(selection, |(_, selection)| selection.clone());
+    let output = listing_output(away, root, &*builder, &selection)?;
     if let Some((away, _)) = &built {
         no_verdict(away, "test listing", "the selection falls back to the crate closure", Some(&output.status));
     }
     if !output.status.success() {
         return None;
     }
-    let binaries = builder.listing(&String::from_utf8_lossy(&output.stdout)).ok()?;
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let binaries = test_listing::parsed(&printed).map_or_else(|| builder.listing(&printed), Ok).ok()?;
     let listed = binaries.into_iter().map(|binary| (binary.id, Listed { package: binary.package, tests: binary.tests })).filter(|(_, listed)| !listed.tests.is_empty()).collect();
     Some(within(listed, scope))
+}
+
+fn request(root: &Path, step: Step, selection: Selection) -> north_build_system::Tests<'_> {
+    north_build_system::Tests { root, step, selection, resolution: Resolution::PINNED, shell: Shell::LandShell, output: Some(Path::new("target")), uncached: false, coverage: None }
+}
+
+fn listing_output(away: Option<&Away<'_>>, root: &Path, builder: &dyn north_build_system::BuildSystem, selection: &Selection) -> Option<std::process::Output> {
+    let invocation = builder.tests(&request(root, Step::List, selection.clone()));
+    let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &test_listing::wrapped(NORTH, &named(selection), &Away::line(root, &invocation))));
+    let started = crate::land::telemetry::epoch();
+    let (output, waited) = run_listing(&mut command)?;
+    if let Some(waited) = waited.filter(|_| away.is_some()) {
+        LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner).push((started, started + waited));
+    }
+    Some(output)
+}
+
+/// The packages `selection` names, none for the workspace.
+fn named(selection: &Selection) -> Vec<String> {
+    match selection {
+        Selection::Package(package) => vec![package.clone()],
+        Selection::Packages(packages) => packages.clone(),
+        _ => Vec::new(),
+    }
 }
 
 /// The suites of `listed` whose package `scope` names, by each suite's own package name, so a listing over more packages than the selection asked for hands it only those it asked for.
