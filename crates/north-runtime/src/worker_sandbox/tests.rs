@@ -309,7 +309,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "lane sync /c/main", "home move plan.tsv", "--worker-sandbox --built -- ./t", "--worker-sandbox --lane -- /bin/sh -c true", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check", "capacity host status", "capacity host backlog", "fleet need laptop the box times a build there", "gate open --question q --option a --option b --recommend 1 --ask-once cost"] {
         assert!(super::broker::permitted(&words(allowed)), "{allowed}");
     }
-    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_CONFINED", "1"), ("AGENT_CAPACITY_DB", "/home/a/forged.db"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config"), ("HOME", "/home/a/elsewhere"), ("NORTH_OFFLOAD_SUBJECT", "/home/a/notes"), ("NORTH_OFFLOAD_OWNER", "north-land"), ("NORTH_LAND_RED_FIX", "1"), ("NORTH_OFFLOAD_LANDER_SLOT", "1"), ("NORTH_OFFLOAD_HOLD", "gex45 code-p-main-1 abc"), (north_providers::providers::opencode::KEY_ENV, "go-key"), (north_providers::providers::pi::KEY_ENV, "go-key"), ("DEPBOX_CARRY", "TMPDIR"), ("DEPBOX_CHECK_START", "TMPDIR\t0011223344556677\n")];
+    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_CONFINED", "1"), ("AGENT_CAPACITY_DB", "/home/a/forged.db"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config"), ("HOME", "/home/a/elsewhere"), ("NORTH_OFFLOAD_SUBJECT", "/home/a/notes"), ("NORTH_OFFLOAD_OWNER", "north-land"), ("NORTH_LAND_RED_FIX", "1"), ("NORTH_OFFLOAD_LANDER_SLOT", "1"), ("NORTH_OFFLOAD_HOLD", "gex45 code-p-main-1 abc"), (north_providers::providers::opencode::KEY_ENV, "go-key"), (north_providers::providers::pi::KEY_ENV, "go-key"), ("NORTH_PRIVACY_CLAUDE", "/tmp/forged-claude"), ("NORTH_BIN", "/lane/north"), ("DEPBOX_CARRY", "TMPDIR"), ("DEPBOX_CHECK_START", "TMPDIR\t0011223344556677\n")];
     let homes = [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config"), ("HOME", "/home/a")].map(|(name, value)| (name.to_owned(), value.to_owned()));
     let sent_pairs = || sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect::<Vec<_>>();
     let environment = super::request_env::environment_for(&words("capacity host run --class heavy --owner o -- cargo test"), sent_pairs(), &Peer::from(Some(OPEN_SCOPE)), Path::new("/run/user/1000"), &homes, &[]);
@@ -318,7 +318,9 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let read_get = |name: &str| read.iter().filter(|(own, _)| own == name).map(|(_, value)| value.as_str()).collect::<Vec<_>>();
     assert_eq!((read_get("XDG_RUNTIME_DIR"), read_get("AGENT_CAPACITY_DB"), read_get("GIT_AUTHOR_NAME"), read_get("NORTH_WORKER_CONFINED"), read_get("HOME")), (vec!["/run/user/1000"], vec!["/home/a/.local/state/agents/machine-capacity/capacity.db"], vec![], vec![], vec!["/home/a"]), "a worker's brokered status read the admission state where the client's environment pointed it, unconfined");
     let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
-    assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x")));
+    assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH"), get("NORTH_PRIVACY_CLAUDE")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x"), None));
+    let pinned = super::request_env::pinned(environment.clone(), Path::new("/broker/north"));
+    assert_eq!(pinned.iter().filter(|(name, _)| name == "NORTH_BIN").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/broker/north"], "a brokered capacity run took the client's north");
     assert_ne!(get("GIT_CONFIG_COUNT"), Some("9"));
     assert_eq!((get("NORTH_OFFLOAD_SUBJECT"), get("NORTH_OFFLOAD_OWNER"), get("NORTH_LAND_RED_FIX"), get("NORTH_OFFLOAD_LANDER_SLOT"), get("NORTH_OFFLOAD_HOLD")), (None, None, None, None, None), "a worker's request named the file admission records or claimed the lander's owner, red fix, slot or held slot");
     assert_eq!((get("GIT_AUTHOR_NAME"), get("NORTH_SOCKETS_HIDDEN"), get("NORTH_WORKER_REMOVAL_ROOTS")), (Some("a"), None, None));
@@ -886,13 +888,14 @@ fn a_confined_sessions_privacy_judge_runs_outside_through_the_broker_with_its_te
     use std::os::unix::net::UnixStream;
     let scratch = tempfile::tempdir().unwrap();
     let north = scratch.path().join("north");
-    std::fs::write(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n").unwrap();
+    std::fs::write(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE claude=$NORTH_PRIVACY_CLAUDE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n").unwrap();
     std::fs::set_permissions(&north, std::fs::Permissions::from_mode(0o755)).unwrap();
     let text = scratch.path().join("text");
     std::fs::write(&text, "a session's text\n").unwrap();
     let (home, fleet) = (scratch.path().join("home"), scratch.path().join("fleet"));
     std::fs::create_dir_all(fleet.join("worker")).unwrap();
-    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+    std::fs::write(home.join(".local/bin/claude"), "").unwrap();
     std::fs::write(fleet.join("worker/host.scope"), "north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n").unwrap();
     std::fs::write(fleet.join("worker/session.json"), json!({ "name": "worker", "role": "worker", "cwd": home }).to_string()).unwrap();
     let host = super::lane_grant::Host { fleet, code: vec![home.join("code")], home, environment: Vec::new(), cgroups: PathBuf::from("/sys/fs/cgroup") };
@@ -912,7 +915,7 @@ fn a_confined_sessions_privacy_judge_runs_outside_through_the_broker_with_its_te
         (code, answered, told)
     };
     let session = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
-    assert_eq!(judged(Some(session)), (1, "check privacy judge --text - at-once=1\na session's text\n".to_owned(), String::new()), "a confined session's judge request was refused, or a refusing model's words reached the client");
+    assert_eq!(judged(Some(session)), (1, format!("check privacy judge --text - at-once=1 claude={}\na session's text\n", host.home.join(".local/bin/claude").display()), String::new()), "a confined session's judge request was refused, or a refusing model's words reached the client");
     let (code, answered, told) = judged(None);
     assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "a caller in no session's scope drew the judge: {told}");
 }

@@ -137,7 +137,8 @@ pub(crate) fn once_args<'a>(program: &'a str, words: &'a [String], ask: &Ask<'a>
 }
 
 fn claude_once(words: &[String], ask: &Ask, extra: &[&str], limit: Duration) -> Reply {
-    let args = once_args("claude", words, ask, extra);
+    let program = north_base::platform::private_text::claude_program();
+    let args = once_args(&program, words, ask, extra);
     match process::run_with_input_within("env", &args, Some(ask.input.as_bytes()), limit) {
         Some(output) => Reply { code: output.status.code(), stdout: text(&output), stderr: String::from_utf8_lossy(&output.stderr).into_owned() },
         None => Reply { code: None, stdout: String::new(), stderr: "claude did not finish".to_owned() },

@@ -22,6 +22,12 @@ const JUDGE_SLOTS: usize = 4;
 const SLOT_POLL: Duration = Duration::from_millis(100);
 pub const KINDS_ENV: &str = "NORTH_PRIVATE_KINDS";
 pub const AT_ONCE_ENV: &str = "NORTH_PRIVACY_AT_ONCE";
+pub const CLAUDE_ENV: &str = "NORTH_PRIVACY_CLAUDE";
+
+pub fn claude_program() -> String {
+    std::env::var(CLAUDE_ENV).ok().filter(|path| !path.is_empty()).unwrap_or_else(|| "claude".to_owned())
+}
+
 pub const ASKING_STATUS: i32 = 3;
 pub const SEGMENT_BREAK: &str = "\u{1e}\n";
 pub const CACHE_ENV: &str = "NORTH_PRIVACY_CACHE";

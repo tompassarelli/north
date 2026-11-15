@@ -27,7 +27,7 @@ use super::judge_request;
 use super::typed_requests;
 use super::withdraw_request;
 use super::request_checkout;
-use super::request_env::{asking_session, caller_session, environment_for, landing, landing_choices, own_homes, own_path, request_homes, speaking_as, urgency};
+use super::request_env::{asking_session, caller_session, environment_for, landing, landing_choices, own_homes, own_path, pinned, request_homes, speaking_as, urgency};
 use super::{FLAG, MAKER, capability};
 
 const DIRECTORY: &str = "north-outside";
@@ -368,7 +368,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| super::removable::hand_off_roots(&request.arguments, &request.directory, &request.environment, peer, host));
     let homes = request_homes(&request.arguments, peer, &request.environment, own_homes());
     let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
-    let mut variables = caller_session(urgency(landing(environment_for(&request.arguments, request.environment, peer, &runtime(), &homes, &host.environment), chosen), peer, host), peer, host);
+    let mut variables = pinned(caller_session(urgency(landing(environment_for(&request.arguments, request.environment, peer, &runtime(), &homes, &host.environment), chosen), peer, host), peer, host), north);
     if let Some(path) = own_path(&request.arguments, &host.environment) {
         variables.retain(|(name, _)| name != "PATH");
         variables.push(path);
@@ -471,9 +471,11 @@ fn run_judge(north: &Path, at_once: bool, streams: Vec<OwnedFd>, stream: &UnixSt
     let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     let log = std::io::stderr().as_fd().try_clone_to_owned().map_err(|error| error.to_string())?;
     let (arguments, added) = judge_request::judge(at_once);
-    let code = relayed(north, &arguments, &host.home, host.environment.iter().cloned().chain(added).collect(), Stdio::from(stdin), [stdout, log], stream)?;
+    let mut stderr = File::from(stderr);
+    let Some(environment) = judge_request::programs(host.environment.iter().cloned().chain(added).collect(), north, &host.home, &mut stderr) else { return Ok(2) };
+    let code = relayed(north, &arguments, &host.home, environment, Stdio::from(stdin), [stdout, log], stream)?;
     if !judge_request::answered(code) {
-        let _ = writeln!(File::from(stderr), "privacy judge: the judge the outside broker ran did not answer (exit {code}); the broker's log holds why");
+        let _ = writeln!(stderr, "privacy judge: the judge the outside broker ran did not answer (exit {code}); the broker's log holds why");
     }
     Ok(code)
 }

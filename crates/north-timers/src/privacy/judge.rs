@@ -208,7 +208,7 @@ fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
                 continue;
             }
         };
-        let mut command = std::process::Command::new("claude");
+        let mut command = std::process::Command::new(north_base::platform::private_text::claude_program());
         for name in crate::spend::billing::EXTERNAL {
             command.env_remove(name);
         }

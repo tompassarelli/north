@@ -12,8 +12,8 @@ use super::{CONFINED, HOSTS_HIDDEN, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDD
 
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
 const HOMES: [(&str, &str); 4] = [("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache"), ("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")];
-const INJECTED_NAMES: [&str; 30] = [
-    "GCONV_PATH", "LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES", "BASH_ENV", "ENV", "NODE_OPTIONS", "SSH_ASKPASS", "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_PAGER", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR", offload::SSH_ENV, offload::GIT_ENV, offload::SUBJECT_ENV, offload::OWNER_ENV, offload::RED_FIX_ENV, offload::LANDER_SLOT_ENV, offload::HOLD_ENV, "NORTH_FLEET_DIR",
+const INJECTED_NAMES: [&str; 31] = [
+    "GCONV_PATH", "LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES", "BASH_ENV", "ENV", "NODE_OPTIONS", "SSH_ASKPASS", "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_PAGER", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR", offload::SSH_ENV, offload::GIT_ENV, offload::SUBJECT_ENV, offload::OWNER_ENV, offload::RED_FIX_ENV, offload::LANDER_SLOT_ENV, offload::HOLD_ENV, "NORTH_FLEET_DIR", north_base::platform::private_text::CLAUDE_ENV,
 ];
 const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY", "GIT_CONFIG"];
 const TRUSTED_FILES: [&str; 5] = [verdict_cache::DIR_ENV, "AGENTS_ORCHESTRATION", "AGENTS_OPERATOR_DIR", "SAFE_PUSH_SOUTH", "SAFE_PUSH_DENYLIST"];
@@ -131,6 +131,12 @@ pub(super) fn landing(variables: Vec<(String, String)>, chosen: Option<Vec<(Stri
         Some(chosen) => variables.into_iter().filter(|(name, _)| !LANDING_CHOICES.contains(&name.as_str()) && !builds(name)).chain(chosen).collect(),
         None => variables,
     }
+}
+
+/// `variables` with the three variables that pick the north a request starts set to the broker's own `north`, whatever the verb and the client sent: a brokered request never names the programs the broker runs.
+pub(super) fn pinned(variables: Vec<(String, String)>, north: &Path) -> Vec<(String, String)> {
+    let north = north.to_string_lossy().into_owned();
+    variables.into_iter().filter(|(name, _)| !NORTH_PINS.contains(&name.as_str())).chain(NORTH_PINS.map(|pin| (pin.to_owned(), north.clone()))).collect()
 }
 
 /// `variables` with the fleet session `NORTH_FLEET_SESSION` names and the role `NORTH_FLEET_ROLE` names taken from the caller `peer`, the asking process's, never the client's word: the spool a brokered command may write (state.rs) and the session its rows and calls go out as belong to the session whose own scope or held unit the caller runs in ([`lane_grant::own_session`]), and a caller in none gets no session. The role is that session's recorded one, or the one its record implies when it names none (`Role::unnamed`, as the fleet reads it), a worker's for a caller in a session's unit whose record cannot be read, and none for a caller in no session, since a build output run or a capacity run the broker starts takes its domain from it, and a worker that sent `proxy` ran unconfined (north#1574).
