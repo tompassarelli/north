@@ -57,6 +57,7 @@ test-resources = ["//:tree"]
 
 [dependencies]
 north-core = { path = "crates/north-core" }
+clap.workspace = true
 north-base = { path = "crates/north-base" }
 north-control-plane = { path = "crates/north-control-plane" }
 north-unblocks = { path = "crates/north-unblocks" }

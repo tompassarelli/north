@@ -1,15 +1,19 @@
+use clap::Parser;
 use serde_json::json;
 
 const USAGE: &str = "Usage: north spend [--json]";
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true)]
+struct Options {
+    #[arg(long)]
+    json: bool,
+}
+
 pub(super) fn run(arguments: &[String]) -> u8 {
-    let json = match arguments {
-        [] => false,
-        [flag] if flag == "--json" => true,
-        _ => {
-            eprintln!("{USAGE}");
-            return 2;
-        }
+    let Ok(Options { json }) = north_core::arguments::parse(arguments) else {
+        eprintln!("{USAGE}");
+        return 2;
     };
     let read = super::fleet::open_fleet().map_err(|error| error.user_message()).and_then(|fleet| super::fleet::spend_now(&fleet, &fleet.roster()));
     let view = match read {

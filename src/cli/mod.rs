@@ -48,6 +48,8 @@ mod send;
 mod session;
 mod spend;
 #[cfg(test)]
+mod usage_error_tests;
+#[cfg(test)]
 mod laptop_runner_tests;
 #[cfg(test)]
 mod repeat_unblock_tests;

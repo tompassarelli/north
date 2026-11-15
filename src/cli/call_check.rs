@@ -1,10 +1,21 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use clap::Parser;
+
 use super::verb_help::{self, Resolution};
 use crate::landing::host_calls::{self, HostCall, Source};
 
 const USAGE: &str = "usage: north check calls [--tree DIR] [--live DIR]";
+
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Options {
+    #[arg(long, allow_hyphen_values = true)]
+    tree: Option<PathBuf>,
+    #[arg(long, allow_hyphen_values = true)]
+    live: Option<PathBuf>,
+}
 
 pub(super) fn findings(calls: &[HostCall], resolve: impl Fn(&[String]) -> Resolution) -> Vec<String> {
     let mut found = Vec::new();
@@ -36,17 +47,10 @@ pub(super) fn run(arguments: &[String], defines: impl Fn(&str) -> bool) -> u8 {
         println!("{USAGE}");
         return 0;
     }
-    let (mut tree, mut live) = (None, None);
-    for pair in arguments.chunks(2) {
-        match pair {
-            [flag, value] if flag == "--tree" => tree = Some(PathBuf::from(value)),
-            [flag, value] if flag == "--live" => live = Some(PathBuf::from(value)),
-            _ => {
-                eprintln!("{USAGE}");
-                return 64;
-            }
-        }
-    }
+    let Ok(Options { tree, live }) = north_core::arguments::parse(arguments) else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
     let live_table = match live.as_deref().map(live_reference).transpose() {
         Ok(table) => table.unwrap_or_default(),
         Err(why) => {

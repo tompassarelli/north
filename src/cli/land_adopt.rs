@@ -5,6 +5,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
 use north_base::platform::gh_shim;
 use north_lander::land::adopt::{self, Adopter, Inputs, Lane, Refused, Sessions};
 
@@ -56,14 +57,17 @@ impl Adopter for SafePush<'_> {
     }
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true)]
+struct Options {
+    #[arg(long)]
+    dry_run: bool,
+}
+
 pub fn run(arguments: &[String]) -> u8 {
-    let dry_run = match arguments {
-        [] => false,
-        [flag] if flag == "--dry-run" => true,
-        _ => {
-            eprintln!("{}", adopt::USAGE);
-            return 64;
-        }
+    let Ok(Options { dry_run }) = north_core::arguments::parse(arguments) else {
+        eprintln!("{}", adopt::USAGE);
+        return 64;
     };
     let inputs = Inputs::here();
     let sessions = Fleet(crate::fleet::records::recorded_sessions(&inputs.state.join("north/fleet")));

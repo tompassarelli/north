@@ -1,7 +1,7 @@
 use clap::error::{ContextKind, ErrorKind};
 use clap::Parser;
 
-pub(crate) fn parse<T: Parser>(arguments: &[String]) -> Result<T, String> {
+pub fn parse<T: Parser>(arguments: &[String]) -> Result<T, String> {
     parse_with(arguments, false)
 }
 
