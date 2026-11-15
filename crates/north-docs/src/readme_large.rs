@@ -11,7 +11,7 @@ const RUNS_WANTED: usize = 3;
 const TASKS: usize = 5;
 const KEY: &str = "large_rows";
 
-const INTRO: &str = "The registered large cells, from the five frozen large tasks of north's own history, one session per task, both arms on one build host: five at once, then one at a time. A run is valid when both arms hold all five tasks, and a cell is read only at three valid runs.\n\n";
+const INTRO: &str = "The registered large cells, from the five frozen large tasks of north's own history whose checks run through Buck2 remote execution (north#1429), one session per task, both arms on one build host: five at once, then one at a time. A run is valid when both arms hold all five tasks, and a cell is read only at three valid runs.\n\n";
 
 const HEADER: &str = "| Cell | Valid runs x tasks | Correct: north / plain | Time to all five landed: north / plain | F1, the wait for all five | F2, per task | F3, first try | Cost per run: north / plain | Reading |\n|---|---|---|---|---|---|---|---|---|\n";
 
@@ -42,8 +42,8 @@ impl Cell {
 
     fn runs(self) -> [&'static str; RUNS_WANTED] {
         match self {
-            Self::Five => ["lg5-1115a", "lg5-1115b", "lg5-1115c"],
-            Self::One => ["lg1-1115a", "lg1-1115b", "lg1-1115c"],
+            Self::Five => ["lgb5-1115a", "lgb5-1115b", "lgb5-1115c"],
+            Self::One => ["lgb1-1115a", "lgb1-1115b", "lgb1-1115c"],
         }
     }
 
