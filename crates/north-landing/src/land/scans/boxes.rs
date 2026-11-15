@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 
-use crate::issue_body::{Gh, Issue, Tracker, CALL_LIMIT};
+use crate::issue_body::{Gh, Issue, Tracker};
 use crate::land::after::tick::{self, Tick};
 
 const SHORT_SHA: usize = 12;
@@ -98,12 +98,4 @@ pub fn scan(directory: &Path, base: &str, head: &str, github: &Gh, out: &mut imp
         }
     }
     u8::from(refused > 0)
-}
-
-pub fn run(directory: &Path, range: &str) -> u8 {
-    let Some(range) = super::Range::parse(range) else {
-        eprintln!("{}", super::USAGE);
-        return 1;
-    };
-    scan(directory, range.base, range.head, &Gh::new(CALL_LIMIT), &mut std::io::stdout())
 }
