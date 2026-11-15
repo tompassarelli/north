@@ -10,6 +10,7 @@ use north_lander::landing::merge_set;
 const DRIVER: &str = "NORTH_MERGE_SETS_DRIVER";
 const HOME: &str = "NORTH_MERGE_SETS_HOME";
 const OWN_RULES: &str = "land_merge_sets::a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick";
+const OWN_ATTRIBUTES: &str = "land_merge_sets::a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick_through_its_merge_attributes";
 const JAILED: &str = "jailed";
 
 const CARGO: &str = r#"[workspace]
@@ -153,6 +154,29 @@ fn own_rules(home: &Path) {
     assert_eq!(run(&worktree, &["show", "HEAD:structure.toml"]).matches("[[implicit_state.allow]]").count(), 2);
 }
 
+fn own_attributes(home: &Path) {
+    north_shim(home, OWN_ATTRIBUTES);
+    let main = main_repo(home);
+    write(&main, "docs/notes.txt", "a\n");
+    commit(&main, "notes");
+    run(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let ticket = lane(&main, "attributes", |root| {
+        edit(root, ".gitattributes", |text| format!("{text}docs/notes.txt merge=set\n"));
+        edit(root, "harness/merge-sets.toml", |text| format!("{text}\n[[set]]\npath = \"docs/notes.txt\"\nkind = \"lines\"\n"));
+    });
+    let root = ticket.root.clone();
+    write(&root, "docs/notes.txt", "a\nlane\n");
+    let head = commit(&root, "lane notes");
+    let ticket = Ticket { head, ..ticket };
+    write(&main, "docs/notes.txt", "a\nmain\n");
+    commit(&main, "main notes");
+    run(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let worktree = main.parent().unwrap().join("worktrees/lander");
+    let base = candidate::prepare(&main, &worktree).unwrap();
+    let built = candidate::build(&worktree, &base, &[(home.join("queue/attributes.json"), ticket)], &[], usize::MAX, &home.join("logs")).unwrap();
+    assert!(!matches!(built.picks[..], [Pick::Included]), "the merge driver settled a conflict by a rule and an attribute the lane under judgment wrote into its own harness/merge-sets.toml and .gitattributes, not the landing base's: {:?}", built.picks.iter().map(candidate::recorded).collect::<Vec<_>>());
+}
+
 fn isolated(name: &str, scenario: fn(&Path)) {
     if let Some(arguments) = std::env::var_os(DRIVER) {
         let arguments: Vec<String> = arguments.to_string_lossy().split_whitespace().skip(1).map(str::to_owned).collect();
@@ -181,4 +205,9 @@ fn isolated(name: &str, scenario: fn(&Path)) {
 #[test]
 fn a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick() {
     isolated(OWN_RULES, own_rules);
+}
+
+#[test]
+fn a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick_through_its_merge_attributes() {
+    isolated(OWN_ATTRIBUTES, own_attributes);
 }

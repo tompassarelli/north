@@ -20,7 +20,11 @@ impl Operation {
 }
 
 fn git(worktree: &Path, arguments: &[&str]) -> Result<Output, String> {
-    Command::new("git").arg("-C").arg(worktree).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
+    git_with(worktree, &merge_set::driver_arguments(), arguments)
+}
+
+fn git_with(worktree: &Path, leading: &[String], arguments: &[&str]) -> Result<Output, String> {
+    Command::new("git").arg("-C").arg(worktree).args(leading).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
 }
 
 fn stdout(worktree: &Path, arguments: &[&str]) -> Result<String, String> {
@@ -132,11 +136,19 @@ fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation, 
 
 pub fn finish(worktree: &Path, config: &Path) -> Result<(), String> {
     let top = PathBuf::from(stdout(worktree, &["rev-parse", "--show-toplevel"])?.trim());
-    continue_with(&top, &merge_set::load_rules(config)?, Confinement::Caller)
+    continue_with(&top, &merge_set::load_rules(config)?, &merge_set::driver_arguments(), Confinement::Caller)
 }
 
 pub fn finish_at(worktree: &Path, base: &str) -> Result<(), String> {
-    continue_with(worktree, &rules_at(worktree, base)?, Confinement::Candidate)
+    continue_with(worktree, &rules_at(worktree, base)?, &pinned_to(worktree, base)?, Confinement::Candidate)
+}
+
+pub fn pinned_to(worktree: &Path, base: &str) -> Result<Vec<String>, String> {
+    let copy = git_path(worktree, "north-landing-base")?.join(merge_set::DEFAULT_CONFIG);
+    let listed = !stdout(worktree, &["ls-tree", "--name-only", base, "--", merge_set::DEFAULT_CONFIG])?.trim().is_empty();
+    let text = if listed { stdout(worktree, &["show", &format!("{base}:{}", merge_set::DEFAULT_CONFIG)])? } else { String::new() };
+    std::fs::create_dir_all(copy.parent().unwrap_or(&copy)).and_then(|()| std::fs::write(&copy, text)).map_err(|error| format!("{}: {error}", copy.display()))?;
+    Ok([format!("--attr-source={base}")].into_iter().chain(merge_set::driver_arguments_with(Some(&copy))).collect())
 }
 
 fn rules_at(worktree: &Path, commit: &str) -> Result<Vec<merge_set::Rule>, String> {
@@ -147,11 +159,11 @@ fn rules_at(worktree: &Path, commit: &str) -> Result<Vec<merge_set::Rule>, Strin
     merge_set::read_rules(&text, &Path::new(commit).join(merge_set::DEFAULT_CONFIG))
 }
 
-fn continue_with(worktree: &Path, rules: &[merge_set::Rule], confinement: Confinement) -> Result<(), String> {
+fn continue_with(worktree: &Path, rules: &[merge_set::Rule], leading: &[String], confinement: Confinement) -> Result<(), String> {
     while let Some(operation) = in_progress(worktree)? {
         regenerate(worktree, rules, operation, confinement)?;
         let before = stdout(worktree, &["rev-parse", "HEAD"])?;
-        let continued = git(worktree, &[operation.verb(), "--continue"])?;
+        let continued = git_with(worktree, leading, &[operation.verb(), "--continue"])?;
         let stopped_again = stdout(worktree, &["rev-parse", "HEAD"])? != before && in_progress(worktree)?.is_some();
         if !continued.status.success() && !stopped_again {
             return Err(format!("git {} --continue failed: {}", operation.verb(), String::from_utf8_lossy(&continued.stderr).trim()));

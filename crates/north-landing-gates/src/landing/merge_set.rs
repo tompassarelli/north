@@ -11,7 +11,7 @@ pub struct Driver {
     pub arguments: &'static str,
 }
 
-pub const DRIVERS: &[Driver] = &[Driver { name: "set", description: "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)", arguments: "merge-driver set %O %A %B %P" }];
+pub const DRIVERS: &[Driver] = &[Driver { name: "set", description: "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)", arguments: "%O %A %B %P" }];
 const GIT_DRIVERS: [&str; 3] = ["text", "binary", "union"];
 const KINDS: [&str; 6] = ["lines", "block", "toml-array", "line-inserts", "table-inserts", "regenerate"];
 static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
@@ -75,11 +75,16 @@ fn shell_quoted(path: &Path) -> String {
 }
 
 pub fn driver_arguments() -> Vec<String> {
+    driver_arguments_with(None)
+}
+
+pub fn driver_arguments_with(config: Option<&Path>) -> Vec<String> {
     let Some(program) = driver_program() else { return Vec::new() };
     let program = shell_quoted(&program);
+    let config = config.map(|config| format!(" --config {}", shell_quoted(config))).unwrap_or_default();
     DRIVERS
         .iter()
-        .flat_map(|driver| ["-c".to_owned(), format!("merge.{}.name={}", driver.name, driver.description), "-c".to_owned(), format!("merge.{}.driver={program} {}", driver.name, driver.arguments)])
+        .flat_map(|driver| ["-c".to_owned(), format!("merge.{}.name={}", driver.name, driver.description), "-c".to_owned(), format!("merge.{}.driver={program} merge-driver {}{config} {}", driver.name, driver.name, driver.arguments)])
         .collect()
 }
 

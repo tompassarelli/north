@@ -27,8 +27,12 @@ pub const DEADLINE: Duration = Duration::from_secs(120);
 const NO_AUTO_MAINTENANCE: [&str; 2] = ["-c", "maintenance.auto=false"];
 
 fn run(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
+    run_with(directory, &merge_set::driver_arguments(), arguments)
+}
+
+fn run_with(directory: &Path, leading: &[String], arguments: &[&str]) -> Result<Output, String> {
     let mut command = Command::new("git");
-    command.arg("-C").arg(directory).args(NO_AUTO_MAINTENANCE).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").env("GIT_NO_REPLACE_OBJECTS", "1");
+    command.arg("-C").arg(directory).args(NO_AUTO_MAINTENANCE).args(leading).args(arguments).env("GIT_EDITOR", "true").env("GIT_NO_REPLACE_OBJECTS", "1");
     match process::try_run_group_traced_within(command, DEADLINE) {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(stalled)) => Err(format!("git {} gave no answer within {} s and was killed: {stalled}", arguments.join(" "), DEADLINE.as_secs())),
@@ -195,7 +199,11 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     let picked_onto = git(worktree, &["rev-parse", "HEAD"])?;
     let stack_cherry = git(worktree, &["cherry", &picked_onto, &ticket.head])?;
     let unlanded: Vec<&str> = stack_cherry.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
-    let picked = output(worktree, &["cherry-pick", "--allow-empty", "--empty=drop", &format!("{base}..{}", ticket.head)])?;
+    let pinned = merge_continue::pinned_to(worktree, base)?;
+    let picked = {
+        let _shared = WORKTREES.read().unwrap_or_else(PoisonError::into_inner);
+        run_with(worktree, &pinned, &["cherry-pick", "--allow-empty", "--empty=drop", &format!("{base}..{}", ticket.head)])?
+    };
     let resolved = picked.status.success() || merge_continue::finish_at(worktree, base).is_ok();
     case.picked_clean = Some(resolved);
     if !resolved {
