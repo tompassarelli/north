@@ -39,7 +39,9 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   laptop's load reached about 340 (north#1543). A host's free slots are now the least of its resident cap less its
   sessions, the sessions its measured memory has room for and the sessions its idle cores take, each charged half a core
   (a guess that the measured peak cores of a resident session settles), and a host with no memory reading takes nothing;
-  every launch of the round takes one slot from that count.
+  every launch of the round takes one slot from that count. Whiterabbit stays in `dispatch_hosts_excluded`: the owner
+  keeps the laptop out of dispatch (2026-11-15), so this rule guards a host that comes back rather than returning the
+  laptop itself.
 
 `north fleet dispatch --dry-run` prints each host's line with its refusal or the builds its queue still takes, and a
 `skip ITEM: ready, not placed: ...` line naming the bound that stopped each box: the spend rule's refusal for the account, the
