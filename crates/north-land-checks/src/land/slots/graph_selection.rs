@@ -126,7 +126,7 @@ impl Away<'_> {
     }
 }
 
-/// Every test the build system lists at `root` in the packages `scope` names, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim: on the build host `away` names when given, so a landing never compiles the workspace on the control host, else here. A build host whose north lists with a side of its own (`north land list-tests`) builds and lists there in place of the lines formed here. `None` when the tree is not one this build system builds or the listing fails, so the selection falls back to the crate closure.
+/// Every test the build system lists at `root` in the packages `scope` names, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell the tool is only the capacity shim: on the build host `away` names when given, so a landing never compiles the workspace on the control host, else here. The host that runs the listing, `away`'s or this one, builds and lists with a side of its own (`north land list-tests`) where its north has one, in place of the lines formed here. `None` when the tree is not one this build system builds or the listing fails, so the selection falls back to the crate closure.
 pub fn list(root: &Path, away: Option<&Away<'_>>, scope: &Scope) -> Option<ListedTests> {
     let builder = north_build_system::here();
     if !builder.governs(root) {
@@ -161,13 +161,22 @@ fn request(root: &Path, step: Step, selection: Selection) -> north_build_system:
 
 fn listing_output(away: Option<&Away<'_>>, root: &Path, builder: &dyn north_build_system::BuildSystem, selection: &Selection) -> Option<std::process::Output> {
     let invocation = builder.tests(&request(root, Step::List, selection.clone()));
-    let mut command = away.map_or_else(|| invocation.command(), |away| away.command(root, &test_listing::wrapped(NORTH, &named(selection), &Away::line(root, &invocation))));
+    let line = test_listing::wrapped(NORTH, &named(selection), &Away::line(root, &invocation));
+    let mut command = away.map_or_else(|| here(&invocation, &line), |away| away.command(root, &line));
     let started = crate::land::telemetry::epoch();
     let (output, waited) = run_listing(&mut command)?;
     if let Some(waited) = waited.filter(|_| away.is_some()) {
         LISTING_WAITS.lock().unwrap_or_else(PoisonError::into_inner).push((started, started + waited));
     }
     Some(output)
+}
+
+/// `line` run on this host in `invocation`'s directory and environment, so this host's own north reads its `buck2_listing` key as a build host's does.
+fn here(invocation: &north_build_system::Invocation, line: &str) -> Command {
+    let mut command = Command::new("bash");
+    command.args(["-c", line]);
+    invocation.environ(&mut command);
+    command
 }
 
 /// The packages `selection` names, none for the workspace.
