@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use north_base::foundation::exit::NO_VERDICT_STATUS;
 use north_base::foundation::pair::{self, Reading};
 use north_offload::land_offload;
 use north_unblocks::{Admission, Kind, Ledger};
@@ -76,12 +77,12 @@ fn run(head: &str, now: u64) -> Result<(), Failure> {
 
 fn replayed(trips: &Trips, asked: &Trip, checkout: &Path, now: u64) -> Result<Option<Trip>, String> {
     let alert = |text: &str| super::alert::alert_proxy(text);
-    let (asked, command, red) = match asked.cases.is_empty() {
+    let (asked, command, red, named) = match asked.cases.is_empty() {
         true => {
             let steps = failed_steps(asked)?;
-            (Trip { cases: steps.iter().map(|step| (STEP.to_owned(), step.clone())).collect(), ..asked.clone() }, step_command(&steps), errors as Red)
+            (Trip { cases: steps.iter().map(|step| (STEP.to_owned(), step.clone())).collect(), ..asked.clone() }, step_command(&steps), errors as Red, Vec::new())
         }
-        false => (asked.clone(), nextest(&asked.cases), cases as Red),
+        false => (asked.clone(), nextest(&asked.cases), cases as Red, asked.cases.iter().map(|(name, case)| format!("{case} in {name}")).collect::<Vec<String>>()),
     };
     let Some(command) = command else {
         replay::unreproduced(trips, &asked, "it names no case or step a slot can run by name", now, &alert)?;
@@ -91,7 +92,7 @@ fn replayed(trips: &Trips, asked: &Trip, checkout: &Path, now: u64) -> Result<Op
     let parent = update::git(checkout, &["rev-parse", "--verify", &format!("{}^", asked.head)]).map_err(|failure| failure.message)?;
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
     let seconds = replay::timeout();
-    let check = |commit: &str| reading(&north, checkout, &host, commit, &command, seconds, red);
+    let check = |commit: &str| reading(&north, checkout, &host, commit, &command, seconds, (red, &named));
     let compared = pair::compare(&check, parent.as_str(), asked.head.as_str());
     replay::settle(trips, &asked, &compared, now, &alert)
 }
@@ -145,22 +146,54 @@ fn errors(text: &str) -> Vec<String> {
     errors
 }
 
-/// What one slot run of `command` at `commit` on `host` says: green on exit 0, red with what `red` reads it failed, else no verdict with why.
-fn reading(north: &Path, checkout: &Path, host: &str, commit: &str, command: &str, seconds: u64, red: Red) -> Reading {
+/// What one slot run of `command` at `commit` on `host` says, the run tried again while the offload connection is lost before it answers.
+fn reading(north: &Path, checkout: &Path, host: &str, commit: &str, command: &str, seconds: u64, (red, named): (Red, &[String])) -> Reading {
     let seconds = seconds.to_string();
     let words = ["capacity", "offload", "run", "--host", host, "--base", commit, "--head", commit, "--timeout", seconds.as_str(), "--", command];
-    let output = match crate::platform::process::run(&north.to_string_lossy(), Some(checkout), &words) {
-        Ok(output) => output,
-        Err(error) => return Reading::NoVerdict(format!("north capacity offload run did not start: {error}")),
+    retried(|| match crate::platform::process::run(&north.to_string_lossy(), Some(checkout), &words) {
+        Ok(output) => Ran::Ended(output.status.code(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))),
+        Err(error) => Ran::Unstarted(format!("north capacity offload run did not start: {error}")),
+    }, red, named)
+}
+
+/// How many times one slot run is tried while the offload connection ends before the remote host reports its exit: a guess, settled by how often a third try still loses it.
+const TRIES: usize = 3;
+/// The exit cargo-nextest ends a run on when a test failed.
+const NEXTEST_FAILED: i32 = 100;
+
+pub(super) enum Ran {
+    Ended(Option<i32>, String),
+    Unstarted(String),
+}
+
+/// What a slot run says, tried up to `TRIES` times while it ends with the offload's no-verdict exit: green on exit 0, red with what
+/// `red` reads it failed, or with the `named` cases a nextest run of exactly them exited 100 on when the slot kept none of its output, else no verdict with why.
+pub(super) fn retried(mut run: impl FnMut() -> Ran, red: Red, named: &[String]) -> Reading {
+    let mut ran = run();
+    for _ in 1..TRIES {
+        if !matches!(ran, Ran::Ended(Some(NO_VERDICT_STATUS), _)) {
+            break;
+        }
+        ran = run();
+    }
+    let (status, text) = match ran {
+        Ran::Ended(status, text) => (status, text),
+        Ran::Unstarted(why) => return Reading::NoVerdict(why),
     };
-    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    if output.status.success() {
+    if status == Some(0) {
         return Reading::Green("it passed".to_owned());
     }
-    let failures = red(&text);
+    let mut failures = red(&text);
+    if failures.is_empty() && status == Some(NEXTEST_FAILED) {
+        failures = named.to_vec();
+    }
     if failures.is_empty() {
         let last = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default();
-        return Reading::NoVerdict(format!("the slot run ended {:?} and named no failure: {last}", output.status.code()));
+        return Reading::NoVerdict(format!("the slot run ended {status:?} and named no failure: {last}"));
     }
     Reading::Red(failures.join(", "))
 }
+
+#[cfg(test)]
+#[path = "trip_command_tests.rs"]
+mod tests;
