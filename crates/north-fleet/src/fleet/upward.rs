@@ -1,8 +1,7 @@
 //! What a child's end-of-turn report tells its parent: upward messages are by exception, because the
-//! child holds more of its box than its lead. A report goes to its lead when it opens Done, Split or Blocked, or
-//! opens Not done and lands a commit, holds an open gate or ends while the child waits on nothing the
-//! fleet records, and, unless it opens Done or Split, only when those facts differ from the last report that went up; the proxy, which
-//! wakes for less, gets only a Blocked report or a Not done one with news. An interim turn
+//! child holds more of its box than its lead. A report wakes its lead or the proxy only when it opens Blocked, or opens
+//! Not done and lands a commit, holds an open gate or ends while the child waits on nothing the fleet records, and only
+//! when those facts differ from the last report that went up; a lead's Done, Split and Waiting reports wait in its held digest. An interim turn
 //! opening no report word, a repeat, and a Not done waiting on its own queued ticket or registered wait
 //! or saying it stops on a landing or a clock are held for the digest instead.
 //! The child's own words can only silence a report, never move a harness number, so they are a hint
@@ -44,8 +43,8 @@ impl Facts {
         }
     }
 
-    /// Whether the proxy should be paged: only a Blocked report, or a Not done one with news. A Done or Split report waits in `north fleet digest`.
-    pub fn wakes_proxy(&self) -> bool {
+    /// Whether the coordinator (the proxy, or a lead) should be woken: only a Blocked report, or a Not done one with news. A Done or Split report waits in `north fleet digest`.
+    pub fn wakes_coordinator(&self) -> bool {
         match self.opening {
             Some("Blocked") => true,
             Some("Not done") => self.news(),

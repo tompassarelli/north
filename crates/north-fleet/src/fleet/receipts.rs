@@ -63,6 +63,7 @@ pub trait Courier: Send + Sync {
     fn answer(&self, host_dir: &Path, frame: String);
     /// Keeps a report that opens nothing for `parent` in the digest instead of waking it.
     fn hold(&self, _parent: &str, _text: String) {}
+    fn leads(&self, parent: &str) -> bool;
     /// Starts `north fleet launch WORDS`, as a two-rung route's second attempt.
     fn launch(&self, _words: Vec<String>) {}
 }
@@ -128,11 +129,11 @@ pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dy
     let facts = Facts::of(report.reply.as_deref().unwrap_or_default().trim(), report.landed.as_deref(), open.iter().map(|gate| gate.id).collect(), report.waiting);
     let Some((notice, delivery)) = report.notice(lines, parent == PROXY) else { return Ok(false) };
     let told = (report.exit == TurnExit::Completed).then_some(facts);
-    let pages = match (&told, parent == PROXY) {
-        (Some(facts), true) => facts.wakes_proxy(),
-        (Some(facts), false) => facts.worth_telling(),
-        (None, true) => false,
-        (None, false) => true,
+    let pages = match (&told, parent == PROXY, courier.leads(parent)) {
+        (Some(facts), true, _) | (Some(facts), false, true) => facts.wakes_coordinator(),
+        (Some(facts), false, false) => facts.worth_telling(),
+        (None, true, _) => false,
+        (None, false, _) => true,
     };
     let repeats = match &told {
         Some(facts) => facts.repeats(book.last_receipt(&report.child, Facts::PREFIX)?.as_deref()),
@@ -236,6 +237,10 @@ mod tests {
 
         fn hold(&self, parent: &str, text: String) {
             self.held.lock().unwrap().push((parent.to_owned(), text));
+        }
+
+        fn leads(&self, _parent: &str) -> bool {
+            false
         }
     }
 

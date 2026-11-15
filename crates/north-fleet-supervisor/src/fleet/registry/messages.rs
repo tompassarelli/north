@@ -1,12 +1,18 @@
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::fold::{Admit, Condition, Route, admit_via, told};
-use crate::fleet::model::{Delivery, Status};
+use crate::fleet::fold::{Admit, Condition, Route, admit_via, clears, told};
+use crate::fleet::model::{Delivery, Role, Status};
 use crate::fleet::runtime::{PROXY, new_uuid, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind, SessionRow, Spool, cached_sessions};
 use north_base::platform::land_notice::OWNER;
 
 use super::Fleet;
+
+const GATE: &str = "[gate ";
+const FLEET: &str = "north-fleet";
+const LANDER: &str = "north-land";
+const LAND_WATCH: &str = "north-land-watch";
+const LANDED: &str = "landed ";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Sent {
@@ -45,6 +51,10 @@ impl Fleet {
         let now = now_ms();
         let absent = matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name);
         let spool = self.spool();
+        if self.holds_for_lead(from, name, text, delivery) {
+            crate::fleet::held::hold(&self.root, name, &from.to_string(), text, now);
+            return Ok(Sent::Held);
+        }
         let route = Route { to: name, recipient: if absent { PROXY } else { name }, spooled: &|id| spool.holds(id) };
         match admit_via(&self.root, from, &route, text, condition, now) {
             Admit::Send => {}
@@ -73,6 +83,18 @@ impl Fleet {
             return self.deliver_message(from, PROXY, &format!("(for {name}, not live) {text}"), delivery).map(|_| Sent::Unreached);
         }
         self.deliver_message(from, name, text, delivery)
+    }
+
+    fn holds_for_lead(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> bool {
+        let Sender::Service(unit) = from else { return false };
+        let unit = unit.split('@').next().unwrap_or(unit);
+        let held_notice = match unit {
+            FLEET => relayed_done(text),
+            LANDER => text.starts_with(LANDED),
+            LAND_WATCH => clears(text),
+            _ => false,
+        };
+        held_notice && delivery != Delivery::Now && !text.starts_with(GATE) && from.author(text) == *from && self.role_of(name) == Some(Role::Lead)
     }
 
     fn deliver_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
@@ -120,6 +142,10 @@ impl Fleet {
         self.spool().put(&row)?;
         Ok(row)
     }
+}
+
+fn relayed_done(text: &str) -> bool {
+    text.strip_prefix("[from ").and_then(|rest| rest.split_once("] ")).is_some_and(|(_, report)| report.starts_with("Done:"))
 }
 
 #[cfg(test)]
@@ -220,6 +246,10 @@ mod tests {
         assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled", Delivery::Queued).unwrap(), Sent::HandedIn);
         assert!(owner.frames.lock().unwrap().iter().any(|frame| frame.contains("[from service:north-land] lander stalled")));
         assert!(proxy.frames.lock().unwrap().is_empty());
+        assert_eq!(fleet.send_message(&lander, OWNER, "landed abc as def", Delivery::Queued).unwrap(), Sent::Held, "a landed notice to a lead waits in its held log");
+        assert_eq!(owner.frames.lock().unwrap().len(), 1, "the landed notice woke the lead");
+        assert_eq!(fleet.send_message(&Sender::fleet(), OWNER, "north fleet: launch north-x that you spooled did not start", Delivery::Queued).unwrap(), Sent::HandedIn, "a fleet refusal waited for the digest");
+        assert_eq!(fleet.send_message(&Sender::fleet(), OWNER, "[from worker] Done: landed.", Delivery::Queued).unwrap(), Sent::Held, "a relayed Done report woke the lead");
 
         fleet.forget(OWNER).unwrap();
         assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled again", Delivery::Queued).unwrap(), Sent::Unreached);

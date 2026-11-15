@@ -31,6 +31,10 @@ impl Courier for Told {
     fn launch(&self, words: Vec<String>) {
         self.0.lock().unwrap().push(format!("launch {}", words.join("\n")));
     }
+
+    fn leads(&self, _parent: &str) -> bool {
+        false
+    }
 }
 
 struct Books0;

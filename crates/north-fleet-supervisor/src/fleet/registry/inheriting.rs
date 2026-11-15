@@ -109,6 +109,7 @@ mod tests {
 
         assert_eq!(fleet.record("guards").unwrap().parent.as_deref(), Some("lead2"));
         assert_eq!(proxy.frames.lock().unwrap().len(), 1, "the next report skips the proxy");
-        assert!(lead2.frames.lock().unwrap().iter().any(|frame| frame.contains("Done: landed.")));
+        assert!(lead2.frames.lock().unwrap().is_empty(), "a worker's Done report woke the successor lead");
+        assert!(fleet.held_since(0).iter().any(|row| row.to == "lead2" && row.text.contains("Done: landed.")), "the successor's held log lacks its worker's report");
     }
 }

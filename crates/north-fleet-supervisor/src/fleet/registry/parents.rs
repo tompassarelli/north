@@ -136,6 +136,10 @@ impl Courier for Fleet {
         crate::fleet::held::hold(&self.root, parent, &Sender::fleet().to_string(), &text, now_ms());
     }
 
+    fn leads(&self, parent: &str) -> bool {
+        self.role_of(parent) == Some(Role::Lead)
+    }
+
     fn ask(&self, request: GateRequest) {
         let fleet = self.clone();
         std::thread::spawn(move || raise(&fleet, &request));
@@ -164,6 +168,10 @@ impl Courier for Inline<'_> {
 
     fn hold(&self, parent: &str, text: String) {
         Courier::hold(self.0, parent, text);
+    }
+
+    fn leads(&self, parent: &str) -> bool {
+        Courier::leads(self.0, parent)
     }
 
     fn ask(&self, request: GateRequest) {
