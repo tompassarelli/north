@@ -5,7 +5,7 @@ Usage: north [COMMAND]
 Run north --help for the operator and agent commands, or north COMMAND --help for one.
 
 Commands:
-  accounts [--json]                              Every account's windows, plan, api credit and spend
+  accounts [--json | --emails]                   Every account's windows, plan, api credit and spend; --emails prints each signed-in profile's sign-in email
   accounts reset [--dry-run]                     Check the coordinator's usage reset grant against its Fable meter and log the outcome to ~/.local/state/north/usage/resets.jsonl; it never clicks the reset (docs/rationale/usage-resets.md)
   health [--dry-run] [--json]                    Readiness bars, goals and harness invariants
   infra [--json]                                 List each live paid resource with its monthly price and a total

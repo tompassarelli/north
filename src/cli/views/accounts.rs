@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
@@ -11,12 +11,13 @@ pub struct Accounts {
     pub json: Option<Value>,
 }
 
-const USAGE: &str = "usage: north accounts [--json] | north accounts reset [--dry-run]";
+const USAGE: &str = "usage: north accounts [--json | --emails] | north accounts reset [--dry-run]";
 
 pub fn run(arguments: &[String]) -> u8 {
     let json = match arguments {
         [] => false,
         [flag] if flag == "--json" => true,
+        [flag] if flag == "--emails" => return emails(),
         [verb, rest @ ..] if verb == "reset" => return reset(rest),
         _ => {
             eprintln!("{USAGE}");
@@ -38,6 +39,32 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+/// Prints the sign-in email each signed-in subscription profile records for itself, one per line, the names `claude EMAIL` takes.
+fn emails() -> u8 {
+    match emails_run() {
+        Ok(()) => 0,
+        Err(why) => {
+            eprintln!("north accounts --emails: {why}");
+            1
+        }
+    }
+}
+
+fn emails_run() -> Result<(), String> {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let roster = crate::cli::fleet::roster().map_err(|error| error.user_message())?;
+    let emails: BTreeSet<String> = roster
+        .accounts
+        .iter()
+        .filter(|account| account.provider.label() == "claude" && account.api.is_none())
+        .filter_map(|account| north_providers::providers::claude::sign_in_email(&account.home, &home))
+        .collect();
+    for email in emails {
+        println!("{email}");
+    }
+    Ok(())
 }
 
 fn reset(arguments: &[String]) -> u8 {

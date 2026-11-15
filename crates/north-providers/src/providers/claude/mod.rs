@@ -16,5 +16,6 @@ mod turns;
 mod user_text;
 mod window_inbox;
 
+pub use accounts::sign_in_email;
 pub use session_env::invocation;
 pub use tool_server::{shell_prefix, tool_server_args};

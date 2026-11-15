@@ -174,6 +174,12 @@ pub(super) fn config_file(home: &Path, default: &Path) -> PathBuf {
     if home == default { home.with_file_name(".claude.json") } else { home.join(".claude.json") }
 }
 
+/// The sign-in email the profile at `home` records for itself, or `None` for a profile whose record names no account.
+pub fn sign_in_email(home: &Path, user_home: &Path) -> Option<String> {
+    let config: Value = serde_json::from_str(&std::fs::read_to_string(config_file(home, &default_home(user_home))).ok()?).ok()?;
+    config["oauthAccount"]["emailAddress"].as_str().filter(|email| !email.is_empty()).map(str::to_owned)
+}
+
 fn identity(home: &Path, default: &Path) -> Option<String> {
     let config: Value = serde_json::from_str(&std::fs::read_to_string(config_file(home, default)).ok()?).ok()?;
     let uuid = config["oauthAccount"]["accountUuid"].as_str().filter(|uuid| !uuid.is_empty())?;
