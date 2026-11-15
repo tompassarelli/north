@@ -87,7 +87,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
 
 /// Holds `program` for a capacity lease of `class`, which sends a fleet session's compile to a build host.
 fn leased(class: Class, program: &str, rest: &[String], host: &Host) -> u8 {
-    if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) && !(host.lease_builds)() && agent_compile(&words(program, rest)) {
+    if in_sandbox(&std::env::var(SANDBOX).unwrap_or_default()) && !(host.lease_builds)() && agent_compile(&words(program, rest)) {
         eprintln!("north capacity gate: a fleet session's {} inside depbox reaches no build host, since the sandbox has no network or ssh keys; make the compile depbox's own command (depbox run -- cargo ...) so the gate sends the whole run to a build host (infrastructure, exit 75)", shell::basename(program));
         attribution::record_here("capacity", Cause::Harness(Harness::Capacity), "sandbox reaches no build host (exit 75)");
         return NO_VERDICT;
