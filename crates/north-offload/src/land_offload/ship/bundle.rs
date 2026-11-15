@@ -7,9 +7,10 @@ use north_capacity_host::capacity::carry;
 
 /// The bundle of `reference` cut at the shipped base, or at each commit in `held` when the host named the commits its checkout holds; a base the head's history does not contain travels in it too, as `base_reference(reference)`, so the host reads every commit the shipped context names.
 pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) -> Result<File, String> {
+    let scratch = scratch(land)?;
     let git = || {
         let mut command = Command::new(north_base::foundation::offload::git());
-        command.current_dir(land.checkout);
+        command.current_dir(scratch.path());
         command
     };
     let file = tempfile::tempfile().map_err(|error| format!("bundle file: {error}"))?;
@@ -34,8 +35,6 @@ pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) ->
         (None, None) => command.args(land.base.iter().map(cut)),
     };
     let bundled = command.stdout(file.try_clone().map_err(|error| error.to_string())?).status().is_ok_and(|status| status.success());
-    let _ = git().args(["update-ref", "-d", reference]).status();
-    let _ = git().args(["update-ref", "-d", &base_reference(reference)]).status();
     if !bundled {
         return Err("git bundle failed".to_owned());
     }
@@ -81,4 +80,21 @@ pub(super) fn feed(header: Vec<u8>, mut bundle: File, mut stdin: std::process::C
         }
         Some(stdin)
     })
+}
+
+/// A bare repository borrowing the checkout's objects, where the bundle's refs are named: the checkout's own git
+/// directory is read-only inside a land sandbox, as in an after-landing run.
+fn scratch(land: &Land) -> Result<tempfile::TempDir, String> {
+    let common = Command::new(north_base::foundation::offload::git()).current_dir(land.checkout).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().map_err(|error| format!("git rev-parse: {error}"))?;
+    if !common.status.success() {
+        return Err(format!("cannot find the git directory of {}", land.checkout.display()));
+    }
+    let objects = std::path::Path::new(String::from_utf8_lossy(&common.stdout).trim()).join("objects");
+    let scratch = tempfile::tempdir().map_err(|error| format!("bundle repository: {error}"))?;
+    let made = Command::new(north_base::foundation::offload::git()).args(["init", "-q", "--bare"]).arg(scratch.path()).status().is_ok_and(|status| status.success());
+    if !made {
+        return Err("cannot make the bundle repository".to_owned());
+    }
+    std::fs::write(scratch.path().join("objects/info/alternates"), format!("{}\n", objects.display())).map_err(|error| format!("bundle repository alternates: {error}"))?;
+    Ok(scratch)
 }

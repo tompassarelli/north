@@ -233,6 +233,23 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
 }
 
 #[test]
+fn a_job_bundles_from_a_checkout_whose_git_directory_is_read_only_as_inside_a_land_sandbox() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, first, _) = repository_with_two_commits();
+    let head = CommitId::resolve(dir.path(), "HEAD").unwrap();
+    let base = CommitId::resolve(dir.path(), &first).unwrap();
+    let refs = dir.path().join(".git/refs");
+    let locked = |mode| fs::set_permissions(&refs, fs::Permissions::from_mode(mode)).unwrap();
+    locked(0o555);
+    let reference = job_ref(&head);
+    let land = Land { ssh: "", checkout: dir.path(), base: Some(base), head: head.clone(), timeout_seconds: 1, command: "", outputs: &[], class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
+    let bundled = bundle(&land, &reference, None);
+    locked(0o755);
+    let listed = Command::new("git").current_dir(dir.path()).args(["bundle", "list-heads", "-"]).stdin(bundled.unwrap()).output().unwrap();
+    assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
+}
+
+#[test]
 fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_entry_while_git_creates_it() {
     let home = tempfile::tempdir().unwrap();
     let repo = home.path().join("code/p/main");
