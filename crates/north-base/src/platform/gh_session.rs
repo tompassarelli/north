@@ -27,8 +27,6 @@ breaks each session's spend down by hook, tick or command, the north verb behind
 and a refused call tells the coordinator at most once an hour per session (north ops github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
-/// Set on every command `north --worker-sandbox` runs, so a session the fleet did not launch, such as the coordinator's own window, still calls GitHub as the App: its sandbox has hidden the operator's login.
-pub const SANDBOX_MARK: &str = "NORTH_WORKER_SANDBOXED";
 const UNLAUNCHED: &str = "unlaunched";
 const FAIR_SHARE: u32 = 400;
 const WINDOW_SECONDS: i64 = 3600;
@@ -49,7 +47,7 @@ pub fn run(arguments: &[String], screen: fn(&mut Command) -> Result<(), String>)
         eprintln!("{USAGE}");
         return 1;
     };
-    let session = std::env::var(SESSION_ENV).ok().filter(|session| !session.is_empty()).or_else(|| std::env::var_os(SANDBOX_MARK).map(|_| unlaunched_name()));
+    let session = std::env::var(SESSION_ENV).ok().filter(|session| !session.is_empty()).or_else(|| std::env::var_os(super::session_scope::SANDBOX_MARK).map(|_| unlaunched_name()));
     let Some(session) = session else {
         return exec(Command::new(real).args(rest));
     };
@@ -59,7 +57,7 @@ pub fn run(arguments: &[String], screen: fn(&mut Command) -> Result<(), String>)
     let before = used(&fresh_spend(&ledger, now));
     let pool = shared_pool(real, rest, &ledger, now);
     let mint = || {
-        let (token, note) = github_app::agent_token(Timestamp::now().unix_seconds(), None, std::env::var("GH_TOKEN").ok()).or_else(|why| if super::session_scope::confined_session() || std::env::var_os(SANDBOX_MARK).is_some() { Ok((super::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER.to_owned(), Some(format!("this confined command reads no North Fleet App token ({why}); the GitHub broker adds one outside its domain")))) } else { Err(why) })?;
+        let (token, note) = github_app::agent_token(Timestamp::now().unix_seconds(), None, std::env::var("GH_TOKEN").ok()).or_else(|why| if super::session_scope::confined_session() || std::env::var_os(super::session_scope::SANDBOX_MARK).is_some() { Ok((super::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER.to_owned(), Some(format!("this confined command reads no North Fleet App token ({why}); the GitHub broker adds one outside its domain")))) } else { Err(why) })?;
         note.iter().for_each(|note| eprintln!("north gh-session: {note}"));
         Ok(token)
     };

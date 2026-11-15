@@ -1,4 +1,4 @@
-//! The review calls of a hand-in (north#1610): two fresh one-shot calls on a lane's patch, the rules and one reviewer's instructions each, which record the accepts a trust-path lane needs. The request is the words `review-call HEAD` and nothing else of the caller's. The broker of the host that settles the fleet fetches the lane into the trusted mirror itself and reads every input it trusts from that mirror alone, never from a checkout's refs: main, the fork, the patch id, the instructions, the models, AGENTS.md and the trust lists. It runs `north check oneshot` with no tools under each of the names `review-call-a` and `review-call-b`, reads each verdict from its answer's first line and records an accept only for `ACCEPT`. Verdicts are kept by patch id across every lane and task, so a judged patch gets its kept verdicts and no new call; refused rounds are counted by the asking session's task across its lanes under one lock per task, and a task refused in two rounds gets no third. The lane's text and the task's earlier refusals, which quote it, go in one block delimited by a fresh random marker per call, and such text holding the marker's prefix is refused before any call.
+//! The review call of a hand-in (north#1610): one fresh one-shot call on a lane's patch, the rules and the commit reviewer's instructions, which records the accept a trust-path lane needs. The request is the words `review-call HEAD` and nothing else of the caller's. The broker of the host that settles the fleet fetches the lane into the trusted mirror itself and reads every input it trusts from that mirror alone, never from a checkout's refs: main, the fork, the patch id, the instructions, the model, AGENTS.md and the trust lists. It runs `north check oneshot` with no tools under the name `review-call`, reads the verdict from the answer's first line and records an accept only for `ACCEPT`. Verdicts are kept by patch id across every lane and task, so a judged patch gets its kept verdict and no new call; refused rounds are counted by the asking session's task across its lanes under one lock per task, and a task refused in two rounds gets no third. The lane's text and the task's earlier refusals, which quote it, go in one block delimited by a fresh random marker, and such text holding the marker's prefix is refused before any call.
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use north_base::platform::finish_record::verdict_store;
 use north_base::platform::harness::DEFAULTS;
-use north_base::platform::review_accept::{Accept, Accepts, CALL_SESSIONS, patch_diff, patch_id};
+use north_base::platform::review_accept::{Accept, Accepts, CALL_SESSION, patch_diff, patch_id};
 use north_trusted_mirror::Mirror;
 use rustix::fs::{FlockOperation, flock};
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ const INPUT_CAP: usize = 256 << 10;
 const ROUNDS: usize = 2;
 const MAIN_AGE: Duration = Duration::from_secs(300);
 const MODELS: &str = "review_call_models";
-const INSTRUCTIONS: [&str; 2] = ["harness/review/commit-reviewer.md", "harness/review/second-reviewer.md"];
+const INSTRUCTIONS: &str = "harness/review/commit-reviewer.md";
 const STORE: &str = "review-calls";
 const MARKER: &str = concat!("LANE", "-DATA");
 const HELD: &str = "review held: ask your lead";
@@ -112,14 +112,14 @@ fn git(mirror: &Path, arguments: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// The model and effort of each call, from the harness/defaults.toml at the mirror's main `base`.
-fn models(mirror: &Path, base: &str) -> Result<Vec<(String, String)>, String> {
+/// The model and effort of the call, from the harness/defaults.toml at the mirror's main `base`.
+fn model(mirror: &Path, base: &str) -> Result<(String, String), String> {
     let text = git(mirror, &["show", &format!("{base}:{DEFAULTS}")])?;
     let document = text.parse::<toml_edit::DocumentMut>().map_err(|error| format!("{DEFAULTS} at {base} does not parse: {error}"))?;
-    let pairs: Vec<(String, String)> = document[MODELS]["value"].as_array().map(|values| values.iter().filter_map(|value| value.as_str()?.split_once(':').map(|(model, effort)| (model.to_owned(), effort.to_owned()))).collect()).unwrap_or_default();
-    match pairs.len() == CALL_SESSIONS.len() {
-        true => Ok(pairs),
-        false => Err(format!("{DEFAULTS} at {base} names no model:effort for each of the {} review calls in {MODELS}", CALL_SESSIONS.len())),
+    let values: Vec<&str> = document[MODELS]["value"].as_array().map(|values| values.iter().filter_map(|value| value.as_str()).collect()).unwrap_or_default();
+    match values.as_slice() {
+        [pair] => pair.split_once(':').map(|(model, effort)| (model.to_owned(), effort.to_owned())).ok_or_else(|| format!("{DEFAULTS} at {base} names {pair} in {MODELS}, not model:effort")),
+        _ => Err(format!("{DEFAULTS} at {base} names {} models in {MODELS}, not the one review call's", values.len())),
     }
 }
 
@@ -214,22 +214,26 @@ fn judged(north: &Path, (environment, home): (&[(String, String)], &Path), mirro
         return Ok(Err(format!("the lane's text or its task's earlier refusals hold {MARKER}, the prefix that marks the data the review calls judge, so no call is started for patch {patch}")));
     }
     let context = context(mirror, (base, fork, head))?;
-    let inputs = CALL_SESSIONS.iter().map(|_| nonce().map(|nonce| lane.input(&context, &earlier, &nonce))).collect::<Result<Vec<_>, _>>()?;
-    if inputs.iter().any(|input| input.len() > INPUT_CAP) {
+    let input = lane.input(&context, &earlier, &nonce()?);
+    if input.len() > INPUT_CAP {
         return Ok(Err(format!("patch {patch} with its context is over {} KiB, so no review call is started; a reviewer seat reviews it", INPUT_CAP >> 10)));
     }
-    let models = models(mirror, base)?;
-    let systems = INSTRUCTIONS.iter().map(|path| git(mirror, &["show", &format!("{base}:{path}")])).collect::<Result<Vec<_>, _>>()?;
-    let answers: Vec<Option<String>> = std::thread::scope(|threads| {
-        let calls: Vec<_> = CALL_SESSIONS.iter().zip(&models).zip(&systems).zip(&inputs).map(|(((session, model), system), input)| threads.spawn(|| ask(north, environment, home, model, system, (&asker.account, session), input))).collect();
-        calls.into_iter().map(|call| call.join().ok().flatten()).collect()
-    });
-    if answers.iter().any(Option::is_none) {
-        return Ok(Err(format!("a review call of patch {patch} gave no answer, so no verdict is kept and none is recorded; call again")));
-    }
-    let verdicts: Vec<Verdict> = CALL_SESSIONS.iter().zip(answers.iter().flatten()).map(|(session, answer)| verdict(session, answer)).collect();
+    let model = model(mirror, base)?;
+    let system = git(mirror, &["show", &format!("{base}:{INSTRUCTIONS}")])?;
+    let Some(answer) = ask(north, environment, home, &model, &system, (&asker.account, CALL_SESSION), &input) else {
+        return Ok(Err(format!("the review call of patch {patch} gave no answer, so no verdict is kept and none is recorded; call again")));
+    };
+    let verdicts = vec![verdict(CALL_SESSION, &answer)];
     kept.keep(&asker.task, patch, &verdicts)?;
     Ok(Ok(verdicts))
+}
+
+/// The review request the reviewer sessions get when no review call of `head` in `lane` runs because `why`, and what is told of it: a call held by its task's refusals gets none, since its author is told to ask its lead. The request goes once per `key`, the patch id where serve knows it and the head otherwise.
+pub(super) fn asked_reviewers(lane: &str, head: &str, key: &str, why: &str) -> String {
+    if why.starts_with(HELD) {
+        return why.to_owned();
+    }
+    north_landing::land::review_send::request(key, lane, head, why)
 }
 
 /// What a review call of `head` asked by `asker` comes to: the lines told to the caller, and whether every call accepted.
@@ -249,13 +253,13 @@ pub(super) fn serve(north: &Path, environment: &[(String, String)], home: &Path,
     if verdicts.is_empty() {
         verdicts = match judged(north, (environment, home), mirror, asker, (&base, &fork, head, &patch), &kept)? {
             Ok(verdicts) => verdicts,
-            Err(told) => return Ok((told, false)),
+            Err(told) => return Ok((asked_reviewers(&asker.lane, head, &patch, &told), false)),
         };
     }
     let accepts = Accepts::of(environment, home);
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    for verdict in verdicts.iter().filter(|verdict| verdict.accept) {
-        accepts.record_call(&Accept { patch_id: patch.clone(), session: verdict.session.clone(), at })?;
+    if verdicts.iter().any(|verdict| verdict.accept) {
+        accepts.record_call(&Accept { patch_id: patch.clone(), session: CALL_SESSION.to_owned(), at })?;
     }
     let told = verdicts.iter().map(|verdict| format!("{} {} patch {patch}\n{}", verdict.session, if verdict.accept { "ACCEPT" } else { "REFUSE" }, verdict.findings)).collect::<Vec<_>>().join("\n\n");
     Ok((told, verdicts.iter().all(|verdict| verdict.accept)))

@@ -197,7 +197,7 @@ exec "$CANARY_NORTH" capacity offload free --host __HUB__
 /// `script`, a probe that makes a scratch project under `$root` and asks for a verb that leaves a command's domain, with a broker of the judged runtime started for that project on a socket in `$root` when the probe runs inside a domain (an order issued from a session's window). The host's own broker serves only the projects the host keeps, so it refuses a scratch project, as it refused both probes of the order of 2026-11-12, and it runs the build being replaced. Outside a domain the verbs run in the probe's own process and no broker is asked.
 fn own_broker(script: &str) -> String {
     let serving = crate::worker_sandbox::broker_for("\"$root\"").join(" ");
-    let started = OWN_BROKER.replace("__MARK__", north_base::platform::gh_session::SANDBOX_MARK).replace("__HIDDEN__", north_base::platform::session_scope::SOCKETS_HIDDEN).replace("__BROKER__", crate::worker_sandbox::BROKER_SOCKET_ENV).replace("__SERVING__", &serving);
+    let started = OWN_BROKER.replace("__MARK__", north_base::platform::session_scope::SANDBOX_MARK).replace("__HIDDEN__", north_base::platform::session_scope::SOCKETS_HIDDEN).replace("__BROKER__", crate::worker_sandbox::BROKER_SOCKET_ENV).replace("__SERVING__", &serving);
     script.replace("__OWN_BROKER__", &started)
 }
 

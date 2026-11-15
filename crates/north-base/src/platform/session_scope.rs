@@ -6,6 +6,8 @@ use std::process::{Command, Stdio};
 
 /// Set on a command whose sandbox has hidden the sockets that reach the user manager, so a verb that needs a transient scope asks the outside broker for it.
 pub const SOCKETS_HIDDEN: &str = "NORTH_SOCKETS_HIDDEN";
+/// Set on every command `north --worker-sandbox` runs, so a session the fleet did not launch, such as the coordinator's own window, still calls GitHub as the App: its sandbox has hidden the operator's login.
+pub const SANDBOX_MARK: &str = "NORTH_WORKER_SANDBOXED";
 
 /// Set on a command a fleet worker runs inside its confining domain, so a verb that writes the host's capacity admission state asks the outside broker for it instead of writing it in place; the domain, not this mark, is what keeps the worker out of that state.
 pub const CONFINED: &str = "NORTH_WORKER_CONFINED";

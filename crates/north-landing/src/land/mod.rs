@@ -25,6 +25,7 @@ pub mod jobs;
 pub mod lander;
 pub mod outbox;
 pub mod review_fetch;
+pub mod review_send;
 pub mod probe_slots;
 pub mod queue;
 pub mod outlive;

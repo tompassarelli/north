@@ -1983,20 +1983,20 @@ fallback = "a missing list replays no lane, so every landing-path lane is judged
 consumers = ["crates/north-base/src/platform/trust_boundary.rs", "crates/north-lander/src/land/promote/machinery_lane.rs"]
 
 [review_call_models]
-value = ["claude-opus-5-5:high", "claude-opus-5-5:high"]
-allowed = { min_len = 2 }
-unit = "MODEL:EFFORT of the two review calls of a hand-in, in the order of review-call-a under harness/review/commit-reviewer.md and review-call-b under harness/review/second-reviewer.md; the broker reads this list at origin/main, never from the lane"
-source = "north#1610 plan, conditions of the reviewers and of p-agent-user-slice4: both calls on a trust-boundary patch run at Opus tier"
+value = ["claude-opus-5-5:high"]
+allowed = { min_len = 1 }
+unit = "MODEL:EFFORT of the review call of a hand-in, under harness/review/commit-reviewer.md; the broker reads this list at origin/main, never from the lane"
+source = "north#1610 plan, conditions of the reviewers and of p-agent-user-slice4: a call on a trust-boundary patch runs at Opus tier"
 fallback = "a missing or malformed list starts no review call and says so"
 consumers = ["crates/north-runtime/src/worker_sandbox/review_call_request.rs"]
 
 [review_request_sessions]
 value = ["commit-reviewer"]
 allowed = { min_len = 1 }
-unit = "fleet session names a hand-in sends the review request to, each once per patch id, when the land scan review-accept or safe-push-keys refuses its lane before queueing for missing accepts; a session that already accepted the patch is left out"
+unit = "fleet session names a hand-in or a review call sends the review request to, once per patch, when no review call of a lane runs: outside a worker domain, on a host that does not settle the fleet, or when the call gave no answer or its input is over the cap"
 source = "north#1544, coordinator order 2026-11-15: the coordinator relayed ten such refusals to the reviewers by hand, and three lanes sat unreviewed for half an hour each while the reviewers' queues were two deep with medians of 3 and 8 minutes"
 fallback = "a missing list sends no request and says so in the refusal"
-consumers = ["crates/north-lander/src/land/review_request.rs"]
+consumers = ["crates/north-landing/src/land/review_send.rs"]
 
 [agent_slice_read_cap_mib]
 value = 200

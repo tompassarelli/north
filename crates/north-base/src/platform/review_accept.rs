@@ -23,11 +23,11 @@ pub struct Accept {
 
 pub struct Accepts(pub PathBuf);
 
-/// The session names under which only the broker's review calls record an accept (north#1610); no fleet session is launched under them and no other path records one.
-pub const CALL_SESSIONS: [&str; 2] = ["review-call-a", "review-call-b"];
+/// The session name under which only the broker's review call records an accept (north#1610); no fleet session is launched under it and no other path records one.
+pub const CALL_SESSION: &str = "review-call";
 
 pub fn reserved(session: &str) -> bool {
-    CALL_SESSIONS.contains(&session)
+    session == CALL_SESSION
 }
 
 pub fn is_patch_id(word: &str) -> bool {
@@ -87,7 +87,7 @@ impl Accepts {
         self.write(accept)
     }
 
-    /// Records the accept of a review call, whose session is one of [`CALL_SESSIONS`].
+    /// Records the accept of a review call, whose session is [`CALL_SESSION`].
     pub fn record_call(&self, accept: &Accept) -> Result<(), String> {
         if !reserved(&accept.session) {
             return Err(format!("{} is no review call's name", accept.session));
