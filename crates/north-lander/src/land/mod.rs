@@ -14,6 +14,7 @@ pub mod pause;
 pub mod promote;
 pub mod push_refusal;
 pub mod replay;
+pub mod review_request;
 pub mod serve;
 pub mod shadow;
 pub mod status;

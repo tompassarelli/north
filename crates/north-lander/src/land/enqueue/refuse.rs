@@ -11,8 +11,9 @@ use crate::landing::{merge_set, stale_revert};
 
 /// A lane the repository's checks before queueing judged and failed turns its session's passing finish record for
 /// that tree failed, so a route's first rung moves to its second on the repository's own checks and not only on the
-/// check its finish call named; a refusal that reached no verdict leaves the record as it is (north#1233).
-pub(super) fn refused_finish(session: Option<&str>, root: &Path, head: &str, refusal: QueueRefusal) -> String {
+/// check its finish call named; a refusal that reached no verdict leaves the record as it is (north#1233). A refusal for
+/// missing review accepts also asks the reviewers itself and says so (north#1544).
+pub(super) fn refused_finish(session: Option<&str>, root: &Path, (base, head): (&str, &str), refusal: QueueRefusal) -> String {
     let tree = |commit: &str| git(root, &["rev-parse", "--verify", "--quiet", &format!("{commit}^{{tree}}")]).ok();
     let records = FinishRecords::here();
     let vouched = session.filter(|_| matches!(refusal, QueueRefusal::Failed(_))).and_then(|session| records.read(session)).filter(|finished| finished.passed && tree(&finished.head).is_some_and(|checked| Some(checked) == tree(head)));
@@ -21,7 +22,11 @@ pub(super) fn refused_finish(session: Option<&str>, root: &Path, head: &str, ref
     {
         eprintln!("safe-push: the finish record was not turned failed: {error}");
     }
-    refusal.into_text()
+    let text = refusal.into_text();
+    match crate::land::review_request::ask(root, base, head, session, &text) {
+        Some(asked) => format!("{text}; {asked}"),
+        None => text,
+    }
 }
 
 pub(super) fn refuse_archived(repository: &Repository) -> Result<(), String> {

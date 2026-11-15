@@ -2046,6 +2046,14 @@ source = "north#1492, coordinator ruling 2026-11-14: a Live-fix lane lands on on
 fallback = "a missing list leaves every Live-fix lane in trust_boundary_paths at one accept and every other lane there at two"
 consumers = ["crates/north-base/src/platform/trust_boundary.rs", "crates/north-land-scans/src/review_accept.rs"]
 
+[review_request_sessions]
+value = ["commit-reviewer", "second-reviewer"]
+allowed = { min_len = 1 }
+unit = "fleet session names a hand-in sends the review request to, each once per patch id, when the land scan review-accept or safe-push-keys refuses its lane before queueing for missing accepts; a session that already accepted the patch is left out"
+source = "north#1544, coordinator order 2026-11-15: the coordinator relayed ten such refusals to the reviewers by hand, and three lanes sat unreviewed for half an hour each while the reviewers' queues were two deep with medians of 3 and 8 minutes"
+fallback = "a missing list sends no request and says so in the refusal"
+consumers = ["crates/north-lander/src/land/review_request.rs"]
+
 [agent_slice_read_cap_mib]
 value = 200
 allowed = { min = 20, max = 100000 }
