@@ -86,7 +86,21 @@ pub(super) fn episode_marker(run: &Run, landed: &Landed) -> PathBuf {
 }
 
 fn cleared_marker(run: &Run, landed: &Landed) -> PathBuf {
-    run.ledger.with_file_name(format!("{CLEARED}-{}", landed.repository.replace('/', "_")))
+    cleared_marker_at(&run.ledger, landed)
+}
+
+fn cleared_marker_at(ledger: &Path, landed: &Landed) -> PathBuf {
+    ledger.with_file_name(format!("{CLEARED}-{}", landed.repository.replace('/', "_")))
+}
+
+/// Whether a later green run already covered a red verdict on `landed.head` over every check in `failing`.
+pub fn covered(landed: &Landed, failing: &BTreeSet<Failure>) -> bool {
+    Episode::covers_red(&cleared_marker_at(&ledger_path(), landed), &landed.repo, &landed.head, failing)
+}
+
+/// The checks the open red episode of the repository already failed at the previous verdict, read before this run's verdict extends them; empty when main is not red.
+pub(super) fn known_failing(landed: &Landed, run: &Run) -> BTreeSet<Failure> {
+    Episode::read(&episode_marker(run, landed)).map(|episode| episode.failing).unwrap_or_default()
 }
 
 /// Whether this red verdict is on a head a descendant's green run already covered: that run ended the repository's last red episode over every check failing here, so the verdict is main's past, not its state.

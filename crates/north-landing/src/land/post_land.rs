@@ -10,7 +10,6 @@ use north_base::platform::push_ledger;
 use crate::landing::check_timings::Deadline;
 use super::after::{follow, send};
 use super::blame;
-use super::probe_slots;
 use super::candidate::git;
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
@@ -35,7 +34,7 @@ pub(crate) use execute::{Checked, failing, steps};
 use execute::{apart, check, judged, record};
 use probe::Probe;
 pub(crate) use settle::rerun;
-pub use settle::settle;
+pub use settle::{covered, settle};
 use settle::{offload_rerun, settle_from};
 
 #[derive(Clone)]
@@ -287,12 +286,17 @@ fn after_run(lander: &Lander, landed: &Landed, host: Option<String>, cancel: Can
 pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Cancel) -> Task<Outcome> {
     let run = after_run(lander, &landed, host, cancel, deadline(&lander.repo, &ledger_path(), &landed.repository, &landed.head));
     Task::spawn(&lander.wake, move || {
+        let known = settle::known_failing(&landed, &run);
         let verdict = settle(&landed, &run, send);
-        outcome(landed, run, verdict)
+        outcome(landed, run, verdict, &known)
     })
 }
 
-fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
+fn already_known(failing: &BTreeSet<Failure>, known: &BTreeSet<Failure>) -> bool {
+    !failing.is_empty() && failing.is_subset(known)
+}
+
+fn outcome(landed: Landed, run: Run, verdict: Verdict, known: &BTreeSet<Failure>) -> Outcome {
     println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
     if matches!(verdict, Verdict::Green) {
         super::buck2_after::cargo_green(&crate::landing::check_timings::Timings::default_root(), &landed.head, send);
@@ -305,6 +309,10 @@ fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
         return Outcome { verdict, search: None, failing, superseded: run.superseded(), log: run.log };
     }
     super::buck2_after::cargo_red(&crate::landing::check_timings::Timings::default_root(), &landed.head, &run.log, send);
+    if already_known(&failing, known) {
+        println!("north land: the after-landing run of {} is red on {} only, which main already failed at the previous verdict, so no culprit search starts (north#1631)", landed.head, failing.iter().map(Failure::label).collect::<Vec<_>>().join(", "));
+        return Outcome { verdict, search: None, failing, superseded: run.superseded(), log: run.log };
+    }
     let (superseded, log) = (run.superseded(), run.log.clone());
     Outcome { verdict, search: Some(Search { landed, run, failing: failing.clone() }), failing, log, superseded }
 }
@@ -324,7 +332,7 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
         let reproduced = at_the_tip(&landed, &run, &failing);
         let stopped = |unreproduced| Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: run.superseded(), cancelled_by: run.cancel.sender().map(str::to_owned), unreproduced, walked_back: None };
         if run.superseded() {
-            println!("north land: the culprit search of {} stopped because {} changed its check lines", landed.head, cancelled_by(&run));
+            println!("north land: the culprit search of {} stopped because {} superseded it", landed.head, cancelled_by(&run));
             return stopped(None);
         }
         let failing = match reproduced {
@@ -336,7 +344,7 @@ pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
         culprits.sort_unstable();
         culprits.dedup();
         if run.superseded() {
-            println!("north land: the culprit search of {} stopped because {} changed its check lines", landed.head, cancelled_by(&run));
+            println!("north land: the culprit search of {} stopped because {} superseded it", landed.head, cancelled_by(&run));
             return stopped(None);
         }
         for &at in &culprits {
@@ -400,8 +408,7 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize
         return (Vec::new(), None);
     }
     let lanes = landed.tips.len();
-    let room = probe_slots::free_slots(&landed.repo).map_or(1, |(free, _)| free);
-    let suspects = blame::ask(&landed.repo, &run.log, &landed.base, &landed.head, &landed.lanes, &landed.tips, room);
+    let suspects = blame::ask(&landed.repo, &run.log, &landed.base, &landed.head, &landed.lanes, &landed.tips);
     let probe = Probe::of(failing);
     let check = |tree: &str| probe::probe(landed, &run.at(&landed.head, tree), tree, &probe);
     let signatures: BTreeSet<String> = failing.iter().map(|failure| failure.label().to_owned()).collect();
@@ -412,7 +419,7 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize
         let base = check(&landed.base);
         if !matches!(&base.verdict, Verdict::Green) {
             println!("north land: post-land checks of {} are red on their base {} on the failed tests, so no landed lane is blamed", landed.head, landed.base);
-            let walked = if matches!(&base.verdict, Verdict::RedMain(_)) { walked_back(landed, room, &check, &earlier(), &gates, failing) } else { None };
+            let walked = if matches!(&base.verdict, Verdict::RedMain(_)) { walked_back(landed, &check, &earlier(), &gates, failing) } else { None };
             return (Vec::new(), walked);
         }
         blame::culprits(lanes, &suspects, &signatures, |counts| probed(landed, counts, &check))
@@ -422,7 +429,7 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize
     let (culprits, walked): (Vec<usize>, Option<String>) = match found {
         Some(found) if !found.is_empty() => (found, None),
         _ => {
-            let (lane, walked) = blamed(landed, room, &suspects, &check, earlier, &gates, failing);
+            let (lane, walked) = blamed(landed, &suspects, &check, earlier, &gates, failing);
             (lane.into_iter().collect(), walked)
         }
     };
@@ -437,14 +444,14 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize
 
 /// Blames the first lane of `landed` red on the failed checks where its parent passes; a base red on them walks back
 /// over the landings before it to the earlier landing red where its parent passes, which the sheriff confirms before it reverts it.
-pub(super) fn blamed(landed: &Landed, room: usize, suspects: &blame::Suspects, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: impl Fn() -> Vec<String>, gates: &Path, failing: &BTreeSet<Failure>) -> (Option<usize>, Option<String>) {
-    let blame = blame::culprit(landed.tips.len(), room, suspects, |counts| probed(landed, counts, check).into_iter().map(|probe| probe.verdict).collect());
+pub(super) fn blamed(landed: &Landed, suspects: &blame::Suspects, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: impl Fn() -> Vec<String>, gates: &Path, failing: &BTreeSet<Failure>) -> (Option<usize>, Option<String>) {
+    let blame = blame::culprit(landed.tips.len(), suspects, |counts| probed(landed, counts, check).into_iter().map(|probe| probe.verdict).collect());
     match blame {
         blame::Blame::Lane(at) => {
             println!("north land: {} is the first landed lane of {} red on the failed checks where its parent passes them", landed.lanes.get(at).map_or("?", String::as_str), landed.head);
             (Some(at), None)
         }
-        blame::Blame::BaseRed => (None, walked_back(landed, room, check, &earlier(), gates, failing)),
+        blame::Blame::BaseRed => (None, walked_back(landed, check, &earlier(), gates, failing)),
         blame::Blame::Unknown => {
             println!("north land: post-land checks of {} are red, but the prefix search reached no verdict", landed.head);
             (None, None)
@@ -452,9 +459,9 @@ pub(super) fn blamed(landed: &Landed, room: usize, suspects: &blame::Suspects, c
     }
 }
 
-fn walked_back(landed: &Landed, room: usize, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: &[String], gates: &Path, failing: &BTreeSet<Failure>) -> Option<String> {
+fn walked_back(landed: &Landed, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: &[String], gates: &Path, failing: &BTreeSet<Failure>) -> Option<String> {
     let tree = |at: usize| if at == 0 { landed.base.as_str() } else { earlier[at - 1].as_str() };
-    let found = blame::walk_back(earlier.len(), room, |ats| checked(&ats.iter().map(|&at| tree(at)).collect::<Vec<_>>(), check).into_iter().map(|probe| probe.verdict).collect()).map(tree).map(str::to_owned);
+    let found = blame::walk_back(earlier.len(), |ats| checked(&ats.iter().map(|&at| tree(at)).collect::<Vec<_>>(), check).into_iter().map(|probe| probe.verdict).collect()).map(tree).map(str::to_owned);
     match &found {
         Some(commit) => println!("north land: main was already red at {} on the failed checks; walking back, {commit} is the first landing red where its parent passes, and the sheriff confirms it before it reverts it", landed.base),
         None => println!("north land: main was already red at {} on the failed checks, and walking back over {} earlier landings found none red where its parent passes", landed.base, earlier.len()),

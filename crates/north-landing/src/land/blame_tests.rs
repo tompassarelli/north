@@ -19,9 +19,9 @@ fn searched_signatures(lanes: usize, suspects: &Suspects, bad: &[(usize, &str)],
     (found, runs)
 }
 
-fn searched(lanes: usize, room: usize, suspects: &Suspects, red_from: usize, base_red: bool) -> (Blame, Vec<Vec<usize>>) {
+fn searched(lanes: usize, suspects: &Suspects, red_from: usize, base_red: bool) -> (Blame, Vec<Vec<usize>>) {
     let mut rounds = Vec::new();
-    let found = culprit(lanes, room, suspects, |counts| {
+    let found = culprit(lanes, suspects, |counts| {
         rounds.push(counts.to_vec());
         counts.iter().map(|&count| if count >= red_from || base_red { Verdict::RedMain(format!("first {count}")) } else { Verdict::Green }).collect()
     });
@@ -45,10 +45,10 @@ fn batch() -> Vec<String> {
 fn a_red_four_lane_batch_whose_graph_blame_names_one_lane_blames_it_only_once_its_parent_passes() {
     let named = suspects(&batch(), Some(0), &printed(&["lane-c"]));
     assert_eq!(named, Suspects::Named(vec![2]));
-    let (found, rounds) = searched(4, 1, &named, 3, false);
+    let (found, rounds) = searched(4, &named, 3, false);
     assert_eq!(found, Blame::Lane(2));
     assert_eq!(rounds, vec![vec![2, 3]], "only the named lane's parent and its own prefix are checked");
-    let (found, rounds) = searched(4, 1, &named, 1, false);
+    let (found, rounds) = searched(4, &named, 1, false);
     assert_eq!(found, Blame::Lane(0), "a named lane whose parent is already red is not blamed");
     assert_eq!(rounds, vec![vec![2, 3], vec![1], vec![0]]);
 }
@@ -57,10 +57,10 @@ fn a_red_four_lane_batch_whose_graph_blame_names_one_lane_blames_it_only_once_it
 fn a_red_four_lane_batch_whose_graph_blame_names_two_lanes_bisects_only_those_two() {
     let named = suspects(&batch(), Some(0), &printed(&["lane-c", "lane-a"]));
     assert_eq!(named, Suspects::Named(vec![0, 2]));
-    let (found, rounds) = searched(4, 1, &named, 3, false);
+    let (found, rounds) = searched(4, &named, 3, false);
     assert_eq!(found, Blame::Lane(2));
     assert_eq!(rounds, vec![vec![1], vec![2, 3]], "only the prefix through lane-a, the first named lane, is checked, then lane-c's parent and own prefix");
-    let (found, rounds) = searched(4, 1, &named, 1, false);
+    let (found, rounds) = searched(4, &named, 1, false);
     assert_eq!(found, Blame::Lane(0));
     assert_eq!(rounds, vec![vec![1], vec![0]]);
 }
@@ -82,13 +82,6 @@ fn a_red_four_lane_batch_whose_graph_blame_is_untraced_or_missing_bisects_all_fo
     for (exit, printed) in [(Some(3), ""), (Some(2), ""), (Some(0), "lane-z\n"), (None, &printed(&["lane-c"]))] {
         assert_eq!(suspects(&batch(), exit, printed), Suspects::Untraced, "exit {exit:?} printing {printed:?}");
     }
-    let (found, rounds) = searched(4, 1, &suspects(&batch(), Some(3), ""), 3, false);
-    assert_eq!(found, Blame::Lane(2));
-    assert_eq!(rounds, vec![vec![2], vec![3]], "the whole batch is bisected by its prefixes");
-}
-
-#[test]
-fn a_one_lane_batch_whose_lane_the_graph_names_is_one_suspect() {
     let one = ["lane-a".to_owned()];
     let (named, why) = read(&one, Some(0), &printed(&["lane-a"]));
     assert_eq!(named, Suspects::Named(vec![0]));
@@ -96,5 +89,8 @@ fn a_one_lane_batch_whose_lane_the_graph_names_is_one_suspect() {
     let (none, why) = read(&one, Some(3), &trusted(true, 60));
     assert_eq!(none, Suspects::NoSuspect);
     assert!(why.contains("no lane reaches the known north-ops lane_gc"), "{why}");
-    assert_eq!(suspects(&one, Some(3), &trusted(true, 4 * 86_400)), Suspects::Untraced);
+    assert_eq!(suspects(&one, Some(3), &trusted(true, 4 * 86_400)), Suspects::Untraced, "a map older than 3 days is untraced");
+    let (found, rounds) = searched(4, &suspects(&batch(), Some(3), ""), 3, false);
+    assert_eq!(found, Blame::Lane(2));
+    assert_eq!(rounds, vec![vec![2], vec![3]], "the whole batch is bisected by its prefixes");
 }

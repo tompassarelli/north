@@ -1,7 +1,7 @@
 //! The culprit search a stopped lander lost, resumed from the red verdict its run recorded instead of rerunning the checks (north#1354).
 use std::collections::BTreeMap;
 
-use super::{AFTER, Batch, Cancel, Category, Lander, PHASE, Run, Searching, Span, Watch, heads, landed, moved, post_land, record, retire};
+use super::{AFTER, Batch, Cancel, Category, Lander, PHASE, Run, Span, Waiting, Watch, heads, landed, moved, post_land, record, retire};
 use super::post_land::Outcome;
 
 impl Watch {
@@ -17,7 +17,7 @@ impl Watch {
                     moved(heads(&batch), Run::Running, "resumed the red verdict a stopped lander recorded");
                     moved(heads(&batch), Run::Searching, "the culprit search a stopped lander left resumes");
                     let outcome = Outcome { verdict, search: None, log, failing, superseded };
-                    self.searching.push(Searching { batch, outcome, search: post_land::search(&lander.wake, search), host: None, cancel: Cancel::default() });
+                    self.waiting.push(Waiting { batch, outcome, search, host: None, cancel: Cancel::default() });
                 }
                 Some(_) => {
                     println!("north land: the red verdict of {} a stopped lander recorded was covered by a descendant's green run, so no lane is blamed", batch.head);
@@ -27,6 +27,7 @@ impl Watch {
                 None => again.push(batch),
             }
         }
+        self.start_search(lander);
         for batch in again {
             batch.heads.iter().for_each(|followed| rerun(lander, &followed.head, lost.get(&followed.head).copied().unwrap_or(resumed), resumed));
             self.pending.add(batch);

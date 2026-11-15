@@ -239,6 +239,15 @@ fn a_red_verdict_arriving_after_a_descendants_green_run_covered_its_checks_opens
 }
 
 #[test]
+fn a_red_run_with_no_new_failure_starts_no_search() {
+    let failure = |name: &str| Failure::Cargo(name.to_owned());
+    let known = std::collections::BTreeSet::from([failure("a::fails"), Failure::Step("cargo nextest run".to_owned())]);
+    assert!(super::already_known(&std::collections::BTreeSet::from([failure("a::fails")]), &known), "a red run failing only what the previous verdict failed is searched for nothing");
+    assert!(!super::already_known(&std::collections::BTreeSet::from([failure("a::fails"), failure("b::fails")]), &known), "one failure the previous verdict did not have starts a search");
+    assert!(!super::already_known(&std::collections::BTreeSet::new(), &known), "a red run whose failures were not read names nothing known");
+}
+
+#[test]
 fn a_rerun_command_is_composed_for_the_host_that_runs_it() {
     a_check_that_selects_no_test_on_the_comparison_tree_reaches_no_verdict();
     let scratch = tempfile::tempdir().unwrap();
@@ -303,7 +312,7 @@ fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
     landed.lanes = vec!["dash".to_owned(), "lane-b".to_owned()];
     landed.tips = vec!["95afbfbca".to_owned(), "lane-b".to_owned()];
     let gates = tempfile::tempdir().unwrap();
-    let blamed = super::blamed(&landed, 1, &crate::land::blame::Suspects::Untraced, &check, || vec!["before-ds".to_owned()], gates.path(), &failing);
+    let blamed = super::blamed(&landed, &crate::land::blame::Suspects::Untraced, &check, || vec!["before-ds".to_owned()], gates.path(), &failing);
     assert_eq!(blamed, (None, Some("ds-1033".to_owned())), "no lane of the batch is red where its parent passes the failed test, and the walk-back names the earlier one");
     assert!(probed.lock().unwrap().iter().any(|tree| tree == "ds-1033"), "the base is probed: {probed:?}");
     let log = std::fs::read_to_string(gates.path().join("blame-walk-back.jsonl")).unwrap();

@@ -110,8 +110,9 @@ pub fn adopt(lander: &Lander, landed: Landed, record: Record, cancel: Cancel) ->
     let run = super::after_run(lander, &landed, record.host.clone(), cancel, Duration::from_secs(record.deadline));
     Task::spawn(&lander.wake, move || {
         let checked = adopted(&landed, &run, &record);
+        let known = super::settle::known_failing(&landed, &run);
         let verdict = super::settle_from(&landed, &run, started(&record), checked, send, || super::rerun_host(&landed.repo, &run), |host, command| super::offload_rerun(&landed, &run, host, command));
-        super::outcome(landed, run, verdict)
+        super::outcome(landed, run, verdict, &known)
     })
 }
 

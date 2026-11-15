@@ -36,6 +36,7 @@ const UNSETTLED: usize = 3;
 const AFTER_RUNS: &str = "landing.after-runs";
 const FINDING: &str = "finding";
 const UNREPRODUCED: &str = "unreproduced";
+const COVERED: &str = "a later green after-landing run that covered its checks";
 
 pub use super::after::LandedLane;
 
@@ -84,6 +85,14 @@ struct Searching {
     cancel: Cancel,
 }
 
+struct Waiting {
+    batch: Batch,
+    outcome: Outcome,
+    search: post_land::Search,
+    host: Option<String>,
+    cancel: Cancel,
+}
+
 struct Buck2Run {
     head: String,
     base: String,
@@ -125,6 +134,7 @@ impl Pending {
 pub struct Watch {
     running: Vec<Running>,
     searching: Vec<Searching>,
+    waiting: Vec<Waiting>,
     pending: Pending,
     buck2: Vec<Buck2Run>,
     hosts: Hosts,
@@ -138,7 +148,7 @@ pub struct Watch {
 
 impl Drop for Watch {
     fn drop(&mut self) {
-        let held = self.running.iter().map(|running| &running.batch).chain(self.searching.iter().map(|searching| &searching.batch)).chain(&self.pending.batches);
+        let held = self.running.iter().map(|running| &running.batch).chain(self.searching.iter().map(|searching| &searching.batch)).chain(self.waiting.iter().map(|waiting| &waiting.batch)).chain(&self.pending.batches);
         let heads: Vec<&str> = held.flat_map(heads).collect();
         if heads.is_empty() {
             return;
@@ -250,7 +260,7 @@ impl Watch {
     }
 
     pub fn journaled(&self) -> usize {
-        self.running.len() + self.searching.len() + self.pending.batches.len()
+        self.running.len() + self.searching.len() + self.waiting.len() + self.pending.batches.len()
     }
 
     pub fn in_flight(&self) -> usize {
@@ -259,7 +269,7 @@ impl Watch {
 
     pub fn adoptable(&self, lander: &Lander) -> bool {
         let recorded = post_land::adoptable(&lander.queue);
-        self.searching.is_empty() && self.running.iter().all(|running| recorded.iter().any(|(_, record)| record.head == running.batch.head))
+        self.searching.is_empty() && self.waiting.is_empty() && self.running.iter().all(|running| recorded.iter().any(|(_, record)| record.head == running.batch.head))
     }
 
     pub fn follow(&mut self, lander: &Lander, base: &str, head: &str, lanes: Vec<LandedLane>) {
@@ -282,8 +292,39 @@ impl Watch {
         self.start_next(lander);
     }
 
+    /// Starts the next waiting culprit search when none runs, so a repository has one search at a time; a search whose checks a later green run covered is stopped, or dropped before it starts.
+    fn start_search(&mut self, lander: &Lander) {
+        self.stop_covered(lander);
+        if !self.searching.is_empty() || self.waiting.is_empty() {
+            return;
+        }
+        let Waiting { batch, outcome, search, host, cancel } = self.waiting.remove(0);
+        self.searching.push(Searching { batch, outcome, search: post_land::search(&lander.wake, search), host, cancel });
+    }
+
+    fn stop_covered(&mut self, lander: &Lander) {
+        let covered = |batch: &Batch, outcome: &Outcome| post_land::covered(&landed(lander, batch), &outcome.failing);
+        for searching in &self.searching {
+            if !searching.cancel.requested() && covered(&searching.batch, &searching.outcome) {
+                println!("north land: a later green run covered the checks the culprit search of {} is looking into, so that search stops", searching.batch.head);
+                searching.cancel.request(COVERED);
+            }
+        }
+        let mut at = 0;
+        while at < self.waiting.len() {
+            if !covered(&self.waiting[at].batch, &self.waiting[at].outcome) {
+                at += 1;
+                continue;
+            }
+            let Waiting { batch, host, .. } = self.waiting.remove(at);
+            println!("north land: a later green run covered the checks of the waiting culprit search of {}, so it does not start", batch.head);
+            host.iter().for_each(|host| self.hosts.release(host));
+            retire(lander, &batch, "a later green run covered its red verdict");
+        }
+    }
+
     fn follows(&self, head: &str) -> bool {
-        self.running.iter().any(|running| running.batch.covers(head)) || self.searching.iter().any(|searching| searching.batch.covers(head)) || self.pending.covers(head)
+        self.running.iter().any(|running| running.batch.covers(head)) || self.searching.iter().any(|searching| searching.batch.covers(head)) || self.waiting.iter().any(|waiting| waiting.batch.covers(head)) || self.pending.covers(head)
     }
 
     fn supersede(&self, lander: &Lander, newest: &str) {
@@ -291,7 +332,7 @@ impl Watch {
             println!("north land: the check lines of {newest}, which landed past this lander, are not in {}, so no after-landing run in flight is cancelled for it", lander.repo.display());
             return;
         };
-        let flights = self.running.iter().map(|running| (&running.batch, &running.cancel)).chain(self.searching.iter().map(|searching| (&searching.batch, &searching.cancel)));
+        let flights = self.running.iter().map(|running| (&running.batch, &running.cancel)).chain(self.searching.iter().map(|searching| (&searching.batch, &searching.cancel))).chain(self.waiting.iter().map(|waiting| (&waiting.batch, &waiting.cancel)));
         for (batch, cancel) in flights {
             let Some(running) = Config::after_lines(&lander.worktree, &batch.head) else { continue };
             if !cancel.requested() && superseded(&running, &current) {
@@ -366,6 +407,7 @@ impl Watch {
             conclude(lander, &batch, &outcome, &found);
             settled = true;
         }
+        self.start_search(lander);
         self.start_next(lander);
         settled
     }
@@ -417,7 +459,8 @@ impl Watch {
         match outcome.search.take() {
             Some(search) if !outcome.superseded => {
                 moved(heads(&batch), Run::Searching, &format!("verdict {class}, searching for the culprit lane"));
-                self.searching.push(Searching { batch, outcome, search: post_land::search(&lander.wake, search), host, cancel });
+                self.waiting.push(Waiting { batch, outcome, search, host, cancel });
+                self.start_search(lander);
                 return;
             }
             _ => release(&mut self.hosts, &host),
@@ -443,7 +486,7 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
     record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
     if found.superseded {
         let by = found.cancelled_by.as_deref().unwrap_or("a later landing whose name the lander did not record");
-        println!("north land: the after-landing run of {} is red, but {by} changed its check lines during the culprit search, so no lane is blamed and the newest landing's run checks the current lines", batch.head);
+        println!("north land: the after-landing run of {} is red, but {by} superseded it during the culprit search, so no lane is blamed and the newest landing's run checks the current lines", batch.head);
     } else if let Some(verdict) = north_check_environment::credential::incident(&outcome.log) {
         println!("north land: the post-land checks of {} are red: {verdict}", batch.head);
     } else if let Some(again) = &found.unreproduced {
