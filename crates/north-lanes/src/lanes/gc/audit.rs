@@ -150,7 +150,7 @@ fn released_tags(repo: &str) -> Result<HashSet<String>, String> {
 fn running_workers() -> Result<HashMap<(String, String), String>, String> {
     let listed = command(&["north", "fleet", "list", "--json"]);
     if !listed.ok {
-        return Err("Fleet sessions unavailable".into());
+        return Err(format!("Fleet sessions unavailable: {}", listed.last_err_line()));
     }
     let sessions: Value = serde_json::from_str(&listed.out).map_err(|error| error.to_string())?;
     let mut workers = HashMap::new();
