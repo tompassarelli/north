@@ -24,3 +24,8 @@ pub mod sender;
 pub mod ssh;
 pub mod status;
 pub mod store;
+pub mod claude_only;
+pub mod tickets;
+pub mod waits;
+pub mod detached;
+pub mod home;

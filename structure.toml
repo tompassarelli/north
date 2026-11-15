@@ -699,7 +699,7 @@ may_use = ["agent_starts", "domain", "foundation", "crate-roots", "lifecycle", "
 name = "fleet_store"
 paths = ["crates/north-fleet-store/src/**"]
 responsibility = "The fleet's durable rows and their exchange: the sessions, messages, waits and gates in the SQLite store, the spool and ssh exchange between hosts, gate requests and their lifecycle, and the sender, status and delivery words they carry."
-may_use = ["crate-roots", "domain", "foundation", "lifecycle", "platform.harness", "platform.process", "strategy_types"]
+may_use = ["crate-roots", "domain", "foundation", "land_ticket", "lifecycle", "platform.harness", "platform.process", "strategy_types"]
 
 [[module]]
 name = "claude_stream"
@@ -831,7 +831,7 @@ may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "li
 name = "capacity"
 paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow", "platform.store", "platform.git"]
+may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "fleet_store", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow", "platform.store", "platform.git"]
 
 [[module]]
 name = "lanes"

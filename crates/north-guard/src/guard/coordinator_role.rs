@@ -1,6 +1,6 @@
 use crate::guard::host::{self, ReadStreak};
 use crate::guard::coordinator_reach;
-use crate::fleet::runtime::{COORDINATOR, ROLE_ENV, SESSION_ENV};
+use crate::runtime::{COORDINATOR, ROLE_ENV, SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{blank_quotes, strip_heredocs};

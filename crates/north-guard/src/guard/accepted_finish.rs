@@ -8,7 +8,7 @@ const ACCEPTED: [&str; 2] = ["Done: queued", "finish: ✓"];
 /// Ends a session's turn at its accepted `finish` call, so the client asks the model nothing after the ticket.
 /// Claude Code fires PostToolUse for a finish call the tool server answered as an error too, so only a result naming a ticket or a recorded draft ends the turn, and a refusal reaches the model (north#1509).
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let finish = input.data["hook_event_name"] == "PostToolUse" && input.tool_name() == crate::fleet::tickets::FINISH_TOOL;
+    let finish = input.data["hook_event_name"] == "PostToolUse" && input.tool_name() == crate::tickets::FINISH_TOOL;
     if finish && accepted(&input.data["tool_response"]) { Verdict::End(ENDED.to_owned()) } else { Verdict::Allow }
 }
 

@@ -30,7 +30,7 @@ pub fn decide(command: &str, admission: &Admission) -> Verdict {
         return Verdict::Allow;
     }
     let issue = command.split_whitespace().find_map(|word| word.strip_prefix(ISSUE));
-    match admission.admit(Kind::PatchCarry, CLASS, crate::fleet::runtime::COORDINATOR, issue) {
+    match admission.admit(Kind::PatchCarry, CLASS, crate::runtime::COORDINATOR, issue) {
         Ok(()) => Verdict::Allow,
         Err(why) => Verdict::Deny(format!("BLOCKED (repeat-unblock): {why}; here the issue goes in the command as `{ISSUE}REPO#N`")),
     }

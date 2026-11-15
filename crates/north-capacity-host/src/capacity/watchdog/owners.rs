@@ -40,7 +40,7 @@ impl Live {
             let session = entry.file_name().to_string_lossy().into_owned();
             let parent = parents.get(&session).cloned().flatten();
             let owner = Owner { session, parent };
-            for prior in crate::fleet::detached::Prior::all(&entry.path()) {
+            for prior in crate::detached::Prior::all(&entry.path()) {
                 owners.insert(prior.unit, owner.clone());
             }
             owners.insert(unit.trim().to_owned(), owner);

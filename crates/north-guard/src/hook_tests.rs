@@ -240,10 +240,10 @@ fn an_accepted_finish_call_ends_the_turn_and_a_refused_one_returns_to_the_model(
 fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree_as_written_and_a_host_session_is_still_refused_or_rewritten() {
     let fleet = tempfile::tempdir().unwrap();
     for (session, container_shell) in [("task", true), ("host", false)] {
-        let launch = json!({"verification": true, "name": session, "provider": "claude", "account": "a", "cwd": "/app", "prompt": "Serve the packages.", "prompt_mode": "north", "container_shell": container_shell});
-        let record = serde_json::from_value::<crate::fleet::model::LaunchRequest>(launch).unwrap().record(None, None, true, 1);
+        let launch = json!({"verification": true, "created_ms": 1, "name": session, "provider": "claude", "account": "a", "cwd": "/app", "prompt_mode": "north", "container_shell": container_shell});
+        let record = serde_json::from_value::<crate::session::SessionRecord>(launch).unwrap();
         std::fs::create_dir(fleet.path().join(session)).unwrap();
-        crate::fleet::records::write_record(&fleet.path().join(session), &record).unwrap();
+        crate::session_files::write_record(&fleet.path().join(session), &record).unwrap();
     }
     let app = fleet.path().join("app");
     std::fs::create_dir_all(app.join("john")).unwrap();
@@ -278,10 +278,10 @@ fn a_file_tool_path_under_a_container_sessions_container_directory_reaches_the_s
     std::fs::create_dir_all(&own).unwrap();
     std::os::unix::fs::symlink("/etc", own.join("outside")).unwrap();
     for (session, container_shell, container_dir) in [("task", true, Some("/app")), ("host", false, Some("/app")), ("undeclared", true, None)] {
-        let launch = json!({"verification": true, "name": session, "provider": "claude", "account": "a", "cwd": own, "prompt": "Fix it.", "prompt_mode": "north", "container_shell": container_shell, "container_dir": container_dir});
-        let record = serde_json::from_value::<crate::fleet::model::LaunchRequest>(launch).unwrap().record(None, None, true, 1);
+        let launch = json!({"verification": true, "created_ms": 1, "name": session, "provider": "claude", "account": "a", "cwd": own, "prompt_mode": "north", "container_shell": container_shell, "container_dir": container_dir});
+        let record = serde_json::from_value::<crate::session::SessionRecord>(launch).unwrap();
         std::fs::create_dir(fleet.path().join(session)).unwrap();
-        crate::fleet::records::write_record(&fleet.path().join(session), &record).unwrap();
+        crate::session_files::write_record(&fleet.path().join(session), &record).unwrap();
     }
     let guards = [guard("", |input| match input.tool_input["file_path"].as_str() {
         Some(path) if path.starts_with("/app") => Verdict::Deny(format!("outside the lane: {path}")),

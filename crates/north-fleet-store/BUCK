@@ -25,7 +25,9 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-publish:north-publish",
+        "//crates/north-resume:north-resume",
         "//crates/north-strategy-types:north-strategy-types",
+        "//third-party:regex",
         "//third-party:rusqlite",
         "//third-party:serde",
         "//third-party:serde_json",
@@ -46,7 +48,9 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-publish:north-publish",
+        "//crates/north-resume:north-resume",
         "//crates/north-strategy-types:north-strategy-types",
+        "//third-party:regex",
         "//third-party:rusqlite",
         "//third-party:serde",
         "//third-party:serde_json",

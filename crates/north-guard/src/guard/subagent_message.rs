@@ -1,13 +1,13 @@
 use std::fs;
 use std::path::Path;
 
-use crate::fleet::records::read_record;
+use crate::session_files::read_record;
 use crate::hook_input::{HookInput, Verdict};
 
 pub const MESSAGE_TOOL: &str = "SendMessage";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let root = crate::fleet::registry::root_here().ok();
+    let root = crate::home::root_here().ok();
     notice(input, root.as_deref()).map_or(Verdict::Allow, Verdict::Advise)
 }
 

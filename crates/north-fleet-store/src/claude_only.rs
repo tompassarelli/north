@@ -17,7 +17,7 @@ pub struct ClaudeOnly {
 
 impl ClaudeOnly {
     pub fn read() -> Self {
-        Self::parse(crate::platform::harness::document(SETTINGS))
+        Self::parse(north_base::platform::harness::document(SETTINGS))
     }
 
     pub fn parse(document: &DocumentMut) -> Self {

@@ -181,15 +181,15 @@ impl Filed for Live {
     }
 
     fn worker(&mut self) -> Option<String> {
-        let role = std::env::var(crate::fleet::runtime::ROLE_ENV).unwrap_or_default();
-        self.fleet_session.clone().filter(|_| role != crate::fleet::runtime::COORDINATOR)
+        let role = std::env::var(crate::runtime::ROLE_ENV).unwrap_or_default();
+        self.fleet_session.clone().filter(|_| role != crate::runtime::COORDINATOR)
     }
 
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String> {
         let north = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"));
         let ran = std::process::Command::new(north)
             .args(["fleet", "hold", &format!("{}#{}", new.0, new.1)])
-            .env(crate::fleet::runtime::SESSION_ENV, by)
+            .env(crate::runtime::SESSION_ENV, by)
             .stdin(std::process::Stdio::null())
             .output()
             .map_err(|error| error.to_string())?;
@@ -202,8 +202,8 @@ impl Filed for Live {
     }
 
     fn may_launch(&mut self) -> bool {
-        let role = std::env::var(crate::fleet::runtime::ROLE_ENV).unwrap_or_default();
-        role == crate::fleet::runtime::COORDINATOR || role == "lead"
+        let role = std::env::var(crate::runtime::ROLE_ENV).unwrap_or_default();
+        role == crate::runtime::COORDINATOR || role == "lead"
     }
 
     fn intake(&mut self, new: &Ref, gaps: &[String]) -> Result<String, String> {

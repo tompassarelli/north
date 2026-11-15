@@ -157,7 +157,7 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
             let usual = Usual::of(request.forecast.as_ref(), timeout_seconds);
-            let overrun = Overrun::watch(env(crate::fleet::runtime::SESSION_ENV), subject, usual);
+            let overrun = Overrun::watch(env(crate::runtime::SESSION_ENV), subject, usual);
             let code = supervise(child, &unit, terminations, overrun).await;
             start = subject_start::start(&witness, launched, now_ms() / 1000.0);
             let exit = Exit::judge(code, &witness);

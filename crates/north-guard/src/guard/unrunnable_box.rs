@@ -55,7 +55,7 @@ pub fn judge(repo: &str, filings: &[Filing], body: &str, log: &mut impl Log) -> 
         return Ok(());
     }
     let enforcing = log.enforcing();
-    let session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
+    let session = std::env::var(crate::runtime::SESSION_ENV).unwrap_or_default();
     let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
     let mut refused = Vec::new();
     for filing in filings {

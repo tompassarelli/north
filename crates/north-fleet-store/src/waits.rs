@@ -16,8 +16,8 @@ use crate::foundation::clock::Timestamp;
 use north_base::platform::process::run_command_within;
 use north_resume::OVER;
 
-use super::runtime::now_ms;
-use super::store::{WaitKind, WaitRequest};
+use crate::runtime::now_ms;
+use crate::store::{WaitKind, WaitRequest};
 
 const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, runtime:SHA, pid:PID@START or usage:ACCOUNT@TIME";
 const FARM_DEADLINE_SECS: u64 = 4 * 3600;
