@@ -140,7 +140,7 @@ fn aim(events: &[Event], reason: Reason, main: &str, ready: &dyn Fn(&str) -> boo
     }
 }
 
-fn fix_since(checkout: &Path, pinned: &str, main: &str) -> Option<String> {
+pub(super) fn fix_since(checkout: &Path, pinned: &str, main: &str) -> Option<String> {
     let output = process::run("git", Some(checkout), &["log", "--format=%H%n%B%x1e", &format!("{pinned}..{main}")]).ok().filter(|output| output.status.success())?;
     let log = String::from_utf8_lossy(&output.stdout);
     log.split('\x1e').find_map(|commit| {

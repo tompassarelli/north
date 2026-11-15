@@ -271,3 +271,37 @@ fn the_published_agent_runtime_carries_the_gh_shim() {
     agent_link::stage(runtime.path(), &staging).unwrap();
     assert!(north_base::platform::gh_shim::is_shim(&staging.join("gh")), "the agent runtime has no gh shim beside its north, so the agent login's gh answers as no north session");
 }
+
+#[test]
+fn a_planted_checkout_ref_changes_no_runtime_decision() {
+    let git = |directory: &Path, arguments: &[&str]| {
+        let output = Command::new("git").current_dir(directory).args(arguments).env_remove("GIT_DIR").output().unwrap();
+        assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    let commit = |checkout: &Path, file: &str, message: &str| {
+        fs::write(checkout.join(file), message).unwrap();
+        git(checkout, &["add", file]);
+        git(checkout, &["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-qm", message]);
+        git(checkout, &["rev-parse", "HEAD"])
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let (origin, main) = (dir.path().join("origin.git"), dir.path().join("main"));
+    git(dir.path(), &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()]);
+    git(dir.path(), &["clone", "-q", &origin.to_string_lossy(), &main.to_string_lossy()]);
+    let pinned = commit(&main, "README.md", "pinned");
+    let head = commit(&main, "README.md", "head");
+    git(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let store = trusted_store_of(&main).unwrap();
+    git(&main, &["checkout", "-q", "--detach", &pinned]);
+    let forged = commit(&main, "Cargo.toml", "forged\n\nLive-fix: planted in the checkout's store");
+    let planted = commit(&main, "README.md", "planted");
+    git(&main, &["replace", &head, &planted]);
+    git(&main, &["update-ref", "refs/remotes/origin/main", &planted]);
+    let reads = |store: &Path| (git(store, &["rev-parse", "refs/remotes/origin/main"]) == planted, cadence::fix_since(store, &pinned, &head), reuse::unchanged_by(store, &pinned, &head, north_base::build_inputs::rust_build_input), ancestor(store, &forged, &head));
+    assert_eq!(reads(&main), (true, Some(forged.clone()), false, true), "the planted refs reach every read of the checkout's own store");
+    assert_eq!(main_commit(&store).unwrap(), head, "a promotion takes origin's head, not the origin/main planted in the checkout's store");
+    assert_eq!(cadence::fix_since(&store, &pinned, &head), None, "a Live-fix planted through a replace ref opens no fast path");
+    assert!(reuse::unchanged_by(&store, &pinned, &head, north_base::build_inputs::rust_build_input), "a planted Cargo.toml change forces no rebuild of a head that changes no build input");
+    assert!(!ancestor(&store, &forged, &head), "a catch-up takes no planted commit as an ancestor of origin/main");
+}
