@@ -533,7 +533,7 @@ mod queued_claim_tests {
     fn a_launch_whose_claim_is_only_queued_does_not_start_a_second_worker_on_the_box() {
         let home = tempfile::tempdir().unwrap();
         let ledger = Arc::new(Spooled::default());
-        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), ledger.clone()).unwrap();
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), ledger.clone()).unwrap().starting_hosts(super::super::fixtures::standing_host);
         let tasks = ["north#1106".to_owned()];
         ledger.hold("north#1106", "north-1106-first", &BTreeSet::new()).unwrap();
 
