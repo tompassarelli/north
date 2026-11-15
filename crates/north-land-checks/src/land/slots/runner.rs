@@ -11,7 +11,6 @@ use tokio::signal::unix::{SignalKind, signal};
 
 use super::affected::{self, Scope};
 use super::selection_record::{self, Recorded};
-use super::judged;
 use super::shared_build;
 use super::verdict_key;
 use super::select::{Config, changed, path_class};
@@ -366,38 +365,11 @@ fn block_on<T>(work: impl Future<Output = T>) -> std::io::Result<T> {
     Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(work))
 }
 
-pub fn fails_first(root: &Path, base: &str, head: &str, north: &str) -> Result<(), String> {
-    if north.is_empty() {
-        return Err(NO_NORTH.to_owned());
-    }
-    let config = judged::config(root, base, head);
-    let queued = queue_commands(root, base, head)?;
-    let commands: Vec<String> = config.added_since(&Config::load(root, base)).commands(root, base, head)?.into_iter().filter(|command| !queued.contains(&shared_build::built(command)) && !super::unit_reuse::runs_tests(command)).collect();
-    if commands.is_empty() {
-        return Ok(());
-    }
-    say(&format!("safe-push: running the {} land check(s) this lane adds before queueing it", commands.len()));
-    let status = block_on(run_added(root.to_owned(), Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() }, (config, Environment::load(north.to_owned())), commands)).map_err(|error| error.to_string())?;
-    match status {
-        0 => Ok(()),
-        NO_VERDICT_STATUS => {
-            say("safe-push: a land check this lane adds reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane");
-            Ok(())
-        }
-        north_base::foundation::exit::SLOTS_BUSY_STATUS => Err(format!("a land check this lane adds waits past every build host's slot line deadline (exit {status}), so the lane is not queued unchecked; run safe-push again once a build host has room")),
-        _ => Err(format!("a land check this lane adds exited {status}")),
-    }
-}
-
 pub(super) struct Added {
     pub(super) status: i32,
     pub(super) host: String,
     pub(super) unanswered: bool,
     pub(super) accepted: Option<bool>,
-}
-
-async fn run_added(root: PathBuf, arguments: Arguments, placed: (Config, Environment), commands: Vec<String>) -> i32 {
-    run_added_avoiding(root, arguments, placed, commands, None, &[], &Stop::new()).await.status
 }
 
 async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, (config, mut environment): (Config, Environment), commands: Vec<String>, watched: Option<&str>, failed: &[String], stop: &Stop) -> Added {

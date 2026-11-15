@@ -100,14 +100,6 @@ pub(super) fn refuse_conflict(root: &Path, base: &str, destination: &str) -> Res
     Err(format!("it conflicts with origin/{destination} at {short} on {}, which the lander would send back as a conflict after its queue wait; rebase onto origin/{destination}, resolve those files and run safe-push again", left.join(", ")))
 }
 
-pub(super) fn refuse_unfetchable(root: &Path, base: &str, head: &str) -> Result<(), String> {
-    let changed = git(root, &["diff", "--name-only", &format!("{base}..{head}"), "--", "Cargo.lock"])?;
-    if changed.is_empty() {
-        return Ok(());
-    }
-    crate::land::slots::deps::fetch_crates(root).map_err(|error| format!("this lane changes Cargo.lock and its crates cannot be fetched: {error}"))
-}
-
 pub(super) fn refuse_stale_revert(root: &Path, base: &str, head: &str) -> Result<(), String> {
     let Ok(candidate) = stale_revert::onto(root, base, head) else { return Ok(()) };
     match stale_revert::reverted(root, base, &candidate, head) {

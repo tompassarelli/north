@@ -1,11 +1,8 @@
 use std::path::Path;
 
-use super::refuse::refuse_unfetchable;
-use super::timings::Timings;
 use super::git;
 use crate::land::queue::Ticket;
 use crate::land::scans::outgoing;
-use crate::land::slots::runner;
 
 pub(super) fn checked_alone(root: &Path, head: String, checked_tree: &str, gate: outgoing::Gate, base: &str, after_landing: bool) -> Ticket {
     match gate {
@@ -17,11 +14,4 @@ pub(super) fn checked_alone(root: &Path, head: String, checked_tree: &str, gate:
     let passed = unchanged && gate == outgoing::Gate::Judged && after_landing;
     let unjudged = unchanged && gate == outgoing::Gate::Judging;
     Ticket { alone_green: passed.then(|| head.clone()), alone_base: passed.then(|| base.to_owned()), unjudged_on: unjudged.then(|| base.to_owned()), head, ..Ticket::default() }
-}
-
-pub(super) fn check_lane(root: &Path, base: &str, north: &str, timings: &Timings) -> Result<String, String> {
-    let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    timings.stage("fails first", || runner::fails_first(root, base, &lane_head, north))?;
-    timings.stage("crate fetch", || refuse_unfetchable(root, base, &lane_head))?;
-    git(root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])
 }

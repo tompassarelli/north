@@ -27,7 +27,7 @@ pub use static_first::{QueueChecks, static_gates};
 mod timings;
 use timings::Timings;
 mod alone;
-use alone::{check_lane, checked_alone};
+use alone::checked_alone;
 pub use facts::Facts;
 use refuse::{DiffOnly, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
 use super::scans::outgoing;
@@ -270,7 +270,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     let stop = Stop::new();
     std::thread::scope(|scope| {
         let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
-        let checked_tree = check_lane(&root, &base, environment.north, timings)?;
+        let checked_tree = git(&root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])?;
         let gates_first = static_first::enabled();
         let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop).map_err(|refusal| refused_finish(environment.session, &root, (&base, &lane_head), refusal)), || (runner::queue_steps(), runner::queue_windows()));
         let early = (!gates_first).then(|| scope.spawn(run_checks));
