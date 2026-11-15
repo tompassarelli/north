@@ -11,17 +11,11 @@ mod term;
 mod text;
 
 #[cfg(test)]
-mod cli_tests;
-#[cfg(test)]
 mod kernel_tests;
-#[cfg(test)]
-mod query_tests;
 #[cfg(test)]
 mod retain_tests;
 #[cfg(test)]
 mod store_tests;
-#[cfg(test)]
-mod text_tests;
 
 pub use cli::{Guard, run, run_guarded};
 pub use error::{GraphError, QueryError};

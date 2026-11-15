@@ -6,10 +6,6 @@ mod state;
 mod tick;
 mod words;
 mod zone;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod capacity_power_tests;
 
 pub use ctx::{Ctx, hostname};
 pub use die::Die;

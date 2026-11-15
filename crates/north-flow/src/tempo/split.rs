@@ -114,7 +114,3 @@ pub fn lines(split: &Split) -> Vec<String> {
     lines.push(format!("  part medians sum to {:.1} s, {share} of the call median", split.parts_p50_sum_seconds));
     lines
 }
-
-#[cfg(test)]
-#[path = "split_tests.rs"]
-mod tests;

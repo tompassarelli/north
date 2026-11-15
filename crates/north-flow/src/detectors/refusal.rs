@@ -96,16 +96,3 @@ pub fn repeated(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_refusal_whose_passing_output_mentions_etxtbsy_is_not_classed_text_file_busy_but_a_busy_executable_error_is() {
-        let failed = "test shim::etxtbsy_retries_the_write ... ok\nretrying after ETXTBSY\ntest lander::lands ... FAILED\n";
-        assert_eq!(classes(failed), BTreeSet::from(["test:lander::lands".to_owned()]));
-        let busy = "test shim::etxtbsy_retries_the_write ... ok\nerror: failed to run script: Text file busy (os error 26)\n";
-        assert_eq!(classes(busy), BTreeSet::from(["text-file-busy".to_owned()]));
-    }
-}

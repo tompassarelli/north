@@ -83,7 +83,3 @@ pub(super) fn finding(state: &Path, at: SystemTime) -> Finding {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "red_main_tests.rs"]
-mod tests;

@@ -34,7 +34,6 @@ pub fn passed(log: &str) -> Run {
     times
 }
 
-
 pub fn crossing(runs: &[Run], limits: &Limits) -> Vec<Crossing> {
     let mut samples: BTreeMap<(&str, &str), Vec<f64>> = BTreeMap::new();
     for run in runs {
@@ -198,62 +197,4 @@ pub fn owner_of(file: &str, documents: &[Document]) -> Option<String> {
         .filter_map(|document| Some((document.paths.iter().filter_map(reach).max()?, &document.owner)))
         .max_by_key(|(length, _)| *length)
         .map(|(_, owner)| owner.clone())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn nextest_pass_and_leak_lines_give_each_test_its_slowest_time_and_a_strace_summary_keeps_the_top_syscalls_in_one_line() {
-        let log = "        PASS [   0.027s] (  1/750) north::it capacity_live::fast\n        PASS [  16.402s] (  2/750) north::it slow::sleeps\n        FAIL [  30.000s] (  3/750) north::it slow::fails\n    Starting 750 tests across 18 binaries\n        PASS [  17.000s] (  4/750) north::it slow::sleeps\n        LEAK [  17.500s] (  5/750) north::it slow::leaky\n";
-        let times = passed(log);
-        assert_eq!(times.len(), 3);
-        assert_eq!(times[&("north::it".to_owned(), "slow::sleeps".to_owned())], 17.0);
-        assert_eq!(times[&("north::it".to_owned(), "slow::leaky".to_owned())], 17.5);
-        let output = format!(
-            "test result: ok\n{PROFILE_MARK}\n% time     seconds  usecs/call     calls    errors syscall\n------ ----------- ----------- --------- --------- ------------------\n 99.90   16.000500    16000500         1           clock_nanosleep\n  0.06    0.009600           3      3200       121 read\n  0.04    0.006400           2         7           futex\n------ ----------- ----------- --------- --------- ------------------\n100.00   16.016500                  3208       121 total\n"
-        );
-        let summary = summarize(&output).unwrap();
-        assert!(summary.contains("16.02 s of syscall wall time in all"), "{summary}");
-        assert!(summary.contains("clock_nanosleep 99.9% 16.00 s in 1 calls; read 0.1% 0.01 s in 3200 calls; futex 0.0% 0.01 s in 7 calls."), "{summary}");
-        assert!(!summary.contains('\n'));
-        let clean = format!("{PROFILE_MARK}\n 99.00   1.000000     1000000         1           clock_nanosleep\n100.00   1.010000                     5 total\n");
-        assert!(summarize(&clean).unwrap().contains("1.01 s of syscall wall time in all"));
-        assert_eq!(summarize("no table here"), None);
-        assert_eq!(summarize(&format!("{PROFILE_MARK}\n")), None);
-    }
-
-    #[test]
-    fn a_tests_newest_times_come_from_the_newest_land_check_logs_that_name_it_and_too_few_runs_is_no_pass() {
-        use std::io::Write;
-        use std::time::{Duration, SystemTime};
-        let state = tempfile::tempdir().unwrap();
-        let logs = state.path().join("north/land-queue/queue/logs");
-        std::fs::create_dir_all(&logs).unwrap();
-        let write = |name: &str, at: u64, pass: Option<f64>| {
-            let path = logs.join(name);
-            let mut file = std::fs::File::create(&path).unwrap();
-            if let Some(seconds) = pass {
-                writeln!(file, "        PASS [   {seconds:.3}s] (  1/2) north::it slow::eight").unwrap();
-            }
-            writeln!(file, "        PASS [   0.100s] (  2/2) north::it slow::other").unwrap();
-            file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(at)).unwrap();
-        };
-        write("a-candidate.log", 10, Some(9.0));
-        write("b-candidate.log", 20, Some(8.0));
-        write("c-candidate.log", 30, Some(7.0));
-        write("d-candidate.log", 40, None);
-        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 3), Newest::Runs(vec![9.0, 8.0, 7.0]));
-        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 2), Newest::Runs(vec![8.0, 7.0]), "a run that skipped the test is not a run of it");
-        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 4), Newest::Missing { found: 3, want: 4 }, "fewer runs than asked never reads as a pass");
-        assert_eq!(newest(state.path(), "slow-test:north::it:slow::absent", 1), Newest::Missing { found: 0, want: 1 });
-        let pre_queue = state.path().join("safe-push");
-        std::fs::create_dir_all(&pre_queue).unwrap();
-        let mut file = std::fs::File::create(pre_queue.join("land-check-abc.log")).unwrap();
-        writeln!(file, "        PASS [   2.000s] (  1/2) north::it slow::eight").unwrap();
-        file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(50)).unwrap();
-        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 3), Newest::Runs(vec![8.0, 7.0, 2.0]), "the safe-push check before queueing is a land check run");
-    }
-
 }

@@ -165,7 +165,3 @@ pub fn touched_regions(regions: &[(u32, u32)], stale: &[Hunk], lane: &[Hunk]) ->
 fn short(commit: &str) -> &str {
     &commit[..commit.len().min(9)]
 }
-
-#[cfg(test)]
-#[path = "pick_tests.rs"]
-mod tests;

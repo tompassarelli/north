@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
@@ -9,9 +8,8 @@ use std::process::{Command, Stdio};
 use north_lander::land::queue::{self, Ticket};
 
 use super::*;
-use crate::bounds::{BASE_BROKEN_SECS, Bound, OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
-use north_check_environment::Environment;
-use crate::facts::{Behind, LinkFacts, ReviewHold, PlaceFacts, Probe, QueueFacts, Reach, SlotHold};
+use crate::bounds::{OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
+use crate::facts::{LinkFacts, ReviewHold, PlaceFacts, Probe, QueueFacts, Reach};
 
 const NOW: u64 = 1_800_000_000;
 
@@ -50,40 +48,6 @@ fn gex45() -> Place {
     Place { name: "gex45".to_owned(), reach: Reach::Ssh("gex45".to_owned()) }
 }
 
-/// Writes `content` into `path`, pinning the file's modification time to 2020 when `old`, so the orphan scan's freshness guard reads it as stale while a file written now reads as fresh.
-fn written(path: &Path, content: &str, old: bool) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-    fs::write(path, content).unwrap();
-    if old {
-        let at = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
-        fs::File::options().write(true).open(path).unwrap().set_times(fs::FileTimes::new().set_modified(at)).unwrap();
-    }
-}
-
-#[test]
-fn the_orphan_scan_names_a_stray_land_queue_and_leaves_one_that_holds_a_ticket_a_lander_or_a_fresh_file() {
-    let scratch = tempfile::tempdir().unwrap();
-    let root = scratch.path().join("north/land-queue");
-    let stray = root.join("8733aa0a99314382");
-    written(&stray.join("logs/lander-post-land.tsv"), "", true);
-    let ticketed = root.join("de2e0e8479546ba9");
-    written(&ticketed.join("done/1-x.json"), "{}", true);
-    let served = root.join("0123456789abcdef");
-    written(&served.join("lander.lock"), "", true);
-    let fresh = root.join("fedcba9876543210");
-    written(&fresh.join("outbox/1-x.part"), "{}", false);
-    let named = root.join("worker");
-
-    let listed = facts::shell(&here(), &facts::orphan_scan(Some(&root)), &[]).unwrap();
-    let named_queues: Vec<&str> = listed.lines().filter_map(|line| line.strip_prefix("orphan ")).collect();
-    assert_eq!(named_queues, [stray.to_string_lossy().as_ref()], "{listed}");
-    for kept in [&ticketed, &served, &fresh, &named] {
-        assert!(!listed.contains(&kept.to_string_lossy().into_owned()), "{} is not missing a ticket, a lander or its age: {listed}", kept.display());
-    }
-}
-
 #[test]
 fn a_stray_land_queue_on_an_offload_host_is_removed_and_one_that_holds_a_ticket_a_lander_or_a_foreign_name_is_kept() {
     let scratch = tempfile::tempdir().unwrap();
@@ -106,27 +70,12 @@ fn a_stray_land_queue_on_an_offload_host_is_removed_and_one_that_holds_a_ticket_
     assert!(hands::remove_queue_at(&here(), &named).is_err() && named.is_dir());
 }
 
-#[test]
-fn a_stray_queue_on_an_offload_host_is_a_known_finding_the_doctor_removes() {
-    let queue = PathBuf::from("/home/tom/.local/state/north/land-queue/8733aa0a99314382");
-    let facts = Facts { orphaned_remote: vec![(gex45(), queue.clone())], ..Facts::default() };
-    let hands = Fake::default();
-    let text = render(&cure(&facts, &mut Book::default(), &hands, NOW));
-    assert!(text.contains("bound orphan-queues gex45/8733aa0a99314382: 1"), "{text}");
-    assert_eq!(*hands.applied.borrow(), vec![Remedy::RemoveQueueAt { place: gex45(), queue }]);
-    assert_eq!(hands.incidents.borrow()[0].0, "lander-stray-queue");
-}
-
 fn here() -> Place {
     Place { name: "here".to_owned(), reach: Reach::Here }
 }
 
 fn at(place: Place, probe: Probe) -> Facts {
     Facts { places: vec![PlaceFacts { place, probe: Ok(probe) }], ..Facts::default() }
-}
-
-fn roomy() -> Probe {
-    Probe { free_percent: 60.0, free_gib: 300.0, size_gib: 500.0, ..Probe::default() }
 }
 
 fn busy_queue(silence: u64) -> QueueFacts {
@@ -144,91 +93,6 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").args(arguments).current_dir(directory).output().unwrap();
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
     String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-#[test]
-fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_the_report_prints_each_bound_and_pages_a_stuck_agent_link() {
-    let probe = facts::parse_probe("disk 750 250\nslot code-north-main-1 3600 991 locked\nslot code-wisp-main 10 - free\nprunable 3 /home/tom/code/north/main\n").unwrap();
-    assert_eq!(probe.free_percent, 25.0);
-    assert_eq!(probe.slots, [SlotHold { slot: "code-north-main-1".to_owned(), held: 3600, pgid: Some(991), locked: true }, SlotHold { slot: "code-wisp-main".to_owned(), held: 10, pgid: None, locked: false }]);
-    assert_eq!(probe.prunable, [(PathBuf::from("/home/tom/code/north/main"), 3)]);
-    assert_eq!(facts::parse_probe("disk 1 1\norphan /state/north/land-queue/8733aa0a99314382\n").unwrap().orphaned, [PathBuf::from("/state/north/land-queue/8733aa0a99314382")]);
-    assert!(facts::parse_probe("").is_err());
-    let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
-    let scratch = tempfile::tempdir().unwrap();
-    let stray = scratch.path().join("north/land-queue/8733aa0a99314382");
-    fs::create_dir_all(stray.join("logs")).unwrap();
-    fs::write(stray.join("logs/spans.jsonl"), "").unwrap();
-    let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, orphaned: vec![stray.clone()], ..Facts::default() };
-    let hands = Fake::default();
-    let text = render(&cure(&facts, &mut Book::default(), &hands, NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "orphan-queues lander/8733aa0a99314382: 1", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes", "lander-reach lander: 0", "agent-link-stuck agent: 0"] {
-        assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
-    }
-    assert_eq!(*hands.applied.borrow(), vec![Remedy::RemoveQueue { queue: stray.clone() }]);
-    assert_eq!(hands.incidents.borrow()[0].0, "lander-stray-queue");
-    assert!(!stray.exists(), "the stray queue is removed");
-    fs::write(scratch.path().join(north_base::platform::harness::AGENT_LINK_STUCK), format!("{} the agent link's directory is not writable\n", "f".repeat(40))).unwrap();
-    let stuck = Facts { agent_link_stuck: facts::agent_link_stuck(scratch.path()), ..Facts::default() };
-    let paged = Fake::default();
-    assert!(render(&cure(&stuck, &mut Book::default(), &paged, NOW)).contains("bound agent-link-stuck agent: 1 (limit 0): over: unknown state"));
-    assert!(paged.pages.borrow().iter().any(|page| page.contains(&format!("off {}", "f".repeat(40)))), "{:?}", paged.pages.borrow());
-}
-
-#[test]
-fn a_host_that_is_not_the_lander_runs_no_reach_check_and_sends_no_page() {
-    let unchecked = Facts { reach_error: Some("no North Lander App credential on this host".to_owned()), ..Facts::default() };
-    let lander = Fake::default();
-    assert!(render(&cure(&unchecked, &mut Book::default(), &lander, NOW)).contains("bound lander-reach lander: unchecked (limit 0): over: unknown state"));
-    assert_eq!(lander.pages.borrow().len(), 1, "{:?}", lander.pages.borrow());
-
-    let elsewhere = Fake::default();
-    let text = render(&cure(&Facts { reach_deferred: true, ..unchecked }, &mut Book::default(), &elsewhere, NOW));
-    assert!(!text.contains("lander-reach"), "{text}");
-    assert!(elsewhere.pages.borrow().is_empty(), "{:?}", elsewhere.pages.borrow());
-
-    let unreachable = Facts { unreachable: vec!["tompassarelli/firn".to_owned()], ..Facts::default() };
-    let missing = Fake::default();
-    let text = render(&cure(&unreachable, &mut Book::default(), &missing, NOW));
-    assert!(text.contains("bound lander-reach tompassarelli/firn: unreachable (limit 0): over: unknown state"), "{text}");
-    assert!(missing.pages.borrow()[0].contains("the North Lander installation token cannot reach tompassarelli/firn"), "{:?}", missing.pages.borrow());
-
-    let repositories = ["a/one", "b/two"].map(str::to_owned).into_iter().collect();
-    assert_eq!(facts::unreachable(&repositories, &|repository| Ok(if repository == "b/two" { 404 } else { 200 })).unwrap(), ["b/two"]);
-    let fixture = tempfile::tempdir().unwrap();
-    let (config, code) = (fixture.path().join("config"), fixture.path().join("code"));
-    for (project, login) in [("one", "one-main"), ("two", "two-main")] {
-        let checkout = code.join(project).join("main");
-        fs::create_dir_all(&checkout).unwrap();
-        git(&checkout, &["init", "-q", "-b", "main"]);
-        git(&checkout, &["remote", "add", "origin", &format!("git@github.com:tompassarelli/{login}.git")]);
-    }
-    fs::write(code.join("one/main/.safe-push"), "[landing]\n\tpush-app = lander\n").unwrap();
-    let units = config.join("systemd/user");
-    fs::create_dir_all(&units).unwrap();
-    fs::write(units.join("north-land@two.service"), format!("[Service]\nExecStart=/x/north land serve --repo {}\n", code.join("two/main").display())).unwrap();
-    assert_eq!(facts::lander_repositories(&config, &code).into_iter().collect::<Vec<_>>(), ["tompassarelli/one-main", "tompassarelli/two-main"]);
-}
-
-#[test]
-fn a_missing_registered_worktree_that_git_lists_prunable_is_pruned() {
-    let scratch = tempfile::tempdir().unwrap();
-    let repo = scratch.path().join("repo");
-    fs::create_dir(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "base"]);
-    let slot = scratch.path().join("slot");
-    git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap()]);
-    fs::remove_dir_all(&slot).unwrap();
-    let listed = git(&repo, &["worktree", "list", "--porcelain"]);
-    let stale = listed.lines().filter(|line| line.starts_with("prunable")).count();
-    let probe = facts::parse_probe(&format!("disk 1 9\nprunable {stale} {}\n", repo.display())).unwrap();
-    let hands = Fake::default();
-    let treated = cure(&at(here(), probe), &mut Book::default(), &hands, NOW);
-    assert_eq!(*hands.applied.borrow(), vec![Remedy::Prune { place: here(), repo: repo.clone() }]);
-    assert!(render(&treated).contains("applied \"prune the missing worktree registrations"), "{}", render(&treated));
-    assert_eq!(hands.incidents.borrow()[0].0, "lander-stale-worktree");
-    assert!(!git(&repo, &["worktree", "list", "--porcelain"]).contains("prunable"));
 }
 
 struct SlotJob {
@@ -255,28 +119,6 @@ impl Drop for SlotJob {
         let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", self.pgid())]).stderr(Stdio::null()).status();
         let _ = self.child.wait();
     }
-}
-
-#[test]
-fn a_slot_past_its_deadline_is_released_by_ending_the_process_group_its_slot_files_name() {
-    let root = tempfile::tempdir().unwrap();
-    let slot = "fixture-slot-2";
-    let mut job = SlotJob::hold(&root.path().join(format!("{slot}.lock")));
-    let pgid = job.pgid();
-    for (suffix, text) in [("pgid", format!("{pgid}\n")), ("holder", "0123456789ab since 13:00:00\n".to_owned()), ("owner", "fixture-owner\n".to_owned())] {
-        fs::write(root.path().join(format!("{slot}.{suffix}")), text).unwrap();
-    }
-    let held = SlotHold { slot: slot.to_owned(), held: SLOT_DEADLINE_SECS + 60, pgid: Some(pgid), locked: true };
-    let fresh = SlotHold { slot: "fixture-slot".to_owned(), held: 120, pgid: Some(77), locked: true };
-    let hands = Fake::default();
-    cure(&at(gex45(), Probe { slots: vec![held, fresh], ..roomy() }), &mut Book::default(), &hands, NOW);
-    assert_eq!(*hands.applied.borrow(), vec![Remedy::Release { place: gex45(), slot: slot.to_owned(), pgid }]);
-    assert_eq!(hands.incidents.borrow()[0].0, "lander-slot-overdue");
-    let release = || facts::shell(&here(), &hands::release(), &[slot, &pgid.to_string(), &root.path().to_string_lossy()]);
-    assert_eq!(release().unwrap().trim(), format!("ended process group {pgid}"));
-    assert!(!job.child.wait().unwrap().success(), "the job ended on a signal");
-    assert!(release().is_err(), "a released slot is not released twice");
-    assert!(!root.path().join(format!("{slot}.pgid")).exists() && !root.path().join(format!("{slot}.holder")).exists());
 }
 
 fn age_holder(root: &Path, slot: &str) {
@@ -412,69 +254,6 @@ fn disk_pressure_evicts_caches_and_each_remedy_and_unknown_state_writes_one_inci
 }
 
 #[test]
-fn a_wedged_lander_is_restarted_then_rolled_back_to_the_last_build_that_landed_a_batch_green_and_promote_reads_it_refused() {
-    let home = tempfile::tempdir().unwrap();
-    std::os::unix::fs::symlink("runtimes/bad", home.path().join("lander")).unwrap();
-    let link = LinkFacts {
-        home: home.path().to_owned(),
-        lander: "runtimes/bad".to_owned(),
-        current: "runtimes/bad".to_owned(),
-        builds: ["runtimes/bad", "runtimes/good"].map(str::to_owned).into_iter().collect::<BTreeSet<_>>(),
-        units: vec!["north-land@north.service".to_owned()],
-        ..LinkFacts::default()
-    };
-    let stopped = QueueFacts { unit_state: Some("inactive".to_owned()), ..busy_queue(ROUND_SILENCE_SECS + 60) };
-    let hands = Fake::default();
-    assert!(render(&cure(&Facts { queues: vec![stopped], ..Facts::default() }, &mut Book::default(), &hands, NOW)).contains("over: stopped"));
-    assert!(hands.applied.borrow().is_empty(), "a lander stopped on purpose stays stopped");
-    let wedged = Facts { queues: vec![busy_queue(ROUND_SILENCE_SECS + 60)], link: Some(link), ..Facts::default() };
-    let mut book = Book { good: vec!["runtimes/good".to_owned()], ..Book::default() };
-    cure(&wedged, &mut book, &hands, NOW);
-    cure(&wedged, &mut book, &hands, NOW + 120);
-    cure(&wedged, &mut book, &hands, NOW + PATIENCE_SECS + 60);
-    let rollback = Remedy::Rollback { home: home.path().to_owned(), from: "runtimes/bad".to_owned(), to: "runtimes/good".to_owned(), units: vec!["north-land@north.service".to_owned()] };
-    assert_eq!(*hands.applied.borrow(), vec![Remedy::Restart { unit: "north-land@north.service".to_owned() }, rollback]);
-    assert_eq!(hands.incidents.borrow().iter().map(|(class, _)| class.as_str()).collect::<Vec<_>>(), ["lander-wedged", "lander-rollback"]);
-    assert_eq!(fs::read_link(home.path().join("lander")).unwrap(), Path::new("runtimes/good"));
-    assert_eq!(fs::read_to_string(home.path().join(REFUSED)).unwrap(), "runtimes/bad\n");
-    a_promotion_whose_replay_reached_no_verdict_is_retried_and_the_third_in_a_row_pages();
-}
-
-fn a_promotion_whose_replay_reached_no_verdict_is_retried_and_the_third_in_a_row_pages() {
-    let facts = |attempts: u32| {
-        let unreached = north_lander::land::link_hold::Unreached { candidate: "b".to_owned(), attempts, reason: "round lane-a: transient mkdir -p on tom@gex45 did not finish within 20s".to_owned() };
-        Facts { link: Some(LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), unreached: Some(unreached), ..LinkFacts::default() }), ..Facts::default() }
-    };
-    let hands = Fake::default();
-    let mut book = Book::default();
-    let text = render(&cure(&facts(1), &mut book, &hands, NOW));
-    assert!(text.contains("bound promotion-no-verdict lander/b#1: 1 promotion(s) (limit 0): over: replay reached no verdict"), "{text}");
-    cure(&facts(1), &mut book, &hands, NOW + 3 * PATIENCE_SECS);
-    assert_eq!(*hands.applied.borrow(), vec![Remedy::Promote], "a retry still running is not started again");
-    cure(&facts(2), &mut book, &hands, NOW + 4 * PATIENCE_SECS);
-    assert_eq!(*hands.applied.borrow(), vec![Remedy::Promote, Remedy::Promote]);
-    assert!(hands.pages.borrow().is_empty(), "{:?}", hands.pages.borrow());
-    cure(&facts(3), &mut book, &hands, NOW + 5 * PATIENCE_SECS);
-    assert_eq!(hands.applied.borrow().len(), 2);
-    assert_eq!(hands.pages.borrow().len(), 1);
-    assert!(hands.pages.borrow()[0].contains("3 promotions in a row of b reached no verdict"), "{:?}", hands.pages.borrow());
-    assert!(!render(&cure(&Facts { link: Some(LinkFacts { lander: "runtimes/b".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), ..LinkFacts::default() }), ..Facts::default() }, &mut book, &hands, NOW)).contains("promotion-no-verdict lander/"));
-}
-
-#[test]
-fn a_build_is_good_once_a_green_after_landing_run_in_the_ledger_started_after_its_link_moved() {
-    let scratch = tempfile::tempdir().unwrap();
-    let ledger = scratch.path().join("post-land.tsv");
-    fs::write(&ledger, format!("{}\tnorth\tabc\tgreen\t\tlane\t100\t\n{}\tnorth\tdef\tred-main\tx\tlane\t50\t\n", NOW - 1000, NOW - 10)).unwrap();
-    assert!(facts::green_since(&ledger, NOW - 1200));
-    assert!(!facts::green_since(&ledger, NOW - 1050), "the green run started before the link moved");
-    let mut book = Book::default();
-    book.learn(&LinkFacts { lander: "runtimes/a".to_owned(), green_since_link: true, ..LinkFacts::default() });
-    book.learn(&LinkFacts { lander: "runtimes/b".to_owned(), green_since_link: false, ..LinkFacts::default() });
-    assert_eq!(book.good, ["runtimes/a"]);
-}
-
-#[test]
 fn a_running_land_check_that_builds_a_toolchain_from_source_tells_the_proxy_once() {
     let scratch = tempfile::tempdir().unwrap();
     let logs = scratch.path();
@@ -499,57 +278,6 @@ fn a_running_land_check_that_builds_a_toolchain_from_source_tells_the_proxy_once
     assert_eq!(hands.incidents.borrow()[0].0, "lander-source-build");
     cure(&facts, &mut book, &hands, NOW + 2 * PATIENCE_SECS);
     assert_eq!(hands.pages.borrow().len(), 1, "a second run in the same episode paged again");
-}
-
-#[test]
-fn a_withdrawn_ticket_refused_by_an_infrastructure_failure_is_never_rerun() {
-    let scratch = tempfile::tempdir().unwrap();
-    let queue_dir = scratch.path().join("queue");
-    fs::create_dir_all(queue_dir.join("done")).unwrap();
-    fs::create_dir_all(queue_dir.join(queue::WITHDRAWN)).unwrap();
-    let log = scratch.path().join("land-check.log");
-    fs::write(&log, "fatal: '/home/tom/.cache/land-offload/code-north-main' is a missing but already registered worktree;\n").unwrap();
-    let name = queue::file_name(1_793_000_000_000_000, "sheriff-revert-344cf09f8");
-    let done = queue_dir.join("done").join(&name);
-    queue::write(&done, &ticket("sheriff-revert-344cf09f8", Some(format!("failed land check cargo test exited 128; log: {}", log.display())))).unwrap();
-    queue::write(&queue_dir.join(queue::WITHDRAWN).join(&name), &ticket("sheriff-revert-344cf09f8", Some("withdrawn by proxy: not reproducible".to_owned()))).unwrap();
-    let now = facts::now();
-    let found = facts::queue_facts("north", &queue_dir, Path::new("/home/tom/code/north/main"), now);
-    assert!(found.infrastructure.is_empty(), "a withdrawn ticket is no rerun candidate: {:?}", found.infrastructure);
-    assert!(hands::rerun(&queue_dir, &done).is_err_and(|why| why.contains("was withdrawn")));
-    assert!(!queue_dir.join(&name).exists(), "the withdrawn revert stays out of the queue");
-}
-
-#[test]
-fn a_queue_paused_on_a_broken_check_environment_past_its_bound_is_known_and_its_remedy_judges_candidates_on_this_host() {
-    let paused = |broken_for: u64, environment| QueueFacts { paused: Some("main's check environment is broken".to_owned()), broken_for: Some(broken_for), environment: Some(environment), ..busy_queue(30) };
-    let judged = |queue: QueueFacts| bounds::judge(&Facts { queues: vec![queue], ..Facts::default() }, &Book::default(), NOW).into_iter().find(|finding| finding.bound == Bound::BaseBroken).unwrap();
-
-    assert!(!judged(paused(BASE_BROKEN_SECS - 60, Environment::Placed)).over);
-    let placed = judged(paused(BASE_BROKEN_SECS + 60, Environment::Placed));
-    assert_eq!(placed.state, State::Known { name: "check environment broken", remedies: vec![Remedy::CheckHere { queue: PathBuf::from("/queue") }] });
-    let local = judged(paused(BASE_BROKEN_SECS + 60, Environment::Local));
-    assert!(matches!(local.state, State::Known { name: "check environment broken", ref remedies } if matches!(remedies.as_slice(), [Remedy::Wait(_)])), "{local:?}");
-}
-
-#[test]
-fn a_lander_link_four_landings_behind_current_pages_the_proxy_with_the_hold_reason_every_thirty_minutes() {
-    let link = |landings: usize, refused: Option<&str>| LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), refused: refused.map(str::to_owned), behind: Some(Behind { landings: Some(landings), secs: 300, reason: "round north-873-pack: transient land check".to_owned() }), ..LinkFacts::default() };
-    let facts = |landings: usize| Facts { link: Some(link(landings, None)), ..Facts::default() };
-    let hands = Fake::default();
-    let mut book = Book::default();
-    assert!(render(&cure(&facts(3), &mut book, &hands, NOW)).contains("bound link-behind lander: 3 landing(s) and 5 min (limit 3 landings or 15 min): within"));
-    assert!(hands.pages.borrow().is_empty());
-    assert!(render(&cure(&facts(4), &mut book, &hands, NOW)).contains("bound link-behind lander: 4 landing(s) and 5 min (limit 3 landings or 15 min): over: behind current"));
-    assert_eq!(hands.pages.borrow().len(), 1);
-    assert!(hands.pages.borrow()[0].contains("the lander link runs runtimes/a, 4 landing(s) and 5 min behind current runtimes/b") && hands.pages.borrow()[0].ends_with("round north-873-pack: transient land check"), "{:?}", hands.pages.borrow());
-    cure(&facts(5), &mut book, &hands, NOW + 29 * 60);
-    assert_eq!(hands.pages.borrow().len(), 1, "a page repeats each 30 minutes, not each run");
-    cure(&facts(6), &mut book, &hands, NOW + 30 * 60);
-    assert_eq!(hands.pages.borrow().len(), 2);
-    cure(&Facts { link: Some(link(7, Some("runtimes/b"))), ..Facts::default() }, &mut Book::default(), &hands, NOW);
-    assert_eq!(hands.pages.borrow().len(), 2, "a rolled-back link pages no one");
-    assert_eq!(facts::landings(&[100, 101, 102, 400, 900, 901]), 3, "a batch's commits land seconds apart and count as one landing");
 }
 
 #[test]

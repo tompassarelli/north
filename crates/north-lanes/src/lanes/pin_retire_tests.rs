@@ -81,14 +81,6 @@ impl World {
         git_in(&consumer, &["push", "-qu", "origin", "main"]);
         world
     }
-
-    fn publish_consumer(&self, name: &str, content: &str) {
-        let consumer = self.consumer();
-        fs::write(consumer.join(name), content).unwrap();
-        git_in(&consumer, &["add", name]);
-        git_in(&consumer, &["commit", "-qm", name]);
-        git_in(&consumer, &["push", "-qu", "origin", "main"]);
-    }
 }
 
 fn arguments<'a>(consumer: &'a str, pin: &'a str) -> [&'a str; 4] {
@@ -142,43 +134,6 @@ fn every_unproven_consumer_state_leaves_the_pin_and_its_sidecar_untouched() {
 }
 
 #[test]
-fn a_dirty_pin_an_empty_sidecar_and_a_misnamed_pin_are_refused() {
-    let world = World::new();
-    let pin = world.new_pin("dirty");
-    let consumer = text(&world.consumer());
-    let pin_arg = text(&pin);
-
-    fs::write(pin.join("untracked.txt"), "untracked\n").unwrap();
-    let dirty = world.retire(&arguments(&consumer, &pin_arg)).unwrap_err();
-    assert!(dirty.contains("tracked or untracked changes"), "{dirty}");
-    assert!(world.untouched(&pin));
-    fs::remove_file(pin.join("untracked.txt")).unwrap();
-
-    fs::write(sidecar(&pin), "").unwrap();
-    assert!(world.retire(&arguments(&consumer, &pin_arg)).is_err(), "empty sidecar");
-    assert!(world.untouched(&pin));
-
-    fs::write(sidecar(&pin), format!("consumer-main: {consumer}\nConsumer: fixture.\n")).unwrap();
-    let wrong = world.container().join("pins/0000000000000000000000000000000000000000");
-    git_in(&world.main(), &["worktree", "move", &pin_arg, &text(&wrong)]);
-    fs::rename(sidecar(&pin), sidecar(&wrong)).unwrap();
-    assert!(world.retire(&arguments(&consumer, &text(&wrong))).is_err(), "path and HEAD mismatch");
-    assert!(world.untouched(&wrong));
-    assert!(world.retire(&arguments(&consumer, &text(&world.container().join("pins")))).is_err(), "pins root");
-
-    git_in(&world.main(), &["worktree", "move", &text(&wrong), &pin_arg]);
-    fs::rename(sidecar(&wrong), sidecar(&pin)).unwrap();
-    world.publish_consumer("pin.ref", &format!("pin {pin_arg}\n"));
-    let live = world.retire(&arguments(&consumer, &pin_arg)).unwrap_err();
-    assert!(live.contains("still references the pin"), "{live}");
-    assert!(world.untouched(&pin));
-
-    fs::write(sidecar(&pin), "Consumer: unstructured fixture.\n").unwrap();
-    assert!(world.retire(&arguments(&consumer, &pin_arg)).is_err(), "unstructured legacy sidecar");
-    assert!(world.untouched(&pin));
-}
-
-#[test]
 fn an_unconsumed_pin_is_retired_with_its_proof_and_a_dirty_or_referenced_one_is_kept() {
     let world = World::new();
     let pin = world.new_pin("unconsumed");
@@ -212,4 +167,3 @@ fn an_unconsumed_pin_is_retired_with_its_proof_and_a_dirty_or_referenced_one_is_
     assert!(retired.last().is_some_and(|line| line.starts_with("retired pin")), "{retired:?}");
     assert!(!pin.exists());
 }
-

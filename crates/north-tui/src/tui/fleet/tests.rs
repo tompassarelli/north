@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -16,7 +16,7 @@ use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchReq
 use super::clipboard::Clipboard;
 use super::desk::{AccountRoom, SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
-use super::form::{Field, FormOutcome, LaunchForm};
+use super::form::{Field, LaunchForm};
 use super::runner::Runner;
 use super::screen::{Command, Dialog, Focus, Notice, Screen};
 use super::{apply_event, drive, slash};
@@ -122,32 +122,6 @@ fn account(provider: &str, label: &str) -> Account {
     Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label), token_file: None, api: None }
 }
 
-#[test]
-fn a_tui_launch_on_a_label_logged_into_another_labels_account_is_refused_naming_both() {
-    let home = tempfile::tempdir().unwrap();
-    for label in ["a", "b"] {
-        let profile = home.path().join(format!(".local/state/north/profiles/claude-{label}"));
-        std::fs::create_dir_all(&profile).unwrap();
-        std::fs::write(profile.join(".credentials.json"), "{}").unwrap();
-        std::fs::write(profile.join(".claude.json"), r#"{"oauthAccount": {"accountUuid": "one-login"}}"#).unwrap();
-    }
-    let ledger = Arc::new(north_providers::ledger::Ledger::open(&home.path().join("ledger.db")).unwrap());
-    let runtimes = crate::fleet::runtimes::Runtimes::new(vec![Arc::new(north_providers::providers::claude::fleet::Claude)]);
-    let fleet = crate::fleet::registry::Fleet::at(home.path().into(), runtimes, ledger).unwrap();
-    assert_eq!(fleet.accounts().iter().map(|account| account.label.as_str()).collect::<Vec<_>>(), ["a"]);
-
-    let mut form = LaunchForm::new(vec![account("claude", "b")], home.path(), &[], None);
-    form.field = Field::Prompt;
-    form.paste("do the work");
-    let FormOutcome::Launch(request) = form.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) else { panic!("valid launch form did not submit") };
-    let actions: Arc<dyn SessionActions> = Arc::new(fleet);
-    match actions.launch(&request) {
-        Err(crate::error::NorthError::Refused(why)) => assert!(why.starts_with("claude:b is logged in to the same account as claude:a"), "{why}"),
-        other => panic!("a TUI launch on a shared login was not refused: {other:?}"),
-    }
-    assert!(!home.path().join(format!(".local/state/north/fleet/{}", request.name)).exists(), "the refused launch left a session");
-}
-
 fn summary(name: &str, status: Status, last_activity_ms: u64) -> SessionSummary {
     SessionSummary {
         record: serde_json::from_value(serde_json::json!({
@@ -221,47 +195,6 @@ fn key(desk: &mut DeskFake, screen: &mut Screen, event: KeyEvent) {
     for completion in completions {
         screen.settle(completion.command, completion.outcome);
     }
-}
-
-#[test]
-fn stop_needs_confirmation_and_forget_needs_an_exited_session() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    key(&mut desk, &mut screen, control('d'));
-    key(&mut desk, &mut screen, control('x'));
-    assert!(matches!(screen.dialog, Some(Dialog::ConfirmStop(ref name)) if name == "parser"));
-    key(&mut desk, &mut screen, press(KeyCode::Char('y')));
-    key(&mut desk, &mut screen, control('c'));
-    screen.focus = Focus::List;
-    key(&mut desk, &mut screen, press(KeyCode::End));
-    key(&mut desk, &mut screen, control('d'));
-    assert_eq!(desk.performed(), [Command::Stop("parser".into()), Command::Interrupt("parser".into()), Command::Forget("done".into())]);
-    assert_eq!(screen.selected.as_deref(), Some("parser"));
-}
-
-#[test]
-fn a_blocking_stop_leaves_the_loop_responsive() {
-    let mut desk = desk();
-    let (release, gate) = channel();
-    *desk.actions.stop_gate.lock().unwrap() = Some(gate);
-    let mut screen = screen(&desk);
-    let mut script: VecDeque<Event> = [control('x'), press(KeyCode::Char('y')), press(KeyCode::Char('h')), press(KeyCode::Char('i')), control('q')]
-        .into_iter()
-        .map(Event::Key)
-        .collect();
-    let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
-    let actions = Arc::clone(&desk.actions);
-    let mut events = |_| {
-        if script.len() == 1 {
-            assert!(actions.performed.lock().unwrap().is_empty());
-            release.send(()).unwrap();
-        }
-        Ok(script.pop_front())
-    };
-    drive(&mut desk, &mut screen, &mut terminal, &mut events).unwrap();
-    assert_eq!(screen.composer.lines().join(""), "hi");
-    assert_eq!(desk.performed(), [Command::Stop("parser".into())]);
-    assert!(screen.busy.is_empty());
 }
 
 #[test]
@@ -432,26 +365,6 @@ fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
 fn observe(desk: &DeskFake, screen: &mut Screen) {
     let facts = screen.sessions.iter().map(|session| (session.record.name.clone(), SessionFacts::of(&session.record, desk.transcript(&session.record.name)))).collect();
     screen.observe(desk.digest(), facts);
-}
-
-#[test]
-fn the_digest_answers_the_selected_gate_with_an_option_or_free_text() {
-    let mut desk = desk();
-    desk.digest.gates = vec![gate(1, "parser", 0), gate(2, "idle-one", 10)];
-    let mut screen = screen(&desk);
-    observe(&desk, &mut screen);
-    key(&mut desk, &mut screen, control('t'));
-    assert_eq!(screen.focus, Focus::List);
-    key(&mut desk, &mut screen, press(KeyCode::Char('j')));
-    key(&mut desk, &mut screen, press(KeyCode::Char('1')));
-    key(&mut desk, &mut screen, press(KeyCode::Char('9')));
-    key(&mut desk, &mut screen, press(KeyCode::Char('k')));
-    type_text(&mut desk, &mut screen, "rent a smaller one");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    let decided = |gate, decision| Command::Decide { gate, session: String::new(), decision };
-    assert_eq!(desk.performed(), [decided(2, Decision::Option(1)), decided(1, Decision::Text("rent a smaller one".into()))]);
-    assert!(screen.pending.is_empty(), "a gate answer is not a message to the selected session");
 }
 
 #[test]

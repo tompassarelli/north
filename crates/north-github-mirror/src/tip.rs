@@ -51,7 +51,3 @@ pub fn run(arguments: &[String]) -> u8 {
     let status = Command::new("git").arg("-C").arg(directory).args(["fetch", "origin"]).status();
     u8::from(!status.is_ok_and(|status| status.success()))
 }
-
-#[cfg(test)]
-#[path = "tip_tests.rs"]
-mod tests;

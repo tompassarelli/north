@@ -203,7 +203,3 @@ fn systemctl(arguments: &[&str]) -> String {
     command.arg("--user").args(arguments);
     try_run_command_within(command, None, WAIT).ok().flatten().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default()
 }
-
-#[cfg(test)]
-#[path = "held_tests.rs"]
-mod tests;

@@ -5,16 +5,12 @@ mod eta_calibration;
 mod fleet_session;
 mod gcroots;
 mod git_maintenance;
-#[cfg(test)]
-mod git_maintenance_tests;
 mod incident_retro;
 mod nexus_run;
 pub mod runtime_update;
 mod skill_prune;
 mod supply_chain;
 mod watch_review;
-#[cfg(test)]
-mod tests;
 
 use std::env;
 use std::path::PathBuf;

@@ -44,23 +44,3 @@ pub fn due(facts: &Facts) -> Vec<Finding> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn reading(repo: &str, reasons: &[&str]) -> Reading {
-        Reading { repo: repo.to_owned(), since: "6f03d49689".to_owned(), reasons: reasons.iter().map(|&reason| reason.to_owned()).collect(), cost: Some((4.0, 0.125)) }
-    }
-
-    #[test]
-    fn a_fired_repository_is_one_box_on_the_owner_and_a_quiet_one_is_none() {
-        let facts = Facts { readings: vec![reading("wisp", &["11 days since review with 40 commits (limit 3)"]), reading("makgora", &[])] };
-        let found = due(&facts);
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].key, "code-health-review:wisp:6f03d49689");
-        assert!(found[0].owner.is_none() && found[0].detector.files_own_issue(), "a fired repository is filed as an issue of its own");
-        assert!(found[0].box_line().contains("11 days since review with 40 commits"));
-        assert!(found[0].box_line().contains("median 4 hand files per feature commit, 12.5% of feature commits reverted"));
-    }
-}

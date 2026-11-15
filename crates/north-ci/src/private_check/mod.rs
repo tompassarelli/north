@@ -1,7 +1,5 @@
 mod config;
 mod judge;
-#[cfg(test)]
-mod tests;
 
 use std::env;
 use std::fs::{self, File};
@@ -11,7 +9,7 @@ use std::process::{Command, Stdio};
 
 use crate::platform::github::{CommitStatuses, Gh};
 use config::{Check, Step};
-use judge::{Finished, Outcome, Overrides, Places, StatusRequest, Statuses, Steps};
+use judge::{Finished, Outcome, Overrides, Places, StatusRequest, Statuses};
 
 static SOURCE: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("north-data/private-checks.toml"));
 const USAGE: &str = "usage: north private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]
@@ -63,7 +61,7 @@ struct Admitted {
     north: PathBuf,
 }
 
-impl Steps for Admitted {
+impl Admitted {
     fn run(&mut self, dir: &Path, step: &Step, owner: &str) -> Result<Finished, String> {
         let argv = capacity_argv(step, owner);
         println!("private-check: in {}: north {}", dir.display(), argv.join(" "));

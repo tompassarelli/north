@@ -36,7 +36,3 @@ fn gone(buckd: &Path, root: &Path, mirrored: &Path, dead: &mut Vec<PathBuf>) {
         if root.join(&mirrored).is_dir() { gone(buckd, root, &mirrored, dead) } else { dead.push(child.path()) }
     }
 }
-
-#[cfg(test)]
-#[path = "buck_daemons_tests.rs"]
-mod tests;

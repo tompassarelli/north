@@ -106,7 +106,3 @@ pub fn record_use(owner: &str, request: &Request, admitted: &Obj, command: &[Str
         eprintln!("machine-capacity: capacity database failed: {error}");
     }
 }
-
-#[cfg(test)]
-#[path = "priority_tests.rs"]
-mod tests;

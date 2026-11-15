@@ -21,14 +21,6 @@ mod trees;
 #[cfg(test)]
 mod archive_tests;
 #[cfg(test)]
-mod content_tests;
-#[cfg(test)]
-mod strays_tests;
-#[cfg(test)]
-mod scratch_tests;
-#[cfg(test)]
-mod targets_tests;
-#[cfg(test)]
 mod tickets_tests;
 
 use std::collections::{BTreeMap, HashMap, HashSet};

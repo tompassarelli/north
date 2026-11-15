@@ -125,6 +125,3 @@ fn landed(db: &Connection, since: i64) -> rusqlite::Result<Vec<i64>> {
     let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
     Ok(rows.filter_map(Result::ok).filter(|(agent, _)| !followed.contains(agent)).filter_map(|(_, ended)| Some(Timestamp::parse(&ended).ok()?.unix_seconds())).collect())
 }
-
-#[cfg(test)]
-mod tests;

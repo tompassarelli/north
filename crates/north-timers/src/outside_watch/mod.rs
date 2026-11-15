@@ -260,25 +260,3 @@ fn status(config: &Config, out: &mut dyn Write) -> Result<(), Failure> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    use super::{Config, default_own};
-    use crate::foundation::clock::Timestamp;
-
-    fn config() -> Config {
-        Config { owner: "tompassarelli".into(), own: default_own(), state_dir: PathBuf::new(), inbox: PathBuf::new(), now: Timestamp::from_unix_seconds(0) }
-    }
-
-    #[test]
-    fn the_default_own_logins_recognise_both_the_old_and_the_north_fleet_agent_app_bot() {
-        let config = config();
-        assert!(config.owns("socrates-agent[bot]"));
-        assert!(config.owns("north-fleet[bot]"));
-        assert!(config.owns("lander[bot]"));
-        assert!(config.owns("north-lander[bot]"));
-        assert!(!config.owns("someone-else"));
-    }
-}

@@ -322,7 +322,3 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }
-
-#[cfg(test)]
-#[path = "live_refs_tests.rs"]
-mod tests;

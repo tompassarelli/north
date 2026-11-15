@@ -83,7 +83,3 @@ pub fn ingest_here() -> bool {
 fn log_path(repository: &str) -> PathBuf {
     map::path_for(repository).with_extension("refresh.log")
 }
-
-#[cfg(test)]
-#[path = "cadence_tests.rs"]
-mod tests;

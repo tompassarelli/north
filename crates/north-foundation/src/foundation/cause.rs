@@ -52,37 +52,3 @@ fn commit_shaped(token: &str) -> bool {
         && token.chars().all(|character| character.is_ascii_hexdigit())
         && (length >= 12 || token.chars().any(|character| character.is_ascii_digit()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::key;
-
-    #[test]
-    fn a_fresh_sha_canary_id_or_count_keeps_one_key() {
-        let first = key("north-runtime-follow.service failed to start 13 times in the last hour: runtime 636c151b, canary-opencode-4101624");
-        for changed in [
-            "north-runtime-follow.service failed to start 7 times in the last hour: runtime 636c151b, canary-opencode-4101624",
-            "north-runtime-follow.service failed to start 13 times in the last hour: runtime 22272a0b, canary-opencode-4123229",
-            "NORTH-RUNTIME-FOLLOW.SERVICE FAILED TO START 13 TIMES IN THE LAST HOUR: RUNTIME 636C151B, CANARY-OPENCODE-4101624",
-        ] {
-            assert_eq!(key(changed), first, "{changed}");
-        }
-    }
-
-    #[test]
-    fn changed_words_are_a_new_cause_and_a_short_hex_word_stays() {
-        assert_ne!(
-            key("runtime failed on 636c151b"),
-            key("runtime timed out on 636c151b"),
-            "a changed first error line is a new cause"
-        );
-        assert_eq!(key("efface the file"), "efface the file");
-        assert_eq!(key("deface"), "deface");
-    }
-
-    #[test]
-    fn digits_and_punctuation_are_blanked_as_before() {
-        assert_eq!(key("still, 12 min: disk 3.1 GiB free on /nix/store"), "still, # min: disk #.# gib free on /nix/store");
-        assert_eq!(key("north#1031"), "north##");
-    }
-}

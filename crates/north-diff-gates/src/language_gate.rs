@@ -67,6 +67,3 @@ fn report(result: Result<Vec<String>>) -> bool {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

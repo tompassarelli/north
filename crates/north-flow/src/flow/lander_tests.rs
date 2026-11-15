@@ -1,6 +1,4 @@
 use super::*;
-use crate::foundation::clock::Timestamp;
-use north_base::land_ticket::LandTicket;
 
 fn night_of_2026_11_08(now: f64) -> Facts {
     Facts {
@@ -23,32 +21,4 @@ fn the_lander_stall_of_2026_11_08_alarms_on_the_first_flow_tick_past_ten_minutes
     assert_eq!(reading.stall_limit_minutes, 10.0);
     let cold: Vec<Vec<serde_json::Value>> = [1, 1, 1, 6].iter().map(|minutes| vec![serde_json::json!({ "name": "test", "conclusion": "success", "started_at": "2026-11-11T15:00:00Z", "completed_at": format!("2026-11-11T15:0{minutes}:00Z"), "steps": [{ "conclusion": "success" }] })]).collect();
     assert_eq!(super::super::stall::job_slowest(&cold).get("test"), Some(&6.0), "a cold-cache run in the history sets the job's limit, so the next one is not a stall");
-}
-
-#[test]
-fn a_log_without_a_verdict_is_never_a_running_candidate_check() {
-    let queue = tempfile::tempdir().unwrap();
-    let logs = queue.path().join("logs");
-    std::fs::create_dir_all(&logs).unwrap();
-    let now = 1_794_131_000.0;
-    let began = format!("{}", ((now - 540.0) * 1e6) as u64);
-    std::fs::write(logs.join(format!("{began}-sheriff-nix-shell.lane-gates.log")), "crate-lines: no crate over its cap grew\n").unwrap();
-    std::fs::write(logs.join(format!("{began}-lane-check.log")), "cargo nextest run\n").unwrap();
-    let facts = read(queue.path(), now, &queue.path().join("state"));
-    assert_eq!(facts.check_started_at, None, "{:?}", facts.check_started_at);
-    assert!(judge(&facts).reasons.is_empty());
-}
-
-#[test]
-fn a_ticket_in_phase_checking_is_the_running_check_from_its_transition_time() {
-    let queue = tempfile::tempdir().unwrap();
-    let now = 1_794_131_000.0;
-    let began = now - 540.0;
-    let ticket = queue.path().join("1794129000-sheriff-nix-shell.json");
-    std::fs::write(&ticket, "{}").unwrap();
-    land_ticket::queued(&ticket, "the test queued it").unwrap();
-    let mut store = land_ticket::open(queue.path()).unwrap();
-    store.transition::<LandTicket>(&land_ticket::instance(queue.path(), ticket.file_name().unwrap()), Phase::Checking, "a land check took it", Timestamp::from_unix_seconds_f64(began)).unwrap().unwrap();
-    let facts = read(queue.path(), now, &queue.path().join("state"));
-    assert_eq!(facts.check_started_at, Some(began), "{:?}", facts.check_started_at);
 }

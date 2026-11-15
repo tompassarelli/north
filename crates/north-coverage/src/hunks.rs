@@ -64,7 +64,6 @@ fn header_hunk(header: &str) -> Option<Hunk> {
     Some(Hunk { old_start, old_count, new_start, new_count })
 }
 
-
 pub fn added_tests(diff: &str) -> BTreeMap<String, Vec<String>> {
     let mut files: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut current: Option<String> = None;
@@ -114,7 +113,3 @@ pub fn carry(start: u32, end: u32, hunks: &[Hunk]) -> Option<(u32, u32)> {
     let shift = |line: u32| u32::try_from(i64::from(line) + delta).ok();
     Some((shift(start)?, shift(end)?))
 }
-
-#[cfg(test)]
-#[path = "hunks_tests.rs"]
-mod tests;

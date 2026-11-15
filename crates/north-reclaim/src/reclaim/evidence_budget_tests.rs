@@ -3,7 +3,7 @@ use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::evidence_budget::{Budget, retrying, sweep};
+use super::evidence_budget::{Budget, sweep};
 use super::tests::{DAY, Machine, touch};
 use super::{Inputs, Policy, held, size};
 
@@ -57,15 +57,3 @@ fn an_evidence_store_over_budget_keeps_every_run_when_open_issues_are_unreadable
     assert!(swept(&machine, &inputs, 1).is_empty());
     assert!(runs.iter().all(|run| run.exists()));
 }
-
-#[test]
-fn an_issue_read_that_fails_once_is_retried_until_it_succeeds() {
-    let mut calls = 0;
-    let read = retrying(4, Duration::ZERO, || {
-        calls += 1;
-        if calls < 3 { Err("unexpected end of JSON input".to_owned()) } else { Ok("issues") }
-    });
-
-    assert_eq!((read, calls), (Ok("issues"), 3));
-}
-

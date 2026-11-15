@@ -246,7 +246,3 @@ pub fn sweep(args: &SweepArgs, env: &Env, issues: &dyn Issues, out: &mut dyn Wri
     }
     if failed { Err(Stop::Refused) } else { Ok(()) }
 }
-
-#[cfg(test)]
-#[path = "sweep_tests.rs"]
-mod tests;

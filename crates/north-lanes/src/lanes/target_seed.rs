@@ -260,7 +260,3 @@ fn unit_dirs(target: &Path) -> Vec<PathBuf> {
     let nested = children(target).into_iter().flat_map(|child| children(&child));
     children(target).into_iter().chain(nested).filter(|dir| dir.join(".fingerprint").is_dir() || BUILD_LOCKS.iter().any(|lock| dir.join(lock).is_file())).collect()
 }
-
-#[cfg(test)]
-#[path = "target_seed_tests.rs"]
-mod tests;

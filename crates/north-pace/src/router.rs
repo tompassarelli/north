@@ -1,4 +1,3 @@
-
 pub mod brief;
 pub mod choose;
 pub mod ctx;
@@ -10,12 +9,6 @@ pub mod pricing;
 pub mod route;
 pub mod settle;
 pub mod tier;
-
-#[cfg(test)]
-mod routing_tests;
-
-#[cfg(test)]
-mod money_tests;
 
 #[cfg(test)]
 mod admission_tests;

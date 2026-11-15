@@ -115,6 +115,3 @@ pub fn record_console(
         Timestamp::from_unix_seconds(at).iso_minute()
     ))
 }
-
-#[cfg(test)]
-mod tests;

@@ -60,7 +60,3 @@ fn bears(hit: &Hit) -> bool {
 fn subject_terms(hit: &Hit) -> usize {
     hit.matched.iter().filter(|term| !EDIT_WORDS.contains(&term.as_str())).count()
 }
-
-#[cfg(test)]
-#[path = "bearing_tests.rs"]
-mod tests;

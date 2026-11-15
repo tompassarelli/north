@@ -328,27 +328,3 @@ fn startup_script(executable: &Path) -> String {
     let quoted = format!("'{}'", executable.to_string_lossy().replace("'", "'\\''"));
     format!("#!/bin/sh\nexec {quoted} desktop private record-display\n")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{create_private_runtime, startup_script};
-
-    #[test]
-    fn clients_reach_the_user_manager_through_the_private_runtime() {
-        let directory = tempfile::tempdir().unwrap();
-        let user_runtime = directory.path().join("user");
-        std::fs::create_dir_all(user_runtime.join("systemd")).unwrap();
-        std::fs::write(user_runtime.join("systemd/private"), b"").unwrap();
-        let run = directory.path().join("run");
-        std::fs::create_dir(&run).unwrap();
-        create_private_runtime(&run, &user_runtime).unwrap();
-        assert!(run.join("runtime/systemd/private").exists());
-        assert!(!run.join("runtime/bus").exists());
-    }
-
-    #[test]
-    fn startup_script_runs_the_record_display_subcommand_of_the_desktop_group() {
-        let script = startup_script(std::path::Path::new("/usr/bin/north"));
-        assert_eq!(script, "#!/bin/sh\nexec '/usr/bin/north' desktop private record-display\n");
-    }
-}

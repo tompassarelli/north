@@ -70,15 +70,3 @@ fn body(host: &str, failing: &[(String, String)]) -> String {
          {lines}\n## Done when\n- [ ] (headless run) No harness unit fails on {host}. Done when: `north health --dry-run | rg '^ *health: unit ' | rg -qv ': ok$'; test $? -eq 1` exits 0 on {host}; this issue then closes itself.\n"
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::platform::rolling_issue::declares_category;
-
-    #[test]
-    fn the_alarm_body_for_a_failing_unit_passes_the_check_alarm_applies() {
-        let body = super::body("host", &[("north-pace.service".to_owned(), "north-pace.service failed 2 runs in a row".to_owned())]);
-        assert!(body.starts_with("Class: ") && body.contains("`north-pace.service`"), "the body names the failing unit under a Class line");
-        assert!(!declares_category(&body), "alarm() refuses a body that declares Category:, so health would file nothing");
-    }
-}

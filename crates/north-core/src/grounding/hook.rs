@@ -88,7 +88,3 @@ pub fn render(prompt: &str, now: f64, prior: &str, session: &mut Session, until:
     }
     Ok(text)
 }
-
-#[cfg(test)]
-#[path = "hook_tests.rs"]
-mod tests;

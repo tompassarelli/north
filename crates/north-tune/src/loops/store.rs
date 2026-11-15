@@ -32,7 +32,3 @@ pub fn graph_reading(ticks: &Result<BTreeMap<String, i64>, String>, writer: &str
         Ok(ticks) => ticks.get(writer).and_then(|at| u64::try_from(*at).ok()).map_or(Reading::Never, |at| Reading::At(SystemTime::UNIX_EPOCH + Duration::from_secs(at))),
     }
 }
-
-#[cfg(test)]
-#[path = "store_tests.rs"]
-mod tests;

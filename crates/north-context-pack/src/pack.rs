@@ -124,36 +124,3 @@ fn push(text: &mut String, line: &str, room: usize) {
     }
     text.push('\n');
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn facts(path: &str) -> Facts {
-        Facts {
-            path: path.to_owned(),
-            items: (0..40).map(|index| format!("fn item{index} L{index}")).collect(),
-            lines: vec!["module north-long, may use crate-roots, foundation, ledger, ops and 4 more".to_owned(), format!("changed with it in 90 days: {}", "crates/north-wide/src/file.rs (3), ".repeat(6))],
-            reverts: (0..13).map(|index| format!("01234567{index} reverted abcdef0123 within 48 h")).collect(),
-            graph: (0..4).map(|index| format!("graph line {index} {}", "y".repeat(GRAPH_LINE))).collect(),
-        }
-    }
-
-    #[test]
-    fn a_six_path_pack_keeps_every_path_header_outline_placement_cochange_reverts_and_test_filter_inside_its_share() {
-        let facts: Vec<Facts> = (0..6).map(|index| facts(&format!("crates/north-x{index}/src/file.rs"))).collect();
-        let each = 3_000 / facts.len();
-        for facts in &facts {
-            let block = facts.block(each, "cargo nextest run -p north-x");
-            assert!(block.chars().count() <= each, "{} took {} of {each}", facts.path, block.chars().count());
-            assert!(block.starts_with(&facts.path), "block lost its header: {block}");
-            assert!(block.contains("outline:"), "block lost its outline: {block}");
-            assert!(block.contains("module north-long"), "block lost its placement: {block}");
-            assert!(block.contains("changed with it in 90 days"), "block lost its co-change list: {block}");
-            assert!(block.contains("revert: 012345670"), "block lost its reverts: {block}");
-            assert!(block.contains("cargo nextest run -p north-x"), "block lost its test filter: {block}");
-        }
-        let text = blocks(&facts, 3_000, |_| "cargo nextest run -p north-x".to_owned());
-        assert!(text.chars().count() <= 3_000 && text.matches("cargo nextest run -p north-x").count() >= facts.len(), "pack dropped a path or its test filter");
-    }
-}

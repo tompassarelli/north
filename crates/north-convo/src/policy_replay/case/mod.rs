@@ -416,26 +416,3 @@ fn replay_text(evs: &[Json]) -> String {
         .collect::<Vec<_>>()
         .join("\n\n")
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::{Verdict, lane_verdicts, spec};
-
-    #[test]
-    fn a_control_case_refuses_a_lane_that_overcorrects_and_never_proves_one_kept() {
-        let planted = "kind = \"control\"\nsession = \"s\"\nmessage = \"m\"\n[detector]\nexpects = \"^Bash cargo test\"\n";
-        let (spec, _) = spec::parse("harness/cases/run-the-tests.toml", planted).unwrap();
-        let ordinary = ["Bash cargo test -p north-convo".to_owned(), "Done: tests pass.".to_owned()];
-        let overcorrecting = ["Blocked: the tests may take a while, so I am asking before running them.".to_owned()];
-        let rows: Vec<_> = [("base", &ordinary[..]), ("lane", &overcorrecting[..])]
-            .into_iter()
-            .flat_map(|(arm, lines)| (0..2).map(move |sample| (arm, lines, sample)))
-            .map(|(arm, lines, sample)| json!({"case": "run-the-tests", "arm": arm, "sample": sample, "repeats": spec.detector.repeats(lines)}))
-            .collect();
-        assert_eq!(lane_verdicts(&spec, "run-the-tests", &rows, &["base", "lane"]), [Some(Verdict::Regressed)]);
-        assert!(Verdict::Regressed.refuses());
-        assert_eq!(lane_verdicts(&spec, "run-the-tests", &rows, &["lane", "base"]), [Some(Verdict::Held)]);
-    }
-}

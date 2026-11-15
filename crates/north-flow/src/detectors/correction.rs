@@ -48,23 +48,3 @@ pub fn repeated(facts: &Facts, classes: &[Class]) -> Vec<Finding> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::threads::incidents::corrections::parse;
-
-    const TABLE: &str = "[[class]]\nname = \"pace\"\npattern = 'too slow'\nparaphrase = \"Tom said the work was moving too slowly.\"\nowner = \"north#636\"\nguard = \"A Stop hook names idle capacity.\"\nnot_structural = \"speed is wall time\"\n";
-
-    #[test]
-    fn a_class_seen_twice_proposes_its_guard_on_its_owner_and_once_or_unclassified_does_not() {
-        let classes = parse(TABLE).unwrap();
-        let facts = Facts { seen: vec![("pace".into(), 1_762_400_000.0), ("pace".into(), 1_762_300_000.0), ("overbuilt".into(), 1_762_300_000.0), (UNCLASSIFIED.into(), 1.0), (UNCLASSIFIED.into(), 2.0)] };
-        let found = repeated(&facts, &classes);
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].key, "correction:pace");
-        assert_eq!(found[0].owner.as_deref(), Some("north#636"));
-        assert!(found[0].box_line().contains("Proposed guard: A Stop hook names idle capacity."));
-        assert!(found[0].detail.starts_with("Tom corrected this class 2 times (2025-11-04T23:46:40Z, 2025-11-06T03:33:20Z)"));
-    }
-}

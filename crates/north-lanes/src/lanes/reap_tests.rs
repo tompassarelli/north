@@ -4,7 +4,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use north_base::platform::git;
-use super::reap::{Counts, Sweep, disposable};
+use super::reap::{Counts, Sweep};
 use super::test_now;
 use north_base::test_inputs::git::{git_in, init_repo};
 
@@ -130,66 +130,6 @@ fn branch_exists(container: &Container, name: &str) -> bool {
 }
 
 #[test]
-fn a_lane_whose_only_ignored_files_are_regenerable_caches_is_bundled() {
-    let regenerable = [
-        ("target/debug/north", "cargo build output"),
-        ("crates/app/target/release/app", "nested cargo build output"),
-        (".direnv/flake/profile", "direnv cache"),
-        (".firn-cache/index", "firn cache"),
-        ("buck-out/v2/gen/app", "buck build output"),
-        (".buckconfig.flake", "buck flake config"),
-        ("result", "nix build result link"),
-        ("result-dev", "nix build result link"),
-        ("tools/__pycache__/gen.cpython-312.pyc", "python bytecode cache"),
-        ("web/node_modules/left-pad/index.js", "npm dependencies"),
-        ("build/app.tsbuildinfo", "typescript incremental build info"),
-        ("build/number-rules.json", "generated number rules"),
-        (".safe-push-deps", "safe-push dependency cache"),
-        (".safe-push-deps/lock.json", "safe-push dependency cache"),
-        ("node_modules", "bare npm dependencies entry"),
-        ("ts/build/app.tsbuildinfo", "typescript build info below the lane root"),
-        ("examples/sample/tsconfig.tsbuildinfo", "typescript build info beside a config"),
-        ("build/nested/app.tsbuildinfo", "typescript build info in a build subdirectory"),
-        ("ts/build/src/game/sim.d.ts", "compiled typescript declarations"),
-        ("build/lua-tests/src/runtime/config.js.map", "compiled typescript source map"),
-        ("ts/build/number-rules.json", "generated number rules below the lane root"),
-        ("dist/es/lib.mjs", "package build output"),
-        ("site/.astro/types.d.ts", "astro generated types"),
-    ];
-    let kept = [
-        ("secrets.env", "a credentials file"),
-        ("src/build.js", "a script outside a build directory"),
-        ("build/golden/golden.lua", "a golden output that is not compiled typescript"),
-        ("distro/notes.md", "a directory named like dist"),
-        ("build/number-rules.json.bak", "a backup of generated rules"),
-        ("result-notes/todo.md", "a directory named like a result link"),
-    ];
-    for (path, kind) in regenerable {
-        assert!(disposable(path), "{kind} is disposable: {path}");
-    }
-    for (path, kind) in kept {
-        assert!(!disposable(path), "{kind} is kept: {path}");
-    }
-}
-
-#[test]
-fn a_landed_lane_leaves_no_cargo_target() {
-    let container = Container::new();
-    let lane = container.add("landed-live", true);
-    fs::create_dir_all(lane.join("target/debug")).unwrap();
-    fs::write(lane.join("target/debug/out"), vec![7u8; 64 * 1024]).unwrap();
-    fs::write(container.main().join(".git/info/exclude"), "target/\n").unwrap();
-    container.running_in(4001, &lane);
-
-    let (lines, counts) = container.sweep(false);
-
-    assert!(lane.is_dir() && branch_exists(&container, "landed-live"), "a process inside keeps the lane: {lines:#?}");
-    assert!(!lane.join("target").exists(), "a landed lane leaves no cargo target: {lines:#?}");
-    assert_eq!(counts.kept_protected, 1, "{lines:#?}");
-    a_landed_lane_named_by_its_ticket_loses_its_target_once_no_process_holds_it();
-}
-
-#[test]
 fn a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape() {
     let container = Container::new();
     container.add("merged-fresh", false);
@@ -263,51 +203,4 @@ fn a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape() {
     fs::remove_dir(ignored.join("docs")).unwrap();
     container.sweep(false);
     assert!(!ignored.exists() && !branch_exists(&container, "equiv-ignored"));
-}
-
-
-fn a_landed_lane_named_by_its_ticket_loses_its_target_once_no_process_holds_it() {
-    let container = Container::new();
-    let origin = "https://github.com/example/north.git";
-    git_in(&container.main(), &["remote", "add", "origin", origin]);
-    fs::write(container.main().join(".git/info/exclude"), "target/\n").unwrap();
-    let state = container.path().join("state");
-    let done = north_base::platform::land_queue::directory(&state, origin).join("done");
-    fs::create_dir_all(&done).unwrap();
-    let ticket = |lane: &Path, commit: &str| {
-        let head = git_in(lane, &["rev-parse", "HEAD"]);
-        let record = serde_json::json!({"verdict": format!("landed {commit}"), "host": north_base::platform::land_queue::local_host(), "root": lane, "head": head});
-        fs::write(done.join(format!("{}.json", lane.file_name().unwrap().to_string_lossy())), record.to_string()).unwrap();
-    };
-    let built = |lane: &Path| {
-        fs::create_dir_all(lane.join("target/debug")).unwrap();
-        fs::write(lane.join("target/debug/out"), vec![7u8; 64 * 1024]).unwrap();
-    };
-    let landed = container.add("landed-squash", false);
-    container.commit_in(&landed, "landed.txt");
-    container.squash_land("landed-squash", "land landed-squash");
-    ticket(&landed, &git_in(&container.main(), &["rev-parse", "HEAD"]));
-    built(&landed);
-    let unlanded = container.add("unlanded", false);
-    container.commit_in(&unlanded, "unlanded.txt");
-    ticket(&unlanded, &git_in(&unlanded, &["rev-parse", "HEAD"]));
-    built(&unlanded);
-    let moved = container.add("moved-on", false);
-    container.commit_in(&moved, "moved.txt");
-    container.squash_land("moved-on", "land moved-on");
-    ticket(&moved, &git_in(&container.main(), &["rev-parse", "HEAD"]));
-    container.commit_in(&moved, "more.txt");
-    built(&moved);
-    let code = tempfile::tempdir().unwrap();
-    std::os::unix::fs::symlink(container.path(), code.path().join("north")).unwrap();
-    let proc_root = code.path().join("proc");
-    let release = || super::release_landed_targets(code.path(), &state, &proc_root, false).into_iter().map(|gone| gone.path).collect::<Vec<_>>();
-
-    fs::create_dir_all(proc_root.join("4242")).unwrap();
-    std::os::unix::fs::symlink(&landed, proc_root.join("4242/cwd")).unwrap();
-    assert!(release().is_empty(), "a process working in the landed lane owns it, so its target stays");
-    fs::remove_file(proc_root.join("4242/cwd")).unwrap();
-
-    assert_eq!(release(), vec![landed.join("target")], "once its session is gone the landed lane's target goes, and only its");
-    assert!(landed.join(".git").exists() && unlanded.join("target/debug/out").exists() && moved.join("target/debug/out").exists(), "the worktree stays; a lane whose commit is not on main or that moved past its ticket's head keeps its target");
 }

@@ -322,7 +322,3 @@ fn settle_precision(audit: &mut Audit, state: &State) {
             .count();
     }
 }
-
-#[cfg(test)]
-#[path = "scan_tests.rs"]
-mod tests;

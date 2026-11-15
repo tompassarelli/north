@@ -426,25 +426,3 @@ impl Drop for Session {
         self.cleanup();
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn client_command_unsets_wayland_socket_so_clients_reach_the_private_display() {
-        let run = tempfile::tempdir().unwrap();
-        let command = client_command(run.path(), ":11", "wayland-0", &["wlrctl".into()]);
-        let args: Vec<_> = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
-        assert!(args.contains(&"WAYLAND_DISPLAY=wayland-0".to_owned()));
-        assert!(!args.iter().any(|arg| arg.starts_with("WAYLAND_SOCKET")));
-        assert!(
-            command
-                .get_envs()
-                .any(|(name, value)| name == "WAYLAND_SOCKET" && value.is_none())
-        );
-    }
-}

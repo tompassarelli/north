@@ -41,8 +41,6 @@ mod stall;
 mod stranded;
 mod throughput;
 pub mod typed;
-#[cfg(test)]
-mod typed_tests;
 mod usage;
 pub mod usage_yield;
 

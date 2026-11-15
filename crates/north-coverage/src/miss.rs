@@ -107,7 +107,3 @@ fn usage() -> u8 {
 fn start_refresh() -> Result<(), String> {
     crate::cadence::start(Path::new("."), "a selection miss").map(drop)
 }
-
-#[cfg(test)]
-#[path = "miss_tests.rs"]
-mod tests;

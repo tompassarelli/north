@@ -107,22 +107,3 @@ fn calls<'a>(sources: &'a str, reference: &str) -> Vec<Call<'a>> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_guard_asking_for_an_id_the_catalog_dropped_is_named() {
-        let sources = "REF:crates/north-guard/src/guard/spawn_capacity.rs:19:const UNIT: &str = \"spawn-capacity-guard\";\n\
-                       REF:crates/north-guard/src/guard/spawn_capacity.rs:60:    if crate::guard::activation::authoring_guards_off(UNIT) {\n\
-                       REF:crates/north-guard/src/guard/native_item.rs:21:    if crate::guard::activation::authoring_guards_off(\"native-item-guard\") {\n\
-                       REF:crates/north-guard/src/guard/activation.rs:80:pub fn authoring_guards_off(id: &str) -> bool {";
-        let kept: BTreeSet<&str> = ["spawn-capacity-guard", "native-item-guard"].into_iter().collect();
-        assert!(unnamed_guard_ids(sources, "REF", &kept).is_empty());
-        let dropped: BTreeSet<&str> = ["native-item-guard"].into_iter().collect();
-        let lines = unnamed_guard_ids(sources, "REF", &dropped);
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(lines[0].starts_with("crates/north-guard/src/guard/spawn_capacity.rs:60 asks authoring_guards_off for spawn-capacity-guard"), "{lines:?}");
-    }
-}

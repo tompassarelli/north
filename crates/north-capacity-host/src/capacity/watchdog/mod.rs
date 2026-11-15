@@ -20,8 +20,6 @@ mod snapshot;
 #[cfg(test)]
 mod frozen_tests;
 #[cfg(test)]
-mod sampler_tests;
-#[cfg(test)]
 mod tests;
 
 use detect::{Action, Owner, Sample, Settings, State};

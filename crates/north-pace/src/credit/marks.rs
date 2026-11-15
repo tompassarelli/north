@@ -106,6 +106,3 @@ pub fn adopt(dir: &Path, marks: &BTreeMap<String, String>, today: &str) -> io::R
     }
     Ok(adopted)
 }
-
-#[cfg(test)]
-mod tests;

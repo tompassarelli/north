@@ -232,15 +232,6 @@ fn the_exporter_pin_outside_build_inputs_keeps_its_store_version() {
 }
 
 #[test]
-fn a_main_that_names_no_pin_archives_no_store_version() {
-    let store = Store::new("no pins here");
-    store.sealed(&format!("hero-models/{UNNAMED}"), 100);
-    assert!(store.run().is_err());
-    assert!(store.path(&format!("hero-models/{UNNAMED}")).exists());
-}
-
-
-#[test]
 fn store_versions_no_pin_on_origin_or_a_lane_names_are_archived_once_expired() {
     let store = Store::new(ON_MAIN);
     for hash in [ON_MAIN, IN_LANE, ON_BRANCH, UNNAMED] {

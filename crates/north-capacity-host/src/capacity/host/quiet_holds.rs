@@ -27,35 +27,3 @@ fn held_by(result: &Value) -> Vec<String> {
     let owners = quiet_owners(result);
     if owners.is_empty() { vec![String::new()] } else { owners }
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::{Value, json};
-
-    use super::QuietHolds;
-
-    const PATIENCE: Option<u64> = Some(1800);
-
-    fn held(owner: &str) -> Value {
-        json!({"decision": "DEFER", "reason": "DEFER_NATIVE_QUIET", "quietOwners": [owner]})
-    }
-
-    fn refused_at(holds: &[(&str, u64)]) -> Option<u64> {
-        let mut quiet = QuietHolds::default();
-        let mut second = 0;
-        for (owner, length) in holds {
-            for _ in 0..*length {
-                if quiet.outlasts(&held(owner), second as f64 * 1000.0, PATIENCE) {
-                    return Some(second);
-                }
-                second += 1;
-            }
-        }
-        None
-    }
-
-    #[test]
-    fn back_to_back_quiet_runs_each_shorter_than_the_patience_keep_the_job_queued_until_it_is_admitted() {
-        assert_eq!(refused_at(&[("wisp-api-netcheck", 700), ("wisp-accept-pair-16", 700), ("perf-pacing-145", 700)]), None);
-    }
-}

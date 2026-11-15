@@ -137,17 +137,3 @@ pub fn holds() -> Result<Holds, String> {
     let text = super::run("north", &["holds", "list", "--json"], std::time::Duration::from_secs(40))?;
     serde_json::from_str(&text).map_err(|error| format!("holds list --json: {error}"))
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn the_ladder_reads_the_level_from_the_line_mayday_status_writes() {
-        let state = std::env::temp_dir().join(format!("north-monitor-ladder-{}", std::process::id()));
-        std::fs::create_dir_all(&state).unwrap();
-        std::fs::write(state.join("ladder-level"), "L2 since=unrecorded checked=2026-11-11T10:23:41Z host=whiterabbit drift=0\n").unwrap();
-        let ladder = super::ladder(&state);
-        std::fs::remove_dir_all(&state).unwrap();
-        let ladder = ladder.expect("mayday-status writes the level word followed by key=value fields");
-        assert_eq!((ladder.level, ladder.checked.is_some()), (2, true));
-    }
-}

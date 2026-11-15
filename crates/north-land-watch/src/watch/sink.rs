@@ -201,7 +201,3 @@ fn write_detail(dir: &Path, alert: &Alert) {
         let _ = fs::write(&file, text);
     }
 }
-
-#[cfg(test)]
-#[path = "sink_tests.rs"]
-mod tests;

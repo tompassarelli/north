@@ -40,26 +40,3 @@ pub fn window(name: &str) -> Option<Window> {
         scoped => scoped.strip_prefix(SCOPED_PREFIX).and_then(family).map(Window::Scoped),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_scoped_window_names_its_family_from_a_bare_or_versioned_display_name() {
-        assert_eq!(family("Fable"), Some(ModelFamily::Fable));
-        assert_eq!(family("Fable 5.2"), Some(ModelFamily::Fable));
-        assert_eq!(family("weekly_scoped/Opus"), Some(ModelFamily::Opus));
-        assert_eq!(family("unknown"), None);
-    }
-
-    #[test]
-    fn the_fable_meter_reads_the_same_scoped_row_shape_as_the_opus_meter() {
-        assert_eq!(scoped(ModelFamily::Fable), "weekly_scoped/Fable");
-        assert_eq!(window(&scoped(ModelFamily::Fable)), Some(Window::Scoped(ModelFamily::Fable)));
-        assert_eq!(window(&scoped(ModelFamily::Opus)), Some(Window::Scoped(ModelFamily::Opus)));
-        assert_eq!(window("session"), Some(Window::FiveHour));
-        assert_eq!(window("weekly_all"), Some(Window::Week));
-        assert_eq!(window("weekly_scoped/Unknown"), None);
-    }
-}

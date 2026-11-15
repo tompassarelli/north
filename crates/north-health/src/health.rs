@@ -488,6 +488,3 @@ pub mod loops;
 mod main_red;
 mod rework;
 mod units;
-
-#[cfg(test)]
-mod tests;

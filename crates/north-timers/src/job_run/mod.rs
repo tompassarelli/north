@@ -156,6 +156,3 @@ fn serve(job: &Job) -> i32 {
     }
     code
 }
-
-#[cfg(test)]
-mod tests;

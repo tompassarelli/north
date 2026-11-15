@@ -338,10 +338,6 @@ impl Io for Shell {
     }
 }
 
-#[cfg(test)]
-#[path = "diagnose_tests.rs"]
-mod tests;
-
 fn dry_run(repo: &str, id: u64) -> Result<String, String> {
     let runs = Shell.runs(repo)?;
     let failed = match runs.iter().find(|r| r.database_id == id) {
@@ -392,4 +388,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-

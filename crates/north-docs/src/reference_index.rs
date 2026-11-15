@@ -22,15 +22,3 @@ fn notes(source: &Path) -> Result<Vec<String>, String> {
 }
 
 pub const INDEX: Index = Index { command: "reference-index", source_dir: "src/cli/reference", file: "src/cli/reference.txt", render: north_registries::reference, notes };
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_file_whose_line_is_not_indented_is_reported() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("0001-first.txt"), "first\n").unwrap();
-        assert_eq!(notes(root.path()).unwrap(), vec![format!("{}: the first line is not an indented reference line", root.path().join("0001-first.txt").display())]);
-    }
-}

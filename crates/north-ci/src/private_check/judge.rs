@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::config::{Check, Step};
+use super::config::Check;
 
 pub const DESCRIPTION_CHARS: usize = 140;
 pub const DEFERRED: i32 = north_base::foundation::exit::NO_VERDICT_STATUS;
@@ -26,10 +26,6 @@ impl StatusRequest {
 pub struct Finished {
     pub code: i32,
     pub last_line: String,
-}
-
-pub trait Steps {
-    fn run(&mut self, dir: &Path, step: &Step, owner: &str) -> Result<Finished, String>;
 }
 
 pub trait Statuses {
@@ -123,7 +119,7 @@ fn verdict(code: i32, last_line: &str) -> (&'static str, String) {
     (state, description(&line))
 }
 
-fn steps(lane: &Path, check: &Check, runner: &mut dyn Steps) -> Option<(&'static str, String)> {
+fn steps(lane: &Path, check: &Check, runner: &mut super::Admitted) -> Option<(&'static str, String)> {
     let owner = format!("private-check:{}", check.name);
     let Some((last, setup)) = check.steps.split_last() else { return Some(("error", "no steps".into())) };
     for step in setup {
@@ -141,7 +137,7 @@ fn steps(lane: &Path, check: &Check, runner: &mut dyn Steps) -> Option<(&'static
     }
 }
 
-pub fn judge(places: &Places, check: &Check, overrides: &Overrides, runner: &mut dyn Steps, statuses: &mut dyn Statuses) -> Result<Outcome, String> {
+pub fn judge(places: &Places, check: &Check, overrides: &Overrides, runner: &mut super::Admitted, statuses: &mut dyn Statuses) -> Result<Outcome, String> {
     let lane = fetch(places, check)?;
     let reference = overrides.reference.as_deref().unwrap_or("origin/main");
     let tip = git(&lane, &["rev-parse", "--verify", &format!("{reference}^{{commit}}")])?;

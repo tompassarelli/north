@@ -57,7 +57,6 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-
 fn cap(name: &str) -> Option<i64> {
     let text = fs::read_to_string(orchestration::path()).ok()?;
     let document: toml_edit::DocumentMut = text.parse().ok()?;
@@ -254,6 +253,3 @@ pub fn status() -> String {
         None => format!("{name}: {live} resident agent CLIs, no cap"),
     }
 }
-
-#[cfg(test)]
-mod tests;

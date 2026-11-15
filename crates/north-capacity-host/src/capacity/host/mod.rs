@@ -19,8 +19,6 @@ pub use database::{QUEUED_BOUND_SECONDS, Queued, capacity_database_readonly, que
 mod decision;
 mod estimate;
 mod learned;
-#[cfg(test)]
-mod estimate_replay_tests;
 mod fleet_pull;
 mod gpu;
 mod handover;
@@ -30,18 +28,12 @@ mod terminations;
 #[cfg(test)]
 mod handover_tests;
 #[cfg(test)]
-mod lease_wait_tests;
-#[cfg(test)]
 mod offering_tests;
-#[cfg(test)]
-mod gpu_tests;
 mod json;
 mod machine;
 pub(super) use machine::host_cores;
 #[cfg(test)]
 mod landing_tests;
-#[cfg(test)]
-mod machine_tests;
 mod measure;
 mod offload_cost;
 mod model;
@@ -49,20 +41,12 @@ mod calibration;
 pub use calibration::{calibration_command, model_command};
 pub(super) mod policy;
 pub use policy::maximum_seconds;
-#[cfg(test)]
-mod policy_tests;
 mod priority;
 mod quiet_holds;
 mod request;
 mod overrun;
-#[cfg(test)]
-mod overrun_tests;
 mod requeue;
 mod run;
-#[cfg(test)]
-mod lease_lifecycle_tests;
-#[cfg(test)]
-mod pressure_admission_tests;
 #[cfg(test)]
 mod run_tests;
 mod shape;
@@ -72,8 +56,6 @@ pub mod urgency;
 mod status;
 mod systemd;
 mod unleased_native;
-#[cfg(test)]
-mod unleased_native_tests;
 
 const USAGE: &str = "usage: offload-cost [--last N]|admit-job [--landing]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 

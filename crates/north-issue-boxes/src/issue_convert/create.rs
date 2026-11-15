@@ -34,14 +34,6 @@ pub struct NewIssue<'a> {
     pub labels: &'a [String],
 }
 
-/// Where converted issues are filed and the parent's body rewritten: GitHub, or a fake in the tests.
-pub trait IssueTracker {
-    fn create(&mut self, issue: &NewIssue) -> Result<u64, Refusal>;
-    fn rewrite_body(&mut self, body: &str) -> Result<(), Refusal>;
-    fn now(&self) -> i64;
-    fn wait(&mut self, seconds: i64);
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Made {
     pub issue: u64,
@@ -80,7 +72,7 @@ pub struct Outcome {
 
 /// Files each row of `rows` that `record` does not hold yet, then ticks every recorded box in `body`. When that changes
 /// the body, the body as it stood is saved under `state` and then rewritten.
-pub fn convert<T: IssueTracker>(tracker: &mut T, body: &str, rows: &[Row], record: &mut Record, state: &Path, label: &str) -> Result<Outcome, String> {
+pub fn convert(tracker: &mut Github, body: &str, rows: &[Row], record: &mut Record, state: &Path, label: &str) -> Result<Outcome, String> {
     let mut window: Vec<i64> = record.made.values().map(|made| made.at).collect();
     let fresh: Vec<&Row> = rows.iter().filter(|row| row.verdict.created() && !record.made.contains_key(&row.source)).collect();
     for row in &fresh {
@@ -108,7 +100,7 @@ pub fn convert<T: IssueTracker>(tracker: &mut T, body: &str, rows: &[Row], recor
 }
 
 /// Waits until one more creation keeps the hour under `MOST_PER_HOUR`, given the creation times in `window`.
-fn pace<T: IssueTracker>(tracker: &mut T, window: &mut Vec<i64>) {
+fn pace(tracker: &mut Github, window: &mut Vec<i64>) {
     loop {
         let now = tracker.now();
         window.retain(|at| *at > now - HOUR);
@@ -120,7 +112,7 @@ fn pace<T: IssueTracker>(tracker: &mut T, window: &mut Vec<i64>) {
 }
 
 /// Makes one call, waiting out each rate-limit refusal before the same call is tried again.
-fn patiently<T: IssueTracker, R>(tracker: &mut T, what: &str, mut call: impl FnMut(&mut T) -> Result<R, Refusal>) -> Result<R, String> {
+fn patiently<R>(tracker: &mut Github, what: &str, mut call: impl FnMut(&mut Github) -> Result<R, Refusal>) -> Result<R, String> {
     let mut wait = FIRST_WAIT;
     let mut attempt = 0;
     loop {
@@ -164,7 +156,7 @@ impl Github {
     }
 }
 
-impl IssueTracker for Github {
+impl Github {
     fn create(&mut self, issue: &NewIssue) -> Result<u64, Refusal> {
         let payload = json!({ "title": issue.title, "body": issue.body, "type": issue.kind, "labels": issue.labels });
         let endpoint = format!("repos/{}/issues", self.repo);

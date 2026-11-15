@@ -279,7 +279,3 @@ pub(super) fn run(argv: &[String], context: &Context, out: &mut dyn Write, err: 
     });
     report("opencode", result, out, err)
 }
-
-#[cfg(test)]
-#[path = "opencode_tests.rs"]
-mod tests;

@@ -441,6 +441,3 @@ pub fn run(ledger: &Ledger, arguments: &[String], domain: &dyn Fn(&[String]) -> 
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

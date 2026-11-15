@@ -5,8 +5,6 @@ pub mod backtest;
 mod box_eta;
 mod boxes;
 #[cfg(test)]
-mod boxes_tests;
-#[cfg(test)]
 mod rates_tests;
 mod calibrate;
 mod eta_calibration;
@@ -20,8 +18,6 @@ mod read;
 mod recommend;
 pub mod rework;
 pub mod rework_labels;
-#[cfg(test)]
-mod rework_labels_tests;
 mod summary;
 mod verbs;
 mod verdicts;

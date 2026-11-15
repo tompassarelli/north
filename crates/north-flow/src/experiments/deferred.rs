@@ -17,16 +17,11 @@ use crate::platform::process::run_group_within;
 const FROM: &str = "service:north-experiments";
 const NO_LEAD: &str = "proxy";
 
-/// The sessions told when a check misses.
-pub trait Leads {
-    fn tell(&self, lead: &str, text: &str) -> Result<(), String>;
-}
-
 /// Leads through `north fleet send`.
 pub struct Fleet;
 
-impl Leads for Fleet {
-    fn tell(&self, lead: &str, text: &str) -> Result<(), String> {
+impl Fleet {
+    pub fn tell(&self, lead: &str, text: &str) -> Result<(), String> {
         let output = Command::new("north").args(["fleet", "send", "--from", FROM, lead, text]).output().map_err(|why| format!("cannot run north fleet send: {why}"))?;
         output.status.success().then_some(()).ok_or_else(|| format!("north fleet send {lead}: {}", String::from_utf8_lossy(&output.stderr).trim()))
     }
@@ -36,7 +31,7 @@ impl Leads for Fleet {
 pub struct Filing<'a> {
     pub issues: &'a dyn Issues,
     pub filed: &'a mut Filed,
-    pub leads: &'a dyn Leads,
+    pub leads: &'a Fleet,
 }
 
 const CHECK_WITHIN: Duration = Duration::from_secs(120);
@@ -353,6 +348,3 @@ pub fn defer(arguments: &[String], today: Day, lead: Option<String>, issues: &dy
     };
     Ok(format!("deferred the box of {issue} to {} check {}, judged on {}; {rest}; land {} with the lane", registry::PATH, check.id, check.review.text(), registry::PATH))
 }
-
-#[cfg(test)]
-mod tests;

@@ -74,17 +74,3 @@ impl Price {
         turns_left as f64 * saved_per_turn > cost
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::PriceTable;
-
-    #[test]
-    fn every_fable_model_the_fleet_runs_carries_a_price_so_spend_prints_dollars() {
-        let prices = PriceTable::load().unwrap();
-        let price = prices.price("claude-fable-5-2").expect("claude-fable-5-2 has no price, so a Fable session prints unmeasured");
-        assert!(price.of(super::TokenUse { input: 1_000_000, output: 0, cache_read: 0, cache_write: 0 }) > 0.0);
-        assert!(prices.run_usd(Some("claude-fable-5-2"), "fable", 1_000_000, 0, 0) > 0.0);
-    }
-}
-

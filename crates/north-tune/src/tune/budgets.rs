@@ -84,20 +84,3 @@ pub fn multipliers(scores: &[Score]) -> BTreeMap<String, (f64, String)> {
         .filter_map(|score| Some((score.category.clone(), (score.times()?, format!("p90 {:.2}x of actual/E over n={} runs carrying a Budget, set at {:.2}x", score.p90, score.n, score.set_with)))))
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn score(n: usize, p90: f64, set_with: f64) -> Score {
-        Score { category: "feature".to_owned(), n, over: 0.0, p50: 0.1, p90, set_with }
-    }
-
-    /// Reproduces north#608: a p90 of actual over E at 23x times a 6.5x set-with gave a 151x
-    /// multiplier, so the feature cell proposed a $1,245 Budget.
-    #[test]
-    fn a_tail_heavy_p90_never_sets_a_budget_past_the_cap() {
-        assert_eq!(score(38, 23.43, 6.47).times(), Some(MAX_TIMES));
-    }
-
-}

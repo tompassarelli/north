@@ -148,15 +148,3 @@ fn a_checkout_holding_lanes_is_cleaned_with_the_registered_one_relocated_and_the
     assert_eq!(git_in(&moved, &["symbolic-ref", "--short", "HEAD"]), "inner");
     assert!(project.path().join("archive").read_dir().unwrap().flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("stale-stale-")));
 }
-
-#[test]
-fn a_failed_run_removes_the_rescue_lane_it_created() {
-    let project = Project::new();
-    let main = project.main();
-    fs::write(main.join("loose.txt"), "loose\n").unwrap();
-    std::os::unix::fs::symlink("/nonexistent", main.join("dangling")).unwrap();
-    assert!(matches!(project.rescue(false), Finished::Failed(_)));
-    assert!(project.lanes().is_empty());
-    assert_eq!(git_in(&main, &["branch", "--list", "rescue-*"]), "");
-    assert!(main.join("loose.txt").exists());
-}

@@ -144,9 +144,4 @@ impl MainContent {
         let lane: Vec<&String> = commits.iter().filter_map(|sha| known.ids.get(*sha)).collect();
         (!lane.is_empty() && lane.iter().all(|patch| self.patches.contains(*patch))).then_some("patches on main")
     }
-
-    #[cfg(test)]
-    pub(super) fn diffed(&self) -> usize {
-        self.diffed.load(Ordering::Relaxed)
-    }
 }

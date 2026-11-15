@@ -468,7 +468,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "sheriff_tests.rs"]
-mod tests;

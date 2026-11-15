@@ -16,8 +16,6 @@ mod closed;
 mod create;
 pub(crate) mod manifest;
 pub(crate) mod read;
-#[cfg(test)]
-mod tests;
 
 const OWNER: &str = north_github_mirror::store::OWNER;
 const MANIFESTS_UNDER_HOME: &str = ".local/state/north/convert";

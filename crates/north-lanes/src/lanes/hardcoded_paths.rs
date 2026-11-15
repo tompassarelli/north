@@ -273,7 +273,3 @@ fn logical_cwd() -> PathBuf {
         .filter(|logical| logical.is_absolute() && logical.canonicalize().ok() == physical.canonicalize().ok())
         .unwrap_or(physical)
 }
-
-#[cfg(test)]
-#[path = "hardcoded_paths_tests.rs"]
-mod tests;

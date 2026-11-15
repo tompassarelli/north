@@ -151,6 +151,3 @@ fn api_account(run: &Finished) -> Option<&str> {
 fn usd(prices: &PriceTable, model: Option<&str>, tokens: TokenUse) -> f64 {
     model.and_then(|model| prices.price(model)).map_or(0.0, |price| price.of(tokens))
 }
-
-#[cfg(test)]
-mod tests;

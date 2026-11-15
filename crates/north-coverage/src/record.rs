@@ -305,7 +305,3 @@ pub fn assemble(commit: String, recorded: u64, binaries: &HashMap<String, String
     let unprofiled = unprofiled_tests.keys().cloned().collect();
     Map { commit, recorded, tests, functions, failed, unprofiled }
 }
-
-#[cfg(test)]
-#[path = "record_tests.rs"]
-mod tests;

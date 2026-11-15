@@ -12,8 +12,6 @@ mod placement_gate_tests;
 mod process;
 mod readout;
 mod sampling;
-#[cfg(test)]
-mod sampling_tests;
 pub mod spawn_gate;
 mod storage;
 

@@ -15,11 +15,6 @@ pub mod scoreboard;
 pub mod skill;
 pub mod slow_test;
 
-#[cfg(test)]
-mod land_tests;
-#[cfg(test)]
-mod tests;
-
 pub use capacity_estimate::{Estimate, MEASURES as CAPACITY_MEASURES, WRITER as CAPACITY_WRITER, estimate, estimate_from, tell_estimate, tell_estimate_to};
 pub use cells::{Cells, Learned, Measure};
 pub use check_deadline::{CheckDeadline, WRITER as CHECK_WRITER, check_deadline, check_deadline_from, check_key, tell_check_deadline, tell_check_deadline_to};

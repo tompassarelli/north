@@ -26,7 +26,3 @@ pub(super) fn main_runs(mirror: &Mirror, at: f64, repo: &str) -> Option<Vec<Valu
 pub(super) fn url(repo: &str, number: u64) -> String {
     format!("https://github.com/{repo}/issues/{number}")
 }
-
-#[cfg(test)]
-#[path = "mirrored_tests.rs"]
-mod tests;

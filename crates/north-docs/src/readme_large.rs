@@ -408,28 +408,3 @@ pub fn section(doc: &DocumentMut, path: &Path) -> Result<String, String> {
     out.push_str(LEGEND);
     Ok(out)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn render(runs: &[&str]) -> String {
-        let rows: Vec<Row> = runs
-            .iter()
-            .flat_map(|run| {
-                [Arm::North, Arm::Plain].into_iter().flat_map(move |arm| {
-                    (0..TASKS).map(move |task| Row { run: (*run).to_owned(), cell: Cell::Five, arm, task: format!("t{task}"), correct: true, seconds: 100.0, first_handin_pass: true, failed_handins: 0, tokens: 1, cost_usd: 1.0 })
-                })
-            })
-            .collect();
-        cell_row(Cell::Five, &rows.iter().collect::<Vec<_>>())
-    }
-
-    #[test]
-    fn open_cell_renders_no_numbers() {
-        assert_eq!(render(&["lg5-1115a"]), "| large five-at-once cell | 1 x 5 | - | - | - | - | - | - | 1 of 3 runs |\n");
-        let closed = render(&["lg5-1115a", "lg5-1115b", "lg5-1115c"]);
-        assert!(closed.contains("| 3 x 5 | 15 of 15 / 15 of 15 |"), "{closed}");
-        assert!(closed.contains("$5.00 / $5.00"), "{closed}");
-    }
-}

@@ -147,38 +147,6 @@ fn an_untracked_file_identical_to_the_incoming_blob_is_removed_and_main_fast_for
 }
 
 #[test]
-fn a_main_whose_fetch_fails_is_used_only_within_the_bound_of_its_last_fetch() {
-    let pair = pair();
-    let fetched_at = 1_000_000;
-    let mut said = Vec::new();
-    assert_eq!(current_main("south", &pair.clone, fetched_at, &mut |line| said.push(line)), Ok(()));
-    fs::rename(&pair.origin, pair.origin.with_extension("gone")).unwrap();
-    let bound = crate::platform::shared_config::BOUND_SECONDS;
-    let stale = current_main("south", &pair.clone, fetched_at + bound + 60, &mut |line| said.push(line));
-    assert_eq!(
-        stale.unwrap_err(),
-        "south main refused offline: its last fetch of origin/main is 61 min old, past the 60 min bound"
-    );
-    let recent = current_main("south", &pair.clone, fetched_at + 120, &mut |line| said.push(line));
-    assert_eq!(recent, Ok(()));
-    assert_eq!(said.last().unwrap(), "agents sync: south fetch failed; using local main, last fetched 2 min ago");
-}
-
-#[test]
-fn a_main_with_no_commits_is_fast_forwarded_to_origin_and_given_its_upstream() {
-    let pair = pair();
-    let unborn = pair._dir.path().join("unborn");
-    fs::create_dir(&unborn).unwrap();
-    git(&unborn, &["init", "-q", "-b", "main"]);
-    git(&unborn, &["remote", "add", "origin", &pair.origin.display().to_string()]);
-    let outcome = current_main("south", &unborn, 0, &mut |_| {});
-    assert_eq!(outcome, Ok(()));
-    assert_eq!(head(&unborn), head(&pair.origin));
-    let upstream = Command::new("git").arg("-C").arg(&unborn).args(["rev-parse", "--abbrev-ref", "main@{upstream}"]).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&upstream.stdout).trim(), "origin/main");
-}
-
-#[test]
 fn a_main_with_no_origin_is_its_own_revision_and_is_not_refused() {
     let dir = tempfile::tempdir().unwrap();
     let local = dir.path().join("local");

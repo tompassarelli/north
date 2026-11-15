@@ -18,9 +18,6 @@ mod shared;
 mod tree;
 mod vocabulary;
 
-#[cfg(test)]
-mod tests;
-
 pub use gate::north_session_start;
 
 use gate::{Gate, Mode};

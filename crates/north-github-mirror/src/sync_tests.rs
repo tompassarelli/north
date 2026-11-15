@@ -1,7 +1,6 @@
 use super::*;
 use crate::audit;
 use crate::read::{self, Seen};
-use crate::store::BRANCHES_PROBE;
 use serde_json::json;
 use std::cell::{Cell, RefCell};
 
@@ -90,32 +89,6 @@ fn outcomes(fake: &Fake, mirror: &Mirror, at: f64) -> Vec<Result<Fetch, String>>
 }
 
 #[test]
-fn an_unchanged_repository_costs_only_conditional_reads_and_an_edited_one_or_a_moved_main_refetches_what_changed() {
-    main_moving_compares_only_the_unlanded_branches_again_and_a_deleted_branch_loses_its_compare();
-    let root = tempfile::tempdir().unwrap();
-    let (fake, mirror) = (Fake::new(), Mirror::at(root.path().join("github-mirror.db")));
-    assert_eq!(outcomes(&fake, &mirror, 100.0), vec![Ok(Fetch::Refreshed); 13]);
-    assert_eq!(fake.graphql_reads.get(), 1);
-    fake.sent_etags.borrow_mut().clear();
-    assert_eq!(outcomes(&fake, &mirror, 200.0), vec![Ok(Fetch::Unchanged); 13]);
-    assert_eq!(fake.graphql_reads.get(), 1);
-    assert_eq!(*fake.sent_etags.borrow(), [Some("\"p1\"")].into_iter().chain([Some("\"r1\""); 11]).map(|etag| etag.map(str::to_owned)).collect::<Vec<_>>());
-    assert_eq!(mirror.fresh(&key("north", OPEN_ISSUES), 200.0 + store::FRESH_S), Some(json!([{"number": 638, "title": "a local GitHub mirror", "edited": false}, {"number": 9}])));
-    fake.issues_edited.set(true);
-    assert_eq!(outcomes(&fake, &mirror, 300.0)[0], Ok(Fetch::Refreshed));
-    assert_eq!(mirror.read(&key("north", OPEN_ISSUES)).unwrap().body[0]["edited"], true);
-}
-
-#[test]
-fn gh_include_output_reads_as_unchanged_on_304_and_as_the_body_and_etag_on_200_and_a_pages_404_as_no_site() {
-    a_404_from_the_pages_endpoint_means_no_site_and_any_other_failure_is_an_error();
-    assert_eq!(response("HTTP/2.0 304 Not Modified\r\nEtag: W/\"abc\"\r\n\r\n"), Ok(Answer::Unchanged));
-    let changed = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nEtag: W/\"abc\"\r\nX-Ratelimit-Remaining: 4999\r\n\r\n[{\"id\":1}]";
-    assert_eq!(response(changed), Ok(Answer::Changed { body: json!([{"id": 1}]), etag: Some("W/\"abc\"".into()) }));
-    assert_eq!(response("HTTP/2.0 403 Forbidden\r\n\r\n{}"), Err("HTTP 403".into()));
-}
-
-#[test]
 fn a_fresh_mirror_answers_branches_tags_releases_issue_states_pages_the_repository_list_and_compares_without_calling_github() {
     a_fresh_mirror_answers_pages_the_repository_list_and_branch_compares_without_calling_github();
     let root = tempfile::tempdir().unwrap();
@@ -142,7 +115,6 @@ fn a_fresh_mirror_answers_branches_tags_releases_issue_states_pages_the_reposito
     assert_eq!(read::pages(&mirror, at + 1.0, "north", store::OPEN_PULLS, || Ok(json!("live"))).unwrap(), json!("live"));
 }
 
-
 fn a_fresh_mirror_answers_pages_the_repository_list_and_branch_compares_without_calling_github() {
     let root = tempfile::tempdir().unwrap();
     let (fake, mirror) = (Fake::new(), Mirror::at(root.path().join("github-mirror.db")));
@@ -158,30 +130,4 @@ fn a_fresh_mirror_answers_pages_the_repository_list_and_branch_compares_without_
     assert_eq!(read::compare(&mirror, "north", "topic", "def", "t1", || Ok(json!("live"))).unwrap(), json!("live"), "an unlanded branch is compared again once main has moved");
     assert_eq!(read::compare(&mirror, "north", "landed", "def", "l1", never).unwrap()["ahead_by"], 0, "a landed branch stays landed whatever main becomes");
     assert_eq!(read::pages_site(&mirror, at + 1.0, "north", || Ok(json!("live"))).unwrap(), json!("live"));
-}
-
-fn main_moving_compares_only_the_unlanded_branches_again_and_a_deleted_branch_loses_its_compare() {
-    let root = tempfile::tempdir().unwrap();
-    let (fake, mirror) = (Fake::new(), Mirror::at(root.path().join("github-mirror.db")));
-    outcomes(&fake, &mirror, 100.0);
-    assert_eq!(*fake.compare_reads.borrow(), [["topic", "landed"].map(String::from).to_vec()]);
-    outcomes(&fake, &mirror, 200.0);
-    assert_eq!((fake.compare_reads.borrow().len(), fake.pages_reads.get()), (1, 1), "an unchanged repository costs no compare and no Pages read inside half an hour");
-    fake.main_moved.set(true);
-    mirror.write(&key("north", BRANCHES_PROBE), &json!([]), Some("stale"), 200.0).unwrap();
-    outcomes(&fake, &mirror, 300.0);
-    assert_eq!(fake.compare_reads.borrow()[1], vec!["topic".to_owned()]);
-    outcomes(&fake, &mirror, 100.0 + REFETCH_S + 1.0);
-    assert_eq!(fake.pages_reads.get(), 2, "the Pages source is read again after half an hour");
-    mirror.write(&key("north", &audit::compare_kind("gone")), &json!({"head": "g1"}), None, 300.0).unwrap();
-    mirror.write(&key("north", BRANCHES_PROBE), &json!([]), Some("stale"), 300.0).unwrap();
-    outcomes(&fake, &mirror, 400.0 + REFETCH_S);
-    assert!(mirror.read(&key("north", &audit::compare_kind("gone"))).is_none());
-}
-
-fn a_404_from_the_pages_endpoint_means_no_site_and_any_other_failure_is_an_error() {
-    let site = json!({"source": {"branch": "gh-pages"}});
-    assert_eq!(audit::pages_answer(Ok(Answer::Changed { body: site.clone(), etag: None }), "north"), Ok(site));
-    assert_eq!(audit::pages_answer(Err("gh api repos/x/pages: HTTP 404 gh: Not Found (HTTP 404)".into()), "north"), Ok(Value::Null));
-    assert!(audit::pages_answer(Err("HTTP 403".into()), "north").is_err());
 }

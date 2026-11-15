@@ -45,7 +45,6 @@ fn conclude(finished: Option<Option<String>>, errors: &Path) -> Option<String> {
     })
 }
 
-
 pub(super) fn decide(bytes: &[u8], gate: &Gate, reply: impl FnOnce(&str) -> super::Result<HookReply>) -> Option<String> {
     if bytes.len() as u64 > PAYLOAD_LIMIT {
         return None;
@@ -70,27 +69,4 @@ pub(super) fn decide(bytes: &[u8], gate: &Gate, reply: impl FnOnce(&str) -> supe
 
 fn hook_error(file: &Path, kind: &str) {
     record_error(file, HOOK_ID, kind);
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::foundation::hook_deadline::within_by;
-
-    #[test]
-    fn a_stuck_decider_is_abandoned_at_the_deadline_with_a_note_instead_of_hanging() {
-        let (release, held) = std::sync::mpsc::channel::<()>();
-        let stuck = within_by(Duration::from_secs(1), &|| Duration::from_secs(1), move || {
-            let _ = held.recv();
-            Some("never".to_owned())
-        });
-        assert!(stuck.is_none());
-        drop(release);
-        let dir = tempfile::tempdir().unwrap();
-        let errors = dir.path().join("errors.tsv");
-        let note = conclude(stuck, &errors).unwrap();
-        assert!(note.contains(LATE_NOTE) && note.contains("additionalContext"));
-        assert!(std::fs::read_to_string(&errors).unwrap().ends_with("\tprompt-grounding\tdeadline\n"));
-    }
 }

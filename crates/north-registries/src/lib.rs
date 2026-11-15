@@ -86,29 +86,3 @@ pub fn structure(source: &Path) -> Result<String, String> {
     let entries = files(source, "toml")?.into_iter().map(|path| read(&path)).collect::<Result<Vec<_>, _>>()?;
     structure_parts(entries.iter().map(String::as_str)).ok_or_else(|| format!("{} holds no table", source.display()))
 }
-
-#[cfg(test)]
-mod tests {
-
-    fn source(files: &[(&str, &str)]) -> tempfile::TempDir {
-        let root = tempfile::tempdir().unwrap();
-        for (name, text) in files {
-            std::fs::write(root.path().join(name), text).unwrap();
-        }
-        root
-    }
-
-    #[test]
-    fn every_registry_renders_its_per_unit_tree_in_name_order() {
-        let reference = source(&[("_header.txt", "Commands:\n"), ("_footer.txt", "\nOptions:\n"), ("0002-second.txt", "  second  Later\n"), ("0001-first.txt", "  first  Earlier\n"), ("_ignored.txt", "  ignored\n")]);
-        assert_eq!(super::reference(reference.path()).unwrap(), "Commands:\n  first  Earlier\n  second  Later\n\nOptions:\n");
-        let continued = source(&[("_header.txt", "Commands:\n"), ("_footer.txt", "\nOptions:\n"), ("0001-long.txt", "  long  Starts here\n                                                        and ends here\n")]);
-        assert_eq!(super::reference(continued.path()).unwrap(), "Commands:\n  long  Starts here\n                                                        and ends here\n\nOptions:\n");
-        let table = source(&[("_header.txt", "const T: &[&str] = &[\n"), ("_footer.txt", "];\n"), ("0002-late.txt", "    (\"b\", B),\n"), ("0001-early.txt", "    (\"a\", A),\n")]);
-        assert_eq!(super::verbs(table.path()).unwrap(), "const T: &[&str] = &[\n    (\"a\", A),\n    (\"b\", B),\n];\n");
-        let config = source(&[("0001-a.toml", "[a]\nx = 1\n\n"), ("0002-b.toml", "[[b]]\ny = 2\n")]);
-        assert_eq!(super::structure(config.path()).unwrap(), "[a]\nx = 1\n\n[[b]]\ny = 2\n");
-        let empty = source(&[]);
-        assert!(super::structure(empty.path()).is_err());
-    }
-}

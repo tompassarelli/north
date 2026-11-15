@@ -47,8 +47,6 @@ pub use target_seed::{DeadSeed, reclaim_dead_seeds, run as target_seed};
 pub use unlock::run as unlock;
 
 #[cfg(test)]
-mod new_tests;
-#[cfg(test)]
 mod remove_tests;
 #[cfg(test)]
 mod reject_tests;

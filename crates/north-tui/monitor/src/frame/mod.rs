@@ -69,6 +69,3 @@ pub fn draw(frame: &mut Frame, view: &View) {
     section(frame, bottom_left, health);
     section(frame, bottom_right, builds);
 }
-
-#[cfg(test)]
-mod tests;

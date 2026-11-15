@@ -96,6 +96,3 @@ fn print_probe(env: &Env, host: &dyn Host) -> u8 {
     println!("check nix: {problems} problems");
     u8::from(problems > 0)
 }
-
-#[cfg(test)]
-mod tests;

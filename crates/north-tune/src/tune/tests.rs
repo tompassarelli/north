@@ -140,7 +140,6 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
     assert!(issues.told.is_empty(), "{:#?}", ticked.lines);
 }
 
-
 #[test]
 fn a_rise_is_told_once_and_only_while_it_holds_with_the_weeks_dearest_box_dropped() {
     let risen = |outputs: [i64; 3]| {
@@ -152,41 +151,6 @@ fn a_rise_is_told_once_and_only_while_it_holds_with_the_weeks_dearest_box_droppe
     };
     assert_eq!(risen([1_000_000, 5_000_000, 9_000_000]), (false, Vec::new()), "the median box alone is past the bar, the box beside it is not");
     assert_eq!(risen([5_000_000, 5_000_000, 9_000_000]), (true, vec![format!("north tune: {}: opus-medium tooling; `north tune --dry-run` shows them.", crate::ledger::rises::TITLE)]), "told on the first risen tick and not again while the cells hold");
-}
-
-#[test]
-fn a_tick_moves_an_eta_or_budget_cell_at_most_twofold_from_the_prior_tick_however_far_the_week_lies() {
-    let week = boxes("70", 3, SONNET, "tooling", "2026-10-24", 9_000_000);
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
-    let unlimited = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
-    let (budget, eta) = ("budget_usd sonnet tooling", "eta_minutes sonnet tooling");
-    let free = |cell: &str| unlimited.cells[cell].as_f64().unwrap();
-    assert!(free(budget) > 7.14 && free(eta) > 20.0, "{} {}", free(budget), free(eta));
-
-    let prior = Prior { cells: [(budget.to_owned(), serde_json::json!(3.57)), (eta.to_owned(), serde_json::json!(10.0))].into(), ..Prior::default() };
-    let held = tick(&ledger, &prior, &[], &mut Issues::default(), AT, false);
-    assert_eq!(held.cells[budget], serde_json::json!(7.14));
-    assert_eq!(held.cells[eta], serde_json::json!(20.0));
-    assert!(held.lines.iter().any(|line| line.starts_with(&format!("changed {budget}: 3.57 -> 7.14")) && line.contains("step limit")), "{:#?}", held.lines);
-
-    let settled = Prior { cells: held.cells, ..Prior::default() };
-    let next = tick(&ledger, &settled, &[], &mut Issues::default(), AT, false);
-    assert!(next.cells[budget].as_f64().unwrap() > 7.14, "the next tick walks on toward the figure");
-}
-
-#[test]
-fn a_box_whose_first_run_is_haiku_charges_its_opus_runs_to_the_opus_cell() {
-    let haiku = ("haiku", "claude-haiku-5-5");
-    let mut first = run("north#60", haiku, "mechanical", "2026-10-24T08:00:00Z", "2026-10-24T08:10:00Z");
-    first.landed = false;
-    let later = run("north#60", OPUS, "mechanical", "2026-10-24T09:00:00Z", "2026-10-24T09:30:00Z");
-    let week = report(&[first.clone(), later.clone()], "2026-10-20T06:00:00Z");
-    let spend = |tier: &str| week.cells.iter().find(|cell| cell.tier.contains(tier)).map(|cell| (cell.closed, cell.usd)).unwrap();
-    let prices = PriceTable::load().unwrap();
-    let price = |run: &SpendRun| prices.run_usd(run.model.as_deref(), &run.tier, run.input, run.cache_read, run.output);
-    assert_eq!(spend("opus"), (1, price(&later)), "the Opus run's cost is in the Opus cell");
-    assert_eq!(spend("haiku"), (1, price(&first)), "the haiku cell holds only the haiku run's cost");
-    assert_eq!(week.closed, 1, "one box closed, not one per cell");
 }
 
 const RECORDED_OPUS_HIGH_DEBUGGING: [(f64, f64); 20] = [

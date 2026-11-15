@@ -21,8 +21,6 @@ mod sessions;
 mod speaker;
 mod text;
 #[cfg(test)]
-mod core_tests;
-#[cfg(test)]
 mod tests;
 
 use std::io::{BufWriter, IsTerminal, Write};

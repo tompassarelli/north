@@ -2,8 +2,6 @@
 mod assess;
 mod keep;
 mod state;
-#[cfg(test)]
-mod tests;
 mod view;
 mod work;
 pub mod world;

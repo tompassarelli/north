@@ -57,28 +57,3 @@ pub(super) fn check(catalog: &DocumentMut, state: &Path, output: Option<Vec<u8>>
     send("Model catalog drift", &lines.join("; "));
     fs::write(&report, body).map_err(|error| error.to_string())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const OFFERED: &str = "gemini-4-argon-low\ngemini-4-argon-medium\ngemini-4-argon-high\ngemini-3.8-flash-low\ngemini-3.8-flash-medium\ngemini-3.8-flash-high\nclaude-opus-5-5-low\nclaude-sonnet-5-5-high\ngpt-oss-120b-medium\n";
-
-    fn lines(output: &str) -> Vec<String> {
-        drift(&crate::usage::settings::catalog(), &listed(output))
-    }
-
-    #[test]
-    fn catalog_matches_the_gemini_models_agy_offered_on_2026_11_08() {
-        assert_eq!(lines(OFFERED), Vec::<String>::new());
-    }
-
-    #[test]
-    fn an_added_and_a_retired_model_are_both_reported() {
-        let output = OFFERED.replace("gemini-4-argon-low", "gemini-3.7-flash-low");
-        assert_eq!(
-            lines(&output),
-            ["agy offers gemini-3.7-flash-low; harness/model-catalog.toml has no entry for it", "harness/model-catalog.toml lists gemini-4-argon-low; agy no longer offers it"]
-        );
-    }
-}

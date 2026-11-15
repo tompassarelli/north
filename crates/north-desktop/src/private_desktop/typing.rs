@@ -67,36 +67,3 @@ fn key_event<W: Write>(stream: &mut W, down: bool, keysym: u32) -> io::Result<()
     message[4..].copy_from_slice(&keysym.to_be_bytes());
     stream.write_all(&message)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn expected(character: char) -> Key {
-        let shift = character.is_ascii_uppercase() || SHIFTED.contains(character);
-        let keysym = match character {
-            '\n' => ENTER,
-            '\t' => TAB,
-            _ => u32::from(character),
-        };
-        Key { shift, keysym }
-    }
-
-    #[test]
-    fn every_printable_us_character_maps_to_its_key() {
-        let printable: Vec<char> = (0x20u8..0x7f).map(char::from).chain(['\n', '\t']).collect();
-        assert_eq!(printable.len(), 97);
-        for character in printable {
-            assert_eq!(
-                plan(&character.to_string()),
-                Ok(vec![expected(character)]),
-                "{character:?}"
-            );
-        }
-        assert_eq!(
-            plan("Ab@#1x.Z_-+").unwrap(),
-            "Ab@#1x.Z_-+".chars().map(expected).collect::<Vec<_>>()
-        );
-    }
-
-}

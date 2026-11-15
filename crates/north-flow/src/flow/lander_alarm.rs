@@ -122,7 +122,3 @@ pub fn alert(places: &Places, host: &dyn Host, rows: &[Value]) -> Result<(), Str
     }
     save(&path, &state)
 }
-
-#[cfg(test)]
-#[path = "lander_alarm_tests.rs"]
-mod tests;

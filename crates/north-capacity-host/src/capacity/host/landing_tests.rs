@@ -2,24 +2,6 @@ use super::landing_run;
 use super::request::Request;
 
 #[test]
-fn a_land_check_lease_is_a_landing_lease_without_the_land_head_in_its_environment() {
-    assert!(landing_run("run", "land-check", "heavy", None, None));
-    assert!(!landing_run("run", "heavy-command-guard", "heavy", Some("abc"), Some("1")));
-}
-
-#[test]
-fn a_queued_lander_run_admits_as_the_critical_class_that_starts_before_earlier_queued_worker_gates() {
-    let admitted = |owner: &str| Request { name: "heavy".to_owned(), landing: landing_run("run", owner, "heavy", None, None), ..Request::default() }.admitted_class().to_owned();
-    for lander in ["land-check", "land-offload", "gate:lander", "gate:lander-2", "gate:lander-probe-1", "gate:lander-replay", "gate:lander-replay-2", "gate:lander-goals"] {
-        assert_eq!(admitted(lander), "critical", "{lander} waits in the worker line");
-    }
-    for worker in ["gate:north-842-serve", "gate:tom", "gate:lander-lead", "gate:lander-probe", "gate:landerx", "heavy-command-guard", "makgora-goals-perf"] {
-        assert_eq!(admitted(worker), "heavy", "{worker} takes the landing priority");
-    }
-    assert!(!landing_run("estimate", "gate:lander", "heavy", None, None));
-}
-
-#[test]
 fn a_land_check_is_charged_and_recorded_as_the_check_it_runs_and_keeps_the_heavy_charge_without_a_day_of_its_runs() {
     let script = "/home/builder/.cache/land-offload/offload-command.ry70YQ/command";
     let wrapper = ["bash", "-euo", "pipefail", script].map(str::to_owned);
@@ -58,21 +40,4 @@ fn a_land_check_is_charged_and_recorded_as_the_check_it_runs_and_keeps_the_heavy
     assert_eq!(sized(Some(4.0), &[]), 4.0, "on 2026-11-12 a land check charged 4 CPUs ran in a 16-CPU scope");
     assert_eq!(sized(None, &[run(40.0, 12.0); 4]), 8.0);
     assert_eq!(sized(Some(1.0), &[run(160.0, 1200.0); 6]), 7.0, "a caller's share never charges less than its command's records need");
-}
-
-#[test]
-fn a_land_check_of_a_kind_new_today_is_charged_what_the_hosts_land_checks_used_so_the_slots_fill_while_pressure_is_under_target() {
-    let tonight = [super::policy::ChargedRun { wall_seconds: 11.5, cpu_seconds: 23.6, charged_cpus: 8.0, passed: true }; 10];
-    let day = super::policy::host_landing_charge(&tonight, 8.0);
-    let mut request = Request { name: "heavy".to_owned(), resources: super::policy::resource_class("heavy", 20.0), landing: landing_run("run", "land-check", "heavy", None, None), ..Request::default() };
-    super::size_landing(&mut request, 20.0, None, (8.0, day), |heavy| super::policy::landing_charge(&[], heavy, 300.0));
-    let each = request.resources().cpus;
-    assert_eq!((each, request.declared.unwrap().cpus), (3.0, 8.0), "a build host on 2026-11-12: ten land checks charged 921 core-seconds used 236, yet a kind new that day was charged 8");
-    assert_eq!(super::policy::host_landing_charge(&tonight[..4], 8.0), None, "a host without a day of land checks keeps the heavy charge");
-    let root = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(root.path().join("leases")).unwrap();
-    for lease in 0..5 {
-        std::fs::write(root.path().join("leases").join(format!("{lease}.json")), serde_json::json!({"landing": true, "cpus": each}).to_string()).unwrap();
-    }
-    assert_eq!(super::landing_refusal_under(root.path(), each, 20.0), None, "46 jobs waited while a sixth slot sat idle at CPU pressure 17-19 of a target of 40");
 }

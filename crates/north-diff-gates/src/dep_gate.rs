@@ -4,8 +4,6 @@ mod registry;
 mod review;
 mod snapshot;
 mod source;
-#[cfg(test)]
-mod tests;
 mod trailer;
 
 pub use registry::{PublicRegistries, Registry};

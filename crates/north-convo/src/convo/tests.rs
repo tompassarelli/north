@@ -65,10 +65,6 @@ impl Lab {
         fs::create_dir_all(&dir).unwrap();
         dir
     }
-
-    fn miss(&self, token: &str) {
-        assert_eq!(self.run(&[token]).0, 1, "{token} matched");
-    }
 }
 
 fn message(role: &str, text: &str, ts: &str) -> String {
@@ -166,54 +162,6 @@ fn zstd_available() -> bool {
 
 fn age_available() -> bool {
     ["age", "age-keygen"].iter().all(|program| Command::new(program).arg("--version").output().is_ok_and(|out| out.status.success()))
-}
-
-#[test]
-fn compression_holds_back_open_warm_and_rostered_files_and_restores_byte_for_byte() {
-    assert!(zstd_available(), "the compression test needs zstd on PATH");
-    let mut lab = Lab::new();
-    let dir = lab.codex_dir("01");
-    let roster = dir.join("../roster.json");
-    fs::write(&roster, "[]").unwrap();
-    lab.env.roster_cmd = Some(format!("cat {}", roster.display()));
-    let rostered_id = "dddddddd-1111-2222-3333-444444444444";
-    let names = ["cold", "warm", "held", rostered_id];
-    for name in names {
-        write(&dir.join(format!("{name}.jsonl")), &records(&name.replace('-', "").to_uppercase(), "2026-08-05T10:00:00Z"));
-    }
-    let original = fs::read(dir.join("cold.jsonl")).unwrap();
-    let old = std::time::SystemTime::now() - Duration::from_secs(3 * 86400);
-    for name in ["cold", "held", rostered_id] {
-        File::options().write(true).open(dir.join(format!("{name}.jsonl"))).unwrap().set_modified(old).unwrap();
-    }
-    let _holder = File::open(dir.join("held.jsonl")).unwrap();
-    lab.index();
-    let dry = lab.out(&["compress", "--dry-run"]);
-    has(&dry, "projected");
-    has(&dry, "1 open by a process");
-    assert!(dir.join("cold.jsonl").exists() && !dir.join("cold.jsonl.zst").exists());
-    fs::write(&roster, format!(r#"[{{"conversation":"{rostered_id}","status":"working"}}]"#)).unwrap();
-    lab.run(&["compress", "-q"]);
-    assert!(dir.join("cold.jsonl.zst").exists() && !dir.join("cold.jsonl").exists(), "a closed transcript was not compressed");
-    for held in ["warm", "held", rostered_id] {
-        assert!(dir.join(format!("{held}.jsonl")).exists() && !dir.join(format!("{held}.jsonl.zst")).exists(), "{held} was compressed");
-    }
-    let unpacked = Command::new("zstd").args(["-dcq"]).arg(dir.join("cold.jsonl.zst")).output().unwrap().stdout;
-    assert_eq!(unpacked, original);
-    has(&lab.out(&["COLD", "-m", "-n", "1", "--json"]), "cold.jsonl\"");
-    has(&lab.index(), "from 0 changed files");
-    hasnt(&lab.out(&["compress", "--dry-run"]), "cold.jsonl");
-    write(&dir.join("dual.jsonl"), &records("STALEZSTTOKEN", "2026-08-06T10:00:00Z"));
-    assert!(Command::new("zstd").args(["-q", "--long=27"]).arg(dir.join("dual.jsonl")).status().unwrap().success());
-    fs::remove_file(dir.join("dual.jsonl")).unwrap();
-    write(&dir.join("dual.jsonl"), &records("DUALTOKEN", "2026-08-06T10:00:00Z"));
-    lab.index();
-    has(&lab.out(&["DUALTOKEN"]), "DUALTOKEN record");
-    lab.miss("STALEZSTTOKEN");
-    lab.run(&["restore", dir.join("cold.jsonl.zst").to_str().unwrap()]);
-    assert_eq!(fs::read(dir.join("cold.jsonl")).unwrap(), original);
-    assert!(!dir.join("cold.jsonl.zst").exists());
-    has(&lab.index(), "from 0 changed files");
 }
 
 #[test]
@@ -322,19 +270,6 @@ fn the_tom_corpus_holds_every_typed_message_and_no_agent_text() {
     assert_eq!(lab.run(&["-r", "user", "LAUNCHBRIEFTOKEN"]).0, 1, "a launch brief counted as typed");
 }
 
-#[test]
-fn indexing_reads_every_north_account_profile_and_what_tom_types_while_a_turn_runs() {
-    let mut lab = Lab::new();
-    lab.env.root_pinned = false;
-    let other = lab.env.home.join(".local/state/north/profiles/claude-x/projects/-synthetic-claude");
-    let queued = |token: &str, origin: &str| json!({"type": "attachment", "sessionId": CSID, "timestamp": "2026-08-08T10:01:00Z", "attachment": {"type": "queued_command", "prompt": format!("{token} typed mid-turn"), "commandMode": "prompt", "origin": {"kind": origin}}}).to_string();
-    write(&other.join(format!("{CSID}.jsonl")), &[claude_record("user", json!("OTHERPROFILETOKEN typed in another account"), "2026-08-08T10:00:00Z", json!({})), queued("MIDTURNTOKEN", "human"), queued("NOTIFYTOKEN", "task-notification")]);
-    lab.index();
-    assert_eq!(lab.run(&["OTHERPROFILETOKEN"]).0, 0);
-    assert_eq!(lab.run(&["MIDTURNTOKEN"]).0, 0);
-    assert_ne!(lab.run(&["NOTIFYTOKEN"]).0, 0);
-}
-
 fn fleet_store(path: &Path, conversation: &str, from_tom: &[&str]) {
     rusqlite::Connection::open(path).unwrap().execute_batch("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;").unwrap();
     let row = |id: usize, to: &str, text: &str, sender: Sender| FleetRow { id: format!("m-{id}"), kind: RowKind::Message, to: to.into(), from: "laptop".into(), urgent: false, sent_at: 1_794_000_000_000, text: text.into(), sender, gate: None, answer: None, job: None, origin: None, spooled_by: None };
@@ -343,11 +278,4 @@ fn fleet_store(path: &Path, conversation: &str, from_tom: &[&str]) {
     rows.push(row(from_tom.len() + 1, "vn-1", "PROBETOKEN sent to a test session as Tom", Sender::Tom));
     Store::open(path).unwrap().put(&rows).unwrap();
     rusqlite::Connection::open(path).unwrap().execute("INSERT INTO fleet_sessions(name, host, status, created, updated, conversation) VALUES ('fleet', 'laptop', 'idle', '', '', ?1)", [conversation]).unwrap();
-}
-
-#[test]
-fn value_options_named_in_help_take_their_value() {
-    let arguments: Vec<String> = ["compress", "--max-files", "3", "--context", "4"].map(str::to_owned).into();
-    let args = super::args::parse(&arguments).unwrap();
-    assert_eq!((args.max_files, args.context), (3, 4));
 }

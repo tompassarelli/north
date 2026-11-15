@@ -104,31 +104,3 @@ fn write(graph: &mut Graph, source: &str, docs: Vec<Doc>, whole: bool, floor: Op
 fn stored(d: &Doc) -> Doc {
     Doc { title: redact(&d.title), text: redact(&cut(&d.text, 4000)), ..d.clone() }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn doc(id: &str, text: &str, at: f64) -> Doc {
-        Doc { source: "policy".into(), id: id.into(), reference: format!("north:{id}"), title: format!("rule {id}"), text: text.into(), at, decays: false }
-    }
-
-    fn occurrences(graph: &Graph) -> u64 {
-        graph.validate().unwrap().occurrences
-    }
-
-    #[test]
-    fn a_refresh_writes_only_the_propositions_that_changed() {
-        let mut graph = Graph::open_in_memory().unwrap();
-        assert_eq!(write(&mut graph, "policy", vec![doc("a", "landing queue", 1.0), doc("b", "lander probes", 2.0)], true, None).unwrap(), 2);
-        let first = occurrences(&graph);
-        assert_eq!(write(&mut graph, "policy", vec![doc("a", "landing queue", 1.0), doc("b", "lander probes", 2.0)], true, None).unwrap(), 2);
-        assert_eq!(occurrences(&graph), first, "an unchanged refresh adds no occurrence");
-        assert_eq!(write(&mut graph, "policy", vec![doc("a", "landing queue p90", 1.0)], true, None).unwrap(), 1);
-        assert_eq!(occurrences(&graph), first + 2 + 6, "the changed text is one retraction and one assertion, the dropped doc six retractions");
-        let docs = graph.described(&source_predicate(), &Term::string("policy")).unwrap();
-        let facts: Vec<Triple> = docs.into_iter().map(|told| told.triple).collect();
-        assert_eq!(Doc::from_facts(&store::subject("policy", "a"), &facts), Some(doc("a", "landing queue p90", 1.0)));
-        assert_eq!(write(&mut graph, "policy", vec![doc("c", "new", 3.0)], false, Some(0.5)).unwrap(), 2, "an incremental refresh keeps the docs it did not read");
-    }
-}

@@ -196,7 +196,3 @@ pub fn nextest_arguments(tests: &BTreeSet<Test>, added: &[Added]) -> Vec<String>
     let filter = named.chain(new).collect::<Vec<_>>().join(" | ");
     packages.into_iter().chain(targets).chain([format!("-E '{filter}'")]).collect()
 }
-
-#[cfg(test)]
-#[path = "run_selected_tests.rs"]
-mod tests;

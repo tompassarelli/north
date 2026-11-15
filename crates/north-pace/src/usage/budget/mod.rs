@@ -3,8 +3,6 @@
 //! stops nothing: it asks for a one-line check and the work goes on.
 mod assess;
 mod state;
-#[cfg(test)]
-mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 

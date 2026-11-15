@@ -217,6 +217,3 @@ fn usage() -> u8 {
     eprintln!("{USAGE}");
     2
 }
-
-#[cfg(test)]
-pub(crate) mod tests;

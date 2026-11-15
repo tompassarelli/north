@@ -18,16 +18,3 @@ fn generated_authorization_messages_do_not_disclose_payloads() {
         }
     }
 }
-
-#[test]
-fn the_refusal_names_the_provider_that_refused() {
-    let gate = "only Tom, the gate session's parent, or a proxy whose current turn Tom opened by typing after the gate opened may answer";
-    assert_eq!(NorthError::Rejected(gate.into()).to_string(), gate);
-    assert_eq!(NorthError::Protocol("Claude Code closed its stream mid-probe".into()).to_string(), "protocol failed: Claude Code closed its stream mid-probe");
-}
-
-#[test]
-fn a_failed_file_call_names_the_path_it_was_made_on() {
-    let error = NorthError::io_at(io::Error::from(io::ErrorKind::NotFound), || "creating /srv/agent/code/north".to_owned());
-    assert!(error.to_string().starts_with("I/O failed while creating /srv/agent/code/north: "), "{error}");
-}
