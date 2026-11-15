@@ -48,7 +48,8 @@ fn called(transcript: &Transcript, lost: impl FnOnce() -> Vec<String>) -> Result
 }
 
 fn returned(transcript: &Transcript, call: usize) -> Result<(), String> {
-    match transcript.entries[call + 1..].iter().find(|entry| entry.kind == "result") {
+    let nth = transcript.entries[..call].iter().filter(|entry| entry.kind == "tool").count();
+    match transcript.entries.iter().filter(|entry| entry.kind == "result").nth(nth) {
         Some(result) if result.text.lines().last().is_some_and(|line| line.starts_with(QUEUED)) => Ok(()),
         Some(result) => Err(format!("the {HAND_IN_TOOL} call returned {:?}, which does not end in its `{QUEUED}` ticket", result.text.lines().last().unwrap_or_default())),
         None => Err(format!("the session records no result of the {HAND_IN_TOOL} call")),

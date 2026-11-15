@@ -9,7 +9,8 @@ use crate::exec::{Clock, Wall};
 use crate::notes::Notes;
 
 use super::super::{Journey, Plan};
-use super::hand_in;
+use super::{hand_in, returned};
+use crate::transcript::Transcript;
 
 const WITHOUT_TOOLS: &str = r#"{"status":"idle","conversation":"c","entries":[{"kind":"user","text":"the brief"},{"kind":"tool","text":"Bash printf x > worker.txt"},{"kind":"assistant","text":"I have no hand-in tool"}]}"#;
 const INIT: &str = r#"{"type":"system","subtype":"init","session_id":"c","mcp_servers":[{"name":"north","status":"failed"}]}"#;
@@ -46,4 +47,8 @@ fn an_order_from_a_confined_seat_fails_the_spine_probe_naming_the_north_tool_ser
     let mut journey = Journey { north, notes: Notes::new(None), plan: Plan { stamp: 0, claude_account: None, state }, session: "vn-0".to_owned(), scratch: None, lander: None, broker: None, landed: None, clock };
     let failure = hand_in(&mut journey).unwrap_err();
     assert!(failure.contains("did not call the mcp__north__hand-in tool, since its tool server north did not start"), "{failure}");
+
+    let batch = r#"{"status":"idle","conversation":"c","entries":[{"kind":"user","text":"the brief"},{"kind":"tool","text":"Bash printf 'the worker's change\\n' > worker.txt && cat worker.txt"},{"kind":"tool","text":"mcp__north__hand-in worker.txt"},{"kind":"result","text":"the worker's change"},{"kind":"result","text":"Done: queued 1-hand-in.json"},{"kind":"assistant","text":"Done: queued 1-hand-in.json"}]}"#;
+    let transcript = Transcript::parse(&serde_json::from_str(batch).unwrap());
+    assert_eq!(returned(&transcript, 2), Ok(()));
 }
