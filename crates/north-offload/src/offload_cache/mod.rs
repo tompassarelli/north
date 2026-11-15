@@ -38,6 +38,8 @@ const EPISODE_FILE: &str = "host-disk.episode";
 const KEEP_UNIT: &str = "north-disk-keep";
 const KEEP_BOUND: Duration = Duration::from_secs(10 * 60);
 const KEEP_STARTED: &str = "disk-keep.started";
+/// The lock one disk pass holds while it runs, so a pass the lander doctor starts over ssh and the lease reaper's unit never walk the same disk at once.
+const KEEP_LOCK: &str = "disk-keep.lock";
 const COMPANION_DIRS: [&str; 1] = ["beside"];
 const COMPANION_FILES: [&str; 2] = ["bundle", "patch"];
 const ENTRY_IDLE: Duration = Duration::from_secs(20 * 60);
@@ -379,6 +381,16 @@ pub fn keep() {
         return;
     }
     let Some(home) = home() else { return };
+    let held = keep_lock();
+    if another_pass(held.as_ref()) {
+        eprintln!("north capacity: a disk pass already runs on this host, so this one gives way to it");
+        return;
+    }
+    pass(&home);
+}
+
+/// One disk pass over `home`, run while this pass holds the host's disk-pass lock.
+fn pass(home: &Path) {
     let _started = Started::mark(north_capacity_host::capacity::agent_load::capacity_root().join(KEEP_STARTED));
     for seed in north_lanes::lanes::reclaim_dead_seeds(&home.join("code"), Path::new("/proc"), SystemTime::now(), false) {
         eprintln!("north capacity: removed dead lane target seed {} ({} MiB)", seed.path.display(), seed.bytes >> 20);
@@ -390,12 +402,12 @@ pub fn keep() {
     own_stores::prune(&home.join(".local/state"), Path::new("/proc"), SystemTime::now(), runtime_source);
     let marker = north_capacity_host::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = marker.exists();
-    let Some(before) = disk_of(&home) else { return };
+    let Some(before) = disk_of(home) else { return };
     let budget = DiskBudget::local();
     let (closed, held) = closing(&budget, Some(before));
     let passed = |disk: Disk| disk.past(held);
     let starts = !open && passed(before);
-    let (evicted, Some(after)) = evict_here(&home, &budget, &mut || disk_of(&home), starts) else { return };
+    let (evicted, Some(after)) = evict_here(home, &budget, &mut || disk_of(home), starts) else { return };
     if starts {
         let host = north_base::platform::host::name();
         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
@@ -410,6 +422,18 @@ pub fn keep() {
     } else if open && !passed(after) {
         let _ = fs::remove_file(&marker);
     }
+}
+
+/// The host's disk-pass lock file, opened for this pass to hold; None when it cannot be opened, which holds no pass back.
+fn keep_lock() -> Option<fs::File> {
+    let lock = north_capacity_host::capacity::agent_load::capacity_root().join(KEEP_LOCK);
+    let _ = lock.parent().map(fs::create_dir_all);
+    fs::OpenOptions::new().create(true).append(true).open(&lock).ok()
+}
+
+/// Whether another disk pass holds the lock; otherwise this pass takes it and holds it while `held` lives.
+fn another_pass(held: Option<&fs::File>) -> bool {
+    held.is_some_and(|file| rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_err())
 }
 
 struct Started(PathBuf);
