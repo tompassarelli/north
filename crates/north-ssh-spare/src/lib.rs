@@ -266,7 +266,10 @@ fn start_holder(destination: &str) {
     if program.file_name().is_none_or(|name| name != "north") {
         return;
     }
-    let _ = Command::new(program).args(["ssh-spare", "hold", destination]).process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let unit = format!("--unit=north-ssh-spare-{}", safe_name(destination));
+    let mut holder = Command::new("systemd-run");
+    holder.args(["--user", "--scope", "--quiet", "--collect", &unit, "--"]).arg(program).args(["ssh-spare", "hold", destination]);
+    let _ = holder.process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
 }
 
 fn runtime_dir() -> Option<PathBuf> {
@@ -274,8 +277,11 @@ fn runtime_dir() -> Option<PathBuf> {
 }
 
 fn socket(dir: &Path, destination: &str) -> PathBuf {
-    let name: String = destination.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-    dir.join(format!("{name}.sock"))
+    dir.join(format!("{}.sock", safe_name(destination)))
+}
+
+fn safe_name(destination: &str) -> String {
+    destination.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect()
 }
 
 fn current_runtime() -> Option<PathBuf> {
