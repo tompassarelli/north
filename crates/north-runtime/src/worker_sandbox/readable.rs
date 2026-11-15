@@ -19,7 +19,7 @@ impl Reader {
     }
 }
 
-/// What `reader` may not read: the operator's own logins, since an agent calls GitHub as an App installation (north#969), and for a worker everything another host trusts (south#118): the ssh directory of the home with the file each of its entries resolves to, the secrets directory, and the agent socket; and every model account's login (north#1485): the stored long-lived tokens, the GitHub App tokens the laptop pushes, and each client profile's credentials file.
+/// What `reader` may not read: the operator's own logins, since an agent calls GitHub as an App installation (north#969), and for a worker everything another host trusts (south#118): the ssh directory of the home with the file each of its entries resolves to, the secrets directory, and the agent socket; and every model account's login (north#1485): the stored long-lived tokens, the GitHub App tokens the laptop pushes, and each client profile's credentials file; and every path the operator policy lists (north#1397).
 pub(super) fn unreadable(context: &Context, reader: Reader) -> Vec<PathBuf> {
     let mut paths = vec![context.config.clone().unwrap_or_else(|| context.home.join(".config")).join("gh/hosts.yml")];
     if reader == Reader::Worker {
@@ -34,6 +34,7 @@ pub(super) fn unreadable(context: &Context, reader: Reader) -> Vec<PathBuf> {
         paths.push(context.home.join(".claude/.credentials.json"));
         paths.extend(std::fs::read_dir(state.join("profiles")).into_iter().flatten().flatten().map(|entry| entry.path().join(".credentials.json")));
         paths.extend(rostered_logins(context, &state));
+        paths.extend(operator_listed(context));
     }
     paths
 }
@@ -48,6 +49,14 @@ pub(super) fn reaches_unreadable(context: &Context, reader: Reader, real: &Path)
     let chain = |path: &Path| path.ancestors().filter_map(identity).collect::<Vec<_>>();
     let (own, around) = (identity(real), chain(real));
     unreadable(context, reader).iter().filter_map(|path| path.canonicalize().ok()).any(|hidden| identity(&hidden).is_some_and(|id| around.contains(&id)) || own.is_some_and(|id| chain(&hidden).contains(&id)))
+}
+
+/// The paths the operator policy lists under `worker_sandbox.unreadable`, each absolute or beneath the home by a leading `~/`.
+fn operator_listed(context: &Context) -> Vec<PathBuf> {
+    let policy = north_base::platform::orchestration::path_in(&context.home, None, None);
+    let Some(document) = std::fs::read_to_string(policy).ok().and_then(|text| text.parse::<toml_edit::DocumentMut>().ok()) else { return Vec::new() };
+    let listed = document.get("worker_sandbox").and_then(|table| table.get("unreadable")).and_then(toml_edit::Item::as_array).into_iter().flatten();
+    listed.filter_map(toml_edit::Value::as_str).map(|path| path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| context.home.join(rest))).collect()
 }
 
 /// The login files of every account the roster declares, wherever it puts them: a client profile's credentials and token files and each other provider's stored login (north#1485).

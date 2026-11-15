@@ -219,6 +219,23 @@ fn no_agent_command_reads_the_operators_gh_login_and_no_worker_command_reads_a_k
     }
 }
 
+#[test]
+fn a_confined_command_reads_no_credential_wider_than_its_sessions() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("north-1397-listed").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    let policy = north_base::platform::orchestration::under(&home);
+    std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
+    std::fs::write(&policy, "[worker_sandbox]\nunreadable = [\"~/listed/stand-in\"]\n").unwrap();
+    std::fs::create_dir_all(home.join("listed")).unwrap();
+    std::fs::write(home.join("listed/stand-in"), "stand-in\n").unwrap();
+    std::fs::write(home.join("listed/beside"), "beside\n").unwrap();
+    let command = "! cat ~/listed/stand-in && cat ~/listed/beside";
+    let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &home).env(COMMAND, command).current_dir(&home).output().unwrap();
+    assert!(output.status.success(), "a confined command read a path the operator policy lists as unreadable: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+}
+
 fn runnable(path: &Path) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     north_foundation::foundation::shim::write_script(path, "exit 0\n");
