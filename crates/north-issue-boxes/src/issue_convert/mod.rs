@@ -131,6 +131,7 @@ pub(crate) fn scan(private: bool) -> Box<Scan> {
 
 fn reviewed(file: &Path, reference: &str) -> Result<Vec<Row>, String> {
     let text = match std::fs::read_to_string(file) {
+        Ok(text) if text.trim().is_empty() => return Ok(Vec::new()),
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(format!("{}: {error}", file.display())),
@@ -217,4 +218,15 @@ fn closed_boxes(owner: &str, name: &str) -> Result<(), String> {
     let copies = found.iter().filter(|leftover| leftover.copy.is_some()).count();
     println!("{owner}/{name}: {} closed issues hold {} unticked boxes: {copies} with a copy on an open issue, {} with no copy", issues.len(), found.len(), found.len() - copies);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reviewed;
+
+    #[test]
+    fn an_empty_manifest_file_holds_no_reviewed_rows() {
+        let file = tempfile::NamedTempFile::new().expect("temporary file");
+        assert!(reviewed(file.path(), "tompassarelli/south#143").expect("an empty file reads").is_empty());
+    }
 }
