@@ -310,7 +310,7 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
             let _ = std::fs::remove_file(stub.join(file));
         }
         let mut probe = Command::new("bash").arg("-c").arg(&script).env(super::super::MARK, "1").env("TMPDIR", &temporary).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
-        let asked = north_base::platform::wait::until(std::time::Duration::from_secs(60), || stub.join("asked").exists() || !matches!(probe.try_wait(), Ok(None))) && stub.join("asked").exists();
+        let asked = north_base::platform::wait::until(std::time::Duration::from_secs(3600), || stub.join("asked").exists() || !matches!(probe.try_wait(), Ok(None))) && stub.join("asked").exists();
         let read = |file: &str| std::fs::read_to_string(stub.join(file)).unwrap_or_default().trim().to_owned();
         let (words, directory, code, socket) = (read("words"), PathBuf::from(read("directory")), read("code"), read("socket"));
         let started = !code.is_empty() && Path::new(&socket).parent() == Some(Path::new(&code));

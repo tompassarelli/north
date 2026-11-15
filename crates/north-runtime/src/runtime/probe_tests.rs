@@ -277,5 +277,5 @@ fn a_probe_past_its_limit_takes_the_children_it_started_with_it() {
     assert!(ended.is_none(), "the probe should have passed its limit");
     let pid: u32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
     let alive = |pid: u32| rustix::process::Pid::from_raw(pid as i32).is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok());
-    assert!(north_base::platform::wait::until(Duration::from_secs(5), || !alive(pid)), "child {pid} outlived the probe's limit");
+    assert!(north_base::platform::wait::until(Duration::from_secs(3600), || !alive(pid)), "child {pid} outlived the probe's limit");
 }

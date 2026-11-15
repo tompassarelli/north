@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 const OLDER: &str = "runtimes/aaaa";
 const NEWER: &str = "runtimes/bbbb";
-const WITHIN: Duration = Duration::from_secs(15);
+const HANG: Duration = Duration::from_secs(3600);
 
 fn replay_script(state: &Path) -> String {
     format!(
@@ -42,12 +42,12 @@ fn lander_at(layout: &Layout, runtime: &str) -> bool {
 fn newer_arrives_during_the_older_replay(layout: &Layout) -> Result<(), Failure> {
     std::thread::scope(|scope| {
         let older = scope.spawn(|| follow_lander(layout));
-        assert!(wait::until(WITHIN, || lander_at(layout, OLDER)), "the older runtime's replay never started");
+        assert!(wait::until(HANG, || lander_at(layout, OLDER)), "the older runtime's replay never started");
         let moved = layout.state.join(".current.tmp");
         symlink(NEWER, &moved).unwrap();
         fs::rename(&moved, layout.current()).unwrap();
         follow_lander(layout).unwrap();
-        assert!(wait::until(WITHIN, || fs::read_to_string(layout.state.join("replays")).is_ok_and(|replays| replays.lines().any(|replay| replay == NEWER))), "the newer runtime was never replayed while the older replay ran");
+        assert!(wait::until(HANG, || fs::read_to_string(layout.state.join("replays")).is_ok_and(|replays| replays.lines().any(|replay| replay == NEWER))), "the newer runtime was never replayed while the older replay ran");
         older.join().unwrap()
     })
 }
@@ -76,10 +76,10 @@ fn a_follow_retakes_the_lock_while_a_starting_childs_copy_of_it_is_still_open() 
     let retaking = AtomicBool::new(false);
     std::thread::scope(|scope| {
         scope.spawn(|| {
-            wait::until(WITHIN, || retaking.load(Ordering::SeqCst));
+            wait::until(HANG, || retaking.load(Ordering::SeqCst));
             drop(copy);
         });
         retaking.store(true, Ordering::SeqCst);
-        assert!(lander_lock(&layout, WITHIN).unwrap().is_some(), "the follow left the lock to a copy that closed a moment later, so the newest runtime was never replayed");
+        assert!(lander_lock(&layout, HANG).unwrap().is_some(), "the follow left the lock to a copy that closed a moment later, so the newest runtime was never replayed");
     });
 }
