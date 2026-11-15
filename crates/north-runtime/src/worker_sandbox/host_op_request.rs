@@ -1,4 +1,4 @@
-//! The host operations a confined lead or the coordinator runs through the outside broker, whose domain reaches no other host over ssh and no user manager (north#1485). The request is the words `host-op state HOST UNIT`, `host-op restart HOST UNIT [--issue REPO#N]` or `host-op sync COPY` and nothing else of the caller's: no command, path, environment or login. UNIT is one the harness default `host_op_units` lists, COPY a name the harness default `host_copies` lists with its host, its source under the broker's home and its target under the operator's home on that host, and HOST one this host reaches over ssh as its operator, or this host itself. The broker answers only a fleet session whose own scope the caller runs in and whose record names the role `lead` or the coordinator's. A restart is kept in the unblock ledger with its unit, host and the failed state it was in, and the second restart of that class within a day is refused unless `--issue` names an open issue with an owner that fixes its cause (north#1577).
+//! The host operations a confined lead or the coordinator runs through the outside broker, whose domain reaches no other host over ssh and no user manager (north#1485). The request is the words `host-op state HOST UNIT`, `host-op disk HOST`, `host-op restart HOST UNIT [--issue REPO#N]` or `host-op sync COPY` and nothing else of the caller's: no command, path, environment or login. A disk read runs `df` on the filesystem holding the operator's home and `du` one level deep, each under a time limit, on the fixed roots `DISK_ROOTS` names, so the caller's only word is HOST. UNIT is one the harness default `host_op_units` lists, COPY a name the harness default `host_copies` lists with its host, its source under the broker's home and its target under the operator's home on that host, and HOST one this host reaches over ssh as its operator, or this host itself. The broker answers only a fleet session whose own scope the caller runs in and whose record names the role `lead` or the coordinator's. A restart is kept in the unblock ledger with its unit, host and the failed state it was in, and the second restart of that class within a day is refused unless `--issue` names an open issue with an owner that fixes its cause (north#1577).
 
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
@@ -14,7 +14,9 @@ pub(super) const VERB: &str = "host-op";
 const UNITS: &str = "host_op_units";
 const COPIES: &str = "host_copies";
 const ASKERS: [&str; 2] = ["lead", "coordinator"];
-const SHAPE: &str = "host-op state HOST UNIT | host-op restart HOST UNIT [--issue REPO#N] | host-op sync COPY, with a UNIT the harness default host_op_units lists and a COPY the harness default host_copies names";
+const DISK_ROOTS: [&str; 5] = [".local/state", ".local/state/north", ".local/share", ".cache", "code"];
+const DISK_SECONDS: &str = "300";
+const SHAPE: &str = "host-op state HOST UNIT | host-op disk HOST | host-op restart HOST UNIT [--issue REPO#N] | host-op sync COPY, with a UNIT the harness default host_op_units lists and a COPY the harness default host_copies names";
 
 /// A copy the broker refreshes: its name, the host it lives on, the directory it is copied from under the broker's home, the directory it is copied to under the operator's home there, and the entries left out.
 #[derive(Debug, PartialEq, Eq)]
@@ -55,6 +57,7 @@ impl Listed {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Ask {
     State { host: String, unit: String },
+    Disk { host: String },
     Restart { host: String, unit: String, issue: Option<String> },
     Sync(String),
 }
@@ -70,6 +73,7 @@ impl Ask {
         let [VERB, rest @ ..] = words.as_slice() else { return None };
         let ask = match rest {
             ["state", host, unit] if named(host) && named(unit) => Some(Ask::State { host: (*host).to_owned(), unit: (*unit).to_owned() }),
+            ["disk", host] if named(host) => Some(Ask::Disk { host: (*host).to_owned() }),
             ["restart", host, unit] if named(host) && named(unit) => Some(Ask::Restart { host: (*host).to_owned(), unit: (*unit).to_owned(), issue: None }),
             ["restart", host, unit, "--issue", issue] if named(host) && named(unit) && north_unblocks::IssueName::parse(issue).is_ok() => Some(Ask::Restart { host: (*host).to_owned(), unit: (*unit).to_owned(), issue: Some((*issue).to_owned()) }),
             ["sync", copy] if named(copy) => Some(Ask::Sync((*copy).to_owned())),
@@ -127,6 +131,26 @@ fn listed_unit<'a>(unit: &'a str, listed: &Listed) -> Result<&'a str, String> {
     listed.units.iter().any(|known| known == unit).then_some(unit).ok_or_else(|| format!("{unit} is no north unit the harness default {UNITS} lists"))
 }
 
+fn disk(name: &str, host: &Host, reach: &dyn Reach) -> Result<String, String> {
+    let destination = reach.destination(name)?;
+    let home = if destination.is_some() { "~".to_owned() } else { host.home.to_string_lossy().trim_end_matches('/').to_owned() };
+    let free = reach.run(destination.as_deref(), "df", &["-Pk".to_owned(), home.clone()])?;
+    let mut told = format!("free on {name}\n{}", free.trim_end());
+    for root in DISK_ROOTS {
+        let path = format!("{home}/{root}");
+        let arguments = [DISK_SECONDS, "du", "-k", "-x", "-d", "1", &path].map(str::to_owned);
+        let sized = reach.run(destination.as_deref(), "timeout", &arguments).map_or_else(|_| format!("du of {path} did not finish within {DISK_SECONDS} s or failed"), |sizes| largest_first(&sizes));
+        told.push_str(&format!("\n{path}\n{sized}"));
+    }
+    Ok(told)
+}
+
+fn largest_first(du: &str) -> String {
+    let mut rows: Vec<(u64, &str)> = du.lines().filter_map(|line| line.split_once('\t')).filter_map(|(kib, path)| Some((kib.trim().parse().ok()?, path))).collect();
+    rows.sort_by_key(|row| std::cmp::Reverse(row.0));
+    rows.iter().map(|(kib, path)| format!("{:>9.2} GiB  {path}", *kib as f64 / (1024.0 * 1024.0))).collect::<Vec<_>>().join("\n")
+}
+
 /// Does what `ask` names for the session the caller `peer` runs in on `host`, touching only what `listed` holds, through `reach`; the lines saying what was read or done.
 pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, listed: &Listed, reach: &dyn Reach, admission: &Admission) -> Result<String, String> {
     let asker = asking(peer, host)?;
@@ -139,6 +163,7 @@ pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, listed: &Listed, reach: 
             let load = reach.run(destination.as_deref(), "cat", &owned(&["/proc/loadavg"]))?;
             Ok(format!("{shown}load {}", load.trim()))
         }
+        Ask::Disk { host: name } => disk(&name, host, reach),
         Ask::Restart { host: name, unit, issue } => {
             let unit = listed_unit(&unit, listed)?;
             let destination = reach.destination(&name)?;
