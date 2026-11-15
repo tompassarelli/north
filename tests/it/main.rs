@@ -30,3 +30,4 @@ mod capacity_agent_compile;
 mod cargo_config;
 mod agent_text_reads;
 mod mutant_worker_lane;
+mod public_text_accounts;

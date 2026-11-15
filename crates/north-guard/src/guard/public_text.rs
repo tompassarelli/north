@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const CONFIG_ENV: &str = "NORTH_PUBLIC_DENYLIST";
+const ACCOUNT_REFUSAL: &str = "No. This gh command's text names a signed-in account by its sign-in email, and GitHub text in a public repository names an account only by its provider. Reword it as a Claude account.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(config) = config() else {
@@ -20,6 +21,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         |repo, dir| is_private(repo, dir.or(cwd.as_deref())),
         private_text::judge_in_hook,
         current_body,
+        north_pace::usage::profiles::signed_in_here,
     )
 }
 
@@ -58,6 +60,11 @@ fn current_body(write: &GhWrite) -> Option<String> {
     gh.output().ok().filter(|out| out.status.success()).map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+fn names_account(text: &str, accounts: &mut impl FnMut() -> Vec<String>) -> bool {
+    let text = text.to_lowercase();
+    accounts().iter().any(|email| text.contains(&email.to_lowercase()))
+}
+
 fn added(text: &str, current: &str) -> String {
     let held: BTreeSet<&str> = current.lines().map(str::trim_end).collect();
     text.lines().filter(|line| !held.contains(line.trim_end())).map(|line| format!("{line}\n")).collect()
@@ -69,6 +76,7 @@ pub(super) fn decide_with(
     mut private: impl FnMut(Option<&str>, Option<&str>) -> bool,
     mut judge: impl FnMut(&str) -> Result<Vec<Finding>, String>,
     mut current: impl FnMut(&GhWrite) -> Option<String>,
+    mut accounts: impl FnMut() -> Vec<String>,
 ) -> Verdict {
     if !input.is_shell() || !input.raw.windows(2).any(|bytes| bytes == b"gh") {
         return Verdict::Allow;
@@ -94,6 +102,9 @@ pub(super) fn decide_with(
                 "No. This gh command's text matches the public deny-list rule {}, and GitHub text is public. Reword it without that detail, or record the detail privately.",
                 rules.join(", ")
             ));
+        }
+        if is_public() && names_account(&joined, &mut accounts) {
+            return Verdict::Deny(ACCOUNT_REFUSAL.to_owned());
         }
         if !joined.trim().is_empty() && is_public() {
             let judged = current(&write).map_or_else(|| joined.clone(), |held| added(&joined, &held));

@@ -76,6 +76,19 @@ pub fn unhooked(cfg: &Value, host: &str, home: &Path) -> Vec<String> {
         .collect()
 }
 
+/// The sign-in email the default Claude directory and each plan profile on `host` record for themselves, read from their own account records.
+pub fn signed_in_emails(cfg: &Value, host: &str, home: &Path) -> Vec<String> {
+    std::iter::once(home.join(".claude.json"))
+        .chain(profiles(cfg, host).into_iter().filter_map(|profile| Some(profile.path?.join(".claude.json"))))
+        .filter_map(|record| read(&record, "oauthAccount")["emailAddress"].as_str().filter(|email| !email.is_empty()).map(str::to_owned))
+        .collect()
+}
+
+/// The sign-in emails of every Claude account this host runs, from the policy at the orchestration path.
+pub fn signed_in_here() -> Vec<String> {
+    signed_in_emails(&policy_value(&crate::platform::orchestration::path()), &crate::platform::host::name(), &home())
+}
+
 pub fn label_of(cfg: &Value, uuid: &str) -> Option<String> {
     cfg["accounts"]["claude"]["labels"][short_hash(uuid)].as_str().map(str::to_owned)
 }

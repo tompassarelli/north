@@ -25,6 +25,7 @@ fn decide(command: &str, cwd: &str, private: bool) -> Verdict {
             _ => Ok(Vec::new()),
         },
         |write| write.edits.as_ref().map(|_| format!("- [ ] landed\nthe {KIND_TEXT} plan\n")),
+        Vec::new,
     )
 }
 
@@ -112,6 +113,7 @@ fn the_2026_11_08_privacy_judge_sample_reads_no_false_refusal_after_the_body_sel
             |_, _| false,
             |text| if text.trim().is_empty() { Ok(Vec::new()) } else { Ok(vec![Finding { kind: "fixture-kind".into(), span: "x".into() }]) },
             |_| None,
+            Vec::new,
         );
         let refused = matches!(verdict, Verdict::Deny(_));
         match label.as_str() {
