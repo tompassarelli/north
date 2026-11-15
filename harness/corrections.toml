@@ -131,7 +131,7 @@ pattern = '''let (this|that|it) slip|slip like this|(dropped|lost) the (ball|thr
 paraphrase = "Tom said the proxy let a thread that waited on it slip."
 owner = "north#636"
 guard = "The proxy's fleet tick lists every message that names the proxy as the one waited on and has had no reply for 10 minutes."
-not_structural = "a waiting message is in the proxy's thread, and the wording that dropped it is issue text the 24-hour closer reads"
+not_structural = "a waiting message is in the proxy's thread, and the wording that dropped it is issue text"
 
 [[class]]
 name = "noise-in-report"

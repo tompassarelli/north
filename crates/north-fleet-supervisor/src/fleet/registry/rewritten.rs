@@ -1,10 +1,10 @@
-//! The issues the 24-hour closer filed in place of the issues it closed, read from the record only the closer writes (north#1495): a lead whose issue was closed and rewritten launches on its successor, and no text on GitHub widens a grant.
+//! The issues an earlier 24-hour closer filed in place of the issues it closed, read from the record it left behind (north#1495): a lead whose issue was closed and rewritten launches on its successor, and no text on GitHub widens a grant. Nothing writes the record now that the closer is retired.
 
 use std::collections::BTreeSet;
 
-/// Reads the closer's record of its rewrites.
+/// Reads the record of the rewrites the retired closer made.
 pub trait Rewrites: Send + Sync {
-    /// Every rewrite the closer recorded, as (closed, successor), each `[OWNER/]REPO#N`.
+    /// Every rewrite the retired closer recorded, as (closed, successor), each `[OWNER/]REPO#N`.
     fn rewrites(&self) -> Vec<(String, String)>;
 }
 
