@@ -164,7 +164,7 @@ fn quoted(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
 }
 
-fn package(name: &str) -> String {
+pub(crate) fn package(name: &str) -> String {
     match name {
         "north" => "//:".to_owned(),
         name => format!("//crates/{name}:"),
@@ -230,15 +230,16 @@ pub(crate) fn gate(side: &Buck2, root: &Path, base: &str, declared: &str) -> Opt
     Some(behind(shell, side.lint(&Lint { root: Path::new(""), selection: Selection::Workspace, resolution: Resolution::PINNED, shell: Shell::Inherited })))
 }
 
-/// The build of the whole Buck2 graph of the tree at `root`, for a lane that changes what defines a target: on the workers, leaving its outputs in the store, and only while the tree's Buck2 configuration is `base`'s, since a tree's own `.buckconfig` outranks the host's and names the endpoint its actions go to.
-pub(crate) fn graph_build(side: &Buck2, root: &Path, base: &str) -> Result<Invocation, String> {
+/// The build of `selection` of the tree at `root`, for a lane that changes what defines a target or code a target holds, `targets` its labels: on the workers, leaving its outputs in the store, and only while the tree's Buck2 configuration is `base`'s, since a tree's own `.buckconfig` outranks the host's and names the endpoint its actions go to. A package with no build file is left out, and a selection left empty builds nothing.
+pub(crate) fn graph_build(side: &Buck2, root: &Path, base: &str, targets: &[String]) -> Result<Invocation, String> {
     if !side.governs(root) {
         return Err(format!("{} has no Buck2 targets", root.display()));
     }
     if !unchanged_since(root, base) {
         return Err("the tree's Buck2 configuration is not the base's".to_owned());
     }
-    Ok(side.invocation(root, Shell::LandShell, side.words(&["build", REMOTE_ONLY, UNMATERIALISED, "//..."])))
+    let words: Vec<&str> = ["build", REMOTE_ONLY, UNMATERIALISED].into_iter().chain(targets.iter().map(String::as_str)).collect();
+    Ok(side.invocation(root, Shell::LandShell, side.words(&words)))
 }
 
 /// `issued` run behind `shell`, the part of a declared line before its Cargo command, without the line's Cargo settings.

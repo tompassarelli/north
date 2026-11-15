@@ -125,10 +125,17 @@ pub fn after_run_here() -> bool {
     switched(AFTER_RUN_SWITCH)
 }
 
-/// The Buck2 build of every target of the tree at `root` that a lane changing a target file gets before it lands, ready to spawn, on a host that holds a readable store generation, for a run that names its `base`. `Err` says why this host cannot give a verdict.
-pub fn graph_build(root: &Path, base: Option<&str>) -> Result<Invocation, String> {
+/// The Buck2 build of every target of the tree at `root`, or of the packages `changed` when given (`None` for the whole workspace; a package with no build file is left out), ready to spawn, on a host that holds a readable store generation, for a run that names its `base`. `Err` says why this host cannot give a verdict.
+pub fn graph_build(root: &Path, base: Option<&str>, changed: Option<&[String]>) -> Result<Invocation, String> {
     let side = Buck2::deciding(false, Path::new(buck2::generation::FILE))?;
-    buck2::graph_build(&side, root, base.ok_or("the run names no base")?)
+    let targets: Vec<String> = match changed {
+        None => vec!["//...".to_owned()],
+        Some(names) => names.iter().map(|name| buck2::package(name)).filter(|package| buck2::defined(root, package)).collect(),
+    };
+    if targets.is_empty() {
+        return Err("no changed package has Buck2 targets".to_owned());
+    }
+    buck2::graph_build(&side, root, base.ok_or("the run names no base")?, &targets)
 }
 
 /// The hosts whose `[hosts.NAME] buck2_after_run` is true in the orchestration policy, in name order; empty when none is or the policy is unreadable.

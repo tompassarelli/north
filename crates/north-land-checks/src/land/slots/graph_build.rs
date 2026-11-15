@@ -1,7 +1,7 @@
 //! `north land graph-build`: builds the whole Buck2 graph of the tree for a lane that changes a file defining a
 //! target (north#1115), on the workers, and judges it by Buck2's exit status alone: 0 passes, 3 (the tree's own
 //! targets or code failed) fails, any other Buck2 status says nothing of the tree. A host that holds no store generation, or a tree whose Buck2 configuration is not the base's, gets no graph build and passes, as the lint gate leaves its line as declared. The tests of
-//! such a lane stay on Cargo.
+//! such a lane stay on Cargo. With `--changed` and the packages the lane changed (`-p NAME` each), it builds those packages alone: the compile a lane gets before it queues when its other checks run after the landing.
 
 use north_base::foundation::exit::NO_VERDICT;
 
@@ -17,14 +17,33 @@ fn verdict(status: Option<i32>) -> u8 {
     }
 }
 
-pub fn run(arguments: &[String]) -> u8 {
-    if !arguments.is_empty() {
-        eprintln!("usage: north land graph-build");
-        return 64;
+/// The packages a `--changed` selection names (`-p NAME` each), or `None` for the whole workspace; `Err` for any other word.
+fn changed(selection: &[String]) -> Result<Option<Vec<String>>, ()> {
+    let mut names = Vec::new();
+    let mut words = selection.iter();
+    while let Some(word) = words.next() {
+        match (word.as_str(), words.next()) {
+            ("-p", Some(name)) => names.push(name.clone()),
+            ("--workspace", None) if names.is_empty() => return Ok(None),
+            _ => return Err(()),
+        }
     }
+    if names.is_empty() { Err(()) } else { Ok(Some(names)) }
+}
+
+pub fn run(arguments: &[String]) -> u8 {
+    let selection = match arguments.split_first() {
+        None => Ok(None),
+        Some((flag, selection)) if flag == "--changed" => changed(selection),
+        Some(_) => Err(()),
+    };
+    let Ok(selection) = selection else {
+        eprintln!("usage: north land graph-build [--changed --workspace | --changed -p PACKAGE...]");
+        return 64;
+    };
     let base = std::env::var(BASE_ENV).ok().filter(|base| !base.is_empty());
     let Ok(root) = std::env::current_dir() else { return NO_VERDICT };
-    let build = match north_build_system::graph_build(&root, base.as_deref()) {
+    let build = match north_build_system::graph_build(&root, base.as_deref(), selection.as_deref()) {
         Ok(build) => build,
         Err(why) => {
             eprintln!("north land graph-build: {why}, so this lane gets no graph build here");

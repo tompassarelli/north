@@ -275,6 +275,7 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
     assert!(queued.iter().all(|command| !command.contains("cargo") && !command.contains("./bin/head-north")), "a check that compiles, clippy and the test line among them, runs after landing, never before queueing: {queued:#?}");
+    assert!(queued.iter().any(|command| command.starts_with("north land graph-build --changed ")), "a lane whose crates are not compiled before queueing lands uncompiled when its clippy runs after landing (north#1631): {queued:#?}");
     fs::create_dir_all(repo.join("crates/north-runtime/src/worker_sandbox")).unwrap();
     fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
     let bounded = commit(repo, "widen a worker sandbox grant");
