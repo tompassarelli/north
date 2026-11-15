@@ -656,7 +656,7 @@ fn a_candidate_check_or_after_landing_step_cannot_read_the_logins_or_write_the_t
     script.push_str("mkdir -p target/debug; ");
     script.push_str(&written.iter().map(|relative| format!("printf x >> \"$HOME/{relative}\" && ")).collect::<String>());
     script.push_str("printf x > /tmp/scratch && printf x > \"$TMPDIR/scratch\" && bwrap --ro-bind / / --dev /dev true && echo all-written");
-    let output = home.outer(&candidate).args(["--unshare-pid", "--proc", "/proc"]).arg("--").arg(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--candidate", "--", "bash", "-c", &script]).output().unwrap();
+    let output = home.outer(&candidate).arg("--").arg(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--candidate", "--", "bash", "-c", &script]).output().unwrap();
     let (stdout, stderr) = (String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     for (relative, before) in refused.iter().zip(before) {
         assert_eq!(std::fs::read_to_string(root.join(relative)).ok(), before, "a candidate check wrote {relative}: {stderr}");
@@ -686,7 +686,7 @@ fn a_candidate_check_or_after_landing_step_cannot_read_the_logins_or_write_the_t
     let head = String::from_utf8(Command::new("git").arg("-C").arg(&checkout).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();
     let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
     let mut outer = home.outer(&checkout);
-    outer.args(["--unshare-pid", "--proc", "/proc", "--setenv", "NORTH_LAND_SERVING", "1", "--setenv", "NORTH_LAND_NORTH", north, "--setenv", "AGENT_CAPACITY_CORES", "4", "--setenv", "AGENT_CAPACITY_LOADAVG"]).arg(root.join("loadavg"));
+    outer.args(["--setenv", "NORTH_LAND_SERVING", "1", "--setenv", "NORTH_LAND_NORTH", north, "--setenv", "AGENT_CAPACITY_CORES", "4", "--setenv", "AGENT_CAPACITY_LOADAVG"]).arg(root.join("loadavg"));
     outer.args(["--", north, "land", "checks", "--base", &head, "--head", &head, "--after", "--command", &step, "--safe-push"]).arg(&safe_push).arg("--outcome").arg(root.join("outcome"));
     let output = outer.output().unwrap();
     let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
