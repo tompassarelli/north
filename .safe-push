@@ -91,22 +91,22 @@
 	after-only = it runs every Buck2 test and the clippy gate of the workspace on a clean runner with no store and no remote execution, where the changed crates' tests and clippy run before it lands as land checks :: .github/workflows/buck2.yml:test
 	after-only = it reports the tree's Rust line-budget excess on its issue and refuses no lane for size :: ./bin/land-shell --dev -- north code-health budget --json | CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ code-health over-budget
 	after-only = it runs every shell and Python harness test on a clean runner, where the changed ones run as the machine-bound land tests on the lander :: .github/workflows/harness.yml:test
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north buck targets --check --third-party
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan review-accept ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan safe-push-keys ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan leftovers ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan alarm-definitions ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check harness tree-policy
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health gate ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health habits --new-since ${SAFE_PUSH_LAND_BASE}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check nix --lock flake.lock --allow harness/nix/lock-allow.toml
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check citations --root $PWD
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan nix-entry ${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan safe-push-verbs ${SAFE_PUSH_LAND_HEAD}
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check experiments --root .
-	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan run-time-data ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north buck targets --check --third-party
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan review-accept ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan safe-push-keys ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan leftovers ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan alarm-definitions ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north check harness tree-policy
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north code-health gate ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north code-health habits --new-since ${SAFE_PUSH_LAND_BASE}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north check nix --lock flake.lock --allow harness/nix/lock-allow.toml
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north check citations --root $PWD
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan nix-entry ${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan safe-push-verbs ${SAFE_PUSH_LAND_HEAD}
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north check experiments --root .
+	local-only = static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot :: north land scan run-time-data ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 [test-admission]
 	contract = file-or-wire-format :: a format another program or a past north writes or reads: ledgers, trailers, transcripts, the GitHub and Claude APIs, git output
 
