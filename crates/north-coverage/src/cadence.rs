@@ -67,7 +67,7 @@ pub fn ingest(root: &Path, path: &Path, repository: &str) {
 }
 
 pub fn ingest_here() -> bool {
-    match Command::new(north()).args(["graph", "ingest", "coverage", "reads"]).stdout(Stdio::null()).status() {
+    match Command::new(north()).args(["graph", "ingest", "coverage", "reads", "crates"]).stdout(Stdio::null()).status() {
         Ok(status) if status.success() => true,
         Ok(status) => {
             eprintln!("north test coverage: north graph ingest coverage reads exited {status}, so this host's graph keeps its older map");
