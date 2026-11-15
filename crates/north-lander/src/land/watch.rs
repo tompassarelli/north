@@ -306,7 +306,7 @@ impl Watch {
             return;
         }
         let limit = after_runs(lander);
-        while self.running.len() + self.searching.len() < limit && self.start_one(lander) {}
+        while self.running.len() < limit && self.start_one(lander) {}
     }
 
     fn start_one(&mut self, lander: &Lander) -> bool {
