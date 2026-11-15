@@ -300,29 +300,38 @@ fn allowances(config: &str) -> Result<Allowances, String> {
     Ok(Allowances { habit: count("rust_habits"), implicit: count("implicit_state") })
 }
 
+fn merge_base(root: &Path, rev: &str) -> Result<String, String> {
+    let output = Command::new("git").arg("-C").arg(root).args(["merge-base", rev, "HEAD"]).output().map_err(|error| format!("git merge-base: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("git merge-base {rev} HEAD: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
 pub fn grown(root: &Path, rev: &str) -> Result<Vec<String>, String> {
     let Some(config) = super::config::structure_text(root) else {
         return Ok(Vec::new());
     };
-    let (base, head) = (allowances(&at_rev(root, rev, "structure.toml")?)?, allowances(&config)?);
+    let fork = merge_base(root, rev)?;
+    let (base, head) = (allowances(&at_rev(root, &fork, "structure.toml")?)?, allowances(&config)?);
     let mut out = Vec::new();
     if head.habit > base.habit || head.implicit > base.implicit {
         out.push(format!(
-            "structure.toml lists [[rust_habits.allow]] {} -> {} and [[implicit_state.allow]] {} -> {} at {rev} — the allowances only fall",
+            "structure.toml lists [[rust_habits.allow]] {} -> {} and [[implicit_state.allow]] {} -> {} at {fork} — the allowances only fall",
             base.habit, head.habit, base.implicit, head.implicit
         ));
     }
     let Some(mut habits) = Habits::parse(&config)? else {
         return Ok(out);
     };
-    let moved = moved_from(root, rev);
+    let moved = moved_from(root, &fork);
     habits.read_ambient(|allowlist| std::fs::read_to_string(root.join(allowlist)).map_err(|error| format!("{allowlist}: {error}")))?;
     for ambient in &habits.ambient {
-        let before = ambient::counts(&ambient.allowlist, &at_rev(root, rev, &ambient.allowlist)?)?;
+        let before = ambient::counts(&ambient.allowlist, &at_rev(root, &fork, &ambient.allowlist)?)?;
         for (path, count) in &ambient.allowed {
             let was = before.get(moved.get(path).unwrap_or(path)).copied().unwrap_or(0);
             if *count > was {
-                out.push(format!("{} lists {count} ambient test reads in {path}, up from {was} at {rev} — the list only shrinks", ambient.allowlist));
+                out.push(format!("{} lists {count} ambient test reads in {path}, up from {was} at {fork} — the list only shrinks", ambient.allowlist));
             }
         }
     }
