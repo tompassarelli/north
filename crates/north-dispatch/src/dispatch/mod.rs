@@ -29,6 +29,7 @@ pub mod cells;
 pub mod deepseek;
 mod cloud;
 mod decision;
+mod disk;
 pub mod drafts;
 pub mod drafting;
 mod from_draft;
@@ -281,6 +282,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     }
     let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run);
     let watched = freeze::watch(&survey.here, frozen, dry_run, now);
+    disk::print(&survey, dry_run);
     exit(told, reported, watched)
 }
 

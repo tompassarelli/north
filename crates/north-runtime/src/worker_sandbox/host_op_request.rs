@@ -4,6 +4,7 @@ use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::process::Command;
 
+use north_base::platform::disk_read::{ROOTS as DISK_ROOTS, SECONDS as DISK_SECONDS, largest_first};
 use north_base::platform::harness::{DEFAULTS, document};
 use north_unblocks::{Admission, Kind, Ledger};
 
@@ -14,8 +15,6 @@ pub(super) const VERB: &str = "host-op";
 const UNITS: &str = "host_op_units";
 const COPIES: &str = "host_copies";
 const ASKERS: [&str; 2] = ["lead", "coordinator"];
-const DISK_ROOTS: [&str; 5] = [".local/state", ".local/state/north", ".local/share", ".cache", "code"];
-const DISK_SECONDS: &str = "300";
 const SHAPE: &str = "host-op state HOST UNIT | host-op disk HOST | host-op restart HOST UNIT [--issue REPO#N] | host-op sync COPY, with a UNIT the harness default host_op_units lists and a COPY the harness default host_copies names";
 
 /// A copy the broker refreshes: its name, the host it lives on, the directory it is copied from under the broker's home, the directory it is copied to under the operator's home there, and the entries left out.
@@ -143,12 +142,6 @@ fn disk(name: &str, host: &Host, reach: &dyn Reach) -> Result<String, String> {
         told.push_str(&format!("\n{path}\n{sized}"));
     }
     Ok(told)
-}
-
-fn largest_first(du: &str) -> String {
-    let mut rows: Vec<(u64, &str)> = du.lines().filter_map(|line| line.split_once('\t')).filter_map(|(kib, path)| Some((kib.trim().parse().ok()?, path))).collect();
-    rows.sort_by_key(|row| std::cmp::Reverse(row.0));
-    rows.iter().map(|(kib, path)| format!("{:>9.2} GiB  {path}", *kib as f64 / (1024.0 * 1024.0))).collect::<Vec<_>>().join("\n")
 }
 
 /// Does what `ask` names for the session the caller `peer` runs in on `host`, touching only what `listed` holds, through `reach`; the lines saying what was read or done.

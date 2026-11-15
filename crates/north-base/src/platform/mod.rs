@@ -25,6 +25,7 @@ pub mod issue_scope;
 pub mod disk_budget;
 pub mod disk_line;
 pub mod disk_ledger;
+pub mod disk_read;
 pub mod orchestration;
 pub use north_shared_config as shared_config;
 pub mod project_status;
