@@ -150,3 +150,18 @@ code.
   `argh_derive`. Not chosen: it cannot hold the behaviour above.
 - thiserror 2.0.21 and anyhow 1.0.104 (https://github.com/dtolnay): MIT OR Apache-2.0; both already in Cargo.lock as
   transitive dependencies.
+
+## `--flag=value` and `--` in converted verbs (2026-11-15)
+
+The commit-reviewer found four north#1487 C4 slices (north-lander, north-runtime, north-flow, north-lanes) parsing with
+clap directly, where the earlier north-core slices keep refusing `--flag=value` and `--` through a shared pre-scan.
+The rule for every remaining slice:
+
+- A verb whose every bad argument prints one usage line, or declines the verb, parses with clap directly and accepts
+  `--flag=value` and `--`. Nothing downstream reads the difference: the only change is that two spellings that used to
+  print the usage line now work, and every other bad argument still prints it with the same exit code.
+- A verb that prints a message naming the bad argument keeps that message through the shared translation of the crate
+  that owns the verb, which keeps refusing both forms, so its output is unchanged.
+
+The Box line's "Behavior: unchanged" holds for output and exit codes of every argument the old parsers accepted; the
+two newly accepted spellings are the stated exception.
