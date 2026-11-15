@@ -81,7 +81,7 @@ fn withdraw(fleet: &Fleet, id: &str, reason: &str) -> NorthResult<()> {
     let caller = fleet.answerer();
     let coordinator = super::fleet::from_coordinator(fleet, caller.as_deref());
     let closure = fleet.withdraw_gate(id, reason, Withdrawer { caller: caller.as_deref(), coordinator })?;
-    println!("gate {id} withdrawn by {}: {}", caller.as_deref().unwrap_or("tom"), closure.answer);
+    println!("gate {id} withdrawn by {}", closure.answer);
     Ok(())
 }
 

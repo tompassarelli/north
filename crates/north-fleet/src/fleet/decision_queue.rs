@@ -1,12 +1,13 @@
 use crate::fleet::gates::{Answerer, Gate, GateRequest};
 use crate::fleet::store::GateRow;
 
-/// What Tom reads when he looks: the for-Tom gates still open on this host and on the peers it has heard from, then the defaults applied here since he last looked.
+/// What Tom reads when he looks: the for-Tom gates still open on this host and on the peers it has heard from, then the defaults applied here and the ask-once gates withdrawn here since he last looked.
 pub fn digest(gates: &[Gate], elsewhere: &[GateRow], since_ms: u64, now_ms: u64) -> String {
     let here = gates.iter().filter(|gate| gate.is_open() && gate.for_tom()).map(|gate| Waiting { label: gate.id.to_string(), request: &gate.request, opened_ms: gate.opened_ms });
     let there = elsewhere.iter().filter(|gate| gate.request.for_tom()).map(|gate| Waiting { label: gate.label(), request: &gate.request, opened_ms: gate.opened_ms });
     let waiting: Vec<Waiting> = there.chain(here).collect();
     let defaulted: Vec<&Gate> = gates.iter().filter(|gate| gate.closure.as_ref().is_some_and(|closure| closure.by == Answerer::Default && closure.closed_ms >= since_ms)).collect();
+    let withdrawn: Vec<&Gate> = gates.iter().filter(|gate| gate.request.ask_once.is_some() && gate.closure.as_ref().is_some_and(|closure| closure.by == Answerer::Withdrawn && closure.closed_ms >= since_ms)).collect();
     let mut text = String::new();
     if !waiting.is_empty() {
         text.push_str(&format!("For Tom ({}): only the work each holds waits; everything else keeps going.\n", waiting.len()));
@@ -19,6 +20,13 @@ pub fn digest(gates: &[Gate], elsewhere: &[GateRow], since_ms: u64, now_ms: u64)
         for gate in defaulted {
             let answer = gate.closure.as_ref().map_or("", |closure| closure.answer.as_str());
             text.push_str(&format!("- gate {} ({}): {}\n  Applied: {answer}\n", gate.id, gate.request.session, one_line(&gate.request.question)));
+        }
+    }
+    if !withdrawn.is_empty() {
+        text.push_str(&format!("Ask-once gates withdrawn since you last looked ({}): each approved nothing.\n", withdrawn.len()));
+        for gate in withdrawn {
+            let reason = gate.closure.as_ref().map_or("", |closure| closure.answer.as_str());
+            text.push_str(&format!("- gate {} ({}): {}\n  Withdrawn by {reason}\n", gate.id, gate.request.session, one_line(&gate.request.question)));
         }
     }
     text

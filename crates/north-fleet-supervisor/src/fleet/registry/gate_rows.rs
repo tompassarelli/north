@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn a_gate_its_asking_session_withdraws_leaves_the_digest_with_its_reason_kept_and_approves_nothing() {
+    fn a_gate_its_asking_session_withdraws_leaves_the_digest_with_who_withdrew_it_and_why_and_a_stranger_cannot() {
         use crate::fleet::decision_queue::digest;
         use crate::fleet::gate_lifecycle::GatePhase;
         use crate::fleet::gates::Withdrawer;
@@ -252,18 +252,19 @@ mod tests {
         asked.default_after_ms = 0;
         asked.ask_once = Some("direction".into());
         let id = laptop.open_gate(&asked).unwrap();
-        let waiting = |fleet: &Fleet| digest(&fleet.digest(0).unwrap().gates, &[], 0, now_ms());
-        assert!(waiting(&laptop).contains(&format!("- gate {id} ")));
+        let text = |fleet: &Fleet| digest(&fleet.digest(0).unwrap().gates, &[], 0, now_ms());
+        assert!(text(&laptop).contains(&format!("- gate {id} ")));
 
         let stranger = laptop.withdraw_gate(id, "asked in error", Withdrawer { caller: Some("intruder"), coordinator: false }).unwrap_err();
         assert!(matches!(stranger, NorthError::Rejected(_)), "{stranger}");
         assert!(laptop.gate(id).unwrap().unwrap().is_open());
         let closure = laptop.withdraw_gate(id, "the owner already ruled on this", Withdrawer { caller: Some("worker"), coordinator: false }).unwrap();
 
-        assert_eq!((closure.by, closure.answer.as_str()), (Answerer::Withdrawn, "the owner already ruled on this"));
-        assert!(!waiting(&laptop).contains(&format!("- gate {id} ")));
+        assert_eq!((closure.by, closure.answer.as_str()), (Answerer::Withdrawn, "worker: the owner already ruled on this"));
         let kept = laptop.gate(id).unwrap().unwrap();
-        assert_eq!((kept.phase, kept.closure.map(|closure| closure.answer)), (GatePhase::Withdrawn, Some("the owner already ruled on this".to_owned())));
+        assert_eq!((kept.phase, kept.closure.map(|closure| closure.answer)), (GatePhase::Withdrawn, Some("worker: the owner already ruled on this".to_owned())));
+        let shown = text(&laptop);
+        assert!(!shown.contains("For Tom") && shown.contains("Ask-once gates withdrawn since you last looked (1)") && shown.contains("Withdrawn by worker: the owner already ruled on this"), "{shown}");
         assert!(worker.frames.lock().unwrap().is_empty(), "the session that withdrew it is not told its own withdrawal");
     }
 
