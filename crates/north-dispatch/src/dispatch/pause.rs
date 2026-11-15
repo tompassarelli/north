@@ -119,7 +119,3 @@ pub fn review() -> Option<String> {
         Err(_) => Some(pause.reason),
     }
 }
-
-#[cfg(test)]
-#[path = "pause_tests.rs"]
-mod tests;

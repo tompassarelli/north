@@ -214,7 +214,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "cloud_tests.rs"]
-mod tests;

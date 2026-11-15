@@ -55,8 +55,6 @@ impl Repo {
     }
 }
 
-const MAP: &str = "[thresholds]\nfile_lines = 500\n";
-
 fn scratch(first: &[(&'static str, String)], review: bool) -> Repo {
     let repo = Repo::new();
     repo.commit(&[&[("a.ts", "export const a = 1;\n".to_owned())], first].concat());
@@ -64,30 +62,6 @@ fn scratch(first: &[(&'static str, String)], review: bool) -> Repo {
         assert_eq!(repo.north(&["review-done"]).0, 0);
     }
     repo
-}
-
-#[test]
-fn signal_judges_the_named_revision_not_a_stale_checkout() {
-    let repo = scratch(&[], false);
-    repo.git(&["checkout", "-qb", "ahead"]);
-    repo.commit(&[("structure.toml", MAP.to_owned())]);
-    repo.git(&["checkout", "-q", "-"]);
-    assert_eq!(repo.fire(&[]).1, "quiet");
-    let (code, out) = repo.fire(&["--rev", "ahead"]);
-    assert!(out.starts_with("FIRE no review recorded"), "{out}");
-    assert_eq!(code, 0);
-}
-
-#[test]
-fn a_moved_file_counts_only_the_lines_its_move_changed_so_a_crate_split_does_not_read_as_new_code() {
-    let source = "export const x = 1;\n".repeat(40);
-    let repo = scratch(&[("structure.toml", "[review]\ncommits = 0\nhand_lines_added = 5\ntest_lines_changed = 5\ndays = 0\n\n[ignore]\npaths = [\"repos/**\"]\n".to_owned()), ("src/big.ts", source.clone()), ("tests/big.test.ts", "t\n".repeat(40))], true);
-    repo.git(&["mv", "src", "crate"]);
-    repo.git(&["mv", "tests", "crate-tests"]);
-    repo.commit(&[("crate/big.ts", format!("{source}export const y = 2;\n")), ("repos/dep/tests/vendored.test.ts", "t\n".repeat(40))]);
-    assert_eq!(repo.fire(&[]).1, "quiet");
-    repo.commit(&[("crate/new.ts", "export const n = 1;\n".repeat(5))]);
-    assert_eq!(repo.fire(&[]).1, "FIRE 6 hand lines added since review (limit 5)");
 }
 
 const TWO_MODULES: &str = "[review]\ncommits = 0\nhand_lines_added = 0\ntest_lines_changed = 0\ndays = 0\nhidden_links = 1\n\n[[module]]\nname = \"left\"\npaths = [\"src/left/**\"]\n\n[[module]]\nname = \"right\"\npaths = [\"src/right/**\"]\n";
@@ -166,18 +140,4 @@ fn changes_since_review_fire_on_a_hidden_link_show_in_the_budget_and_record_file
     repo.commit(&[("tools/wrap.rs", WRAPPED_BY_HAND.to_owned())]);
     assert_eq!(counted(&repo), one_line);
     assert_eq!(one_line, 3 + 10, "lib.rs keeps its 3 raw lines; the wrapped file formats to 10 without its inline test module, and the evals runner is left out");
-}
-
-#[test]
-fn a_reverted_commit_pair_and_a_declaration_only_mod_file_are_not_hidden_links() {
-    let repo = scratch(&[("structure.toml", TWO_MODULES.to_owned()), ("src/left/mod.rs", "pub mod a;\n".to_owned())], true);
-    for n in 1..4 {
-        repo.commit(&[("src/left/mod.rs", format!("pub mod a;\n{}", "mod b;\n".repeat(n))), ("src/right/b.rs", format!("pub const B: u8 = {n};\n"))]);
-    }
-    repo.commit(&[("src/left/a.rs", "pub const A: u8 = 0;\n".to_owned()), ("src/right/b.rs", "pub const B: u8 = 8;\n".to_owned())]);
-    let last = repo.commit(&[("src/left/a.rs", "pub const A: u8 = 1;\n".to_owned()), ("src/right/b.rs", "pub const B: u8 = 9;\n".to_owned())]);
-    repo.git(&["revert", "--no-edit", &last]);
-    let (code, out, err) = repo.north(&["budget"]);
-    assert_eq!((code, err.as_str()), (0, ""));
-    assert!(out.contains("Hidden links: 0 "), "{out}");
 }

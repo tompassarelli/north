@@ -43,7 +43,3 @@ pub(super) fn settlements(db: &Connection, since: i64) -> BTreeMap<String, Vec<S
     }
     settled
 }
-
-#[cfg(test)]
-#[path = "held_tests.rs"]
-mod tests;

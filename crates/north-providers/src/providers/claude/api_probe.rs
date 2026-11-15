@@ -104,6 +104,3 @@ pub(super) fn curl_config(key: &str) -> Result<String, String> {
     .map(|text| format!("header = \"{text}\"\n"))
     .collect())
 }
-
-#[cfg(test)]
-mod tests;

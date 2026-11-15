@@ -49,14 +49,9 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
     })
 }
 
-pub trait Upstream {
-    fn open_issue_nodes(&self, repo: &str) -> Result<Vec<Value>, String>;
-    fn still_open(&self, reference: &IssueRef) -> Option<bool>;
-}
-
 pub struct Live;
 
-impl Upstream for Live {
+impl Live {
     fn open_issue_nodes(&self, repo: &str) -> Result<Vec<Value>, String> {
         store::fetch_open_issues(repo)
     }
@@ -68,7 +63,7 @@ impl Upstream for Live {
     }
 }
 
-fn nodes(repo: &str, mirror: &Mirror, at: f64, upstream: &dyn Upstream, notes: &mut Vec<String>) -> Result<Vec<Value>, String> {
+fn nodes(repo: &str, mirror: &Mirror, at: f64, upstream: &Live, notes: &mut Vec<String>) -> Result<Vec<Value>, String> {
     if let Some(Value::Array(nodes)) = mirror.fresh(&key(repo, OPEN_ISSUES), at) {
         return Ok(nodes);
     }
@@ -105,7 +100,7 @@ pub fn open_issues(repos: &[String], at: f64, notes: &mut Vec<String>) -> OpenIs
 }
 
 /// The staffed repositories' open issues, and every open issue they or their plans wait on, read from the GitHub mirror while it holds a fresh copy.
-pub fn read_open_issues(repos: &[String], mirror: &Mirror, at: f64, upstream: &dyn Upstream, notes: &mut Vec<String>) -> OpenIssues {
+pub fn read_open_issues(repos: &[String], mirror: &Mirror, at: f64, upstream: &Live, notes: &mut Vec<String>) -> OpenIssues {
     let mut found = Vec::new();
     for repo in repos {
         match nodes(repo, mirror, at, upstream, notes) {

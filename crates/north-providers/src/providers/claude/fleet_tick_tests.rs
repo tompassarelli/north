@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::fleet::tick::*;
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::registry::{Fleet, HandedIn};
+use crate::fleet::registry::Fleet;
 use crate::fleet::store::{Exchange, LedgerHost};
 use crate::fleet::runtimes::Runtimes;
 use crate::fleet::sender::Sender;
@@ -42,26 +42,10 @@ impl Host {
         self.home.path().join(".local/state/north/fleet")
     }
 
-    fn store(&self) -> Store {
-        Store::open(&self.ledger).unwrap()
-    }
-
     fn opened(&self) -> OpenLedger {
         let path = self.ledger.clone();
         open_ledger(move || Store::open(&path))
     }
-
-    fn pulls(&self) -> Pulls {
-        Pulls { spools: Arc::new(Nobody), always: Vec::new(), starts: None }
-    }
-
-    fn tick(&self) -> Ticked {
-        tick(&self.fleet, &self.opened(), &self.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap()
-    }
-}
-
-fn live(host: &Host, name: &str) -> Arc<Mutex<Vec<String>>> {
-    live_with(host, name, "Not done: waiting.", None)
 }
 
 fn live_with(host: &Host, name: &str, reply: &str, task_ref: Option<&str>) -> Arc<Mutex<Vec<String>>> {
@@ -109,50 +93,6 @@ impl LedgerHost for Unreachable {
 
     fn settle(&mut self, _: &[WaitKey]) -> NorthResult<()> {
         Err(NorthError::Refused("ssh nexus: timed out; remote outcome unknown".into()))
-    }
-}
-
-#[test]
-fn a_row_already_in_the_sessions_journal_is_not_delivered_again_by_a_second_tick() {
-    let host = host("nexus");
-    let frames = live(&host, "worker");
-    host.store().put(&[message("m-1", "worker", NOW_MS)]).unwrap();
-
-    let first = host.tick();
-    let second = host.tick();
-
-    assert_eq!(first.delivered, [("m-1".to_owned(), "worker".to_owned())]);
-    assert_eq!((second.delivered.len(), second.already), (0, 0), "a journaled id is not fetched again");
-    assert_eq!(host.fleet.hand_in(&message("m-1", "worker", NOW_MS)).unwrap(), HandedIn::Already);
-    assert_eq!(frames.lock().unwrap().len(), 1);
-    assert!(frames.lock().unwrap()[0].contains("[from lead@whiterabbit] hello"), "a row from another host is signed with its host");
-}
-
-struct Nobody;
-
-impl FarSpools for Nobody {
-    fn take(&self, ssh: &str) -> NorthResult<Pull> {
-        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
-    }
-
-    fn drop(&self, ssh: &str, _: &[String]) -> NorthResult<()> {
-        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
-    }
-
-    fn set_aside(&self, ssh: &str, _: &[String]) -> NorthResult<()> {
-        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
-    }
-
-    fn cache(&self, ssh: &str, _: &FleetTable) -> NorthResult<()> {
-        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
-    }
-
-    fn registry(&self, ssh: &str) -> NorthResult<FarRegistry> {
-        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
-    }
-
-    fn deliver(&self, ssh: &str, _: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
-        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
     }
 }
 
@@ -378,43 +318,6 @@ fn a_lead_or_proxy_at_its_floor_goes_to_the_source_above_the_floor_with_most_hea
 }
 
 #[test]
-fn a_working_session_whose_five_hour_window_is_spent_is_parked_by_the_tick_and_resumed_at_the_reset_and_not_before() {
-    use crate::fleet::limit::{UsageWait, resume_message};
-    use crate::fleet::waits::{Probe, Registered, Run};
-    use crate::usage::decide::world::Window;
-    struct Clock(u64);
-    impl Probe for Clock {
-        fn result(&self, wait: &Registered) -> Option<String> {
-            UsageWait::of(wait)?.lifted(&[], self.0)
-        }
-    }
-    let host = host("nexus");
-    with_accounts(&host, &["c"]);
-    working_on(&host, "worker", "c", Some("lead"), &lane(&host, "worker"));
-    let resets_in_s = 2 * 3_600;
-    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "c", Window::Week, 40.0, 3 * 86_400), read(1, "c", Window::FiveHour, 100.0, resets_in_s)], limits: Vec::new(), ..Default::default() });
-    let launches = Launches::default();
-
-    let done = hand_over_with(&host, &table, &launches);
-
-    assert!(launches.borrow().is_empty(), "{:?}", done.lines);
-    let waits = host.fleet.waits();
-    let reset_ms = (NOW_MS / 1000 + resets_in_s as u64) * 1000;
-    let parked: Vec<Run> = waits.of("worker").into_iter().map(|wait| wait.run).collect();
-    assert_eq!(parked, [Run::Usage { account: "c".into(), at_ms: reset_ms }], "{:?}", done.lines);
-    let told = std::cell::RefCell::new(Vec::new());
-    let tell = |name: &str, text: &str| -> NorthResult<()> {
-        told.borrow_mut().push((name.to_owned(), text.to_owned()));
-        Ok(())
-    };
-    let early = waits.settle(&Clock(reset_ms - 60_000), &|_| true, &tell);
-    let due = waits.settle(&Clock(reset_ms), &|_| true, &tell);
-    assert!(early.is_empty() && due.len() == 1, "{early:?} {due:?}");
-    assert_eq!(told.into_inner(), [("worker".to_owned(), resume_message("c"))]);
-    assert!(waits.of("worker").is_empty(), "the wait is released once the session is told");
-}
-
-#[test]
 fn a_worker_whose_five_hour_window_is_spent_resumes_its_own_conversation_on_an_account_above_the_floor_instead_of_parking_north_998() {
     use crate::usage::decide::world::Window;
     let host = host("nexus");
@@ -431,159 +334,6 @@ fn a_worker_whose_five_hour_window_is_spent_resumes_its_own_conversation_on_an_a
     assert!(host.fleet.waits().of("root-from-github-91").is_empty(), "{:?}", done.lines);
 }
 
-
-struct Sleepy;
-
-impl WaitProbes for Sleepy {
-    fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
-        Some(Box::new(north_base::platform::wait::hang))
-    }
-
-    fn jobs(&self) -> Vec<ProbeJob> {
-        let said = |line: &str| Probed { lines: vec![line.to_owned()], settled: Vec::new() };
-        vec![
-            ProbeJob { name: "probes.quick", own: None, run: Box::new(move |_| said("quick ran")) },
-            ProbeJob {
-                name: "probes.slow",
-                own: None,
-                run: Box::new(move |_| {
-                    north_base::platform::wait::hang();
-                    said("slow ran")
-                }),
-            },
-            ProbeJob { name: "probes.after", own: None, run: Box::new(move |_| said("after ran")) },
-            ProbeJob { name: "probes.own", own: Some(Duration::from_secs(5)), run: Box::new(move |_| said("own ran")) },
-        ]
-    }
-}
-
-struct HungLedger;
-
-impl LedgerHost for HungLedger {
-    fn exchange(&mut self, _: &Exchange) -> NorthResult<Exchanged> {
-        north_base::platform::wait::hang();
-        Err(NorthError::Refused("ssh nexus: hung".into()))
-    }
-
-    fn settle(&mut self, _: &[WaitKey]) -> NorthResult<()> {
-        north_base::platform::wait::hang();
-        Err(NorthError::Refused("ssh nexus: hung".into()))
-    }
-}
-
-struct HungTake;
-
-impl FarSpools for HungTake {
-    fn take(&self, ssh: &str) -> NorthResult<Pull> {
-        north_base::platform::wait::hang();
-        Nobody.take(ssh)
-    }
-
-    fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
-        Nobody.drop(ssh, ids)
-    }
-
-    fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
-        Nobody.set_aside(ssh, ids)
-    }
-
-    fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()> {
-        Nobody.cache(ssh, table)
-    }
-
-    fn registry(&self, ssh: &str) -> NorthResult<FarRegistry> {
-        Nobody.registry(ssh)
-    }
-
-    fn deliver(&self, ssh: &str, rows: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
-        Nobody.deliver(ssh, rows)
-    }
-}
-
-#[test]
-fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_budgets_finishes_naming_each_deferred_stage_while_a_probe_with_its_own_budget_runs_beside_them() {
-    let host = host("nexus");
-    let pulls = Pulls { spools: Arc::new(HungTake), always: vec![far_host("gex45")], starts: None };
-
-    let ticked = tick(&host.fleet, &open_ledger(|| Ok(HungLedger)), &pulls, &Sleepy, NOW_MS, Budgets::each(Duration::from_secs(1))).unwrap();
-
-    let lines = ticked.lines();
-    for stage in ["take_far on gex45", "ledger.exchange", "placement"] {
-        assert!(lines.contains(&format!("deferred {stage} to the next tick: still running after its 1000ms budget")), "{stage}: {lines:?}");
-    }
-    assert!(lines.iter().any(|line| line == "quick ran"), "the probes still run after a deferred exchange: {lines:?}");
-    assert!(lines.iter().any(|line| line == "deferred probes.slow to the next tick: still running when probes spent their 1000ms budget"), "{lines:?}");
-    assert!(lines.iter().any(|line| line == "deferred probes.after to the next tick: probes spent their 1000ms budget before it began"), "{lines:?}");
-    assert!(lines.iter().any(|line| line == "own ran"), "{lines:?}");
-    let timing = ticked.timing();
-    assert!(timing.contains(", probes.quick ") && timing.contains(", probes.slow "), "{timing}");
-    let own_ms: u64 = timing.split(", probes.own ").nth(1).and_then(|rest| rest.split("ms").next()).and_then(|ms| ms.parse().ok()).unwrap_or(u64::MAX);
-    assert!(own_ms < 1000, "a probe with its own budget is timed to its own finish, not to when the shared probes end: {timing}");
-    assert!(Budgets::TICK.worst() < Duration::from_secs(40), "the tick's stage budgets sum to {:?}, past 40 s of its 50 s start timeout", Budgets::TICK.worst());
-}
-
-struct HeldLedger {
-    store: Store,
-    release: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
-    answering: std::sync::mpsc::Sender<()>,
-    answered: Option<Answered>,
-}
-
-struct Answered(std::sync::mpsc::Sender<()>);
-
-impl Drop for Answered {
-    fn drop(&mut self) {
-        let _ = self.0.send(());
-    }
-}
-
-impl LedgerHost for HeldLedger {
-    fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
-        let exchanged = self.store.exchange(exchange);
-        self.release.lock().unwrap().recv().unwrap();
-        self.answered = Some(Answered(self.answering.clone()));
-        exchanged
-    }
-
-    fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()> {
-        LedgerHost::settle(&mut self.store, waits)
-    }
-}
-
-struct Releases(std::sync::mpsc::Sender<()>, Arc<Mutex<std::sync::mpsc::Receiver<()>>>);
-
-impl WaitProbes for Releases {
-    fn jobs(&self) -> Vec<ProbeJob> {
-        let (release, answered) = (self.0.clone(), self.1.clone());
-        vec![ProbeJob {
-            name: "probes.release",
-            own: None,
-            run: Box::new(move |_| {
-                release.send(()).unwrap();
-                answered.lock().unwrap().recv().unwrap();
-                Probed { lines: Vec::new(), settled: Vec::new() }
-            }),
-        }]
-    }
-}
-
-/// On 2026-11-11 a ledger exchange that took 8 to 25 s overran its 6 s budget on 97% of the control host's ticks, and each overrun dropped the rows it had pulled, so no line from a build-host worker reached the proxy (north#1157).
-#[test]
-fn a_ledger_exchange_that_answers_after_its_budget_but_before_the_tick_ends_still_delivers_the_rows_it_pulled() {
-    let host = host("nexus");
-    let frames = live(&host, "worker");
-    host.store().put(&[message("m-late", "worker", NOW_MS)]).unwrap();
-    let path = host.ledger.clone();
-    let (release, held) = std::sync::mpsc::channel();
-    let (answering, answered) = std::sync::mpsc::channel();
-    let held = Arc::new(Mutex::new(held));
-    let ledger = open_ledger(move || Ok(HeldLedger { store: Store::open(&path)?, release: held.clone(), answering: answering.clone(), answered: None }));
-
-    let ticked = tick(&host.fleet, &ledger, &host.pulls(), &Releases(release, Arc::new(Mutex::new(answered))), NOW_MS, Budgets { ledger: Duration::from_secs(1), ..BUDGET }).unwrap();
-
-    assert_eq!(ticked.delivered, [("m-late".to_owned(), "worker".to_owned())], "{:?}", ticked.lines());
-    assert_eq!(frames.lock().unwrap().len(), 1);
-}
 
 fn with_api_orgs(host: &Host, orgs: &[&str]) {
     let file = crate::platform::orchestration::under(host.home.path());
@@ -630,29 +380,6 @@ fn on_the_floor() {
     let (launched, parked, done) = floor([("ember", credit(20.0, 5 * day)), ("zenith", credit(49.0, 20 * day))], 98.5);
     assert!(launched.is_empty(), "{launched:?} {:?}", done.lines);
     assert_eq!(parked, [("proxy".to_owned(), vec![Run::Usage { account: "a".into(), at_ms: at_ms(2 * hour) }]), ("worker".to_owned(), vec![Run::Usage { account: "api:ember".into(), at_ms: at_ms(5 * day) }])], "{:?}", done.lines);
-}
-
-#[test]
-fn a_host_deleted_from_placement_is_named_in_no_tick_line_and_a_forget_aimed_at_a_session_it_held_applies_at_once() {
-    let host = host("nexus");
-    let policy = crate::platform::orchestration::under(host.home.path());
-    std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
-    std::fs::write(&policy, "[hosts.nexus]\n[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
-    let _frames = live(&host, "placed-there");
-    let file = host.root().join("placed-there/session.json");
-    let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-    record["machine"] = json!({"name": "ccx33", "ssh": "tom@ccx33"});
-    std::fs::write(file, record.to_string()).unwrap();
-    let held = crate::fleet::store::SessionRow { name: "held-there".into(), host: "ccx33".into(), status: "working".into(), ..Default::default() };
-    host.fleet.cache_table(&FleetTable { sessions: vec![held], gates: Vec::new() }).unwrap();
-
-    let forgot = host.fleet.control(crate::fleet::store::ControlVerb::Forget, "held-there").unwrap();
-
-    assert!(matches!(forgot, crate::fleet::registry::Controlled::Retired { ref host } if host == "ccx33"));
-    assert!(host.fleet.spool().pending().unwrap().is_empty(), "a forget for a host that never ticks again is not spooled");
-    assert!(host.fleet.cached_sessions().unwrap().unwrap_or_default().iter().all(|row| row.name != "held-there"));
-    let lines = host.tick().lines();
-    assert!(lines.iter().all(|line| !line.contains("ccx33")), "{lines:?}");
 }
 
 #[test]

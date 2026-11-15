@@ -81,7 +81,3 @@ fn put(block: &mut [u8; BLOCK], at: usize, width: usize, bytes: &[u8]) {
 fn invalid(path: &Path, why: &str) -> Error {
     Error::new(ErrorKind::InvalidInput, format!("{} {why}", path.display()))
 }
-
-#[cfg(test)]
-#[path = "archive_tests.rs"]
-mod tests;

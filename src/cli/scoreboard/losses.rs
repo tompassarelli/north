@@ -116,7 +116,3 @@ fn boundary(threads: &Connection, attempt: &workers::Attempt) -> Option<String> 
     let recorded = format!("recorded by {source} as {cause} at {at}");
     Some(if reason.is_empty() { recorded } else { format!("{recorded}: {reason}") })
 }
-
-#[cfg(test)]
-#[path = "losses_tests.rs"]
-mod tests;

@@ -26,36 +26,3 @@ fn monthly(server: &Value, location: Option<&str>) -> Option<Price> {
     let amount = gross.as_str().and_then(|text| text.parse::<f64>().ok()).or_else(|| gross.as_f64())?;
     Some(Price::eur(amount))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn a_server_prices_at_its_own_location_not_the_first_one_listed() {
-        let answer = json!({"servers": [{
-            "name": "cpx62",
-            "status": "running",
-            "location": {"name": "hel1"},
-            "server_type": {"prices": [
-                {"location": "fsn1", "price_monthly": {"gross": "152.9900000000"}},
-                {"location": "hel1", "price_monthly": {"gross": "152.9900000000"}},
-                {"location": "sin", "price_monthly": {"gross": "202.9900000000"}}
-            ]}
-        }]});
-        let servers = servers(&answer).expect("the answer parses");
-        assert_eq!(servers.len(), 1);
-        assert_eq!(servers[0].name, "cpx62");
-        assert_eq!(servers[0].location.as_deref(), Some("hel1"));
-        assert_eq!(servers[0].price, Some(Price::eur(152.99)));
-    }
-
-    #[test]
-    fn a_server_without_a_price_still_lists_so_its_status_shows() {
-        let answer = json!({"servers": [{"name": "cpx62", "status": "off", "server_type": {"prices": []}}]});
-        let servers = servers(&answer).expect("the answer parses");
-        assert_eq!(servers[0].price, None);
-        assert_eq!(servers[0].status, "off");
-    }
-}

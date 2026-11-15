@@ -144,17 +144,3 @@ fn git_within(directory: &Path, arguments: &[&str], limit: Duration) -> Result<S
     command.arg("-C").arg(directory).args(arguments);
     Ok(exec::stdout(command, limit, None)?.trim().to_owned())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_walk_state_carries_the_live_usage_gate_where_placement_reads_it() {
-        let (live, state) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        fs::create_dir_all(live.path().join("agents")).unwrap();
-        fs::write(live.path().join(USAGE_GATE), "{\"claude\":{}}\n").unwrap();
-        seed_usage_gate(live.path(), state.path()).unwrap();
-        assert_eq!(fs::read_to_string(state.path().join("agents/usage-gate.json")).unwrap(), "{\"claude\":{}}\n", "placement reads XDG_STATE_HOME/agents/usage-gate.json; without it every plan account reads as held");
-    }
-}

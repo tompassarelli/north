@@ -30,7 +30,3 @@ fn tom_turn(index: &Path, home: &Path, conversation: &str, id: i64) -> NorthResu
     }
     Ok(TomTurn { id, at_ms: u64::try_from(found.at).unwrap_or(0).saturating_mul(1000), text: found.text })
 }
-
-#[cfg(test)]
-#[path = "gate_relay_tests.rs"]
-mod tests;

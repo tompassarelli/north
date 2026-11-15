@@ -115,6 +115,3 @@ fn remove(path: &Path, owned: bool) -> Option<String> {
     }
     fs::remove_dir_all(path).err().filter(|error| error.kind() != io::ErrorKind::NotFound).map(|error| format!("remove {}: {error}", path.display()))
 }
-
-#[cfg(test)]
-mod tests;

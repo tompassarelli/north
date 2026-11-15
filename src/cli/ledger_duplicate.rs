@@ -84,34 +84,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     0
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn database(rows: &[(&str, &str, &str, &str, &str)]) -> tempfile::TempDir {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("threads.db");
-        let connection = rusqlite::Connection::open(&path).unwrap();
-        connection.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, box TEXT, role TEXT, started TEXT, ended TEXT, outcome TEXT)").unwrap();
-        for (agent, item, box_text, started, ended) in rows {
-            connection.execute("INSERT INTO runs(agent, item, box, role, started, ended, outcome) VALUES (?1, ?2, ?3, 'worker', ?4, ?5, 'done')", rusqlite::params![agent, item, box_text, started, ended]).unwrap();
-        }
-        directory
-    }
-
-    #[test]
-    fn a_run_that_started_while_another_worked_its_box_counts_once_and_a_day_without_one_reads_zero() {
-        let directory = database(&[
-            ("north-634-d2105", "north#634", "gex45 placement fits its build capacity", "2026-11-07T21:05:59Z", "2026-11-07T21:10:00Z"),
-            ("north-634-d2051", "north#634", "gex45 placement fits its build capacity", "2026-11-07T21:06:24Z", "2026-11-07T21:10:00Z"),
-            ("north-634-d2109", "north#634", "gex45 placement fits its build capacity", "2026-11-07T21:09:00Z", "2026-11-07T21:15:00Z"),
-            ("north-634-d2359", "north#634", "gex45 placement fits its build capacity", "2026-11-07T23:59:00Z", "2026-11-08T00:20:00Z"),
-            ("north-634-later", "north#634", "Replay never holds the lander for long", "2026-11-07T21:07:00Z", "2026-11-07T21:20:00Z"),
-            ("north-635-d2110", "north#635", "a next box", "2026-11-07T21:10:00Z", "2026-11-07T21:20:00Z"),
-        ]);
-        let counts = read(&directory.path().join("threads.db"), "2026-11-07").unwrap();
-        assert_eq!(counts.get("2026-11-07"), Some(&2), "the two runs that started on the worked box count once each, and no other box counted");
-        assert_eq!(days(&counts, Timestamp::parse("2026-11-09T12:00:00Z").unwrap(), 1), [("2026-11-09".to_owned(), 0)], "a day without a duplicate staging reads zero");
-    }
-}

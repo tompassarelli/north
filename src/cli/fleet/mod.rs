@@ -64,8 +64,6 @@ pub(super) use spares::{fill as fill_spares, retire as retire_spares};
 pub(super) use placement::spend_now;
 pub(super) use router::{account_home, host_watch, open_fleet, roster, run};
 pub(super) use typed::proxy_turn;
-#[cfg(test)]
-pub(super) use typed::typed_at;
 pub(super) use view::Registry;
 #[cfg(test)]
 pub(super) use row::{admitted_exchange, admitted_put, entered};

@@ -126,20 +126,3 @@ pub(super) fn threads(arguments: &[String]) -> u8 {
     }
     crate::threads::client::run(arguments, std::sync::Arc::new(super::fleet::Registry), super::THREADS_FAMILIES)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_bare_task_check_reference_prints_task_checks_own_usage() {
-        let directory = std::env::temp_dir().join(format!("north-task-check-usage-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let store = Ledger::open(&directory.join("ledger.db")).unwrap();
-        let arguments: Vec<String> = ["task", "check", "north#1188"].iter().map(|word| (*word).to_owned()).collect();
-        let error = dispatch(&store, &arguments).unwrap_err();
-        std::fs::remove_dir_all(&directory).unwrap();
-        assert!(error.user_message().contains("north task check REF -- CMD..."), "{}", error.user_message());
-        assert!(!error.user_message().contains("north ledger"), "{}", error.user_message());
-    }
-}

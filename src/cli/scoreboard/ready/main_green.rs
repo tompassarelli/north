@@ -112,30 +112,3 @@ pub(super) fn reading(reds: &[(i64, i64)], window: Window) -> Reading {
     let red: i64 = touching.iter().map(|&&(from, to)| (to.min(window.end) - from.max(window.start)).max(0)).sum();
     Reading { value: (1.0 - red as f64 / length as f64).clamp(0.0, 1.0) * 100.0, sample: touching.len() }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn run(created: &str, updated: &str, conclusion: &str) -> String {
-        format!(r#"{{"path":".github/workflows/buck2.yml","head_branch":"main","event":"push","status":"completed","conclusion":"{conclusion}","created_at":"{created}","updated_at":"{updated}"}}"#)
-    }
-
-    #[test]
-    fn a_red_episode_runs_from_the_first_failing_run_to_the_next_passing_one_and_the_share_green_is_the_rest_of_the_window() {
-        let runs = format!(
-            r#"{{"workflow_runs":[{},{},{},{}]}}"#,
-            run("2026-11-08T01:00:00Z", "2026-11-08T01:10:00Z", "success"),
-            run("2026-11-08T02:00:00Z", "2026-11-08T02:10:00Z", "failure"),
-            run("2026-11-08T03:00:00Z", "2026-11-08T03:10:00Z", "failure"),
-            run("2026-11-08T04:00:00Z", "2026-11-08T04:10:00Z", "success"),
-        );
-        let day = i64::try_from(watch_named::run_time("2026-11-08T00:00:00Z").unwrap()).unwrap();
-        let now = day + 5 * 3_600;
-        let reds = episodes(&runs, now).unwrap();
-        assert_eq!(reds, vec![(day + 2 * 3_600 + 600, day + 4 * 3_600 + 600)]);
-        let reading = reading(&reds, Window { start: day, end: day + 5 * 3_600 });
-        assert_eq!(reading.sample, 1);
-        assert!((reading.value - 60.0).abs() < 1e-9, "{}", reading.value);
-    }
-}

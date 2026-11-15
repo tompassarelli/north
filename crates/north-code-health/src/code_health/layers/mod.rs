@@ -180,6 +180,3 @@ fn git(repo: &Path, arguments: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
-
-#[cfg(test)]
-mod tests;

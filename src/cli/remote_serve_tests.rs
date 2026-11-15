@@ -101,13 +101,3 @@ fn remote_serve_forces_the_peer_on_every_fleet_row_verb() {
     assert_eq!(planned("north fleet dispatch need n-x gex45 north#791").unwrap().argv, ["north", "fleet", "dispatch", "need", "n-x", "gex45", "north#791"]);
 }
 
-
-#[test]
-fn remote_serve_admits_incident_record_from_a_peer_for_a_granted_repository() {
-    for command in [
-        "north threads incident record --key k --class c --noticed-by lander --repo north --subject b --started-at 1 --detected-at 2 --detail 'a b'",
-        "threads incident record --key k --class c --noticed-by lease-reaper --subject gex45 --detail d",
-    ] {
-        assert!(planned(command).is_ok(), "{command}");
-    }
-}

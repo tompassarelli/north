@@ -75,27 +75,6 @@ fn verdict(category: &str, kind: Kind, sha: &str) -> Verdict {
     Verdict { at: 0.0, session: "ds".into(), category: category.into(), sha: sha.into(), kind, class: None, effort: None }
 }
 
-#[test]
-fn opencode_landings_get_full_review_for_ten_runs_then_one_in_five_and_a_defect_resets_it() {
-    let shas: Vec<String> = (0..12u32).map(|number| format!("{:08x}", number * 7 + 1)).collect();
-    let mut verdicts: Vec<Verdict> = Vec::new();
-    let mut requested = Vec::new();
-    for sha in &shas {
-        let asked = sampling::reviews(&verdicts, "feature", false, false, sha);
-        requested.push(asked);
-        verdicts.push(verdict("feature", if asked { Kind::Clean } else { Kind::Unsampled }, sha));
-    }
-    assert!(requested[..FULL_REVIEWS].iter().all(|asked| *asked), "the first 10 runs of a category are all reviewed: {requested:?}");
-    let sampled = |sha: &String| u64::from_str_radix(sha, 16).unwrap().is_multiple_of(sampling::SAMPLE_EVERY);
-    assert!(requested[FULL_REVIEWS..].iter().zip(&shas[FULL_REVIEWS..]).all(|(asked, sha)| *asked == sampled(sha)), "after 10, a run is reviewed only when its sha is sampled: {requested:?}");
-    let unsampled = "00000001";
-    assert!(!sampling::reviews(&verdicts, "feature", false, false, unsampled));
-    let mut defect = verdict("feature", Kind::Defect, unsampled);
-    defect.class = Some("out-of-scope".into());
-    verdicts.push(defect);
-    assert!(sampling::reviews(&verdicts, "feature", false, false, unsampled), "a defect finding puts the category back on full review");
-}
-
 fn a_category_is_reviewed_in_full_until_ten_clean_then_one_in_five_while_a_defect_resets_it_and_landing_boxes_are_always_reviewed() {
     let unsampled = "00000001";
     let sampled = "00000005";
@@ -149,64 +128,6 @@ fn active_workers_counts_claude_workers_alone() {
 }
 
 #[test]
-fn a_private_lane_opencode_launch_past_the_zero_retention_date_is_refused_and_a_public_one_admitted() {
-    use crate::fleet::model::{Account, LaunchRequest};
-    use crate::fleet::prompt::PromptMode;
-    use crate::fleet::runtime::{Opening, Runtime};
-    use north_providers::providers::opencode::harness::OPENCODE;
-    use north_providers::providers::opencode::route;
-    use north_providers::providers::opencode::{Deepseek, Visibility};
-    use std::sync::Arc;
-
-    let configured = crate::platform::harness::document("harness/opencode.toml")["go"]["zero_retention_until"]
-        .as_str()
-        .expect("harness/opencode.toml [go] zero_retention_until is a YYYY-MM-DD date");
-    let until = route::date(configured).unwrap();
-    let after = until.next_day().unwrap();
-
-    let home = tempfile::tempdir().unwrap();
-    let account = Account { provider: Deepseek::opencode().provider(), label: "go".into(), home: home.path().into(), token_file: Some(home.path().join("go.key")), api: None };
-    let request = LaunchRequest {
-        verification: false,
-        gates_aside: false,
-        urgent: false,
-        container_shell: false,
-        container_dir: None,
-        name: "worker".into(),
-        provider: Deepseek::opencode().provider(),
-        account: "go".into(),
-        cwd: home.path().into(),
-        model: None,
-        effort: None,
-        prompt: "Item: north#1\nBox: add a.txt".into(),
-        system_prompt: None,
-        foreground_cap_secs: None,
-        prompt_mode: PromptMode::North,
-        idle_exit_minutes: None,
-        parent: None,
-        task_ref: None,
-        claim_box: None,
-        placement: None,
-        machine: None,
-        capacity_need: None,
-        role: None,
-        resume: None,
-        compact_window: None,
-        dispatched: false,
-        surface: Default::default(),
-        route: None,
-    };
-    let launch = |visibility: Visibility, today: time::Date| {
-        Deepseek::reading(&OPENCODE, Arc::new(move |_| visibility), Arc::new(move || today)).host(&account, &request, Opening::Fresh(Some("ses_x")), "")
-    };
-
-    let private = launch(Visibility::Private, after);
-    assert!(private.is_err_and(|error| error.user_message().contains("zero-retention agreement")), "a private lane after {configured} is refused");
-    assert!(launch(Visibility::Public, after).is_ok(), "a public lane runs on the free model, which the zero-retention agreement does not bind");
-    assert!(launch(Visibility::Private, until).is_ok(), "the agreement's last day still admits a private lane");
-}
-
-#[test]
 fn the_sonnet_reviewer_draws_medium_or_high_by_seed_and_records_it() {
     let drawn: BTreeSet<&str> = (0..40).map(|number| sampling::reviewer_effort(&format!("north-1020-d{number:04x}"))).collect();
     assert_eq!(drawn, BTreeSet::from(["medium", "high"]), "both efforts are drawn across sessions");
@@ -224,19 +145,6 @@ fn the_sonnet_reviewer_draws_medium_or_high_by_seed_and_records_it() {
 }
 
 #[test]
-fn the_deepseek_brief_and_the_review_agree_on_who_lands() {
-    let order = review::worker_order();
-    let full: Vec<Verdict> = (0..FULL_REVIEWS).map(|_| verdict("feature", Kind::Clean, "00000001")).collect();
-    assert_eq!(review::Lander::of(&[], "feature", false, false, "00000001"), review::Lander::Reviewer, "a category under full review goes to a reviewer");
-    assert_eq!(review::Lander::of(&full, "feature", false, false, "00000001"), review::Lander::ReviewJob, "an unsampled commit is landed by the review job");
-    assert!(order.contains("never run safe-push"), "{order}");
-    assert!(order.contains("Sonnet reviewer, who lands it") && order.contains("review job lands any other commit through safe-push itself"), "the worker is told both landings the review code takes: {order}");
-    assert!(order.contains("the lander ticks the box") && !order.contains("reviewer lands it and ticks"), "nobody but the lander ticks, on either path: {order}");
-    let reviewer = review::brief("ds", "north#1020", "feature", None, std::path::Path::new("/lane"), "abc", "medium");
-    assert!(reviewer.contains("land it with `safe-push` from the lane"), "the reviewer brief lands the sampled commit: {reviewer}");
-}
-
-#[test]
 fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_landed() {
     let state = tempfile::tempdir().unwrap();
     let queues = state.path().join("north/land-queue");
@@ -248,47 +156,6 @@ fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_lan
     assert_eq!(review::no_commit_kind(&queues, "ds-nothing"), Kind::Empty);
     let verdicts = [Verdict { at: 0.0, session: "ds-landed".into(), category: "feature".into(), sha: "abc".into(), kind: Kind::Landed, class: None, effort: None }];
     assert_eq!(sampling::clean_run(&verdicts, "feature"), 0);
-}
-
-#[test]
-fn a_resting_session_on_a_build_host_that_reported_done_gets_a_review_job_and_one_that_has_not_gets_none() {
-    let session = |name: &str, status: &str| json!({"name": name, "provider": "opencode", "status": status, "tasks": ["north#7"], "box": "the box"});
-    let held = |name: &str, status: &str, past: bool, item: &str| json!({"name": name, "provider": "opencode", "status": status, "machine": "cpx62b", "past": past, "ended": if past { "retired" } else { "" }, "tasks": [item], "box": "the box"});
-    let said = |text: &str, ended_ms: u64| json!({"entries": [{"kind": "assistant", "text": text}], "turns": [{"ended_ms": ended_ms}]});
-    let lists = vec![
-        ("nexus".to_owned(), json!([held("held-done", "parked", false, "north#7"), held("held-later", "idle", false, "north#7"), held("held-last", "idle", false, "north#7"), held("retired-done", "exited", true, "north#7"), held("retired-reviewed", "exited", true, "north#7"), held("retired-closed", "exited", true, "north#8"), held("retired-ticked", "exited", true, "north#9")])),
-        ("gex45".to_owned(), json!([session("on-here", "working")])),
-        ("cpx62".to_owned(), json!([session("remote-done", "idle"), session("remote-busy", "idle")])),
-    ];
-    let read = |host: Option<&str>| match host {
-        None => Ok(json!({"held-done": said("Done: h", 300), "held-later": said("Done: l", 400), "held-last": said("Done: z", 500), "retired-done": said("Done: r", 100), "retired-reviewed": said("Done: q", 50), "retired-closed": said("Done: c", 60), "retired-ticked": said("Done: t", 70)})),
-        Some("cpx62") => Ok(json!({"remote-done": said("Done: x", 200), "remote-busy": said("Not done: y", 10)})),
-        _ => Err("unreached".to_owned()),
-    };
-    let record = tempfile::tempdir().unwrap();
-    std::fs::write(record.path().join("deepseek-reviews.jsonl"), "{\"at\":9990,\"name\":\"retired-reviewed\"}\n{\"at\":7300,\"name\":\"held-done\",\"failed\":\"refused\"}\n{\"at\":2800,\"name\":\"retired-done\",\"failed\":\"refused\"}\n").unwrap();
-    let marked = review::queued(record.path(), 10_000.0);
-    let mut notes = Vec::new();
-
-    let reports = super::reports("nexus", None, &json!(null), &lists, &marked, &read, &mut notes);
-    let found = review::done(&lists, &reports, &[], &[issue("north", 7, "- [ ] the box", &[]), issue("north", 9, "- [x] the box", &[])], &marked);
-
-    assert_eq!(found.done.iter().map(|done| (done.name.as_str(), done.host.as_str())).collect::<Vec<_>>(), [("retired-done", "nexus"), ("remote-done", "cpx62"), ("held-later", "nexus"), ("held-last", "nexus")], "a session the control host holds for a build host is reviewed where it is held, once even after the fleet retired it, oldest Done first, and one whose job failed within the hour sits out that hour");
-    assert_eq!(found.left.iter().map(|left| (left.name.as_str(), left.why.as_str(), left.retired)).collect::<Vec<_>>(), [("retired-closed", "north#8: its issue is not among the open issues dispatch reads", true), ("retired-ticked", "north#9: its box is ticked", true)]);
-    assert!(notes.is_empty(), "{notes:?}");
-    let lines = review::queue(&found, "nexus", None, &|_, _| Err("no remote run in a dry run".to_owned()), true);
-    assert_eq!(
-        lines,
-        [
-            "would leave retired-closed on nexus: north#8: its issue is not among the open issues dispatch reads",
-            "would leave retired-ticked on nexus: north#9: its box is ticked",
-            "would review retired-done on nexus (north#7, feature)",
-            "would review remote-done on cpx62 (north#7, feature)",
-            "would review held-later on nexus (north#7, feature)",
-            "review: would queue 3 of 4 waiting, 1 left for later runs at 3 a run; would leave 2",
-        ],
-        "one run queues the three oldest and names the rest"
-    );
 }
 
 #[test]

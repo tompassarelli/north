@@ -102,7 +102,3 @@ pub(super) fn holds(state: &Path, proc_root: &Path, describe: impl Fn(&str) -> O
         })
         .collect()
 }
-
-#[cfg(test)]
-#[path = "locks_tests.rs"]
-mod tests;

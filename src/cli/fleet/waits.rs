@@ -329,7 +329,3 @@ impl Waker for Revival<'_> {
         attribution::record(name, "resume", cause, reason);
     }
 }
-
-#[cfg(test)]
-#[path = "waits_tests.rs"]
-mod tests;

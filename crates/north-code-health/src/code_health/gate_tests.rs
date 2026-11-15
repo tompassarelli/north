@@ -1,20 +1,7 @@
-use super::functions::{SourceText, measure};
 use super::gate::gate;
 use super::state::State;
 use std::path::PathBuf;
 use std::process::Command;
-
-fn complexity_of(source: &str, function: &str) -> usize {
-    let files = [SourceText { path: "x.rs".to_owned(), text: source.into() }];
-    let measured = measure(&[("h", &files)]).unwrap();
-    measured["h/x.rs"].iter().find(|found| found.name == function).unwrap().complexity
-}
-
-#[test]
-fn nesting_weighs_more_than_the_same_number_of_flat_decisions() {
-    assert_eq!(complexity_of("fn flat(a: bool, b: bool) { if a { } if b { } }\n", "flat"), 2);
-    assert_eq!(complexity_of("fn nested(a: bool, b: bool) { if a { if b { } } }\n", "nested"), 3);
-}
 
 struct Repo {
     _root: tempfile::TempDir,

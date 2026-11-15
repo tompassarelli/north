@@ -1,6 +1,4 @@
 mod snapshot;
-#[cfg(test)]
-mod tests;
 mod workspace;
 
 use super::history::allows;

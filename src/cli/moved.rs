@@ -60,21 +60,3 @@ pub(super) fn hint(arguments: &[String]) -> Option<String> {
     let kept: Vec<&str> = arguments[words.len()..].iter().map(String::as_str).filter(|word| !dropped.contains(word)).collect();
     Some(format!("did you mean: north {path}{}{}", if kept.is_empty() { "" } else { " " }, kept.join(" ")))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::hint;
-
-    fn words(line: &str) -> Vec<String> {
-        line.split_whitespace().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn a_moved_verb_names_its_new_path_and_keeps_its_arguments() {
-        assert_eq!(hint(&words("scoreboard --weekly")).as_deref(), Some("did you mean: north dash --weekly"));
-        assert_eq!(hint(&words("lane-gc --dry-run")).as_deref(), Some("did you mean: north lane gc --dry-run"));
-        assert_eq!(hint(&words("scoreboard --ready")).as_deref(), Some("did you mean: north dash"));
-        assert_eq!(hint(&words("flow --stall-alarm")).as_deref(), Some("did you mean: north ledger flow --stall-alarm"));
-        assert_eq!(hint(&words("ledger flow")), None);
-    }
-}

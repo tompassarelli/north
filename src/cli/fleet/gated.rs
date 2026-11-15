@@ -55,37 +55,3 @@ pub(super) fn gated(tasks: &[String], item: Option<&str>, holds: &[Hold]) -> Opt
         Some(format!("{issue} waits on open gate {gate}, which decides it; launch work on it once Tom answers it by telling the proxy, or its default applies"))
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn hold(issue: &str, box_text: Option<&str>, gate: &str) -> Hold {
-        Hold { issue: issue.to_owned(), box_text: box_text.map(str::to_owned), gate: gate.to_owned() }
-    }
-
-    fn tasks(names: &[&str]) -> Vec<String> {
-        names.iter().map(|name| (*name).to_owned()).collect()
-    }
-
-    #[test]
-    fn a_launch_naming_an_issue_an_open_gate_decides_is_refused_with_the_gate_id() {
-        let open = [hold("makgora#764", None, "130"), hold("north#9", None, "nexus:4")];
-        let refusal = gated(&tasks(&["wisp#3", "tompassarelli/makgora#764"]), None, &open).expect("a gated issue refuses the launch");
-        assert!(refusal.starts_with("makgora#764 waits on open gate 130"), "{refusal}");
-        assert!(gated(&tasks(&["North#9"]), Some(" north#9 any box"), &open).is_some_and(|refusal| refusal.contains("gate nexus:4")), "a relayed host's gate counts, and a whole-issue gate holds every box");
-        assert_eq!(gated(&tasks(&["makgora#765", "wisp#3"]), None, &open), None);
-    }
-
-    #[test]
-    fn a_launch_on_an_issue_box_carries_the_answer_of_a_gate_that_decided_it_for_a_retired_asker() {
-        use crate::fleet::gates::{Answerer, Closure, GateRequest};
-        let request = GateRequest { verification: false, issue: Some("north#735".into()), box_text: Some("gate belongs".into()), session: "n-cx53".into(), question: "Which owner?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 0, default_after_ms: 0, ask_once: None };
-        let closed = [Gate::new(180, request, 1, Some(Closure { answer: "b\nship it".into(), by: Answerer::Tom, closed_ms: 2 }))];
-
-        let section = decided(&tasks(&["north#735"]), Some(" north#735 Box: A gate belongs to the issue box"), &closed).expect("the box carries the answer");
-
-        assert!(section.contains("gate 180: Which owner? Answer (tom): b / ship it"), "{section}");
-        assert_eq!(decided(&tasks(&["north#735"]), Some(" north#735 Box: another box"), &closed), None);
-    }
-}

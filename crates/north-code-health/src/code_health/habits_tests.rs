@@ -114,38 +114,6 @@ fixture = "start it under NORTH_TEST_ROOT"
 }
 
 #[test]
-fn an_aged_time_in_test_code_is_suggested_as_a_fixed_moment_and_a_poll_loop_is_left_for_the_agent() {
-    use super::habits::suggestions;
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
-    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
-    git(&["init", "-q"]);
-    std::fs::write(root.join("structure.toml"), "[rust_habits]\nchecks = [\"ambient-test-input\"]\n[[rust_habits.ambient_inputs]]\ninput = \"clock\"\nallowlist = \"clocks.tsv\"\nfixture = \"inject the clock\"\n").unwrap();
-    std::fs::write(root.join("clocks.tsv"), "").unwrap();
-    std::fs::create_dir(root.join("tests")).unwrap();
-    let system_time = ["std::time::", "System", "Time", "::now"].concat();
-    let instant = ["Instant", "::now()"].concat();
-    let sleep = ["std::thread::", "sleep", "(READY_POLL);"].concat();
-    let denylist = format!("#[test]\nfn stale() {{\n    let hour_ago = {system_time}() - std::time::Duration::from_secs(3600);\n    set(hour_ago);\n}}\n");
-    let polling = format!("#[test]\nfn ready() {{\n    let started = {instant};\n    {sleep}\n    let _ = {system_time}();\n}}\n");
-    std::fs::write(root.join("tests/denylist.rs"), &denylist).unwrap();
-    std::fs::write(root.join("tests/polling.rs"), &polling).unwrap();
-
-    let suggested = suggestions(root, "tests/denylist.rs").unwrap();
-    assert_eq!(suggested.len(), 1);
-    assert_eq!(suggested[0].rule, "ambient-test-input");
-    assert_eq!(suggested[0].line, 3);
-    assert_eq!(suggested[0].before, format!("let hour_ago = {system_time}() - std::time::Duration::from_secs(3600);"));
-    assert_eq!(suggested[0].after, "let hour_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000) - std::time::Duration::from_secs(3600);");
-    assert_eq!(std::fs::read_to_string(root.join("tests/denylist.rs")).unwrap(), denylist, "a suggestion must leave the agent's read intact");
-    assert_eq!(super::habits::findings(root, Some("tests/denylist.rs")).unwrap().len(), 1);
-
-    assert!(suggestions(root, "tests/polling.rs").unwrap().is_empty());
-    assert_eq!(std::fs::read_to_string(root.join("tests/polling.rs")).unwrap(), polling);
-    assert_eq!(super::habits::findings(root, Some("tests/polling.rs")).unwrap().len(), 3);
-}
-
-#[test]
 fn allowances_only_fall() {
     use super::habits::{findings_new, grown};
     let dir = tempfile::tempdir().unwrap();

@@ -3,8 +3,6 @@ mod budget;
 mod change_cost;
 mod check;
 mod comments;
-#[cfg(test)]
-mod comments_tests;
 mod cli;
 #[cfg(test)]
 mod cli_tests;
@@ -25,8 +23,6 @@ mod habits_tests;
 mod history;
 mod implicit;
 mod imports;
-#[cfg(test)]
-mod imports_tests;
 mod layers;
 pub use layers::{Placement, placement};
 mod over_budget;

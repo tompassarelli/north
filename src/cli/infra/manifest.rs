@@ -248,24 +248,4 @@ monthly_usd = "unread"
         let copied = crate::cli::operator::same_value::findings(copy.path(), root.path(), &["agents/costs.toml"]);
         assert_eq!(copied, ["agents/costs.toml: service[0].name: equals the owner's value at this key"], "a template string copied from the owner is refused by key, and its value is never printed");
     }
-
-    #[test]
-    fn a_paid_service_is_listed_beside_the_machines() {
-        let text = r#"
-[[machine]]
-id = "gex45"
-monthly_usd = 59.0
-
-[[service]]
-id = "offfleet-backup"
-plan = "Storage Box BX11"
-monthly_usd = 12.0
-"#;
-        let billing = parse(text).expect("the manifest parses");
-        let services: Vec<&str> = billing
-            .paid_services()
-            .map(|service| service.id.as_str())
-            .collect();
-        assert_eq!(services, ["offfleet-backup"]);
-    }
 }

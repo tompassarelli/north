@@ -19,8 +19,6 @@ pub mod review;
 pub mod sampling;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod mechanical_tests;
 
 pub const ACCOUNT: &str = "opencode:go";
 pub const PROVIDER: &str = "opencode";

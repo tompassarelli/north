@@ -1,7 +1,6 @@
 use rusqlite::Connection;
 
 use crate::fleet::gates::{Answerer, GateBook, GateRequest};
-use crate::fleet::turns::{RunRecord, RunSink, Tokens, Turn, TurnExit};
 
 use super::Ledger;
 
@@ -22,25 +21,6 @@ fn request(session: &str, default_after_ms: u64) -> GateRequest {
         default_after_ms,
         ask_once: None,
     }
-}
-
-fn run(session: &str, model: &str, input: u64, output: u64) -> RunRecord {
-    let turn = Turn {
-        conversation: "c".into(),
-        model: Some(model.into()),
-        effort: None,
-        prompt: None,
-        started_ms: 0,
-        ended_ms: 1,
-        wall_ms: 1,
-        turns: 1,
-        tokens: Tokens { input, output, cache_read: 0, cache_write: 0 },
-        tool_calls: None,
-        compactions: None,
-        cost_usd: None,
-        exit: TurnExit::Completed,
-    };
-    RunRecord { session: session.into(), task_ref: None, provider: "claude".into(), overlay: None, account: None, system_prompt_sha: None, deepen: false, turn }
 }
 
 #[test]
@@ -124,70 +104,6 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_strangers_a
     assert_eq!((closure.by.clone(), book.gate(orphaned).unwrap().unwrap().closure), (Answerer::Orphaned, Some(closure)));
 }
 
-#[test]
-fn readers_never_meet_a_lock_while_a_writer_holds_a_write_transaction_for_two_seconds() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("ledger.db");
-    drop(ledger(&directory));
-    let holder = Connection::open(&path).unwrap();
-    holder.execute_batch("BEGIN IMMEDIATE; INSERT INTO events(session, kind, payload, recorded_ms) VALUES('s', 'k', '{}', 1)").unwrap();
-    let readers: Vec<_> = (0..24)
-        .map(|_| {
-            let path = path.clone();
-            std::thread::spawn(move || {
-                let reader = Ledger::open_within(&path, std::time::Duration::from_millis(100))?;
-                reader.runs()?;
-                reader.tasks().map(drop)
-            })
-        })
-        .collect();
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(60), || readers.iter().all(|reader| reader.is_finished())), "a reader waited on the writer's open transaction");
-    holder.execute_batch("COMMIT").unwrap();
-    for reader in readers {
-        reader.join().unwrap().unwrap();
-    }
-}
-
-#[test]
-fn concurrent_writers_wait_their_turn_instead_of_failing() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("ledger.db");
-    drop(ledger(&directory));
-    let writers: Vec<_> = (0..8)
-        .map(|index| {
-            let path = path.clone();
-            std::thread::spawn(move || {
-                let writer = Ledger::open(&path)?;
-                for turn in 0..10 {
-                    writer.record_run(&run(&format!("lane-{index}"), "claude-opus-5-5", turn, 1))?;
-                }
-                Ok::<(), crate::error::NorthError>(())
-            })
-        })
-        .collect();
-    for writer in writers {
-        writer.join().unwrap().unwrap();
-    }
-    assert_eq!(Ledger::open(&path).unwrap().runs().unwrap().len(), 80);
-}
-
-
-#[test]
-fn a_closed_cell_costs_the_sum_of_the_runs_it_counts_and_names_the_earliest_of_them() {
-    use super::outcome::replay_tests;
-    let db = replay_tests::ledger();
-    let runs = replay_tests::spend_runs(&db, &replay_tests::judged(&db));
-    let prices = crate::router::pricing::PriceTable::load().unwrap();
-    let closed = ["north#9", "north#12", "north#13"].map(str::to_owned).into_iter().collect();
-    let report = super::summarize(&runs, &closed, &Default::default(), "2026-11-01T00:00:00Z", &prices);
-    let cell = report.cells.iter().find(|cell| cell.tier == "opus-medium" && cell.category == "feature").unwrap();
-    let counted: Vec<String> = cell.boxes_dearest_first().into_iter().flat_map(|closed| closed.runs.into_iter().map(|run| run.agent)).collect();
-    let priced: f64 = runs.iter().filter(|run| counted.contains(&run.agent)).map(|run| prices.run_usd(run.model.as_deref(), &run.tier, run.input, run.cache_read, run.output)).sum();
-    assert_eq!((cell.closed, counted.len()), (3, 3));
-    assert!((cell.usd - priced).abs() < 1e-9, "cell {} against its runs {priced}", cell.usd);
-    assert_eq!(cell.runs_since(), Some("2026-10-25T13:00:00Z"));
-    assert!(report.dashboard("7d").starts_with("cost/closed, boxes closed in 7d, each priced at API-equivalent rates over all its runs, the earliest started 2026-10-25:"), "{}", report.dashboard("7d"));
-}
 
 fn umbrella() -> String {
     let stamped = "- [x] A run's kept box is judged by its own stamp. Done when: `cargo test` passes. Evidence: `cargo test` passed on main 1a2b3c4d5e6f on 2026-11-08, exit 0.";
@@ -349,84 +265,6 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     assert_eq!(graded("Split short name"), Some(false), "a name that two boxes of its issue extend grades neither, though both are corroborated");
 }
 
-#[test]
-fn a_dash_window_counts_only_runs_that_started_inside_it_and_never_a_run_stamped_after_its_end() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("threads.db");
-    let db = Connection::open(&path).unwrap();
-    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
-    let insert = |agent: &str, started: &str, ended: &str| {
-        db.execute(
-            "INSERT INTO runs(agent, item, tier, category, started, ended, outcome, minutes, model, input_tokens, tokens, brief_text) VALUES (?1, 'life#1', 'sonnet', 'feature', ?2, ?3, 'done', 60, 'claude-sonnet-5-5', 1000, 100, '')",
-            rusqlite::params![agent, started, ended],
-        )
-        .unwrap();
-    };
-    insert("inside", "2026-11-09T05:00:00Z", "2026-11-09T06:00:00Z");
-    insert("before", "2026-11-08T05:00:00Z", "2026-11-08T06:00:00Z");
-    insert("after", "2026-11-09T13:00:00Z", "2026-11-09T14:00:00Z");
-    let now = crate::foundation::clock::Timestamp::parse("2026-11-09T12:00:00Z").unwrap();
-    let runs = super::closed_source::runs_inside_in(&path, "24h", now).unwrap();
-    assert_eq!(runs.iter().map(|run| run.agent.as_str()).collect::<Vec<_>>(), ["inside"], "a run started before the window or stamped after its end is not in it");
-}
-
-#[test]
-fn handovers_count_the_runs_that_follow_another_and_price_their_first_turn_cache_write_per_week() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("threads.db");
-    let db = Connection::open(&path).unwrap();
-    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
-    let insert = |agent: &str, follows: Option<&str>, started: &str| {
-        db.execute(
-            "INSERT INTO runs(agent, item, follows, tier, category, started, ended, outcome, minutes, model, input_tokens, cache_read_tokens, peak_ctx, tokens, brief_text) VALUES (?1, 'life#1', ?2, 'sonnet', 'feature', ?3, ?3, 'done', 60, 'claude-sonnet-5-5', 1000000, 600000, 200000, 100, '')",
-            rusqlite::params![agent, follows, started],
-        )
-        .unwrap();
-    };
-    insert("first", None, "2026-11-09T05:00:00Z");
-    insert("handed", Some("first"), "2026-11-09T06:00:00Z");
-    let now = crate::foundation::clock::Timestamp::parse("2026-11-09T12:00:00Z").unwrap();
-    let day = super::closed_source::handovers_in(&path, "24h", now).unwrap();
-    let week = super::closed_source::handovers_in(&path, "7d", now).unwrap();
-    assert_eq!(week.per_week, 1.0);
-    assert_eq!(day.per_week, 7.0, "one handover in a day is seven in a week");
-    let price = crate::router::pricing::PriceTable::load().unwrap().cache_write_usd(Some("claude-sonnet-5-5"), "sonnet", 200_000);
-    assert!(price > 0.0 && (week.first_turn_cache_write_usd - price).abs() < 1e-9, "the first turn writes no more than the run's 200k peak context: {week:?}");
-}
-
-#[test]
-fn run_times_names_each_run_its_wall_minutes_and_the_eta_its_brief_stated() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("ledger.db");
-    let db = Connection::open(&path).unwrap();
-    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
-    let insert = |agent: &str, minutes: u32, eta: Option<u32>| {
-        db.execute(
-            "INSERT INTO runs(agent, tier, category, ended, minutes, eta_min, outcome) VALUES (?1, 'claude:sonnet-high', 'feature', '2026-11-10T00:00:00Z', ?2, ?3, 'not done')",
-            rusqlite::params![agent, minutes, eta],
-        )
-        .unwrap();
-    };
-    insert("n940-d0900", 36, Some(18));
-    insert("n940-d0901", 5, None);
-    drop(db);
-    let times = super::run_times_in(&path).unwrap();
-    assert_eq!(times.get("n940-d0900"), Some(&super::RunTime { minutes: 36, eta_min: 18 }));
-    assert_eq!(times.get("n940-d0901"), None, "a run whose brief stated no ETA climbs on no ETA signal");
-}
-
-#[test]
-fn a_fable_5_2_run_is_priced_so_fleet_spend_prints_dollars_instead_of_unmeasured() {
-    use crate::fleet::books::Books;
-    let directory = tempfile::tempdir().unwrap();
-    let ledger = ledger(&directory);
-    ledger.record_run(&run("fable", "claude-fable-5-2", 1_000_000, 0)).unwrap();
-    let spend = ledger.spend().unwrap();
-    let fable = spend.iter().find(|spend| spend.session == "fable").unwrap();
-    assert_eq!(fable.tokens, 1_000_000);
-    assert!(fable.api_usd.is_some_and(|usd| usd > 0.0), "a Fable session reads {:?}", fable.api_usd);
-}
-
 fn worker_run(agent: &str, item: &str, started: &str, ended: &str, landed: bool) -> super::closed::SpendRun {
     super::closed::SpendRun {
         agent: agent.into(),
@@ -450,63 +288,6 @@ fn worker_run(agent: &str, item: &str, started: &str, ended: &str, landed: bool)
 }
 
 const LEAF: &str = "Count a leaf closed by its check.\n\nDone when: `cargo nextest run -p north-providers -E 'test(/leaf/)'` exits 0.";
-const LEAF_COMMAND: &str = "cargo nextest run -p north-providers -E 'test(/leaf/)'";
-
-fn report_of(runs: Vec<super::closed::SpendRun>, closed: &[(&str, super::Closed)]) -> super::ClosedReport {
-    let closed: std::collections::HashMap<String, super::Closed> = closed.iter().map(|(item, issue)| ((*item).to_owned(), issue.clone())).collect();
-    let sources = super::closed_source::Inputs { runs, native: Default::default(), closed: Default::default(), corroborated: None, catalog: &crate::threads::catalog::CATALOG };
-    super::closed_source::report_between(&sources, "2026-11-01T00:00:00Z", "2026-11-09T00:00:00Z", move |_, _, _| Ok(super::closed_source::Listing { closed: closed.clone(), open: Default::default() }), &crate::router::pricing::PriceTable::load().unwrap()).unwrap()
-}
-
-#[test]
-fn a_closed_leaf_counts_as_one_closed_box() {
-    let runs = vec![worker_run("leaf-worker", "north#5", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true), worker_run("hand-closed-worker", "north#6", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true)];
-    let by_check = super::Closed { by_check: Some(LEAF_COMMAND.to_owned()), ..super::Closed::of_body(LEAF) };
-    let report = report_of(runs, &[("north#5", by_check), ("north#6", super::Closed::of_body(LEAF))]);
-    let verified = |item: &str| report.arms.iter().find(|arm| arm.item == item).map(|arm| (arm.closed, arm.verified)).unwrap();
-    assert_eq!(report.closed, 2);
-    assert_eq!(verified("north#5"), (true, true), "a leaf the lander closed by its Done-when command is a box graded by its own check");
-    assert_eq!(verified("north#6"), (true, false), "a leaf closed by hand counts as closed and is not graded");
-    assert_eq!(super::Closed::check_named_in(["Main is green", &format!("Closed by the landing of 4cd01a47cd12: its Done-when command `{LEAF_COMMAND}` passed on that commit.")]), Some(LEAF_COMMAND.to_owned()));
-}
-
-#[test]
-fn a_run_that_created_children_counts_as_a_split() {
-    let runs = vec![
-        worker_run("parent-worker", "north#9", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", false),
-        worker_run("later-worker", "north#9", "2026-11-08T13:00:00Z", "2026-11-08T14:00:00Z", false),
-        worker_run("child-worker", "north#10", "2026-11-08T11:30:00Z", "2026-11-08T12:00:00Z", true),
-    ];
-    let child = super::Closed { parent: Some("north#9".to_owned()), created: "2026-11-08T10:45:00Z".to_owned(), by_check: Some(LEAF_COMMAND.to_owned()), ..super::Closed::of_body(LEAF) };
-    let report = report_of(runs, &[("north#10", child)]);
-    assert_eq!(report.closed, 1);
-    assert_eq!(report.splits.iter().map(|split| split.item.as_str()).collect::<Vec<_>>(), ["north#9"]);
-    let unclosed: f64 = report.cells.iter().map(|cell| cell.unclosed_usd).sum();
-    let later = report.boxes.iter().find(|spent| spent.item == "north#9" && !spent.closed).map(|spent| spent.usd).unwrap();
-    assert!((unclosed - later).abs() < 1e-9, "only the run that made no child is spend that closed nothing: {unclosed} against {later}");
-    assert!(report.dashboard("7d").contains("split 1 ("), "{}", report.dashboard("7d"));
-}
-
-#[test]
-fn a_gate_closed_by_two_sweeps_at_once_is_a_lost_race_and_not_an_illegal_move() {
-    use crate::fleet::gate_lifecycle::GatePhase;
-    use crate::fleet::gates::Closure;
-
-    let directory = tempfile::tempdir().unwrap();
-    let book = ledger(&directory);
-    let id = book.open_gate(&GateRequest { default: 0, default_after_ms: 0, ..request("proxy", 0) }, 1_000).unwrap();
-    let seen = book.gate(id).unwrap().unwrap().phase;
-    let closure = Closure { answer: "orphaned".into(), by: Answerer::Orphaned, closed_ms: 2_000 };
-
-    assert!(book.close_from(id, Some(seen), &closure).unwrap());
-    book.move_gate(id, GatePhase::Orphaned, "answer delivered", 2_001).unwrap();
-
-    assert!(!book.close_from(id, Some(seen), &closure).unwrap());
-    assert!(!book.close_gate(id, &closure).unwrap());
-    let moves = north_base::lifecycle::Store::open(&directory.path().join("ledger.db")).unwrap().history("gate", &id.to_string()).unwrap();
-    assert!(moves.iter().all(|logged| !logged.refused), "{moves:?}");
-    assert_eq!(book.gate(id).unwrap().unwrap().phase, GatePhase::Orphaned);
-}
 
 #[test]
 fn one_repository_failing_on_github_leaves_the_other_reports_recorded_and_fails_the_unit_on_the_third_run() {

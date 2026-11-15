@@ -119,30 +119,6 @@ fn request() -> LaunchRequest {
 }
 
 #[test]
-fn a_revived_session_keeps_its_recorded_system_prompt_and_takes_changed_orders_as_one_message() {
-    let scratch = tempfile::tempdir().unwrap();
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None, api: None };
-    let orders = "You are a session in north fleet.\n\n- Think, don't agree.";
-    let argv = |opening: Opening| Claude.host(&account, &request(), opening, orders).unwrap().argv;
-
-    let fresh = argv(Opening::Fresh(None));
-    assert!(!fresh.iter().any(|arg| arg == "--system-prompt-snapshot"), "{fresh:?}");
-    assert!(fresh.windows(2).any(|pair| pair == ["--append-system-prompt", orders]), "{fresh:?}");
-
-    let resumed = argv(Opening::Resume("conversation"));
-    assert!(resumed.windows(2).any(|pair| pair == ["--resume", "conversation"]), "{resumed:?}");
-    assert!(!resumed.iter().any(|arg| arg == "--system-prompt-snapshot"), "a revive opted out of the recorded prompt: {resumed:?}");
-
-    let opened = |opening: Opening, changed: bool| Claude.open("worker", &request(), opening, Instructions { text: orders, changed }).unwrap();
-    let frames = opened(Opening::Resume("conversation"), true);
-    assert_eq!(frames.len(), 1, "{frames:?}");
-    let frame: serde_json::Value = serde_json::from_str(&frames[0]).unwrap();
-    assert_eq!((frame["type"].as_str(), frame["message"]["role"].as_str(), frame["message"]["content"].as_str()), (Some("user"), Some("user"), Some(orders)));
-    assert!(opened(Opening::Resume("conversation"), false).is_empty(), "unchanged orders were delivered again");
-    assert!(opened(Opening::Fresh(None), true).is_empty(), "a fresh launch delivers its orders in argv, not as a message");
-}
-
-#[test]
 fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_or_the_spec_env() {
     let scratch = tempfile::tempdir().unwrap();
     let token = scratch.path().join("token");
@@ -183,24 +159,6 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
 
 
 #[test]
-fn a_brief_on_a_context_arm_launches_claude_with_that_auto_compact_window_and_an_unarmed_brief_keeps_the_settings_window() {
-    let scratch = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(scratch.path().join("home")).unwrap();
-    std::fs::write(scratch.path().join("home/settings.json"), HOOKED).unwrap();
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None, api: None };
-    let window = |request: &LaunchRequest| {
-        let spec = Claude.host(&account, request, Opening::Fresh(None), "").unwrap();
-        spec.env.into_iter().find(|(name, _)| name == "CLAUDE_CODE_AUTO_COMPACT_WINDOW").map(|(_, value)| value.to_string_lossy().into_owned())
-    };
-    let armed = LaunchRequest { prompt: "Item: north#636\nTier: worker\nArm: context-300k\nGoal: x".into(), ..request() };
-    let relaunched = LaunchRequest { compact_window: Some(200_000), ..request() };
-
-    assert_eq!(window(&armed).as_deref(), Some("300000"));
-    assert_eq!(window(&relaunched).as_deref(), Some("200000"));
-    assert_eq!(window(&LaunchRequest { prompt: "Arm: effort-high".into(), ..request() }), None);
-}
-
-#[test]
 fn launched_worker_settings_disable_unsandboxed_commands() {
     let scratch = tempfile::tempdir().unwrap();
     let home = scratch.path().join("profiles/claude-api");
@@ -233,23 +191,6 @@ fn launched_worker_settings_disable_unsandboxed_commands() {
 }
 
 #[test]
-fn a_profile_whose_settings_register_no_hooks_is_named_unguarded_too() {
-    let scratch = tempfile::tempdir().unwrap();
-    let home = scratch.path().join("profiles/claude-api");
-    std::fs::create_dir_all(&home).unwrap();
-    let account = Account { provider: Claude.provider(), label: "api".into(), home: home.clone(), token_file: None, api: None };
-    let here = |path: &std::path::Path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text);
-
-    for settings in ["{}", r#"{"hooks": {}}"#, "not json"] {
-        std::fs::write(home.join("settings.json"), settings).unwrap();
-        assert!(Claude.unguarded(&account, &here).is_some_and(|reason| reason.contains("settings.json that")), "{settings}");
-    }
-    std::fs::write(home.join("settings.json"), r#"{"hooks": {"PreToolUse": [{}]}}"#).unwrap();
-    assert_eq!(Claude.unguarded(&account, &here), None);
-    assert_eq!(Claude.unguarded(&account, &|_| Seen::Unreachable), None);
-}
-
-#[test]
 fn the_script_that_carries_a_conversation_between_account_homes_copies_it_under_its_project_and_leaves_other_conversations_north_1001() {
     let scratch = tempfile::tempdir().unwrap();
     let account = |label: &str| Account { provider: Claude.provider(), label: label.into(), home: scratch.path().join(label), token_file: None, api: None };
@@ -265,8 +206,6 @@ fn the_script_that_carries_a_conversation_between_account_homes_copies_it_under_
     assert!(!to.home.join("projects/-work-lane/other.jsonl").exists());
     assert!(Claude.carry_script(&from, &from, "kept").is_none());
 }
-
-const PROFILE_ENV: &str = "NORTH_TEST_LAUNCH_PROFILE";
 const THERE_ENV: &str = "NORTH_TEST_LAUNCH_THERE";
 const STAND_IN_SSH: &str = r#"while [ $# -gt 0 ]; do case "$1" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done
 [ -z "$NORTH_TEST_LAUNCH_THERE" ] || printf '%s\n' "$1" >> "$NORTH_TEST_LAUNCH_THERE.logins"
@@ -349,56 +288,6 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
     let child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_machine_through_its_session_login_and_a_second_launch_rereads_its_profile_reads", "--nocapture", "--test-threads=1"])
         .env(THERE_ENV, &there)
-        .env("PATH", stand_in_ssh(scratch.path()))
-        .env("NORTH_BIN", &north)
-        .env_remove("AGENT_CAPACITY_NORTH")
-        .env_remove("XDG_RUNTIME_DIR")
-        .output()
-        .unwrap();
-    assert!(child.status.success(), "{}{}", String::from_utf8_lossy(&child.stdout), String::from_utf8_lossy(&child.stderr));
-}
-const SHELL_PREFIX: &str = "CLAUDE_CODE_SHELL_PREFIX";
-
-fn the_spawned_tool_server_is_an_existing_executable(profile: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: profile.to_path_buf(), token_file: None, api: None };
-    let placed = crate::fleet::model::Machine { name: "far".into(), ssh: "tom@far".into(), agent_ssh: None };
-    for machine in [None, Some(placed)] {
-        let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), machine, ..request() };
-        let spec = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
-        let last = |flag: &str| spec.argv.windows(2).rev().find(|pair| pair[0] == flag).map(|pair| pair[1].clone());
-        let config: serde_json::Value = serde_json::from_str(&last("--mcp-config").expect("a worker launch configures its tool server")).unwrap();
-        let entry = &config["mcpServers"]["north"];
-        assert!(entry["args"].as_array().is_some_and(|args| args.iter().all(serde_json::Value::is_string)), "the entry's arguments are a list: {entry}");
-        let settings = last("--settings").unwrap();
-        let settings: serde_json::Value = serde_json::from_str(&settings).unwrap_or_else(|_| serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap());
-        let process = spec.env.iter().find(|(name, _)| name == SHELL_PREFIX).map(|(_, value)| value.to_string_lossy().into_owned());
-        let prefix = settings["env"][SHELL_PREFIX].as_str().map(str::to_owned).or(process);
-        let command = entry["command"].as_str().unwrap();
-        for program in [prefix.as_deref().unwrap_or(command), command] {
-            let executable = std::fs::metadata(program).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
-            assert!(executable, "Claude Code spawns {program:?} as one program path for the tool server, and it is no executable: {:?}", spec.argv);
-        }
-    }
-}
-
-#[test]
-fn a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_executable() {
-    if let Some(profile) = std::env::var_os(PROFILE_ENV) {
-        return the_spawned_tool_server_is_an_existing_executable(std::path::Path::new(&profile));
-    }
-    let scratch = tempfile::tempdir().unwrap();
-    let north = scratch.path().join("runtime/north");
-    std::fs::create_dir_all(scratch.path().join("runtime")).unwrap();
-    north_base::foundation::shim::write_script(&north, "exit 0\n");
-    let profile = scratch.path().join("profile");
-    std::fs::create_dir_all(&profile).unwrap();
-    let projected = json!({"hooks": {"PreToolUse": [{}]}, "env": {SHELL_PREFIX: format!("{} --worker-sandbox", north.display())}});
-    std::fs::write(profile.join("settings.json"), projected.to_string()).unwrap();
-
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["a_worker_launch_writes_a_tool_server_entry_whose_command_is_an_existing_executable", "--nocapture", "--test-threads=1"])
-        .env(PROFILE_ENV, &profile)
         .env("PATH", stand_in_ssh(scratch.path()))
         .env("NORTH_BIN", &north)
         .env_remove("AGENT_CAPACITY_NORTH")

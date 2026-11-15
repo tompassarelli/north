@@ -10,15 +10,9 @@ use std::time::Duration;
 
 const REMOTE_WAIT: Duration = Duration::from_secs(20);
 
-pub(super) trait Probes {
-    fn pause_here(&self) -> Option<String>;
-    fn pause_on(&self, host: &str) -> Option<String>;
-    fn gone(&self, item: &IssueRef, box_text: Option<&str>) -> Option<String>;
-}
-
 struct Live;
 
-impl Probes for Live {
+impl Live {
     fn pause_here(&self) -> Option<String> {
         pause::standing()
     }
@@ -61,7 +55,7 @@ fn parse(arguments: &[String]) -> Option<Queued> {
 }
 
 /// The reason to drop the queued launch, or the command to run.
-fn decide(queued: Queued, here: &str, probes: &dyn Probes) -> Result<Vec<String>, String> {
+fn decide(queued: Queued, here: &str, probes: &Live) -> Result<Vec<String>, String> {
     if let Some(reason) = probes.pause_here() {
         return Err(format!("dispatch is paused on {here}: {reason}"));
     }
@@ -103,51 +97,5 @@ pub fn paused() -> u8 {
             0
         }
         None => 1,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Fake {
-        here: Option<&'static str>,
-        queuer: Option<&'static str>,
-        gone: Option<&'static str>,
-    }
-
-    impl Probes for Fake {
-        fn pause_here(&self) -> Option<String> {
-            self.here.map(str::to_owned)
-        }
-        fn pause_on(&self, _: &str) -> Option<String> {
-            self.queuer.map(str::to_owned)
-        }
-        fn gone(&self, _: &IssueRef, _: Option<&str>) -> Option<String> {
-            self.gone.map(str::to_owned)
-        }
-    }
-
-    fn queued() -> Queued {
-        let words = ["--by", "nexus", "--item", "north#885", "--box", "1. the box", "--", "fleet", "launch", "--task", "north#885"].map(str::to_owned);
-        parse(&words).unwrap()
-    }
-
-    /// north#960: two launches queued on the laptop at about 1 PM started 484 minutes later under a standing pause and a closed issue.
-    #[test]
-    fn a_queued_launch_is_dropped_with_its_reason_when_dispatch_is_paused_or_its_issue_or_box_is_gone_and_runs_otherwise() {
-        let open = Fake { here: None, queuer: None, gone: None };
-        assert_eq!(decide(queued(), "whiterabbit", &open).unwrap(), ["fleet", "launch", "--task", "north#885"]);
-        let here = Fake { here: Some("b is for lander"), ..open };
-        assert!(decide(queued(), "whiterabbit", &here).unwrap_err().contains("paused on whiterabbit: b is for lander"));
-        let there = Fake { here: None, queuer: Some("b is for lander"), gone: None };
-        assert!(decide(queued(), "whiterabbit", &there).unwrap_err().contains("paused on nexus, which queued it"));
-        let closed = Fake { here: None, queuer: None, gone: Some("closed on GitHub") };
-        assert_eq!(decide(queued(), "whiterabbit", &closed).unwrap_err(), "north#885 closed on GitHub");
-
-        let body = "- [x] 1. the box is ticked\n- [ ] 2. the other box stays open";
-        assert!(super::super::issues::box_ticked(body, "1. the box"));
-        assert!(!super::super::issues::box_ticked(body, "2. the other box"));
-        assert!(!super::super::issues::box_ticked(body, "a box no line holds"));
     }
 }

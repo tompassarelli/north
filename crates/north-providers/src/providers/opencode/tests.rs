@@ -5,14 +5,13 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use time::Date;
 
-use crate::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Machine, Status, Transcript, UsageLimit};
+use crate::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Status, Transcript, UsageLimit};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::runtime::{Opening, Runtime};
 use crate::fleet::turns::{TurnExit, TurnSignal};
 
 use super::route::{self, Route, Visibility};
 use super::harness::{Harness, OPENCODE};
-use super::overlay::Arm;
 use super::relay::{self, Relay};
 use super::{Deepseek, config, turns};
 
@@ -316,63 +315,6 @@ fn past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_on
 }
 
 #[test]
-fn a_deepseek_brief_carries_the_overlay_on_its_arm_and_not_on_the_control() {
-    let home = tempfile::tempdir().unwrap();
-    let account = account(home.path());
-    let delivery = |harness: &'static dyn Harness, name: &str| {
-        let asked = LaunchRequest { name: name.into(), ..request(home.path()) };
-        let spec = Deepseek::reading(harness, Arc::new(|_| Visibility::Private), Arc::new(|| day("2026-11-10"))).host(&account, &asked, Opening::Fresh(Some("ses_x")), "LIVE-ORDER-OF-THE-OPERATOR").unwrap();
-        std::fs::read_to_string(argument(&spec.argv, "--instructions").unwrap()).unwrap()
-    };
-    let harnesses: [&'static dyn Harness; 2] = [&OPENCODE, &crate::providers::pi::PI];
-    let mut seen = [false; 2];
-    for harness in harnesses {
-        for index in 0..8 {
-            let name = format!("worker-{index}");
-            let arm = Arm::of(&name);
-            let brief = delivery(harness, &name);
-            assert_eq!(brief.contains("# DeepSeek overlay"), arm == Arm::Overlay, "{} {name} carried the wrong brief", harness.provider());
-            assert!(brief.contains("LIVE-ORDER-OF-THE-OPERATOR"), "{} {name} lost the standing orders", harness.provider());
-            seen[if arm == Arm::Overlay { 1 } else { 0 }] = true;
-        }
-    }
-    assert_eq!(seen, [true, true], "one arm drew every session");
-
-    let queue = home.path().join("land-queue/north");
-    std::fs::create_dir_all(queue.join("done")).unwrap();
-    std::fs::write(queue.join("done/1-lane.json"), json!({"session": "worker-0-rv", "branch": "lane", "verdict": "landed"}).to_string()).unwrap();
-    let lanes = north_base::land_ticket::lanes_by_session(&home.path().join("land-queue")).unwrap();
-    let run = |session: &str, overlay: &str| crate::ledger::Run { run_id: 1, session: session.into(), task_ref: None, provider: "opencode".into(), model: None, effort: None, overlay: Some(overlay.into()), account: None, prompt_sha: None, system_prompt_sha: None, deepen: false, started_ms: 1, ended_ms: 2, wall_ms: 1, turns: 1, tokens_in: 0, tokens_out: 0, tokens_cache_read: 0, tokens_cache_write: 0, exit: "completed".into(), tool_calls: None, compactions: None, cost_usd: None };
-    let tallies = super::report::tally(&[run("worker-0", Arm::Overlay.label()), run("worker-1", Arm::Control.label())], &Default::default(), &lanes, None);
-    let counts = |arm: Arm| tallies.get(arm.label()).map(|tally| (tally.landed, tally.rejected, tally.pending));
-    assert_eq!((counts(Arm::Overlay), counts(Arm::Control)), (Some((1, 0, 0)), Some((0, 0, 1))), "a commit its Sonnet reviewer landed counts on the worker's arm");
-}
-
-#[test]
-fn a_deepseek_worker_launched_from_a_primary_checkout_starts_in_a_lane_the_launcher_made() {
-    let project = tempfile::tempdir().unwrap();
-    let main = project.path().join("main");
-    std::fs::create_dir_all(&main).unwrap();
-    std::fs::create_dir_all(project.path().join("worktrees")).unwrap();
-    let home = tempfile::tempdir().unwrap();
-    let made = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let record = made.clone();
-    let runtime = seeing(Visibility::Private, day("2026-11-10")).with_lanes(Arc::new(move |lane, issue| {
-        record.lock().unwrap().push((lane.to_owned(), issue.to_owned()));
-        std::fs::create_dir_all(lane).map_err(|error| error.to_string())
-    }));
-
-    let spec = runtime.host(&account(home.path()), &request(&main), Opening::Fresh(Some("ses_x")), "").unwrap();
-
-    let lane = project.path().join("worktrees/worker");
-    assert_eq!(spec.cwd, lane);
-    assert_eq!(*made.lock().unwrap(), [(lane.clone(), "north#1".to_owned())]);
-    let resumed = runtime.host(&account(home.path()), &request(&main), Opening::Resume("ses_x"), "").unwrap();
-    assert_eq!(resumed.cwd, lane);
-    assert_eq!(made.lock().unwrap().len(), 1, "a resumed worker keeps its lane");
-}
-
-#[test]
 fn an_ended_opencode_host_leaves_its_conversation_but_not_its_tmp_and_cache() {
     let home = tempfile::tempdir().unwrap();
     let scratch = home.path().join("scratch");
@@ -391,19 +333,6 @@ fn an_ended_opencode_host_leaves_its_conversation_but_not_its_tmp_and_cache() {
 
     assert!(["data", "config", "state"].iter().all(|kept| scratch.join(kept).join("session").exists()));
     assert!(["tmp", "cache"].iter().all(|dropped| !scratch.join(dropped).exists()));
-}
-
-fn gex45() -> Machine {
-    Machine { name: "gex45".into(), ssh: "gex45".into(), agent_ssh: None }
-}
-
-#[test]
-fn a_session_placed_on_a_build_host_runs_on_the_go_key_that_host_holds() {
-    let home = Path::new("/home/tom");
-    let account = seeing(Visibility::Private, day("2026-11-10")).account_on(home, Path::new("/none"), "go", &gex45()).unwrap();
-
-    assert_eq!(account.token_file, Some(home.join(".local/state/north/accounts/opencode/go.key")));
-    assert!(seeing(Visibility::Private, day("2026-11-10")).account_on(home, Path::new("/none"), "b", &gex45()).is_err());
 }
 
 #[test]

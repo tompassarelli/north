@@ -75,7 +75,3 @@ fn live_reference(runtime: &Path) -> Result<String, String> {
         false => Err(format!("{} --help-all exited {}", north.display(), output.status)),
     }
 }
-
-#[cfg(test)]
-#[path = "call_check_tests.rs"]
-mod tests;

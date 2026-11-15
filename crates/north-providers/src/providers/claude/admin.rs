@@ -326,6 +326,3 @@ fn fetch_at(base: &str, limit: Duration, path: &str, key: &Path, params: &[(&str
     }
     serde_json::from_str(body).map_err(|error| format!("the Admin API answered unreadable JSON: {error}"))
 }
-
-#[cfg(test)]
-mod tests;

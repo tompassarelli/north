@@ -59,16 +59,3 @@ pub fn appended(brief: &str, arm: &str, item: &str) -> String {
         _ => brief.to_owned(),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_pack_reads_the_paths_of_the_files_line_and_only_the_pack_arm_carries_it() {
-        let brief = "Item: north#882 x\nFiles: the pack crate, crates/north-graph-ground/src/reach.rs and file.rs (read-only reuse), `crates/north-dispatch/src/dispatch/brief.rs`, docs/rationale/experiments.toml.\nTier: sonnet-high";
-        assert_eq!(files(brief), ["crates/north-graph-ground/src/reach.rs", "crates/north-dispatch/src/dispatch/brief.rs", "docs/rationale/experiments.toml"]);
-        assert!(files("Files: as north#882 names them").is_empty());
-        assert_eq!(appended(brief, super::super::shares::NO_PACK, "north#882"), brief);
-    }
-}

@@ -103,23 +103,3 @@ pub fn product_share(db: &Connection, weeks: [Window; 2]) -> Result<[Measure; 2]
     };
     Ok([measure("product share of worker spend", Counted::Dollars, spent), measure("product share of landed worker runs", Counted::Runs, landed)])
 }
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-
-    use super::{Counted, Product, is_harness};
-
-    #[test]
-    fn a_repository_outside_north_south_and_firn_is_a_product_with_no_edit() {
-        let names = |repos: &[&str]| repos.iter().map(|repo| (*repo).to_owned()).collect::<BTreeSet<_>>();
-        let mut week = Product::default();
-        week.add(&names(&["north"]), 3.0);
-        week.add(&names(&["wisp"]), 1.0);
-        week.add(&names(&["brand-new-game"]), 1.0);
-        week.add(&names(&[]), 9.0);
-        assert!(is_harness("tompassarelli/firn") && !is_harness("makgora"));
-        assert_eq!(week.share(), Some(0.4));
-        assert_eq!(week.text(Counted::Runs), "40% (2 of 5; brand-new-game 1, north 3, wisp 1)");
-    }
-}

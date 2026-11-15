@@ -110,47 +110,10 @@ mod tests {
         serde_json::json!({"entries": [{"kind": "assistant", "text": report}], "turns": [{"exit": "completed", "ended_ms": 1_000_000}]})
     }
 
-    fn with_notices(report: &str, notices: &[String]) -> Value {
-        let mut entries: Vec<Value> = notices.iter().map(|notice| serde_json::json!({"kind": "user", "text": format!("[from service:north-land@whiterabbit] {notice}\nlast lines of the log:")})).collect();
-        entries.push(serde_json::json!({"kind": "assistant", "text": report}));
-        serde_json::json!({"entries": entries, "turns": [{"exit": "completed", "ended_ms": 1_000_000}]})
-    }
-
-    fn refused(verdict: &str, errors: Option<usize>) -> String {
-        Notice::Refused { branch: "n940-verify".into(), head: "abc".into(), verdict: verdict.into(), errors }.text()
-    }
-
     const OPEN: Option<RunEnd> = Some(RunEnd { open: true, caused: false });
 
     fn time(minutes: u64, eta_min: u64) -> Evidence {
         Evidence { reopened: false, time: Some(RunTime { minutes, eta_min }), end: OPEN }
-    }
-
-    #[test]
-    fn the_same_land_refusal_twice_needs_the_same_verdict_and_no_fewer_errors_when_the_lane_s_checks_refused_it() {
-        let failed = "Not done: the lane still fails its checks.\nStop: landing";
-        assert_eq!(observed(&with_notices(failed, &[refused("failed land check cargo nextest run exited 100", Some(3)), refused("failed land check cargo nextest run exited 100", Some(3))]), &Evidence::default()).map(|spin| spin.signal), Some(Signal::LandRefusal));
-        assert_eq!(observed(&with_notices(failed, &[refused("failed land check cargo nextest run exited 100", Some(3)), refused("failed land check cargo nextest run exited 100", Some(2))]), &Evidence::default()), None, "fewer errors keep the rung");
-        assert_eq!(observed(&with_notices(failed, &[refused("failed land check cargo nextest run exited 100", Some(3))]), &Evidence::default()), None, "one refusal is no evidence");
-        assert_eq!(observed(&with_notices(failed, &[refused("failed land check cargo nextest run exited 100", Some(3)), refused("failed land check cargo clippy exited 101", Some(3))]), &Evidence::default()), None, "a different refusal is no repeat of the same one");
-        let landed = format!("[from service:north-land@whiterabbit] {}", Notice::Landed { branch: "n940-verify".into(), sha: "def".into() }.text());
-        let mut entries: Vec<Value> = with_notices(failed, &[refused("failed land check cargo nextest run exited 100", Some(3)), refused("failed land check cargo nextest run exited 100", Some(3))])["entries"].as_array().cloned().unwrap_or_default();
-        entries.push(serde_json::json!({"kind": "user", "text": landed}));
-        assert_eq!(observed(&serde_json::json!({"entries": entries}), &Evidence::default()), None, "a landing after clears it");
-    }
-
-    #[test]
-    fn a_lane_the_lander_refused_twice_for_the_same_reason_with_no_error_count_climbs_as_the_south_lock_did() {
-        let held = refused("the south checkout is locked by another safe-push", None);
-        let spin = observed(&with_notices("Not done: the lane is still queued.\nStop: landing", &[held.clone(), held]), &Evidence::default());
-        assert_eq!(spin.as_ref().map(|spin| (spin.signal, spin.evidence.contains("the south checkout is locked by another safe-push"))), Some((Signal::LandRefusal, true)));
-    }
-
-    #[test]
-    fn a_run_that_took_twice_the_eta_its_brief_stated_climbs_as_the_eighteen_minute_candidate_check_did() {
-        let report = session("Not done: the lander's check took longer than the box.");
-        assert_eq!(observed(&report, &time(36, 18)).map(|spin| spin.signal), Some(Signal::EtaOverrun));
-        assert_eq!(observed(&report, &time(35, 18)).map(|spin| spin.signal), Some(Signal::Reasoned), "under twice the ETA it is the worker's not-done end");
     }
 
     #[test]

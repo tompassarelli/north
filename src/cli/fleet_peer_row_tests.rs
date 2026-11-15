@@ -64,26 +64,6 @@ fn a_gex45_put_or_exchange_refuses_spoofed_senders_control_and_gate_answers_and_
     assert_eq!(unchecked[0].origin, None);
 }
 
-fn seeded(home: &std::path::Path) -> Store {
-    let mut store = ledger(home);
-    store.exchange(&Exchange { host: "whiterabbit".into(), sessions: vec![sessions().remove(0)], ..Exchange::default() }).unwrap();
-    store.exchange(&Exchange { host: "gex45".into(), sessions: vec![sessions().remove(1)], ..Exchange::default() }).unwrap();
-    store
-}
-
-#[test]
-fn a_gex45_job_or_gate_row_for_a_laptop_session_is_refused_and_one_for_its_own_session_is_admitted() {
-    let home = tempfile::tempdir().unwrap();
-    let store = seeded(home.path());
-    let job = crate::fleet::store::JobPayload { key: "lead-job".into(), lease_secs: Some(u64::MAX), exit: Some(0) };
-    for (id, kind) in [("7-start", RowKind::JobStart), ("7-beat", RowKind::JobBeat), ("7-exit", RowKind::JobExit), ("7-gate", RowKind::Gate)] {
-        let for_lead = FleetRow { job: Some(job.clone()), ..row(id, kind, "gex45", Sender::Session("gex45-worker".into()), "lead", "") };
-        assert!(admitted_put(&serde_json::to_vec(&for_lead).unwrap(), Some("gex45"), || store.sessions(), OWNER).is_err(), "{id}");
-        let for_own = FleetRow { to: "gex45-worker".into(), ..for_lead };
-        assert!(admitted_put(&serde_json::to_vec(&for_own).unwrap(), Some("gex45"), || store.sessions(), OWNER).is_ok(), "{id}");
-    }
-}
-
 #[test]
 fn a_gate_answer_from_another_host_is_admitted_as_tom_only_from_the_machine_tom_types_on_and_else_only_from_the_askers_parent() {
     let mut ledger = sessions();

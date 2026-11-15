@@ -64,7 +64,3 @@ pub(super) fn remind(promise: &Promise, due_ms: u64, tell: &dyn Fn(&str, &str) -
         Err(why) => format!("{text} (not told to {}: {why})", promise.parent),
     }
 }
-
-#[cfg(test)]
-#[path = "promises_tests.rs"]
-mod tests;

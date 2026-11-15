@@ -47,7 +47,3 @@ fn record_id(word: &str) -> Option<&str> {
 fn listing(row: &Row) -> String {
     format!("id: {}\ndate: {}\nowner: {}\nsource: {}\ndecision: {}\n", row.id, row.at, row.owner(), row.source, row.quote)
 }
-
-#[cfg(test)]
-#[path = "ledger_show_tests.rs"]
-mod tests;

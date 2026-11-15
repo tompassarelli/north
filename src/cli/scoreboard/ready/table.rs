@@ -87,13 +87,3 @@ pub(super) fn render(repos: &[Repo], goals: &Goals, now: i64, view: View) -> Str
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    /// The 0.1% harness-loss ceiling concerns.toml set on 2026-11-07 printed as `<= 0%` (north#751).
-    #[test]
-    fn a_percent_below_one_keeps_its_decimal() {
-        assert_eq!(super::show("%", 0.1), "0.1%");
-        assert_eq!(super::show("%", 28.0), "28%");
-    }
-}

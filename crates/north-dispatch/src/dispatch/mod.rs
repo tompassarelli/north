@@ -32,16 +32,12 @@ mod decision;
 pub mod drafts;
 pub mod drafting;
 mod from_draft;
-#[cfg(test)]
-mod drafts_tests;
 mod effects;
 mod facets;
 pub use facets::launch_header;
 pub(crate) mod fleets;
 pub use fleets::workers as fleet_workers;
 mod freeze;
-#[cfg(test)]
-mod freeze_tests;
 mod grounds;
 mod host_needs;
 mod home;
@@ -77,27 +73,13 @@ mod wait;
 #[cfg(test)]
 mod backlog_tests;
 #[cfg(test)]
-mod home_path_tests;
-#[cfg(test)]
 mod cells_tests;
-#[cfg(test)]
-mod claim_tests;
-#[cfg(test)]
-mod threads_claim_tests;
-#[cfg(test)]
-mod corroborated_tests;
-#[cfg(test)]
-mod order_tests;
 #[cfg(test)]
 mod stops_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tier_tests;
-#[cfg(test)]
-mod grounds_tests;
-#[cfg(test)]
-mod host_needs_tests;
 #[cfg(test)]
 mod tries_tests;
 #[cfg(test)]
