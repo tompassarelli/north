@@ -164,7 +164,10 @@ query can join a claim to the checks of the commit it names.
   member (inline, dotted, table or `workspace = true`), `(FILE :embeds PATH)` for each `include_str!` or `include_bytes!` of
   a string literal or of `concat!(env!("CARGO_MANIFEST_DIR"), "...")`, PATH relative to the repository, and
   `(crates:north :crates-commit SHA)`. It reads `~/code/north/main` at the commit `origin/main` names there, through
-  `git show` and `git grep`, never the working tree, and replaces its four predicates whole.
+  `git show` and `git grep`, never the working tree, and replaces its four predicates whole. `north graph ingest crates@COMMIT`
+  tells the same members and dependencies of any commit as `(crate:NAME@COMMIT :crate-root DIR)` and
+  `(crate:NAME@COMMIT :crate-depends crate:DEP@COMMIT)`, which no ingest replaces, so each commit keeps its own crates
+  beside the head's. Each head ingest tells the head commit's crates the same way, so the head needs no `crates@` ingest.
 - `reads` (writer `recorder`): per test, from its newest verdict-reuse line (`land-reuse/*.tsv`) that names a path set: a `unit` line with a reusable set,
   or a `recorded` line, which a recording run writes for every unit it traced whether or not its set is reusable
   (`verdict-cache/v2/*/sets/SETID`), `(test:BINARY::NAME :reads PATH)` for each `content` and `exec` entry, `:lists DIR`
@@ -314,7 +317,9 @@ week before once a week of data exists.
 ## Change queries
 
 `north graph ask affected|overlap|blame` (`crates/north-graph-change`) answer, for landing lanes, which tests a change can
-affect, read from the graph's facts; any other `north graph ask` stays the kernel's JSON query. Each takes `[--db PATH]`,
+affect, read from the graph's facts; `north graph ask crates COMMIT` prints the workspace crates of a named commit, each as
+`NAME, ROOT: DEPENDENCIES` (or `--json`), from the commit's facts that `north graph ingest crates@COMMIT` told, and exits 1 with
+the ingest to run when the graph holds none for it. Any other `north graph ask` stays the kernel's JSON query. Each takes `[--db PATH]`,
 `[--repo DIR]` (default the working directory) and `[--json]`. A lane is `NAME=BASE..HEAD`, a test id is nextest's
 `BINARY_ID TEST_NAME`, split back from the node `test:BINARY_ID::TEST_NAME` by its `:in-binary` or `:recorded-in` fact; the tests the graph
 knows are those with either fact.

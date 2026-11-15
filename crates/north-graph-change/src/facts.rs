@@ -23,6 +23,36 @@ impl fmt::Display for TestId {
     }
 }
 
+pub struct CrateAt {
+    pub name: String,
+    pub root: String,
+    pub depends: BTreeSet<String>,
+}
+
+pub struct Crates(Vec<CrateAt>);
+
+impl Crates {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &CrateAt> {
+        self.0.iter()
+    }
+
+    pub fn crate_of(&self, path: &str) -> Option<&str> {
+        self.0.iter().filter(|known| known.root.is_empty() || path.strip_prefix(known.root.as_str()).is_some_and(|rest| rest.starts_with('/'))).max_by_key(|known| known.root.len()).map(|known| known.name.as_str())
+    }
+
+    pub fn root_of(&self, name: &str) -> Option<&str> {
+        self.0.iter().find(|known| known.name == name).map(|known| known.root.as_str())
+    }
+
+    pub fn dependencies(&self, name: &str) -> BTreeSet<String> {
+        closure(name, |crate_name| self.0.iter().find(|known| known.name == crate_name).into_iter().flat_map(|known| known.depends.iter().cloned()).collect())
+    }
+}
+
 pub struct Region {
     pub node: String,
     pub start: u32,
@@ -188,6 +218,26 @@ impl<'g> Facts<'g> {
     pub fn reaching_file(&self, path: &str) -> Result<BTreeSet<TestId>, String> {
         let rows = self.ask(&["t"], vec![clause(var("f"), "in-file", json!(path)), clause(var("t"), "reaches", var("f"))])?;
         Ok(rows.into_iter().flatten().map(|node| self.test(&node)).collect())
+    }
+
+    pub fn crates_at(&self, commit: &str) -> Result<Crates, String> {
+        let suffix = format!("@{commit}");
+        let named = |node: &str| node.strip_prefix("crate:").and_then(|rest| rest.strip_suffix(suffix.as_str())).map(str::to_owned);
+        let mut found: BTreeMap<String, CrateAt> = BTreeMap::new();
+        for (node, root) in self.pairs("crate-root")? {
+            if let Some(name) = named(&node) {
+                let root = if root == "." { String::new() } else { root.trim_end_matches('/').to_owned() };
+                found.insert(name.clone(), CrateAt { name, root, depends: BTreeSet::new() });
+            }
+        }
+        for (node, dependency) in self.pairs("crate-depends")? {
+            if let (Some(name), Some(dependency)) = (named(&node), named(&dependency))
+                && let Some(entry) = found.get_mut(&name)
+            {
+                entry.depends.insert(dependency);
+            }
+        }
+        Ok(Crates(found.into_values().collect()))
     }
 
     pub fn knows_crates(&self) -> bool {

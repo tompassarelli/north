@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::LazyLock;
 
+use north_graph::{Telling, Term};
 use regex::Regex;
 use toml_edit::{DocumentMut, Item, TableLike};
 
@@ -27,38 +28,11 @@ pub fn read(places: &Places) -> Result<Sourced, String> {
     let checkout = places.code.join("north/main");
     let rev = git(&checkout, &["rev-parse", "--verify", "origin/main^{commit}"])?.trim().to_owned();
     let show = |path: &str| git(&checkout, &["show", &format!("{rev}:{path}")]);
-    let workspace = manifest("Cargo.toml", &show("Cargo.toml")?)?;
-    let mut members = Vec::new();
-    if let Some(name) = workspace.get("package").and_then(|package| package.get("name")).and_then(Item::as_str) {
-        members.push(Member { name: name.to_owned(), dir: ".".to_owned(), manifest: workspace.clone() });
-    }
-    let listed = workspace.get("workspace").and_then(|table| table.get("members")).and_then(Item::as_array).ok_or("Cargo.toml has no [workspace] members")?;
-    for dir in listed.iter().filter_map(|value| value.as_str()) {
-        let dir = normalize(dir).ok_or_else(|| format!("member {dir} leaves the workspace"))?;
-        let path = format!("{dir}/Cargo.toml");
-        let manifest = manifest(&path, &show(&path)?)?;
-        let name = manifest.get("package").and_then(|package| package.get("name")).and_then(Item::as_str).ok_or_else(|| format!("{path} names no package"))?.to_owned();
-        members.push(Member { name, dir, manifest });
-    }
+    let (workspace, members) = members(&checkout, &rev)?;
     let mut facts = Facts::new(&REPLACED);
     facts.tell(WRITER, text("crates:north"), "crates-commit", text(&rev));
-    let by_dir: BTreeMap<&str, &str> = members.iter().map(|member| (member.dir.as_str(), member.name.as_str())).collect();
-    let shared = workspace.get("workspace").and_then(|table| table.get("dependencies")).and_then(Item::as_table_like);
-    for member in &members {
-        facts.tell(WRITER, text(format!("crate:{}", member.name)), "root", text(&member.dir));
-        let mut depends = BTreeSet::new();
-        for (name, dependency) in dependencies(&member.manifest) {
-            let from_workspace = dependency.get("workspace").and_then(Item::as_bool) == Some(true);
-            let (base, entry) = if from_workspace { (".", shared.and_then(|table| table.get(name))) } else { (member.dir.as_str(), Some(dependency)) };
-            let Some(path) = entry.and_then(|entry| entry.get("path")).and_then(Item::as_str) else { continue };
-            if let Some(dep) = normalize(&format!("{base}/{path}")).and_then(|dir| by_dir.get(dir.as_str()).copied()) {
-                depends.insert(dep);
-            }
-        }
-        for dep in depends {
-            facts.tell(WRITER, text(format!("crate:{}", member.name)), "depends-on", text(format!("crate:{dep}")));
-        }
-    }
+    tell_structure(&mut facts, &workspace, &members, Scope::Head);
+    tell_structure(&mut facts, &workspace, &members, Scope::Commit(&rev));
     let sources = git(&checkout, &["grep", "-l", "-E", r"include_(str|bytes)!", &rev, "--", "*.rs"])?;
     for source in sources.lines().filter_map(|line| line.strip_prefix(&format!("{rev}:"))) {
         let root = members.iter().map(|member| member.dir.as_str()).filter(|dir| *dir == "." || source.starts_with(&format!("{dir}/"))).max_by_key(|dir| dir.len()).unwrap_or(".");
@@ -75,6 +49,87 @@ pub fn read(places: &Places) -> Result<Sourced, String> {
         }
     }
     Ok(facts.finish_noted())
+}
+
+/// The crate facts of one commit, under commit-scoped predicates the head's replacement leaves alone, so every ingested commit keeps its own crates.
+pub fn read_at(places: &Places, revision: &str) -> Result<Telling, String> {
+    let checkout = places.code.join("north/main");
+    let rev = git(&checkout, &["rev-parse", "--verify", &format!("{revision}^{{commit}}")])?.trim().to_owned();
+    let (workspace, members) = members(&checkout, &rev)?;
+    let mut facts = Facts::new(&[]);
+    tell_structure(&mut facts, &workspace, &members, Scope::Commit(&rev));
+    Ok(facts.finish())
+}
+
+fn members(checkout: &Path, rev: &str) -> Result<(DocumentMut, Vec<Member>), String> {
+    let show = |path: &str| git(checkout, &["show", &format!("{rev}:{path}")]);
+    let workspace = manifest("Cargo.toml", &show("Cargo.toml")?)?;
+    let mut members = Vec::new();
+    if let Some(name) = workspace.get("package").and_then(|package| package.get("name")).and_then(Item::as_str) {
+        members.push(Member { name: name.to_owned(), dir: ".".to_owned(), manifest: workspace.clone() });
+    }
+    let listed = workspace.get("workspace").and_then(|table| table.get("members")).and_then(Item::as_array).ok_or("Cargo.toml has no [workspace] members")?;
+    for dir in listed.iter().filter_map(|value| value.as_str()) {
+        let dir = normalize(dir).ok_or_else(|| format!("member {dir} leaves the workspace"))?;
+        let path = format!("{dir}/Cargo.toml");
+        let manifest = manifest(&path, &show(&path)?)?;
+        let name = manifest.get("package").and_then(|package| package.get("name")).and_then(Item::as_str).ok_or_else(|| format!("{path} names no package"))?.to_owned();
+        members.push(Member { name, dir, manifest });
+    }
+    Ok((workspace, members))
+}
+
+/// Which facts a manifest walk tells: the head's, replaced on every ingest, or one commit's, kept beside the others.
+#[derive(Clone, Copy)]
+enum Scope<'a> {
+    Head,
+    Commit(&'a str),
+}
+
+impl Scope<'_> {
+    fn root(self) -> &'static str {
+        match self {
+            Self::Head => "root",
+            Self::Commit(_) => "crate-root",
+        }
+    }
+
+    fn depends(self) -> &'static str {
+        match self {
+            Self::Head => "depends-on",
+            Self::Commit(_) => "crate-depends",
+        }
+    }
+
+    fn node(self, name: &str) -> Term {
+        match self {
+            Self::Head => text(format!("crate:{name}")),
+            Self::Commit(rev) => text(format!("crate:{name}@{rev}")),
+        }
+    }
+}
+
+fn tell_structure(facts: &mut Facts, workspace: &DocumentMut, members: &[Member], scope: Scope) {
+    let by_dir: BTreeMap<&str, &str> = members.iter().map(|member| (member.dir.as_str(), member.name.as_str())).collect();
+    let shared = workspace.get("workspace").and_then(|table| table.get("dependencies")).and_then(Item::as_table_like);
+    for member in members {
+        facts.tell(WRITER, scope.node(&member.name), scope.root(), text(&member.dir));
+        for dep in depends_on(member, &by_dir, shared) {
+            facts.tell(WRITER, scope.node(&member.name), scope.depends(), scope.node(dep));
+        }
+    }
+}
+
+fn depends_on<'a>(member: &Member, by_dir: &BTreeMap<&str, &'a str>, shared: Option<&dyn TableLike>) -> BTreeSet<&'a str> {
+    dependencies(&member.manifest)
+        .into_iter()
+        .filter_map(|(name, dependency)| {
+            let from_workspace = dependency.get("workspace").and_then(Item::as_bool) == Some(true);
+            let (base, entry) = if from_workspace { (".", shared.and_then(|table| table.get(name))) } else { (member.dir.as_str(), Some(dependency)) };
+            let path = entry.and_then(|entry| entry.get("path")).and_then(Item::as_str)?;
+            normalize(&format!("{base}/{path}")).and_then(|dir| by_dir.get(dir.as_str()).copied())
+        })
+        .collect()
 }
 
 fn dependencies(manifest: &DocumentMut) -> Vec<(&str, &Item)> {

@@ -162,7 +162,7 @@ struct Attempts {
     plan: Value,
 }
 
-fn attempt(answer: &str, tree: &Tree<'_, '_>, attempts: &mut Attempts) -> Option<parts::Split> {
+fn attempt(answer: &str, tree: &Tree, attempts: &mut Attempts) -> Option<parts::Split> {
     let outcome = Plan::parse(answer).map_err(|why| parts::Refusal(vec![why])).and_then(|(plan, value)| {
         attempts.plan = value;
         parts::split(&plan, tree)

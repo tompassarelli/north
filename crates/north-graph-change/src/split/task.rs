@@ -103,7 +103,7 @@ fn spec_files(directory: &Path) -> Vec<(String, String)> {
     found
 }
 
-fn named_paths(text: &str, spec: &[(String, String)], tree: &Tree<'_, '_>) -> Vec<String> {
+fn named_paths(text: &str, spec: &[(String, String)], tree: &Tree) -> Vec<String> {
     let words = text.split(|c: char| c.is_whitespace() || "`'\"(),;".contains(c)).map(|word| word.trim_end_matches(['.', ':']).to_owned()).filter(|word| word.contains('/'));
     let mut paths = BTreeSet::new();
     for path in words.chain(spec.iter().map(|(path, _)| path.clone())) {
@@ -159,7 +159,7 @@ pub fn overlaps(plan: &Plan, base: &dyn Base) -> Result<(), Refusal> {
     if refused.is_empty() { Ok(()) } else { Err(Refusal(refused)) }
 }
 
-fn attempt(answer: &str, tree: &Tree<'_, '_>) -> Result<Split, String> {
+fn attempt(answer: &str, tree: &Tree) -> Result<Split, String> {
     let (plan, _) = Plan::parse(answer)?;
     overlaps(&plan, tree).and_then(|()| parts::split(&plan, tree)).map_err(|refusal| refusal.line())
 }

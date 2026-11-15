@@ -14,12 +14,13 @@ use crate::facts::{Facts, TestId};
 use crate::lane::{self, Change, Lane};
 use crate::overlap;
 
-pub const VERBS: [&str; 3] = ["affected", "overlap", "blame"];
+pub const VERBS: [&str; 4] = ["affected", "overlap", "blame", "crates"];
 const UNTRACED: u8 = 3;
 const PATIENCE: Duration = Duration::from_secs(5);
 const USAGE: &str = "usage: north graph ask affected [--db PATH] [--repo DIR] [--json | --nextest] [--lane NAME=BASE..HEAD]... [--ran NAME=BASE..HEAD]... BASE HEAD
        north graph ask overlap [--db PATH] [--repo DIR] [--json] NAME=BASE..HEAD...
-       north graph ask blame [--db PATH] [--repo DIR] [--json] [--failed \"BINARY TEST\"]... [--compile FILE]... [--log FILE]... NAME=BASE..HEAD...";
+       north graph ask blame [--db PATH] [--repo DIR] [--json] [--failed \"BINARY TEST\"]... [--compile FILE]... [--log FILE]... NAME=BASE..HEAD...
+       north graph ask crates [--db PATH] [--repo DIR] [--json] COMMIT";
 
 #[derive(Default)]
 struct Options {
@@ -113,6 +114,24 @@ fn carried(root: &Path, facts: &Facts, base: &str, options: &Options) -> BTreeSe
     carry::carried(&lanes, &passes)
 }
 
+fn commit_crates(context: &Context, options: &Options) -> Result<u8, String> {
+    let [revision] = options.positional.as_slice() else { return Err(format!("crates takes COMMIT\n{USAGE}")) };
+    let commit = git(&context.root, &["rev-parse", "--verify", &format!("{revision}^{{commit}}")])?.trim().to_owned();
+    let crates = context.facts()?.crates_at(&commit)?;
+    if crates.is_empty() {
+        return Err(format!("the graph holds no crate facts for {commit}; ingest them with `north graph ingest crates@{commit}`"));
+    }
+    if options.json {
+        let listed: Vec<Value> = crates.iter().map(|known| json!({ "name": known.name, "root": known.root, "depends": known.depends })).collect();
+        println!("{}", json!({ "commit": commit, "crates": listed }));
+    } else {
+        for known in crates.iter() {
+            println!("{}, {}: {}", known.name, known.root, known.depends.iter().map(String::as_str).collect::<Vec<_>>().join(" "));
+        }
+    }
+    Ok(0)
+}
+
 fn ids(tests: &BTreeSet<TestId>) -> Vec<String> {
     tests.iter().map(ToString::to_string).collect()
 }
@@ -133,6 +152,7 @@ pub fn run(arguments: &[String]) -> u8 {
         "affected" => affected(&context, &parsed),
         "overlap" => overlap(&context, &parsed),
         "blame" => blame(&context, &parsed),
+        "crates" => commit_crates(&context, &parsed),
         _ => Err(USAGE.to_owned()),
     });
     match outcome {

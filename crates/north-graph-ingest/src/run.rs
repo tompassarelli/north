@@ -9,9 +9,10 @@ use crate::places::Places;
 use crate::shas::Shas;
 use crate::observations;
 use crate::source::Source;
+use crate::crates;
 use crate::facts::{Facts, Sourced, text};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\n       north graph retain [--db PATH]\nsources: mirror ranking ledger losses pushes touches corrections coverage crates reads observations (all when none is named)";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE... | crates@COMMIT...]\n       north graph retain [--db PATH]\nsources: mirror ranking ledger losses pushes touches corrections coverage crates reads observations (all when none is named); crates@COMMIT adds one commit's crates beside the head's";
 
 const RETAIN_PATIENCE: Duration = Duration::from_secs(10 * 60);
 const WRITER: &str = "graph-ingest";
@@ -75,6 +76,17 @@ pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report 
     report
 }
 
+fn ingest_at(graph: &mut Graph, places: &Places, revision: &str, report: &mut Report) {
+    let outcome = crates::read_at(places, revision).and_then(|telling| graph.sync(&telling).map_err(|why| why.to_string()));
+    match outcome {
+        Ok(Synced { asserted, retracted, unchanged }) => report.lines.push(format!("crates@{revision}: {asserted} asserted, {retracted} retracted, {unchanged} unchanged")),
+        Err(why) => {
+            report.failed = true;
+            report.lines.push(format!("crates@{revision}: skipped: {why}"));
+        }
+    }
+}
+
 /// The commit a source's facts answer from: the first fact naming one of the revision predicates a source tells.
 fn revision(telling: &Telling) -> Option<(String, String)> {
     telling.facts.iter().find_map(|told| match (&told.triple.t2, &told.triple.t3) {
@@ -106,30 +118,54 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-fn ingest_command(arguments: &[String], cgroup: Option<&str>) -> u8 {
-    let mut db = default_path();
-    let mut sources = Vec::new();
+struct IngestArguments {
+    db: PathBuf,
+    sources: Vec<Source>,
+    commits: Vec<String>,
+}
+
+fn ingest_arguments(arguments: &[String]) -> Result<IngestArguments, String> {
+    let mut parsed = IngestArguments { db: default_path(), sources: Vec::new(), commits: Vec::new() };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         if argument == "--db" {
-            let Some(path) = rest.next() else { return usage("--db needs a value") };
-            db = PathBuf::from(path);
+            let path = rest.next().ok_or("--db needs a value")?;
+            parsed.db = PathBuf::from(path);
         } else if let Some(source) = Source::ALL.into_iter().find(|source| source.name() == argument) {
-            sources.push(source);
+            parsed.sources.push(source);
+        } else if let Some(revision) = argument.strip_prefix("crates@") {
+            parsed.commits.push(revision.to_owned());
         } else {
-            return usage(&format!("unknown argument {argument}"));
+            return Err(format!("unknown argument {argument}"));
         }
     }
-    if sources.is_empty() {
-        sources.extend(Source::ALL);
+    if parsed.sources.is_empty() && parsed.commits.is_empty() {
+        parsed.sources.extend(Source::ALL);
     }
-    let refused: Vec<String> = sources.iter().filter_map(|source| crate::trusted_writers::ingest_refusal(source.name(), source.writers(), cgroup)).collect();
+    Ok(parsed)
+}
+
+fn refusals(parsed: &IngestArguments, cgroup: Option<&str>) -> Vec<String> {
+    let mut refused: Vec<String> = parsed.sources.iter().filter_map(|source| crate::trusted_writers::ingest_refusal(source.name(), source.writers(), cgroup)).collect();
+    if !parsed.commits.is_empty() {
+        refused.extend(crate::trusted_writers::ingest_refusal(Source::Crates.name(), Source::Crates.writers(), cgroup));
+    }
+    refused
+}
+
+fn ingest_command(arguments: &[String], cgroup: Option<&str>) -> u8 {
+    let parsed = match ingest_arguments(arguments) {
+        Ok(parsed) => parsed,
+        Err(why) => return usage(&why),
+    };
+    let refused = refusals(&parsed, cgroup);
     if !refused.is_empty() {
         for why in &refused {
             eprintln!("north graph ingest: {why}");
         }
         return 1;
     }
+    let IngestArguments { db, sources, commits } = parsed;
     let mut graph = match Graph::open(&db) {
         Ok(graph) => graph,
         Err(why) => {
@@ -138,7 +174,11 @@ fn ingest_command(arguments: &[String], cgroup: Option<&str>) -> u8 {
         }
     };
     let Some(_alone) = alone(&db) else { return 1 };
-    let report = ingest(&mut graph, &Places::local(), &sources);
+    let places = Places::local();
+    let mut report = ingest(&mut graph, &places, &sources);
+    for revision in &commits {
+        ingest_at(&mut graph, &places, revision, &mut report);
+    }
     for line in &report.lines {
         println!("{line}");
     }
