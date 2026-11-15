@@ -4,6 +4,7 @@ use super::Context;
 use super::except::{Entries, beneath_except, identity};
 
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
+const PUSHED_GITHUB: [&str; 3] = ["gh-write-token", "gh-write-token.repos", "github-installation-token.yaml"];
 
 /// Whose command reads: any agent session's, or a confined worker's, which also may not read what another host trusts, since the coordinator and the leads reach other hosts on purpose.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -18,7 +19,7 @@ impl Reader {
     }
 }
 
-/// What `reader` may not read: the operator's own logins, since an agent calls GitHub as an App installation (north#969), and for a worker everything another host trusts (south#118): the ssh directory of the home with the file each of its entries resolves to, the secrets directory, and the agent socket; and every model account's login (north#1485): the stored long-lived tokens and each client profile's credentials file.
+/// What `reader` may not read: the operator's own logins, since an agent calls GitHub as an App installation (north#969), and for a worker everything another host trusts (south#118): the ssh directory of the home with the file each of its entries resolves to, the secrets directory, and the agent socket; and every model account's login (north#1485): the stored long-lived tokens, the GitHub App tokens the laptop pushes, and each client profile's credentials file.
 pub(super) fn unreadable(context: &Context, reader: Reader) -> Vec<PathBuf> {
     let mut paths = vec![context.config.clone().unwrap_or_else(|| context.home.join(".config")).join("gh/hosts.yml")];
     if reader == Reader::Worker {
@@ -29,6 +30,7 @@ pub(super) fn unreadable(context: &Context, reader: Reader) -> Vec<PathBuf> {
         paths.extend(context.agent_socket.clone());
         let state = context.home.join(".local/state/north");
         paths.push(state.join("claude-tokens"));
+        paths.extend(PUSHED_GITHUB.map(|name| state.join(name)));
         paths.push(context.home.join(".claude/.credentials.json"));
         paths.extend(std::fs::read_dir(state.join("profiles")).into_iter().flatten().flatten().map(|entry| entry.path().join(".credentials.json")));
         paths.extend(rostered_logins(context, &state));
