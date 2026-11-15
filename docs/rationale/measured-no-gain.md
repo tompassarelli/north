@@ -159,8 +159,8 @@ Each row of [feedback-loop.md](../feedback-loop.md) not read by a decision, with
   build_input_retention_hours, capacity_mode_play_cpus, capture_batch_retention_hours, three codex_tier_*,
   evidence_retention_hours, explore_every, plan_meter_weighting, retention_budget_minutes. Verdict: wire, so the
   check lists every entry that has a settle count. Box 10.
-- 22 priors print MEASURABLE-NOT-MEASURED and 26 WAIT; none is SETTLED. This is a prior with no measurement,
-  not a failed one, so none is proposed for deletion; the nine codex_* priors stay as the provider seam.
+- Priors: the 59 entries with `settles_when` in `harness/defaults.toml` are each settled, deleted, marked safety or
+  split in [Priors settled from the ledger](#priors-settled-from-the-ledger-2026-11-15), with the effect and n it measured.
 
 Commands no timer, hook, skill or land check calls (14-day gex45 uses in brackets), and why each stays:
 `advisor-report` [0] goes in box 2; `agent-contain` [0] runs inside the laptop runner
@@ -217,3 +217,98 @@ arm loses. Each box is at most 45 minutes, lands alone through safe-push, and le
    prints nothing.
 10. Priors listing. `north defaults-measure --priors` lists every entry with `settles_when`, whatever its source
     prefix. Done when: its output names `explore_every` and a test covers a non-`prior:` entry.
+
+## Priors settled from the ledger (2026-11-15)
+
+Method: `north defaults-measure --priors` on the threads snapshot of 2026-11-15 lists each entry with `settles_when` as one
+of 25 measurable (count reached, nothing measured) or 34 waiting (count below need). This replaces the page's earlier counts
+of 22 and 26. The listing aborts on `land_check_cpu_weight`, a `prior:` entry with no `settles_when`
+(`/home/tom/code/north/main/crates/north-tune/src/defaults_measure/priors.rs:19`), so the counts above come from a scratch
+build that skips such an entry; that build is not committed. Effects read the snapshot's worker runs: done rate is the share
+of runs with outcome done; cost per done is the total cost_usd of the group over its done runs. Codex tiers are the gpt-6,
+sol, luna and astra tiers; other is every other engine in the category.
+
+Settled with an effect, kept:
+- `codex_route_netcode-determinism` (claude, read at `/home/tom/code/north/main/crates/north-pace/src/router/brief.rs:111`):
+  Codex done rate 0.23 (n=31) against 0.59 (n=58) for other; cost per done $0.04 against $0.09. Stays claude.
+- `codex_route_balance-tuning` (claude): Codex done rate 0.33 (n=43) against 0.63 (n=70) for other; cost per done $0.04
+  against $0.15. Stays claude.
+
+Marked safety, not a gain claim (data custody; the mechanism stays):
+- `evidence_retention_hours` (72), `capture_batch_retention_hours` (6), `build_input_retention_hours` (72),
+  `retention_budget_minutes` (40) and `disk_reclaim_cooldown_minutes` (10) govern what the hosts keep and reclaim, read at
+  `/home/tom/code/north/main/crates/north-reclaim/src/retention/family.rs`,
+  `/home/tom/code/north/main/crates/north-reclaim/src/retention/mod.rs` and
+  `/home/tom/code/north/main/crates/north-reclaim/src/reclaim/mod.rs`.
+
+Deleted as not settleable from the rows (gain claim deleted, mechanism listed for deletion below):
+- `codex_route_performance`: Codex has 10 runs in the performance category (done rate 0.20), under the need of 20.
+- `codex_files_max` (6), `quiet_idle_seconds` (300), `backfill_seconds` (300), `client_reserve_seconds` (900),
+  `priority_lease_cap` (2), `capacity_phrase_window_words` (2) and `capacity_phrase_max_words` (40): each settles on the
+  first-run count of worker runs, which measures no effect of the value. Each source cites a past incident or a plan, not
+  a measured effect, and no counter in `/home/tom/code/north/main/crates/north-tune/src/defaults_measure/priors.rs` reads
+  the event the value governs.
+
+Split, open in north#1588:
+- `codex_eta_max_min` (20) and `codex_explore_min_n` (20): both settle on measured per-class Codex rates. The per-class
+  rates exist (the two routes above and the Codex table in the ledger), but the ETA-bucket cut for `codex_eta_max_min`
+  is not computed.
+- `codex_tier_debugging-unknown-cause`, `codex_tier_research`, `codex_tier_mechanical`, `codex_tier_netcode-determinism`,
+  `codex_tier_performance` and `codex_tier_balance-tuning`: the tier lists are read by the explore clause at
+  `/home/tom/code/north/main/crates/north-pace/src/router/choose.rs:147`. Per tier and class the Codex rows exist (for
+  example netcode-determinism sol-high 19 runs at done rate 0.21), but the tier cut is not computed, and whether the
+  explore count is per tier or per class is not read.
+- `spend_worker_charge` (1.0): settles on worker runs with week readings before and after. No counter computes a
+  before-and-after week-points delta per run, so it is split.
+- `rework_alarm_pct` (20): settles at 100 judged first worker runs. The counter returns the first-run count and computes
+  no per-repository rework rate, so it is split.
+
+Waiting below need, each to be settled by north#1588 box 2:
+- WAIT astra_cost n=0/20 (north#1588 box 2)
+- WAIT late_ratio n=0/10 (north#1588 box 2)
+- WAIT capacity_min n=0/20 (north#1588 box 2)
+- WAIT explore_runs n=13/40 (north#1588 box 2)
+- WAIT explore_every n=13/40 (north#1588 box 2)
+- WAIT priority_headroom n=0/50 (north#1588 box 2)
+- WAIT plan_meter_weighting n=0/40 (north#1588 box 2)
+- WAIT bar1_margin_mib n=0/20 (north#1588 box 2)
+- WAIT gpu_slots n=0/20 (north#1588 box 2)
+- WAIT vram_gpu_headroom_mib n=0/20 (north#1588 box 2)
+- WAIT gpu_vram_ramp_seconds n=0/20 (north#1588 box 2)
+- WAIT vram_margin_mib n=0/20 (north#1588 box 2)
+- WAIT game_reserve_headroom_mib n=0/20 (north#1588 box 2)
+- WAIT overload_cap_share n=0/20 (north#1588 box 2)
+- WAIT slice_weight_app_attended n=0/20 (north#1588 box 2)
+- WAIT slice_weight_agent n=0/20 (north#1588 box 2)
+- WAIT slice_weight_session_unattended n=0/20 (north#1588 box 2)
+- WAIT admit_psi_unattended_high n=0/20 (north#1588 box 2)
+- WAIT admit_psi_attended_low n=0/20 (north#1588 box 2)
+- WAIT admit_psi_game_low n=0/20 (north#1588 box 2)
+- WAIT admit_psi_game_high n=0/20 (north#1588 box 2)
+- WAIT admit_memory_ramp_seconds n=0/20 (north#1588 box 2)
+- WAIT watch_waste_wait_seconds n=0/20 (north#1588 box 2)
+- WAIT watch_waste_cpu_fraction n=0/20 (north#1588 box 2)
+- WAIT watch_waste_memory_fraction n=0/20 (north#1588 box 2)
+- WAIT capacity_mode_play_cpus n=0/20 (north#1588 box 2)
+- WAIT capacity_mode_play_cpus_min n=0/20 (north#1588 box 2)
+- WAIT capacity_mode_play_cpus_max n=0/20 (north#1588 box 2)
+- WAIT capacity_mode_play_cpus_step n=0/20 (north#1588 box 2)
+- WAIT capacity_mode_play_psi_target n=0/20 (north#1588 box 2)
+- WAIT capacity_mode_play_calm_sec n=0/20 (north#1588 box 2)
+- WAIT land_check_claim_seconds n=0/20 (north#1588 box 2)
+- WAIT agent_slice_read_cap_mib n=0/20 (north#1588 box 2)
+- WAIT agent_slice_write_cap_mib n=0/20 (north#1588 box 2)
+
+The waiting priors whose count is `count_capacity_episodes` read Codex rollouts under `CODEX_CONFIG_DIR` or
+`~/code/north-data/codex-pooled` (`/home/tom/code/north/main/crates/north-tune/src/defaults_measure/rollouts.rs:20`). Those
+rollouts are absent on this host, so each reads 0 whatever the capacity ledger holds. The counter needs a new source, or
+these claims go; that is box 2's decision.
+
+Mechanisms to delete (listed in north#1588 for the coordinator to staff; not deleted in this lane):
+- `/home/tom/code/north/main/crates/north-pace/src/router/brief.rs:206-212`: the Codex files gate behind `codex_files_max`.
+- `/home/tom/code/north/main/crates/north-capacity/src/capacity/native_hold.rs`: the quiet idle hold behind `quiet_idle_seconds`.
+- `/home/tom/code/north/main/crates/north-capacity/src/capacity/queued_ahead.rs`: the backfill wait behind `backfill_seconds`.
+- `/home/tom/code/north/main/crates/north-capacity/src/capacity/admission/mod.rs`: the client reserve behind `client_reserve_seconds`.
+- `/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/priority.rs`: the priority lease cap behind `priority_lease_cap`.
+- `/home/tom/code/north/main/crates/north-guard/src/guard/quiet_phrase.rs`: the phrase window and max word limits.
+- `/home/tom/code/north/main/harness/defaults.toml`: the entries `codex_route_performance`, `codex_files_max`, `quiet_idle_seconds`, `backfill_seconds`, `client_reserve_seconds`, `priority_lease_cap`, `capacity_phrase_window_words` and `capacity_phrase_max_words`.
