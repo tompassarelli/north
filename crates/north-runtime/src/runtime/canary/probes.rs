@@ -127,14 +127,22 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
 /// A worker's cargo run on a build host through its capacity gate, against the judged runtime: gex45 and cpx62b failed every one, and every offloaded land check, from 4:59 to 5:05 PM on 2026-11-15 on runtimes holding aea18d3b3e, which passed each other probe.
 pub(super) fn worker_cargo_run(sha: &str) -> Probe {
     let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
-    let script = worker_shell(&format!("{runtime}/north"), WORKER_CARGO_RUN);
+    let script = WORKER_CARGO_CRATE.replace("__NO_VERDICT__", &north_base::foundation::exit::NO_VERDICT.to_string()).replace("__WORKER_SHELL__", &worker_shell(&format!("{runtime}/north"), WORKER_CARGO_RUN));
     judging(sha, vec![probe(WORKER_CARGO_RUN_PROBE, script, WORKER_CARGO_RUN_LIMIT)]).remove(0)
 }
 
-const WORKER_CARGO_RUN: &str = r#"root=$(mktemp -d "${TMPDIR:-/tmp}/north-canary-cargo.XXXXXX")
-trap 'rm -rf "$root"' EXIT
-cd "$root" && mkdir src && printf '[package]\nname = "canary"\nversion = "0.0.0"\nedition = "2021"\n' > Cargo.toml && printf 'fn main() {}\n' > src/main.rs
-"$CANARY_NORTH" capacity gate -- cargo run --offline --quiet
+/// The scratch crate lies in the north main checkout's `target/`, made before the worker's domain, which writes no main checkout: the broker serves a request only from a checkout the host keeps, and the leased run's depbox binds that checkout and gives the run a `/tmp` of its own.
+const WORKER_CARGO_CRATE: &str = r#"checkout="$HOME/code/north/main"
+[ -e "$checkout/.git" ] || { echo "this host keeps no north main checkout to run a worker cargo run from" >&2; exit __NO_VERDICT__; }
+mkdir -p "$checkout/target" && crate=$(mktemp -d "$checkout/target/north-canary-cargo.XXXXXX") || exit __NO_VERDICT__
+trap 'rm -rf "${crate:?}"' EXIT
+mkdir "$crate/src" && printf '[package]\nname = "canary"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n' > "$crate/Cargo.toml" && printf 'fn main() {}\n' > "$crate/src/main.rs" || exit __NO_VERDICT__
+export CANARY_CHECKOUT="$checkout" CANARY_CRATE="$crate"
+(
+__WORKER_SHELL__)
+"#;
+
+const WORKER_CARGO_RUN: &str = r#"cd "$CANARY_CHECKOUT" && "$CANARY_NORTH" capacity gate cargo run --offline --quiet --manifest-path "$CANARY_CRATE/Cargo.toml"
 "#;
 
 /// A land check the judged runtime offloads onto `host` itself, in the host's own slots as the login the canary dials, run from one of the checkouts the host keeps; a host that cannot place and run it returns no verdict, as cpx62 returned none to any offloaded land check from 4:10 to 5:12 AM on 2026-11-13 after a runtime that passed its three probes.
