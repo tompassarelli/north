@@ -59,6 +59,7 @@ fn counter(db: &Connection, context: &Context, name: &str) -> Result<Count, Stri
             Ok((rows.iter().filter(|row| row["gate"] == "capacity" && truthy(&row["at"])).count(), None))
         }
         "count_meter_test_haiku_runs" => Ok(meter_test_haiku_runs(&context.state_dir().join("replay"))),
+        "count_lead_message_takes" => lead_message_takes(db).map_err(sql),
         other => Err(format!("settles_when count {other:?} is not a defaults-measure counter")),
     }
 }
@@ -76,6 +77,22 @@ fn truthy(value: &Value) -> bool {
 
 fn stamp(text: &str) -> f64 {
     Timestamp::parse_python_datetime(text).map_or(f64::NAN, Timestamp::unix_seconds_f64)
+}
+
+fn lead_message_takes(db: &Connection) -> rusqlite::Result<Count> {
+    let tables: i64 = db.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('events', 'fleet_sessions', 'fleet_takes')", [], |row| row.get(0))?;
+    if tables < 3 {
+        return Ok((0, None));
+    }
+    let mut select = db.prepare(
+        "SELECT json_extract(events.data, '$.sent_at'), fleet_takes.taken_ms FROM events JOIN fleet_takes ON fleet_takes.id = json_extract(events.data, '$.id') \
+         WHERE events.kind = 'MESSAGE' AND json_extract(events.data, '$.to_node') IN (SELECT parent FROM fleet_sessions WHERE parent IS NOT NULL)",
+    )?;
+    let waits: Vec<f64> = select
+        .query_map([], |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, i64>(1)?)))?
+        .filter_map(|pair| pair.map(|(sent, taken)| sent.map(|sent| (taken - sent) as f64 / 60_000.0)).transpose())
+        .collect::<rusqlite::Result<_>>()?;
+    Ok((waits.len(), quantile(&waits, 0.5)))
 }
 
 fn astra_runs(db: &Connection) -> rusqlite::Result<Count> {

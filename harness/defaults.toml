@@ -1870,6 +1870,15 @@ source = "prior: a worker splits its own item into a few leaves; a handful bound
 fallback = "none: the filing guard refuses a sixth child"
 consumers = ["crates/north-guard/src/guard/issue_filing.rs"]
 
+[lead_message_wait_min]
+value = 15
+allowed = { min = 1, max = 240 }
+unit = "median minutes between a message to a lead session being sent and its session taking it, the wait dispatch_lead_reports is re-set against (crates/north-tune/src/defaults_measure/priors.rs)"
+source = "prior: a guess, not measured; the fleet ledger's fleet_takes table records when an exchange first reports a message taken (north#1137 S5), so 20 such waits settle the median"
+settles_when = { need = 20, count = "count_lead_message_takes", what = "messages to a session that is another session's parent, with a take time in the fleet ledger's fleet_takes table, so the median wait can re-set [dispatch] lead_reports" }
+fallback = "none: no dispatch reads it until its waits are measured"
+consumers = ["crates/north-tune/src/defaults_measure/priors.rs"]
+
 [after_landing_at_lander_rank]
 value = true
 allowed = {}

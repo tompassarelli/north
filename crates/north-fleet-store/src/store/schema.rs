@@ -29,6 +29,7 @@ pub(super) fn current(db: &Connection) -> NorthResult<bool> {
     Ok(names_every_kind(declared(db, "table", "events")?.as_deref())
         && names_every_kind(declared(db, "index", "events_fleet_id")?.as_deref())
         && declared(db, "index", "events_fleet_to")?.is_some()
+        && declared(db, "table", "fleet_takes")?.is_some()
         && DISPLAY_COLUMNS.iter().all(|(name, _)| columns.iter().any(|held| held == name)))
 }
 
@@ -42,6 +43,7 @@ pub(super) fn ensure(db: &mut Connection) -> NorthResult<()> {
     renew_id_index(&tx)?;
     tx.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL) STRICT;
+         CREATE TABLE IF NOT EXISTS fleet_takes(id TEXT PRIMARY KEY, taken_ms INTEGER NOT NULL) STRICT, WITHOUT ROWID;
          CREATE UNIQUE INDEX IF NOT EXISTS events_fleet_id ON events(json_extract(data,'$.id')) WHERE kind IN ({});
          CREATE INDEX IF NOT EXISTS events_fleet_to ON events(json_extract(data,'$.to_node'));",
         kind_list()

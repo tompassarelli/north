@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
 use crate::error::NorthResult;
@@ -53,6 +53,7 @@ pub trait LedgerHost {
 impl LedgerHost for Store {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
         self.put(&exchange.rows)?;
+        self.record_takes(&exchange.addressees)?;
         let held_elsewhere = self.publish_over(&exchange.host, &exchange.sessions, &exchange.outranks)?;
         self.retire_unplaced(Some(&exchange.host))?;
         self.publish_gates(&exchange.host, &exchange.gates)?;
@@ -70,7 +71,18 @@ impl Store {
     pub fn addressed_to(&self, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
         addressed(&self.db, addressees)
     }
+
+    fn record_takes(&mut self, addressees: &[Addressee]) -> NorthResult<()> {
+        let at = i64::try_from(crate::runtime::now_ms()).unwrap_or(i64::MAX);
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        for addressee in addressees.iter().filter(|addressee| !addressee.taken.is_empty()) {
+            tx.execute(TOOK, rusqlite::params![at, serde_json::to_string(&addressee.taken)?]).map_err(sql)?;
+        }
+        tx.commit().map_err(sql)
+    }
 }
+
+const TOOK: &str = "INSERT OR IGNORE INTO fleet_takes(id, taken_ms) SELECT value, ?1 FROM json_each(?2)";
 
 const JOB_EXIT_KEPT_MS: u64 = 24 * 60 * 60 * 1000;
 

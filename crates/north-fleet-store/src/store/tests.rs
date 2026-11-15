@@ -114,11 +114,18 @@ fn an_addressee_with_thousands_of_delivered_ids_is_answered_in_a_few_thousand_st
     let counting = thousands.clone();
     store.db.progress_handler(1000, Some(move || counting.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == u32::MAX)).unwrap();
 
-    let exchanged = store.exchange(&Exchange { addressees: vec![Addressee { name: "coordinator".into(), taken, ..Addressee::default() }], ..Exchange::default() }).unwrap();
+    let asking = Exchange { addressees: vec![Addressee { name: "coordinator".into(), taken, ..Addressee::default() }], ..Exchange::default() };
+
+    let exchanged = store.exchange(&asking).unwrap();
 
     assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m-03990", "m-03991", "m-03992", "m-03993", "m-03994", "m-03995", "m-03996", "m-03997", "m-03998", "m-03999"]);
     let steps = thousands.load(std::sync::atomic::Ordering::Relaxed);
     assert!(steps < 500, "the exchange took {steps} thousand SQLite steps");
+    let taken_at = |id: &str| -> Option<i64> { Connection::open(&path).unwrap().query_row("SELECT taken_ms FROM fleet_takes WHERE id = ?1", [id], |row| row.get(0)).ok() };
+    let first = taken_at("m-00000").expect("a row its session took records when it took it");
+    assert_eq!(taken_at("m-03990"), None, "a row its session has not taken records no time");
+    store.exchange(&asking).unwrap();
+    assert_eq!(taken_at("m-00000"), Some(first), "a later exchange keeps the time the session first took the row");
 }
 
 #[test]
