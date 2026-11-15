@@ -76,12 +76,27 @@ pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finish
     Err(format!("the lane changes {} of trust_boundary_paths and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
 }
 
+pub(crate) fn each_commit(directory: &Path, base: &str, head: &str, judge: impl Fn(&str, &str) -> Result<(), String>) -> Result<(), String> {
+    let Err(refusal) = judge(base, head) else { return Ok(()) };
+    let fork = git::merge_base(directory, base, head);
+    let listed = git::text(directory, &["rev-list", "--first-parent", "--reverse", &format!("{fork}..{head}")]).unwrap_or_default();
+    let commits: Vec<&str> = listed.lines().collect();
+    if commits.len() < 2 {
+        return Err(refusal);
+    }
+    for commit in commits {
+        judge(&format!("{commit}^"), commit).map_err(|why| format!("{}: {why}", &commit[..commit.len().min(10)]))?;
+    }
+    Ok(())
+}
+
 pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, finished: &FinishRecords, out: &mut impl Write) -> u8 {
     let Some(Range { base, head }) = Range::parse(range) else {
         let _ = writeln!(out, "{SELF}: expected BASE..HEAD, got {range}");
         return 2;
     };
-    let outcome = check(directory, base, head, accepts, &finished.all());
+    let finished = finished.all();
+    let outcome = each_commit(directory, base, head, |base, head| check(directory, base, head, accepts, &finished));
     let fork = git::merge_base(directory, base, head);
     let enforce = holdlist::enforcing(directory, SELF, [base, head]);
     if !enforce {

@@ -58,7 +58,8 @@ pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, fini
         let _ = writeln!(out, "{SELF}: expected BASE..HEAD, got {range}");
         return 2;
     };
-    let outcome = check(directory, base, head, accepts, &finished.all());
+    let finished = finished.all();
+    let outcome = review_accept::each_commit(directory, base, head, |base, head| check(directory, base, head, accepts, &finished));
     let fork = git::merge_base(directory, base, head);
     let enforce = holdlist::enforcing(directory, SELF, [base, head]);
     if !enforce {
