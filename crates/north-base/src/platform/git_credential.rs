@@ -12,10 +12,11 @@ rulesets, which only the admin role and that App's v* release path bypass, bind 
 A host the laptop pushes that token to (gex45 and ccx33 hold no App key) answers with the pushed
 token while it is fresh; a host that cannot mint answers with the same App's token the session
 was launched with in GH_TOKEN and names it on stderr. Other hosts, store and erase get no
-answer. Fleet sessions set it through GIT_CONFIG_COUNT, so Tom's own git and gh login stay unchanged.";
+answer. Fleet sessions set it through GIT_CONFIG_COUNT, so Tom's own git and gh login stay unchanged. A confined worker command's git asks `north git-credential confined`, which reads no credential in its domain (north#1397).";
 
 const SCOPE: &str = "credential.https://github.com.helper";
-const HELPER: &str = "!north git-credential";
+pub const HELPER: &str = "!north git-credential";
+pub const CONFINED: &str = "confined";
 const PATH_SCOPE: &str = "credential.https://github.com.useHttpPath";
 
 pub fn session_env() -> Vec<(String, String)> {
@@ -46,10 +47,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok(token)
     };
     match answer(arguments, std::io::stdin().lock(), token) {
-        Ok(Some(reply)) => match std::io::stdout().write_all(reply.as_bytes()) {
-            Ok(()) => 0,
-            Err(_) => 1,
-        },
+        Ok(Some(reply)) => u8::from(std::io::stdout().write_all(reply.as_bytes()).is_err()),
         Ok(None) => 0,
         Err(message) => {
             eprintln!("north git-credential: {message}");
@@ -64,8 +62,9 @@ fn repository(path: &str) -> Option<&str> {
     (!owner.is_empty() && !name.is_empty() && !name.contains('/')).then_some(name)
 }
 
-fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str) -> Result<String, String>) -> Result<Option<String>, String> {
-    match arguments {
+pub fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str) -> Result<String, String>) -> Result<Option<String>, String> {
+    let confined = matches!(arguments, [mode, _] if mode == CONFINED);
+    match &arguments[usize::from(confined)..] {
         [action] if action == "get" => {}
         [action] if action == "store" || action == "erase" => return Ok(None),
         _ => return Err(USAGE.to_owned()),
@@ -88,7 +87,7 @@ fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str) ->
     if protocol.as_deref() != Some("https") || host.as_deref() != Some("github.com") {
         return Ok(None);
     }
-    let token = token(&path)?;
+    let token = if confined { Err("a confined worker command's https git reads no GitHub credential in its domain; `north lane sync CHECKOUT` fetches a main checkout, whose refs its lanes share, and `safe-push` pushes a lane, both outside the domain".to_owned()) } else { token(&path) }?;
     Ok(Some(format!("username=x-access-token\npassword={token}\n")))
 }
 

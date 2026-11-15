@@ -293,9 +293,14 @@ fn hide_sockets(context: &Context) {
     }
 }
 
-/// The git environment of a command: the session's GitHub credential helper, and once its writes are confined, no upstream for a branch it creates, since recording one rewrites the repository's `config`, which the domain keeps unwritable (`north lane new` already creates its branch without one).
+/// The git environment of a command: the session's GitHub credential helper, or once the command is confined the helper that reads no credential in its domain and names the brokered verbs instead (north#1397), and once its writes are confined no upstream for a branch it creates, since recording one rewrites the repository's `config`, which the domain keeps unwritable (`north lane new` already creates its branch without one).
 fn git_env(writes_confined: bool) -> Vec<(String, String)> {
-    if writes_confined { git_credential::session_env_with(&[("branch.autoSetupMerge", "false")]) } else { git_credential::session_env() }
+    if !writes_confined {
+        return git_credential::session_env();
+    }
+    let mut env = git_credential::session_env_with(&[("branch.autoSetupMerge", "false")]);
+    env.iter_mut().filter(|(_, value)| value == git_credential::HELPER).for_each(|(_, value)| *value = format!("{} {}", git_credential::HELPER, git_credential::CONFINED));
+    env
 }
 
 /// `command` without the agent socket variable, and marked as reaching no other host, when it runs `confined`: its socket is hidden, and a worker reaches no other host through it (south#118).

@@ -949,3 +949,17 @@ fn a_confined_sessions_model_calls_run_outside_through_the_broker_with_their_tex
     let (code, answered, told) = judged(None, &planned);
     assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "a caller in no session's scope drew the planning call: {told}");
 }
+
+#[test]
+fn a_confined_commands_https_git_reads_no_credential_in_its_domain() {
+    use north_base::platform::git_credential;
+    let asked = |env: &[(String, String)]| -> Vec<String> {
+        let helper = &env.iter().find(|(name, _)| name == "GIT_CONFIG_VALUE_1").expect("a command's git names its GitHub credential helper second").1;
+        helper.strip_prefix(git_credential::HELPER).expect("the helper is north's own").split_whitespace().map(str::to_owned).chain(["get".to_owned()]).collect()
+    };
+    let request = "protocol=https\nhost=github.com\npath=tompassarelli/south.git\n\n";
+    let reply = git_credential::answer(&asked(&super::git_env(true)), request.as_bytes(), |_| Ok("ghs_host_wide_pushed_token".to_owned()));
+    assert!(reply.expect_err("a confined command's https git got a credential").contains("north lane sync"), "a confined command's https git must be refused with the brokered verbs named, never handed the host's credential");
+    let session = git_credential::answer(&asked(&super::git_env(false)), request.as_bytes(), |_| Ok("ghs_minted".to_owned()));
+    assert!(session.unwrap().unwrap().contains("password=ghs_minted"));
+}
