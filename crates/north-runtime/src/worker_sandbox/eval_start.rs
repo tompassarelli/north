@@ -1,14 +1,15 @@
-//! A start script from a registered evaluation directory, run as its own user unit by the outside broker for a lead or the coordinator whose domain reaches neither ssh nor the user manager's bus (north#1439). The request is `eval-unit start script DIR/NAME LABEL [ARGUMENT...]`: the script must be a file git tracks unchanged under a directory the harness default `eval_start_directories` lists, and must name the north runtime it measures (`# eval-runtime: SHA` or `any`) and the hosts it holds (`# eval-holds: HOST...` or `none`). The broker refuses a runtime other than the one this host runs and a host a running start already holds, records each start, and answers the unit's name and log path; its state answer carries the log's last lines, since the caller cannot read the evaluation data directory.
+//! A start script from a registered evaluation directory, run as its own user unit by the outside broker for a lead or the coordinator whose domain reaches neither ssh nor the user manager's bus (north#1439). The request is `eval-unit start script DIR/NAME LABEL [ARGUMENT...]`: the script must be a file under a directory the harness default `eval_start_directories` lists whose bytes are the ones origin/main of its project's trusted mirror holds, fetched now, never its checkout's head or index, which a worker writes, and must name the north runtime it measures (`# eval-runtime: SHA` or `any`) and the hosts it holds (`# eval-holds: HOST...` or `none`). The broker refuses a runtime other than the one this host runs and a host a running start already holds, records each start, and answers the unit's name and log path; its state answer carries the log's last lines, since the caller cannot read the evaluation data directory.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use north_base::platform::harness::{DEFAULTS, document};
+use north_trusted_mirror::{Mirror, ORIGIN_MAIN};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::eval_units::{Label, Unit, Units, plain, search_path};
 use super::lane_grant::Host;
+use super::request_checkout;
 
 const DIRECTORIES: &str = "eval_start_directories";
 const UNIT_PREFIX: &str = "eval-start-";
@@ -58,11 +59,7 @@ fn directories(host: &Host) -> Vec<PathBuf> {
     document(DEFAULTS)[DIRECTORIES]["value"].as_array().into_iter().flatten().filter_map(|entry| entry.as_str()).map(|entry| host.home.join(entry)).collect()
 }
 
-fn git(directory: &Path, host: &Host, arguments: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("git").arg("-C").arg(directory).args(arguments).env_clear().envs(host.environment.iter().cloned()).output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
-}
-
-/// The registered file `script` names under one of `roots`, with its bytes: a regular executable file reached through no link, tracked by git and unchanged against its checkout's head.
+/// The registered file `script` names under one of `roots`, with its bytes: a regular executable file reached through no link whose bytes are the ones origin/main of its project's trusted mirror holds.
 fn registered(script: &Script, roots: &[PathBuf], host: &Host) -> Result<(PathBuf, Vec<u8>), String> {
     if roots.is_empty() {
         return Err(format!("no evaluation directory is registered ({DIRECTORIES} is empty), so no script starts"));
@@ -75,15 +72,18 @@ fn registered(script: &Script, roots: &[PathBuf], host: &Host) -> Result<(PathBu
     if !executable {
         return Err(format!("{} is no executable file", path.display()));
     }
-    let tracked = git(root, host, &["ls-files", "--error-unmatch", "--", &script.0])?;
-    if !tracked.status.success() {
-        return Err(format!("{} is not registered: git tracks no such file", path.display()));
-    }
-    let clean = git(root, host, &["status", "--porcelain", "--", &script.0])?;
-    if !clean.status.success() || !clean.stdout.is_empty() {
-        return Err(format!("{} differs from its checkout's head, so it is not the registered script", path.display()));
+    let main = request_checkout::project(&host.code, root).map(|(project, _)| project.join("main")).ok_or_else(|| format!("{} is in no project this host keeps, so no trusted mirror says what it holds", root.display()))?;
+    let relative = path.strip_prefix(&main).map_err(|_| format!("{} is outside the main checkout {}, so no trusted mirror says what it holds", path.display(), main.display()))?;
+    let mirror = Mirror::existing(&main)?;
+    mirror.fetch_origin()?;
+    let landed = north_trusted_mirror::command(mirror.git_dir()).args(["cat-file", "blob", &format!("{ORIGIN_MAIN}:{}", relative.display())]).output().map_err(|error| format!("git cat-file: {error}"))?;
+    if !landed.status.success() {
+        return Err(format!("{} is not registered: origin/main of the trusted mirror tracks no such file", path.display()));
     }
     let bytes = std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    if bytes != landed.stdout {
+        return Err(format!("{} differs from origin/main of the trusted mirror, so it is not the registered script", path.display()));
+    }
     Ok((path, bytes))
 }
 
