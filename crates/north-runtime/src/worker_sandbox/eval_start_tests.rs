@@ -45,7 +45,7 @@ fn start(script: &str, label: &str, arguments: &[&str]) -> Start {
 }
 
 #[test]
-fn no_script_starts_while_the_registered_list_is_empty_even_a_tracked_one_on_this_runtime() {
+fn only_a_tracked_unchanged_script_under_the_registered_directory_starts_and_an_empty_list_starts_none() {
     let scratch = tempfile::tempdir().unwrap();
     let home = scratch.path().canonicalize().unwrap();
     let host = Host { fleet: home.join("fleet"), code: vec![home.join("code")], home: home.clone(), environment: vec![("PATH".to_owned(), std::env::var("PATH").unwrap())], cgroups: PathBuf::from("/sys/fs/cgroup") };
@@ -63,9 +63,24 @@ fn no_script_starts_while_the_registered_list_is_empty_even_a_tracked_one_on_thi
     script(&evals, "b/unregistered", "# eval-runtime: any\n# eval-holds: none");
     let units = Recorded::default();
 
-    let refused = serve(start("b/start-block", "blk-1", &[]), "release-evals-lead", &host, &units).unwrap_err();
-    assert!(refused.contains("no evaluation directory is registered"), "{refused}");
-    assert!(units.started.borrow().is_empty(), "a script started while eval_start_directories is empty");
+    let empty = registered(&Script::parse("b/start-block").unwrap(), &[], &host).unwrap_err();
+    assert!(empty.contains("no evaluation directory is registered"), "{empty}");
+    for (name, refusal) in [("b/unregistered", "git tracks no such file"), ("b/old-runtime", "measures the runtime 1111111111"), ("b/no-header", "names no runtime"), ("c/start-block", "is in no registered evaluation directory")] {
+        let refused = serve(start(name, "blk-0", &[]), "evals-lead2", &host, &units).unwrap_err();
+        assert!(refused.contains(refusal), "{name}: {refused}");
+    }
+    assert!(units.started.borrow().is_empty(), "a refused script started");
+
+    let started = serve(start("b/start-block", "blk-1", &[]), "evals-lead2", &host, &units).unwrap();
+    assert!(started.contains("blk-1"), "{started}");
+    assert_eq!(units.started.borrow().len(), 1);
+    units.active.borrow_mut().push(unit_name(&Label::parse("blk-1").unwrap()));
+    let shared = serve(start("b/other-block", "blk-2", &[]), "evals-lead2", &host, &units).unwrap_err();
+    assert!(shared.contains("holds cpx62b"), "{shared}");
+    std::fs::OpenOptions::new().append(true).open(evals.join("b/other-block")).and_then(|mut file| std::io::Write::write_all(&mut file, b"# edited\n")).unwrap();
+    let edited = serve(start("b/other-block", "blk-3", &[]), "evals-lead2", &host, &units).unwrap_err();
+    assert!(edited.contains("differs from its checkout's head"), "{edited}");
+    assert_eq!(units.started.borrow().len(), 1);
     for (script, arguments) in [("../b/start-block", &[][..]), ("/etc/passwd", &[]), ("b/.hidden", &[]), ("b/start-block", &["$(id)"]), ("b/start-block", &["a b"])] {
         assert!(Start::parse(script, "blk-4", arguments).is_none(), "{script} {arguments:?}");
     }
