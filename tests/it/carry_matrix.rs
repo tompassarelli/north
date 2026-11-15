@@ -252,6 +252,15 @@ impl Matrix {
     }
 }
 
+/// Whether a run reaches a bubblewrap sandbox, which a worker session's own sandbox refuses to nest.
+fn jailed(entry: &str, probe: &[&str]) -> bool {
+    matches!(entry, "offload run" | "land-shell --dev" | "depbox run") || entry == "gate shim" && probe.iter().any(|word| word.contains("cargo"))
+}
+
+fn bubblewrap_starts() -> bool {
+    Command::new("bwrap").args(["--ro-bind", "/", "/", "true"]).output().is_ok_and(|output| output.status.success())
+}
+
 const ENTRIES: [&str; 6] = ["gate shim", "capacity host run", "capacity exec --dev-shell", "offload run", "land-shell --dev", "depbox run"];
 
 fn stdout_lines(output: &Output) -> Vec<String> {
@@ -264,7 +273,11 @@ fn carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_e
     let cargo = matrix.toolchain.join("cargo").display().to_string();
     let probes: [(&[&str], Option<&String>); 4] = [(&["cargo"], Some(&cargo)), (&["sh", "-c", "exec \"$(command -v cargo)\""], Some(&cargo)), (&["sh", "-c", "printenv SAFE_PUSH_LAND_BASE"], Some(&matrix.base)), (&[MISSING, "--version"], None)];
     let remote = matrix.remote_cargo.display().to_string();
+    let sandboxes = bubblewrap_starts();
     let check = |entry: &str, probe: &[&str], expected: Option<&String>| -> Option<String> {
+        if !sandboxes && jailed(entry, probe) {
+            return None;
+        }
         let expected = expected.map(|expected| if entry == "offload run" && *expected == cargo { &remote } else { expected });
         let output = matrix.run(entry, probe);
         match expected {
