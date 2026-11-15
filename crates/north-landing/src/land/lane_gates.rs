@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use super::after::gates::{self, Landed};
 use super::scans::{git, incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
@@ -28,6 +29,8 @@ pub struct Refused {
 
 type Gate = fn(&Lane, &mut Vec<u8>) -> bool;
 
+const SCAN_UNKNOWN_TO_RUNTIME: i32 = 64;
+
 const GATES: &[(&str, Gate)] = &[
     ("test admission", admission),
     ("test integrity", integrity),
@@ -38,6 +41,7 @@ const GATES: &[(&str, Gate)] = &[
     ("dependency age", dependency_age),
     ("dependency advisory", dependency_advisory),
     ("guard suite", guard_suite),
+    ("box trailers", box_trailers),
 ];
 
 impl Lane<'_> {
@@ -102,6 +106,25 @@ fn dependency_advisory(lane: &Lane, out: &mut Vec<u8>) -> bool {
 
 fn guard_suite(lane: &Lane, out: &mut Vec<u8>) -> bool {
     super::slots::guard_suites::refuse(lane.worktree, lane.base, lane.head, out)
+}
+
+fn box_trailers(lane: &Lane, out: &mut Vec<u8>) -> bool {
+    if !git::text(lane.worktree, &["log", "--format=%B", &lane.range()]).is_some_and(|messages| messages.lines().any(|line| line.starts_with("Box:"))) {
+        return false;
+    }
+    let north = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"));
+    match Command::new(&north).args(["land", "scan", "boxes", &lane.range()]).current_dir(lane.worktree).stdin(Stdio::null()).output() {
+        Ok(output) if output.status.code() == Some(SCAN_UNKNOWN_TO_RUNTIME) => false,
+        Ok(output) => {
+            out.extend_from_slice(&output.stdout);
+            out.extend_from_slice(&output.stderr);
+            !output.status.success()
+        }
+        Err(error) => {
+            let _ = writeln!(out, "box trailers: cannot run {}: {error}", north.display());
+            true
+        }
+    }
 }
 
 pub fn failed(lane: &Lane) -> Option<(Vec<&'static str>, Vec<u8>)> {
