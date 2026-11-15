@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
+use clap::Parser;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
@@ -352,39 +353,71 @@ fn dry_run(repo: &str, id: u64) -> Result<String, String> {
     diagnose_run(&Shell, repo, &Picked { failed, base })
 }
 
+const HELP_LINES: [&str; 2] = [
+    "Comments once per new failure (a run failing the same workflow steps as the last diagnosis posts nothing) on each open \"main is red\" issue in north, firn and makgora: Haiku extracts",
+    "the failing step, errors and culprit from the failed log, Opus judges the cause. --dry-run prints without posting.",
+];
+
+#[derive(Debug, Eq, PartialEq)]
+enum Request {
+    All,
+    Help,
+    DryRun { repo: String, id: u64 },
+}
+
+fn request(arguments: &[String]) -> Result<Request, ()> {
+    if matches!(arguments, [flag] if flag == "-h" || flag == "--help") {
+        return Ok(Request::Help);
+    }
+    let words = Words::try_parse_from(arguments.iter().map(String::as_str)).map_err(|_| ())?;
+    match (words.dry_run, words.values.as_slice()) {
+        (false, []) => Ok(Request::All),
+        (true, [repo, id]) => id.parse::<u64>().map(|id| Request::DryRun { repo: repo.clone(), id }).map_err(|_| ()),
+        _ => Err(()),
+    }
+}
+
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Words {
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(allow_hyphen_values = true)]
+    values: Vec<String>,
+}
+
+fn help() -> String {
+    std::iter::once(USAGE).chain(HELP_LINES).collect::<Vec<_>>().join("\n")
+}
+
 pub fn run(arguments: &[String]) -> u8 {
-    match arguments {
-        [] => {
+    match request(arguments) {
+        Ok(Request::All) => {
             for line in diagnose(&Shell, &REPOS) {
                 println!("ci-diagnose: posted {line}");
             }
             0
         }
-        [flag] if flag == "-h" || flag == "--help" => {
-            println!("{USAGE}");
-            println!("Comments once per new failure (a run failing the same workflow steps as the last diagnosis posts nothing) on each open \"main is red\" issue in north, firn and makgora: Haiku extracts");
-            println!("the failing step, errors and culprit from the failed log, Opus judges the cause. --dry-run prints without posting.");
+        Ok(Request::Help) => {
+            println!("{}", help());
             0
         }
-        [flag, repo, id] if flag == "--dry-run" => {
-            let Ok(id) = id.parse::<u64>() else {
-                eprintln!("{USAGE}");
-                return 2;
-            };
-            match dry_run(repo, id) {
-                Ok(body) => {
-                    println!("{body}");
-                    0
-                }
-                Err(error) => {
-                    eprintln!("ci-diagnose: {repo}: {error}");
-                    1
-                }
+        Ok(Request::DryRun { repo, id }) => match dry_run(&repo, id) {
+            Ok(body) => {
+                println!("{body}");
+                0
             }
-        }
-        _ => {
+            Err(error) => {
+                eprintln!("ci-diagnose: {repo}: {error}");
+                1
+            }
+        },
+        Err(()) => {
             eprintln!("{USAGE}");
             2
         }
     }
 }
+
+#[cfg(test)]
+mod usage_tests;

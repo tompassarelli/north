@@ -1254,6 +1254,7 @@ dependencies = [
 name = "north-ci"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "north-base",
  "north-foundation",
  "north-github-mirror",

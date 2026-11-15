@@ -91,7 +91,6 @@ mod worker_tier_tests;
 pub mod gh_screen;
 pub mod issue_shrink;
 pub mod unrunnable_box;
-mod poll_loop_task_output_tests;
 mod poll_loop_tests;
 pub mod poll_loop_task_output;
 mod break_glass_tests;

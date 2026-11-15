@@ -7,6 +7,9 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use clap::Parser;
+use north_foundation::foundation::arguments::parse as parse_arguments;
+
 use north_base::platform::github::{CommitStatuses, Gh};
 use config::{Check, Step};
 use judge::{Finished, Outcome, Overrides, Places, StatusRequest, Statuses};
@@ -29,24 +32,32 @@ struct Request {
 }
 
 fn parse(arguments: &[String]) -> Result<Request, String> {
-    let mut request = Request::default();
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        let mut value = || words.next().cloned().ok_or_else(|| format!("{word} needs a value"));
-        match word.as_str() {
-            "--config" => request.config = Some(PathBuf::from(value()?)),
-            "--check" => request.check = Some(value()?),
-            "--ref" => request.overrides.reference = Some(value()?),
-            "--since" => request.overrides.since = Some(value()?),
-            "--dry-run" => request.overrides.dry_run = true,
-            other => return Err(format!("unknown argument {other}")),
-        }
-    }
+    let words: Words = parse_arguments(arguments)?;
+    let request = Request {
+        config: words.config,
+        check: words.check,
+        overrides: Overrides { reference: words.reference, since: words.since, dry_run: words.dry_run },
+    };
     let pinned = request.overrides.reference.is_some() || request.overrides.since.is_some();
     if pinned && !request.overrides.dry_run {
         return Err("--ref and --since judge a chosen commit, so they need --dry-run".into());
     }
     Ok(request)
+}
+
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Words {
+    #[arg(long, allow_hyphen_values = true)]
+    config: Option<PathBuf>,
+    #[arg(long, allow_hyphen_values = true)]
+    check: Option<String>,
+    #[arg(long = "ref", allow_hyphen_values = true)]
+    reference: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    since: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
 }
 
 pub fn capacity_argv(step: &Step, owner: &str) -> Vec<String> {
@@ -177,3 +188,6 @@ pub fn run(arguments: &[String]) -> u8 {
     let places = places();
     chosen.into_iter().map(|check| judge_one(&places, check, &request)).max().unwrap_or(0)
 }
+
+#[cfg(test)]
+mod usage_tests;
