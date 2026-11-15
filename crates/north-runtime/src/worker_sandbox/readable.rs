@@ -31,6 +31,7 @@ pub(super) fn unreadable(context: &Context, reader: Reader) -> Vec<PathBuf> {
         paths.push(state.join("claude-tokens"));
         paths.push(context.home.join(".claude/.credentials.json"));
         paths.extend(std::fs::read_dir(state.join("profiles")).into_iter().flatten().flatten().map(|entry| entry.path().join(".credentials.json")));
+        paths.extend(rostered_logins(context, &state));
     }
     paths
 }
@@ -45,4 +46,15 @@ pub(super) fn reaches_unreadable(context: &Context, reader: Reader, real: &Path)
     let chain = |path: &Path| path.ancestors().filter_map(identity).collect::<Vec<_>>();
     let (own, around) = (identity(real), chain(real));
     unreadable(context, reader).iter().filter_map(|path| path.canonicalize().ok()).any(|hidden| identity(&hidden).is_some_and(|id| around.contains(&id)) || own.is_some_and(|id| chain(&hidden).contains(&id)))
+}
+
+/// The login files of every account the roster declares, wherever it puts them: a client profile's credentials and token files and each other provider's stored login (north#1485).
+fn rostered_logins(context: &Context, state: &Path) -> Vec<PathBuf> {
+    use north_providers::fleet::runtime::Runtime;
+    use north_providers::providers::{claude::fleet::Claude, codex::fleet::Codex};
+    let policy = north_base::platform::orchestration::path_in(&context.home, None, None);
+    let accounts = Claude.roster(state, &context.home, &policy).accounts.into_iter().chain(Codex.roster(state, &context.home, &policy).accounts);
+    let mut paths: Vec<PathBuf> = accounts.flat_map(|account| [account.home.join(".credentials.json"), account.home.join("auth.json")].into_iter().chain(account.token_file)).collect();
+    paths.push(north_providers::providers::opencode::key_file(state));
+    paths
 }
