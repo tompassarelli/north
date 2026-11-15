@@ -78,6 +78,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-build-system:north-build-system",
+        "//crates/north-control-plane:north-control-plane",
         "//crates/north-dispatch:north-dispatch",
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//crates/north-landing:north-landing",

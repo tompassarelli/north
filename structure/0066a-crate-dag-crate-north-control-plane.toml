@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-control-plane"
+layer = 1
+paths = ["crates/north-control-plane/src/**"]
+may_use = ["north-base"]
+

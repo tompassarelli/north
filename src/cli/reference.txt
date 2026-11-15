@@ -397,6 +397,11 @@ Commands:
   proxy [--interactive]                         Open the fleet screen on the proxy session, attaching, reviving or launching it; --interactive resumes its conversation in claude
   proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the proxy session to an account with headroom
   spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
+  control-plane where                           Print the host that holds the control plane's lease, with its epoch
+  control-plane move --to HOST                  Move the control plane to HOST by two compare-and-swap steps on the lease, the break-glass move
+  control-plane move --finish                    Finish a move under way: the lease goes to the host the move names
+  control-plane move --abort                     Undo a move under way: the lease goes back to the host it left
+  control-plane gate UNIT [-- COMMAND...]       Run COMMAND on the control plane's holder only; elsewhere skip it and exit 0
   depbox fetch|run -- COMMAND [ARG...]         Run a command in the dependency sandbox: fetch with the network shared, run with no network
   code-health layers [--repo DIR] BASE HEAD     Exit 1 for each reference a changed Rust file adds that breaks a structure.toml module or crate DAG rule
   hook stop                                     Run the Stop hook guards: permission offers, command handoffs and recommendations that act

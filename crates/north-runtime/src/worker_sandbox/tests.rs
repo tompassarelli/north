@@ -321,7 +321,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     assert!(super::broker::await_knowing(|| asked_of(brokers.next().unwrap()), std::time::Duration::from_secs(5)), "a request the replaced build's broker has never heard waits for the broker that runs it");
     assert_eq!(brokers.next(), None, "it asked the older broker twice and stopped at the first that runs the request");
     assert!(!super::broker::await_knowing(|| asked_of(true), std::time::Duration::ZERO), "past the wait it is not sent to a broker that would refuse it");
-    for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status --json", "capacity host reserve --class heavy", "capacity offload reap --owner land", "capacity offload take --once", "capacity offload choose --any --needs /etc/shadow", "capacity offload run --host gex45 -o ProxyCommand=id --base aaa --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base --upload-pack=id --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true id", "capacity offload free --host gex45 -F /tmp/config", "gate answer 3 1", "gate list"] {
+    for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status --json", "capacity host reserve --class heavy", "capacity offload reap --owner land", "capacity offload take --once", "capacity offload choose --any --needs /etc/shadow", "capacity offload run --host gex45 -o ProxyCommand=id --base aaa --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base --upload-pack=id --head bbb --timeout 60 -- true", "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true id", "capacity offload free --host gex45 -F /tmp/config", "gate answer 3 1", "gate list", "threads control-plane cas --epoch 1 --holder laptop", "threads control-plane read"] {
         assert!(!super::broker::permitted(&words(refused)), "{refused}");
     }
     for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "lane sync /c/main", "home move plan.tsv", "--worker-sandbox --built -- ./t", "--worker-sandbox --lane -- /bin/sh -c true", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check", "capacity host status", "capacity host backlog", "fleet need laptop the box times a build there", "gate open --question q --option a --option b --recommend 1 --ask-once cost --amount 20-usd-a-month"] {
@@ -417,6 +417,9 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     assert!(!roots.iter().chain(&written).any(|path| rewrites.starts_with(path) || path.starts_with(&rewrites)), "a worker may write the rewrites record {}, which widens a lead's launch grant", rewrites.display());
     let assignment = state.join("north/fleet/scoreboard-lead").join(north_base::platform::lead_assignment::FILE);
     assert!(!super::state::writable(&state, Some("scoreboard-lead")).iter().any(|path| assignment.starts_with(path)), "a worker may write {}, the coordinator's assignment a lead's launches and box checks are granted by", assignment.display());
+    let lease = state.join(north_control_plane::LEASE_DATABASE);
+    let databases = [lease.clone(), PathBuf::from(format!("{}-wal", lease.display())), PathBuf::from(format!("{}-shm", lease.display()))];
+    assert!(!databases.iter().any(|database| roots.iter().chain(&written).any(|path| database.starts_with(path) || path.starts_with(database))), "a worker may write or remove the control-plane lease {}, which the lander's push gate trusts", lease.display());
 }
 
 #[test]
@@ -902,12 +905,10 @@ fn a_confined_command_that_unsets_its_mark_still_reads_confined() {
 fn a_confined_sessions_model_calls_run_outside_through_the_broker_with_their_text_in_and_only_the_answer_back_north_1553_1599() {
     use std::io::{Read, Seek};
     use std::os::fd::AsFd;
-    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixStream;
     let scratch = tempfile::tempdir().unwrap();
     let north = scratch.path().join("north");
-    std::fs::write(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE claude=$NORTH_PRIVACY_CLAUDE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n").unwrap();
-    std::fs::set_permissions(&north, std::fs::Permissions::from_mode(0o755)).unwrap();
+    north_base::foundation::shim::write_executable(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE claude=$NORTH_PRIVACY_CLAUDE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n");
     let text = scratch.path().join("text");
     std::fs::write(&text, "a session's text\n").unwrap();
     let (home, fleet) = (scratch.path().join("home"), scratch.path().join("fleet"));

@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-control-plane = { path = "../north-control-plane" }
 north-strategy-types = { path = "../north-strategy-types" }
 north-publish = { path = "../north-publish" }
 regex.workspace = true

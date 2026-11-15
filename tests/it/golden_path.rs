@@ -179,7 +179,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert_eq!((tickets[0].1.branch.as_str(), tickets[0].1.head.as_str(), tickets[0].1.session.as_deref()), ("worker", lane_head.as_str(), Some("worker")));
     assert_eq!(fs::read_to_string(rig.root.join("checks")).unwrap_or_default(), "checked", "the land check ran on the lane's tree before its ticket was written");
 
-    let served = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap();
+    let served = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).env("RESIDENT_CAP_HOST", "whiterabbit").args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap();
     let said = text(&served);
     assert!(served.status.success(), "{said}");
     let landed = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
@@ -239,7 +239,7 @@ fn a_hand_in_returns_the_landed_commit_in_one_call() {
     let hand_in = rig.command(rig.safe_push(), &rig.lane).args(["--to", "main", "--wait"]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let queue = queue::directory(&rig.root.join(".local/state"), rig.origin.to_str().unwrap());
     let queued = north_core::platform::wait::until(Duration::from_secs(30), || queue::pending(&queue).is_ok_and(|tickets| !tickets.is_empty()));
-    let served = queued.then(|| rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap());
+    let served = queued.then(|| rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).env("RESIDENT_CAP_HOST", "whiterabbit").args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap());
     let handed = hand_in.wait_with_output().unwrap();
     let said = format!("{}{}", text(&handed), served.as_ref().map(text).unwrap_or_default());
 

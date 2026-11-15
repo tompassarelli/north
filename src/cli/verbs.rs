@@ -40,6 +40,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("config proxy", Status),
     ("config", Bookkeeping),
     ("contract-probe", Diagnosis),
+    ("control-plane", Bookkeeping),
     ("convo", Diagnosis),
     ("cross-project-scan", Diagnosis),
     ("dash", Status),

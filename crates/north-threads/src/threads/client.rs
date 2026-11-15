@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{board, causes, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, runs, schema, snapshot, staffing, verb};
+use crate::threads::{board, causes, claims, control_plane, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, runs, schema, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
 mod process;
@@ -19,7 +19,7 @@ pub use process::shell_quote;
 use process::{Await, clocked, detach};
 
 /// Each family of ledger verbs and the function that runs it; `claim` and `list` run through claims.
-const PORTED: [verb::Family; 8] = [
+const PORTED: [verb::Family; 9] = [
     (&jobs::VERBS, jobs::run),
     (&items::VERBS, items::run),
     (&board::VERBS, board::run),
@@ -28,6 +28,7 @@ const PORTED: [verb::Family; 8] = [
     (&landing::VERBS, landing::run),
     (&incidents::VERBS, incidents::run),
     (&causes::VERBS, causes::run),
+    (&control_plane::VERBS, control_plane::run),
 ];
 /// The verb a call starts detached to send the spool to the ledger host without waiting on it.
 const SPOOL_FLUSH: &str = "spool-flush";

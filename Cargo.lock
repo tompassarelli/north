@@ -974,6 +974,7 @@ dependencies = [
  "north-code-health",
  "north-concerns",
  "north-context-pack",
+ "north-control-plane",
  "north-convo",
  "north-core",
  "north-coverage",
@@ -1244,6 +1245,13 @@ dependencies = [
  "north-coverage",
  "north-graph-ground",
  "regex",
+]
+
+[[package]]
+name = "north-control-plane"
+version = "0.1.0"
+dependencies = [
+ "north-base",
 ]
 
 [[package]]
@@ -1887,6 +1895,7 @@ dependencies = [
  "north-base",
  "north-calibration",
  "north-capacity-host",
+ "north-control-plane",
  "north-dispatch",
  "north-fleet-supervisor",
  "north-github-mirror",
@@ -2034,6 +2043,7 @@ dependencies = [
  "landlock",
  "north-base",
  "north-build-system",
+ "north-control-plane",
  "north-dispatch",
  "north-fleet-supervisor",
  "north-landing",
@@ -2137,6 +2147,7 @@ name = "north-threads"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-control-plane",
  "north-publish",
  "north-strategy-types",
  "regex",

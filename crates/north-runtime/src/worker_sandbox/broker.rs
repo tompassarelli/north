@@ -76,8 +76,8 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         ["depbox", "fetch" | "run", "--", program, ..] | [FLAG, "--built" | "--lane", "--", program, ..] => !program.is_empty(),
-        ["lane", "unlock" | "stray" | "remove" | "gc" | "sync", ..] => true,
-        ["home", "move", ..] | ["threads", _, ..] | ["fleet", "need", _, ..] | ["gate", "open", _, ..] | ["land", "withdraw", _, ..] => true,
+        ["threads", "control-plane", ..] => false,
+        ["lane", "unlock" | "stray" | "remove" | "gc" | "sync", ..] | ["home", "move", ..] | ["threads", _, ..] | ["fleet", "need", _, ..] | ["gate", "open", _, ..] | ["land", "withdraw", _, ..] => true,
         ["capacity", "host", "run", rest @ ..] => capability::payload(rest).is_some(),
         ["capacity", "host", "status" | "backlog"] => true,
         ["capacity", "offload", rest @ ..] => north_offload::land_offload::worker_request(rest).is_some(),

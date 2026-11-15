@@ -972,3 +972,17 @@ min_n = 0
 after = ["2026-11-15", "2026-12-13"]
 review = "2026-12-15"
 owner = "tompassarelli/north#1487"
+
+[[experiment]]
+id = "north-control-plane"
+landed = "617f4a28ac"
+change = "the control plane's lease and its break-glass move live in the new crate north-control-plane, which the lander, the threads verb and the operator command each read (north#1572)"
+crates = ["north-control-plane"]
+metric = "none"
+measure = "the lander's refusals to push to main with the lease messages ('the control plane is held by' and 'the control-plane lease could not be read') in the 14 days after landing, counted from the lander's journal; keep the crate when none occur outside a move, and record the count on north#1572"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-15", "2026-11-29"]
+review = "2026-12-01"
+owner = "tompassarelli/north#1572"
