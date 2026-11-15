@@ -353,6 +353,11 @@ pub(super) fn fleet_session_streams(streams: Vec<OwnedFd>, peer: &Peer, host: &H
     if peer.cgroup().is_none_or(session_scope::lane_only_cgroup) {
         return Err(refuse(streams, format!("{what} is run for a fleet session outside every lane-only scope, and this caller is not one")));
     }
+    own_session_streams(streams, peer, host, what)
+}
+
+/// The record of the fleet session the caller `peer` runs in, a lane-only one included, and the three standard streams of its request; a caller in no session's scope is told why on its standard error.
+pub(super) fn own_session_streams(streams: Vec<OwnedFd>, peer: &Peer, host: &Host, what: &str) -> Result<(Value, [OwnedFd; STDIO]), String> {
     let (_, record) = match own_session(peer, host, &format!("{what} is run for a fleet session's own scope, and this caller runs in none")) {
         Ok(found) => found,
         Err(why) => return Err(refuse(streams, why)),

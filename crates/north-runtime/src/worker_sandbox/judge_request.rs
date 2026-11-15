@@ -1,4 +1,4 @@
-//! The private-text judge for a confined caller (north#1553): a worker's domain reads no model account's login (readable.rs), so `north check privacy judge` inside it has no model to ask. The request is the words `privacy-judge` or `privacy-judge at-once` and the text on the caller's standard input; the broker runs the judge outside every domain with its own environment and relays only the judge's answer, every token withheld. It is served only to a fleet session outside every lane-only scope.
+//! The private-text judge for a confined caller (north#1553): a worker's domain reads no model account's login (readable.rs), so `north check privacy judge` inside it has no model to ask. The request is the words `privacy-judge` or `privacy-judge at-once` and the text on the caller's standard input; the broker runs the judge outside every domain with its own environment and relays only the judge's answer, every token withheld. It is served to any fleet session's own scope, a lane-only one included, so a build host's session judges the text it posts (north#1575).
 
 use std::io::Write;
 use std::path::Path;
