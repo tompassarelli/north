@@ -10,7 +10,7 @@ use north_lander::land::{promote, queue};
 
 use crate::bounds::Remedy;
 use north_check_environment::Environment;
-use crate::facts::{Place, REMOVE_QUEUE, shell};
+use crate::facts::{DISK_PASS_SECONDS, Place, REMOVE_QUEUE, shell, shell_within};
 
 pub const COORDINATOR: &str = "coordinator";
 pub const NOTICED_BY: &str = "lander-doctor";
@@ -53,6 +53,9 @@ pub fn release() -> String {
 }
 
 const EVICT: &str = r#"PATH=$HOME/.local/bin:$PATH
+reclaimed=$(north lane reclaim 2>&1 </dev/null); rcode=$?
+rlast=$(printf "%s\n" "$reclaimed" | awk 'NF { line = $0 } END { print line }')
+echo "lane reclaim exited $rcode: ${rlast:-printed nothing}"
 said=$(north capacity disk keep 2>&1 </dev/null); code=$?
 last=$(printf "%s\n" "$said" | awk 'NF { line = $0 } END { print line }')
 echo "disk pass exited $code: ${last:-printed nothing}"
@@ -68,7 +71,7 @@ impl Hands for Host {
             Remedy::Rerun { queue, ticket } => rerun(queue, ticket),
             Remedy::RemoveQueue { queue } => remove_queue(queue),
             Remedy::RemoveQueueAt { place, queue } => remove_queue_at(place, queue),
-            Remedy::Evict { place } => shell(place, EVICT, &[]).map(|said| said.trim().to_owned()),
+            Remedy::Evict { place } => shell_within(place, EVICT, &[], DISK_PASS_SECONDS).map(|said| said.trim().to_owned()),
             Remedy::Restart { unit } => watchdog::Host.restart(unit, "the lander doctor read it wedged").map(|()| format!("restarted {unit}")),
             Remedy::Rollback { home, from, to, units } => roll_back(home, from, to, units),
             Remedy::Alarm(text) | Remedy::Page(text) => if self.page(text) { Ok("the coordinator heard of it".to_owned()) } else { Err("paging the coordinator failed".to_owned()) },

@@ -23,6 +23,7 @@ pub use review_hold::ReviewHold;
 pub const INFRASTRUCTURE_WINDOW_SECS: u64 = 2 * 3600;
 pub const DECIDED_WINDOW_SECS: u64 = 24 * 3600;
 pub const PROBE_SECONDS: &str = "60";
+pub const DISK_PASS_SECONDS: &str = "900";
 pub const LANDING_GAP_SECS: u64 = 30;
 pub const INFRASTRUCTURE: &[&str] = &["is a missing but already registered worktree", "is not on this host", "lacks the commits under", "No space left on device"];
 pub const TOOLCHAINS: &[&str] = &["gcc", "binutils", "glibc", "clang", "llvm", "rustc", "ghc"];
@@ -344,15 +345,19 @@ pub fn green_since(ledger: &Path, since: u64) -> bool {
 
 /// Runs `script` with `arguments` under bash on `place`: here, or over ssh with the script on stdin.
 pub fn shell(place: &Place, script: &str, arguments: &[&str]) -> Result<String, String> {
+    shell_within(place, script, arguments, PROBE_SECONDS)
+}
+
+pub fn shell_within(place: &Place, script: &str, arguments: &[&str], seconds: &str) -> Result<String, String> {
     match &place.reach {
-        Reach::Ssh(ssh) => retried(ssh, Rerun::Anywhere, |link| attempt(place, script, arguments, link)),
-        _ => attempt(place, script, arguments, Link::Shared).value,
+        Reach::Ssh(ssh) => retried(ssh, Rerun::Anywhere, |link| attempt(place, script, arguments, seconds, link)),
+        _ => attempt(place, script, arguments, seconds, Link::Shared).value,
     }
 }
 
-fn attempt(place: &Place, script: &str, arguments: &[&str], link: Link) -> Reply<Result<String, String>> {
+fn attempt(place: &Place, script: &str, arguments: &[&str], seconds: &str, link: Link) -> Reply<Result<String, String>> {
     let mut command = Command::new("timeout");
-    command.arg(PROBE_SECONDS);
+    command.arg(seconds);
     match &place.reach {
         Reach::Ssh(ssh) => command.args(["ssh", "-T"]).args(link.options()).args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", "bash", "-s", "--"]),
         Reach::Here => command.args(["bash", "-s", "--"]),
