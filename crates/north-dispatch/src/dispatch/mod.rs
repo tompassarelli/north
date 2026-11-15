@@ -173,7 +173,7 @@ fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Opti
 }
 
 /// Runs the revivals and every launch side by side, since each `north fleet launch` takes most of a minute and the plan already placed them, then prints their lines in plan order; returns why each planned launch that did not happen did not.
-fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
+fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<(IssueRef, String)> {
     let (revived, started) = std::thread::scope(|scope| {
         let revived = scope.spawn(|| revive(survey, &outcome.revival, dry_run, pause::standing));
         let started: Vec<_> = outcome.launches.iter().map(|launch| scope.spawn(move || start(survey, launch, dry_run, pause::standing))).collect();
@@ -183,7 +183,7 @@ fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     for line in revived.iter().map(String::as_str).chain(started.iter().map(Started::line)) {
         println!("{line}");
     }
-    started.iter().filter_map(Started::stopped).collect()
+    started.iter().zip(&outcome.launches).filter_map(|(started, launch)| started.stopped().map(|why| (launch.item.clone(), why))).collect()
 }
 
 fn mode(arguments: &[String]) -> Result<(bool, Vec<IssueRef>), u8> {
@@ -280,7 +280,8 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     print_lines(deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run));
     print_lines(survey.deepseek.limit.release(&record::directory(), &mut |host, words| effects::north_on(&survey, host, words), dry_run));
     let now = placement::now();
-    let frozen = freeze::frozen(&outcome, &stopped, &freeze::guards(&survey));
+    let stopped_why: Vec<String> = stopped.iter().map(|(_, why)| why.clone()).collect();
+    let frozen = freeze::frozen(&outcome, &stopped_why, &freeze::guards(&survey));
     let told = match &frozen {
         Some(basis) => effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, now),
         None => Ok(()),
