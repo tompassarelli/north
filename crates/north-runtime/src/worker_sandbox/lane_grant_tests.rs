@@ -385,3 +385,15 @@ fn a_lane_grant_covers_a_second_project_lane_and_a_handed_over_lane_but_not_an_u
     std::fs::write(former.join(crate::fleet::session_lifecycle::LANES_HANDED), serde_json::json!({ "to": NAME, "lanes": [fixture.other] }).to_string()).unwrap();
     assert_eq!(admitted(&fixture.other, later), Ok(()), "a lane handed over by fleet forget --to was refused");
 }
+
+#[test]
+fn the_broker_and_the_lane_grant_read_a_session_record_through_one_reader() {
+    let fixture = Fixture::new();
+    let peer = Peer::from(Some(cgroup().as_str()));
+    assert_eq!(super::caller_lane(&peer, &fixture.host), super::session(&peer, &fixture.host).map(|session| session.lane));
+    let main = fixture.host.home.join("code/north/main");
+    std::fs::write(fixture.host.fleet.join(NAME).join("session.json"), serde_json::json!({ "cwd": main, "task_ref": TASK }).to_string()).unwrap();
+    let granted = super::caller_lane(&peer, &fixture.host);
+    assert!(granted.is_err(), "a record naming no session granted the broker's hand-off the lane {granted:?}, every lane of its project");
+    assert_eq!(granted, super::session(&peer, &fixture.host).map(|session| session.lane));
+}

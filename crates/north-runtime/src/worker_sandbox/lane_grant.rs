@@ -65,19 +65,22 @@ pub(super) fn granted(arguments: &[String], peer: &Peer) -> bool {
     privileged(arguments) && (arguments.first().is_none_or(|verb| verb != "safe-push") || peer.cgroup().is_none_or(north_base::platform::session_scope::lane_only_cgroup))
 }
 
-/// The fleet session whose scope the caller `peer` runs in names, when it is a lane-only one.
+/// The fleet session whose scope the caller `peer` runs in on `host` names, when it is a lane-only one: its name and lane as [`caller_lane`] reads them, and the task of its launch.
 pub(super) fn session(peer: &Peer, host: &Host) -> Result<Session, String> {
-    let unit = peer.cgroup().unwrap_or_default()
-        .lines()
-        .flat_map(|line| line.split('/'))
-        .find(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
-        .ok_or("only a lane-only session asks the broker to land or write its issue; any other session holds its own token")?;
-    let (directory, record) = placed(peer, host).unwrap_or_else(|| recorded(unit, &host.fleet))?;
-    let field = |key: &str| record[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
-    let name = field("name").ok_or_else(|| format!("{} names no session", directory.display()))?;
-    let task = field("task_ref").ok_or_else(|| format!("{name} was launched with no --task, so it has no issue of its own"))?;
-    let lane = own_lane(&name, &record)?;
+    if !session_scope::lane_only_cgroup(peer.cgroup().unwrap_or_default()) {
+        return Err("only a lane-only session asks the broker to land or write its issue; any other session holds its own token".to_owned());
+    }
+    let (directory, record) = own_session(peer, host, "")?;
+    let (name, lane) = named_lane(&directory, &record)?;
+    let task = record["task_ref"].as_str().filter(|value| !value.is_empty()).map(str::to_owned).ok_or_else(|| format!("{name} was launched with no --task, so it has no issue of its own"))?;
     Ok(Session { name, task, lane })
+}
+
+/// The name and lane ([`own_lane`]) of the session whose record is `record` in the fleet directory `directory`, refused when the record names no session, since the lane of no name is every lane of its project.
+fn named_lane(directory: &Path, record: &Value) -> Result<(String, PathBuf), String> {
+    let name = record["name"].as_str().filter(|value| !value.is_empty()).map(str::to_owned).ok_or_else(|| format!("{} names no session", directory.display()))?;
+    let lane = own_lane(&name, record)?;
+    Ok((name, lane))
 }
 
 /// The lane of the session `name` whose record is `record`: the working directory it launched in when that is a lane, else the lane of its own name beside that directory.
@@ -90,9 +93,9 @@ pub(super) fn own_lane(name: &str, record: &Value) -> Result<PathBuf, String> {
     }
 }
 
-/// The lane of the fleet session the caller `peer` runs in on `host` ([`own_lane`] of its [`own_session`] record), whatever directory or words its request sends.
+/// The lane of the fleet session the caller `peer` runs in on `host` ([`named_lane`] of its [`own_session`] record), whatever directory or words its request sends.
 pub(super) fn caller_lane(peer: &Peer, host: &Host) -> Result<PathBuf, String> {
-    own_session(peer, host, "the caller runs in no fleet session").and_then(|(_, record)| own_lane(record["name"].as_str().unwrap_or_default(), &record))
+    own_session(peer, host, "the caller runs in no fleet session").and_then(|(directory, record)| named_lane(&directory, &record)).map(|(_, lane)| lane)
 }
 
 /// The directory under `fleet` of the session that runs in the scope `unit`, and its record.
