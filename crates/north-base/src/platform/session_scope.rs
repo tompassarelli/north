@@ -123,14 +123,9 @@ pub fn worker_cgroup(cgroup: &str) -> bool {
     cgroup.lines().flat_map(|line| line.split('/')).any(|unit| (unit.starts_with(SESSION_UNIT_PREFIX) && unit.ends_with(".scope")) || unit.starts_with(WORKER_BROKER_UNIT))
 }
 
-/// Whether process `pid` runs in a lane-only session's scope; `None` when its cgroup cannot be read, which a caller must treat as lane-only.
-pub fn lane_only_process(pid: i32) -> Option<bool> {
-    std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok().map(|cgroup| lane_only_cgroup(&cgroup))
-}
-
 /// Whether a command with the lane-only `marker` and the caller's `cgroup` runs outside its session's own scope, as the
 /// outside broker's fresh `--lane` child does: the broker decides what a lane-only caller may land from its cgroup, and a
-/// child it started reads as the broker's own service. `None` counts as lane-only, as `lane_only_process` says.
+/// child it started reads as the broker's own service. `None`, a cgroup that cannot be read, counts as lane-only.
 pub fn lane_only_command_outside_scope(marker: bool, cgroup: Option<&str>) -> bool {
     marker && cgroup.is_some_and(|cgroup| !lane_only_cgroup(cgroup))
 }

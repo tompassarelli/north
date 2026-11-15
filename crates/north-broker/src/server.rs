@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Read;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -23,12 +24,13 @@ const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 const MAX_CONNECTIONS: usize = 64;
 const MAX_PER_UID: usize = 16;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// `lane_only`: the caller runs in the scope of a lane-only session (DeepSeek's harnesses), read from its cgroup, which the session cannot change; such a session's code is not trusted with a GitHub token or a cloud call (south#104).
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// A caller as the broker read it at accept, through the pidfd the socket gave, its process still alive after the last read. `lane_only`: the caller runs in the scope of a lane-only session (DeepSeek's harnesses), read from its cgroup, which the session cannot change; such a session's code is not trusted with a GitHub token or a cloud call (south#104). `unit`: the service or scope its cgroup names, for the log.
 pub struct Peer {
     pub uid: u32,
     pub pid: i32,
     pub lane_only: bool,
+    pub unit: String,
 }
 
 /// What a listener answers: `Open` the whole broker, `Typed` only the requests whose every field the broker reads as a value (a token ask, an inspect, a ledger forward), never a cloud call forwarded as plain HTTP.
@@ -83,11 +85,11 @@ impl Broker {
                 continue;
             };
             let Some(caller) = peer(&stream) else {
-                let _ = write_response(&stream, &Response::refusal(403, "the caller's uid could not be read from the socket"));
+                let _ = write_response(&stream, &Response::refusal(403, "the broker could not hold the caller by a pidfd from the socket, or the caller has exited"));
                 continue;
             };
             if self.policy.caller(caller.uid).is_none() {
-                log(caller, "-", "", "refused: no policy for this uid");
+                log(&caller, "-", "", "refused: no policy for this uid");
                 let _ = write_response(&stream, &Response::refusal(403, &format!("uid {} has no broker policy", caller.uid)));
                 continue;
             }
@@ -95,13 +97,13 @@ impl Broker {
                 let _ = write_response(&stream, &Response::refusal(503, "too many open connections"));
                 continue;
             }
-            let (broker, served) = (Arc::clone(self), stream.try_clone());
+            let (broker, served, uid) = (Arc::clone(self), stream.try_clone(), caller.uid);
             let spawned = std::thread::Builder::new().spawn(move || {
-                broker.connection(&stream, caller, surface);
-                broker.release(caller.uid);
+                broker.connection(&stream, &caller, surface);
+                broker.release(uid);
             });
             if spawned.is_err() {
-                self.release(caller.uid);
+                self.release(uid);
                 if let Ok(stream) = served {
                     let _ = write_response(&stream, &Response::refusal(503, "the broker has no thread to answer with"));
                 }
@@ -129,7 +131,7 @@ impl Broker {
         }
     }
 
-    fn connection(&self, stream: &UnixStream, caller: Peer, surface: Surface) {
+    fn connection(&self, stream: &UnixStream, caller: &Peer, surface: Surface) {
         self.active.fetch_add(1, Ordering::SeqCst);
         let answer = match read_request(Deadline { stream, until: Instant::now() + REQUEST_DEADLINE }) {
             Ok(request) => self.handle_on(surface, caller, &request, Timestamp::now().unix_seconds()),
@@ -140,7 +142,7 @@ impl Broker {
         self.active.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub fn handle_on(&self, surface: Surface, peer: Peer, request: &Request, now: i64) -> Response {
+    pub fn handle_on(&self, surface: Surface, peer: &Peer, request: &Request, now: i64) -> Response {
         let Some(caller) = self.policy.caller(peer.uid) else {
             log(peer, "-", &format!("{:?}", route(&request.target)), "refused: no policy for this uid");
             return Response::refusal(403, &format!("uid {} has no broker policy", peer.uid));
@@ -163,7 +165,7 @@ impl Broker {
         answer
     }
 
-    fn github_token(&self, peer: Peer, caller: &Caller, body: &Value, now: i64) -> (Response, String) {
+    fn github_token(&self, peer: &Peer, caller: &Caller, body: &Value, now: i64) -> (Response, String) {
         let app_name = body["app"].as_str().unwrap_or_default();
         let repositories: Vec<String> = body["repositories"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
         let permissions: Permissions = body["permissions"].as_object().into_iter().flatten().filter_map(|(name, level)| Some((name.clone(), level.as_str()?.to_owned()))).collect();
@@ -198,7 +200,7 @@ impl Broker {
         }
     }
 
-    fn github_child(&self, peer: Peer, caller: &Caller, body: &Value, now: i64) -> (Response, String) {
+    fn github_child(&self, peer: &Peer, caller: &Caller, body: &Value, now: i64) -> (Response, String) {
         let what = format!("github child {:?}#{}", body["repository"].as_str().unwrap_or_default(), body["parent"]);
         let granted = (|| -> Result<Value, (u16, String)> {
             if let Some(field) = ["repository_id", "parent_id"].into_iter().find(|field| body.get(field).is_some()) {
@@ -235,7 +237,7 @@ impl Broker {
         state.reused.insert(key.to_owned(), minted.token.clone());
     }
 
-    fn inspect(&self, peer: Peer, body: &Value) -> Response {
+    fn inspect(&self, peer: &Peer, body: &Value) -> Response {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match body["token"].as_str().and_then(|token| state.held.get(&digest(token))).filter(|held| held.uid == peer.uid) {
             Some(held) => {
@@ -296,17 +298,29 @@ fn error_of(response: &Response) -> String {
     serde_json::from_slice::<Value>(&response.body).ok().and_then(|body| body["error"].as_str().map(str::to_owned)).unwrap_or_else(|| format!("HTTP {}", response.status))
 }
 
-fn peer(stream: &UnixStream) -> Option<Peer> {
-    let credentials = rustix::net::sockopt::get_socket_peercred(stream).ok()?;
-    let pid = credentials.pid.as_raw_nonzero().get();
-    Some(Peer { uid: credentials.uid.as_raw(), pid, lane_only: session_scope::lane_only_process(pid).unwrap_or(true) })
+pub(crate) fn peer(stream: &UnixStream) -> Option<Peer> {
+    let uid = rustix::net::sockopt::get_socket_peercred(stream).ok()?.uid.as_raw();
+    let pidfd = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::PeerPidfd).ok()?;
+    let pid = pid_of(&pidfd)?;
+    let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok();
+    let peer = Peer { uid, pid, lane_only: cgroup.as_deref().is_none_or(session_scope::lane_only_cgroup), unit: cgroup.as_deref().map_or_else(|| "-".to_owned(), unit_of) };
+    alive(&pidfd).then_some(peer)
 }
 
-fn unit_of(pid: i32) -> String {
-    let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+fn pid_of(pidfd: &OwnedFd) -> Option<i32> {
+    let fdinfo = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", pidfd.as_raw_fd())).ok()?;
+    fdinfo.lines().find_map(|line| line.strip_prefix("Pid:"))?.trim().parse().ok().filter(|pid| *pid > 0)
+}
+
+fn alive(pidfd: &OwnedFd) -> bool {
+    let mut exited = [rustix::event::PollFd::new(pidfd, rustix::event::PollFlags::IN)];
+    rustix::event::poll(&mut exited, 0).is_ok_and(|ready| ready == 0)
+}
+
+fn unit_of(cgroup: &str) -> String {
     cgroup.lines().filter_map(|line| line.rsplit('/').next()).find(|leaf| leaf.ends_with(".service") || leaf.ends_with(".scope")).unwrap_or("-").to_owned()
 }
 
-fn log(peer: Peer, what: &str, extra: &str, verdict: &str) {
-    eprintln!("north-broker: uid={} pid={} unit={} {what}{extra} -> {verdict}", peer.uid, peer.pid, unit_of(peer.pid));
+fn log(peer: &Peer, what: &str, extra: &str, verdict: &str) {
+    eprintln!("north-broker: uid={} pid={} unit={} {what}{extra} -> {verdict}", peer.uid, peer.pid, peer.unit);
 }
