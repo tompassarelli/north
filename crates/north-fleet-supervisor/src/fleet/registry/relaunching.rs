@@ -1,5 +1,5 @@
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::handover::family_of;
+use crate::usage::decide::world::ModelFamily;
 use crate::fleet::model::{Delivery, Effort, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
 use crate::fleet::records::write_record;
 use crate::fleet::remote::HooksCheck;
@@ -64,7 +64,7 @@ impl Fleet {
         }
         let mut changed = SessionRecord { model: model.map(str::to_owned).or_else(|| record.model.clone()), ..record.clone() };
         changed.effort = efforts::revived(&changed, runtime.as_ref(), false, effort)?;
-        let restarting = if family_of(record.model.as_deref()) == family_of(changed.model.as_deref()) {
+        let restarting = if ModelFamily::serving(record.model.as_deref()) == ModelFamily::serving(changed.model.as_deref()) {
             Restart::Resume
         } else {
             Restart::Fresh { conversation: runtime.assign_conversation()?, follows: across_families(&record, &changed, &self.recent(runtime.as_ref(), &record)?) }

@@ -5,6 +5,7 @@ use crate::platform::github;
 use super::facets;
 use super::record::{self, Record};
 use super::survey;
+use crate::usage::decide::world::ModelFamily;
 use super::tier::{self, Evidence, History, Route, Tier};
 use crate::pacing::placement;
 use std::collections::BTreeMap;
@@ -73,7 +74,7 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
         (Some(_), Some(given)) => [Tier::Haiku, Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.serves(given)),
         _ => Some(route.tier),
     };
-    let family = launched.map(Tier::family).or_else(|| overridden.as_ref().and(ask.model).and_then(tier::family_of));
+    let family = launched.map(Tier::family).or_else(|| overridden.as_ref().and(ask.model).and_then(ModelFamily::named).map(ModelFamily::word));
     let priced = Route { tier: launched.unwrap_or(route.tier), ..route.clone() };
     let prompt = stamped(ask.prompt, &priced, stamp, family.is_some(), &grounds(&priced, family.unwrap_or_else(|| priced.tier.family())));
     let prompt = if ask.worker { with_facets(&prompt) } else { prompt };

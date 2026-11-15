@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use super::decide::world::ModelFamily;
 use super::meter;
 use crate::foundation::clock::Timestamp;
 use crate::foundation::limit_clock::{limit_reply, reset_after, reset_on};
@@ -42,7 +43,7 @@ pub fn stream_rows(frame: &Value, at: f64) -> Vec<Value> {
 /// The full window a model's own `You've hit your Fable limit · resets Nov 19, 9am` reply names, which the provider sends as an ordinary assistant turn, with its limit row.
 fn reply_rows(text: &str, at: f64) -> Vec<Value> {
     let Some(named) = limit_reply(text) else { return Vec::new() };
-    let (name, minutes) = match meter::family(&named) {
+    let (name, minutes) = match ModelFamily::named(&named) {
         Some(family) => (meter::scoped(family), Some(WEEK.1)),
         None if named.contains("week") => (WEEK.0.to_owned(), Some(WEEK.1)),
         None => (FIVE_HOUR.0.to_owned(), Some(FIVE_HOUR.1)),
@@ -57,7 +58,7 @@ pub fn window_of(key: &str) -> (String, Option<u32>) {
         "five_hour" | "5h" => (FIVE_HOUR.0.to_owned(), Some(FIVE_HOUR.1)),
         "seven_day" | "7d" => (WEEK.0.to_owned(), Some(WEEK.1)),
         scoped => match scoped.strip_prefix("seven_day_") {
-            Some(scope) if !scope.is_empty() => (meter::family(scope).map_or_else(|| format!("weekly_scoped/{scope}"), meter::scoped), Some(WEEK.1)),
+            Some(scope) if !scope.is_empty() => (ModelFamily::named(scope).map_or_else(|| format!("weekly_scoped/{scope}"), meter::scoped), Some(WEEK.1)),
             _ => (scoped.to_owned(), None),
         },
     }

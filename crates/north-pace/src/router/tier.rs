@@ -50,11 +50,31 @@ impl Tier {
     }
 }
 
-/// The model families the ledger sizes a launch by. Fable is sized but is no `Tier`, so routing never picks it.
-pub const FAMILIES: [&str; 4] = ["haiku", "sonnet", "opus", "fable"];
+/// Every model tier a run can name, cheapest first: its key and the label the ledger's tier column holds for it.
+pub const LADDER: [(&str, &str); 10] = [
+    ("claude:haiku", "haiku"),
+    ("codex:luna-low", "gpt-6-luna low"),
+    ("claude:sonnet-high", "sonnet"),
+    ("codex:sol-medium", "gpt-6.1-sol medium"),
+    ("codex:sol-high", "gpt-6.1-sol high"),
+    ("codex:sol-xhigh", "gpt-6.1-sol xhigh"),
+    ("claude:opus-medium", "medium"),
+    ("claude:opus-high", "high"),
+    ("claude:opus-xhigh", "xhigh"),
+    ("codex:astra", "gpt-6-astra xhigh"),
+];
 
-/// The sizing family a model name falls in.
-pub fn family_of(model: &str) -> Option<&'static str> {
-    let model = model.to_lowercase();
-    FAMILIES.into_iter().find(|family| model.contains(family))
+/// The ledger's tier label for a ladder key.
+pub fn run_label(key: &str) -> Option<&'static str> {
+    LADDER.iter().find(|(rung, _)| *rung == key).map(|(_, label)| *label)
+}
+
+/// The ladder key a ledger tier label names.
+pub fn label_key(label: &str) -> Option<&'static str> {
+    LADDER.iter().find(|(_, rung)| *rung == label).map(|(key, _)| *key)
+}
+
+/// A ladder key's place from the cheapest, past the top for a key off the ladder.
+pub fn rank(key: &str) -> usize {
+    LADDER.iter().position(|(rung, _)| *rung == key).unwrap_or(LADDER.len())
 }

@@ -233,15 +233,10 @@ fn session_of(record: &SessionRecord, standing: Standing, parked_since: Option<U
         name: Name(record.name.clone()),
         owner: Owner::Fleet,
         account: Label(record.account.clone()),
-        family: family_of(record.model.as_deref()),
+        family: ModelFamily::serving(record.model.as_deref()),
         standing,
         parked_since,
     }
-}
-
-pub(crate) fn family_of(model: Option<&str>) -> ModelFamily {
-    let model = model.unwrap_or_default().to_ascii_lowercase();
-    [("fable", ModelFamily::Fable), ("sonnet", ModelFamily::Sonnet), ("haiku", ModelFamily::Haiku)].into_iter().find(|(word, _)| model.contains(word)).map_or(ModelFamily::Opus, |(_, family)| family)
 }
 
 fn brief(record: &SessionRecord, lane: Option<&Lane>, to: &str) -> String {

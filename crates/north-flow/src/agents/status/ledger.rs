@@ -8,26 +8,10 @@ use crate::foundation::clock::Timestamp;
 
 use super::super::tiers::Tier;
 
-const RUN_TIERS: [(&str, &str); 10] = [
-    ("claude:haiku", "haiku"),
-    ("claude:sonnet-high", "sonnet"),
-    ("claude:opus-medium", "medium"),
-    ("claude:opus-high", "high"),
-    ("claude:opus-xhigh", "xhigh"),
-    ("codex:luna-low", "gpt-6-luna low"),
-    ("codex:sol-medium", "gpt-6.1-sol medium"),
-    ("codex:sol-high", "gpt-6.1-sol high"),
-    ("codex:sol-xhigh", "gpt-6.1-sol xhigh"),
-    ("codex:astra", "gpt-6-astra xhigh"),
-];
-
 pub(super) struct Ledger(pub Option<Connection>);
 
 pub(super) fn run_tier(tier: &Tier) -> String {
-    RUN_TIERS
-        .iter()
-        .find(|(key, _)| *key == tier.key)
-        .map_or_else(|| format!("{} {}", tier.model, tier.effort), |(_, name)| (*name).to_owned())
+    crate::router::tier::run_label(&tier.key).map_or_else(|| format!("{} {}", tier.model, tier.effort), str::to_owned)
 }
 
 pub(super) fn instant(text: &str) -> Option<Timestamp> {

@@ -39,6 +39,30 @@ pub enum ModelFamily {
     Haiku,
 }
 
+impl ModelFamily {
+    const SEARCHED: [Self; 4] = [Self::Fable, Self::Opus, Self::Sonnet, Self::Haiku];
+
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Fable => "fable",
+            Self::Opus => "opus",
+            Self::Sonnet => "sonnet",
+            Self::Haiku => "haiku",
+        }
+    }
+
+    /// The family a model or display name falls in, by the word it carries.
+    pub fn named(name: &str) -> Option<Self> {
+        let name = name.to_ascii_lowercase();
+        Self::SEARCHED.into_iter().find(|family| name.contains(family.word()))
+    }
+
+    /// The family whose meter a model draws on: its own, else the shared Opus windows.
+    pub fn serving(model: Option<&str>) -> Self {
+        model.and_then(Self::named).unwrap_or(Self::Opus)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Window {
     FiveHour,

@@ -13,7 +13,6 @@ use crate::capacity::{agent_load, laptop_auto, mode};
 use crate::fleet::hops::timed;
 use crate::fleet::roster::Roster;
 use crate::usage::decide::world::ModelFamily;
-use crate::usage::meter;
 use north_strategy_types::placement::{ApiHold, Case, Config, GrantSource, Here, Host, Launch, Usage, Window};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -126,7 +125,7 @@ impl Decision {
 /// The model family a launch asks placement to meter: the family its recorded model names, else the
 /// shared Opus windows it has always used.
 pub fn launch_family(launch: &Launch) -> ModelFamily {
-    launch.model.as_deref().and_then(meter::family).unwrap_or(ModelFamily::Opus)
+    ModelFamily::serving(launch.model.as_deref())
 }
 
 /// Whether the launch is the one fleet coordinator, however the role is spelled in an older record.

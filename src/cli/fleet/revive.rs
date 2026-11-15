@@ -68,7 +68,7 @@ fn placed_onto(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort
             lead: false,
             role: record.role(),
             model,
-            family: model.and_then(crate::usage::meter::family).unwrap_or(crate::usage::decide::world::ModelFamily::Opus),
+            family: crate::usage::decide::world::ModelFamily::serving(model),
             operator: false,
             repository: "",
         };

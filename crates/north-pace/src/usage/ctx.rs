@@ -10,18 +10,6 @@ use super::py;
 use crate::foundation::clock::Timestamp;
 
 const MODES: [&str; 4] = ["standard", "fast", "ultrafast", "overflow"];
-const RUN_TIERS: [(&str, &str); 10] = [
-    ("claude:haiku", "haiku"),
-    ("claude:sonnet-high", "sonnet"),
-    ("claude:opus-medium", "medium"),
-    ("claude:opus-high", "high"),
-    ("claude:opus-xhigh", "xhigh"),
-    ("codex:luna-low", "gpt-6-luna low"),
-    ("codex:sol-medium", "gpt-6.1-sol medium"),
-    ("codex:sol-high", "gpt-6.1-sol high"),
-    ("codex:sol-xhigh", "gpt-6.1-sol xhigh"),
-    ("codex:astra", "gpt-6-astra xhigh"),
-];
 
 pub(super) struct Tier {
     pub key: String,
@@ -183,7 +171,7 @@ fn text(cell: &Cell) -> Option<String> {
 }
 
 fn run_tier(tier: &Tier) -> String {
-    RUN_TIERS.iter().find(|(key, _)| *key == tier.key).map_or_else(|| format!("{} {}", tier.model, tier.effort), |(_, name)| (*name).to_owned())
+    crate::router::tier::run_label(&tier.key).map_or_else(|| format!("{} {}", tier.model, tier.effort), str::to_owned)
 }
 
 fn measured(db: &Connection, tiers: &[Tier], min_runs: usize) -> (Map<String, Value>, BTreeMap<String, usize>) {

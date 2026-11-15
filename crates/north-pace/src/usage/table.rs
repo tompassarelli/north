@@ -165,7 +165,7 @@ fn scoped(mine: &[&Row], now: Timestamp) -> Vec<(String, f64)> {
             {
                 return None;
             }
-            let family = meter::family(display);
+            let family = ModelFamily::named(display);
             (used > 0.0 || family == Some(ModelFamily::Fable)).then(|| (family.map_or_else(|| display.to_owned(), |family| meter::label(family).to_owned()), used))
         })
         .collect()

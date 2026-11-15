@@ -45,23 +45,7 @@ pub use recommend::{recommend, recommend_usd};
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
-const TIER_ORDER: [&str; 10] = [
-    "claude:haiku", "codex:luna-low", "claude:sonnet-high", "codex:sol-medium", "codex:sol-high", "codex:sol-xhigh",
-    "claude:opus-medium", "claude:opus-high", "claude:opus-xhigh", "codex:astra",
-];
 pub const ESCALATION_ONLY: [&str; 2] = ["claude:opus-high", "claude:opus-xhigh"];
-const RUN_TIERS: [(&str, &str); 10] = [
-    ("claude:haiku", "haiku"),
-    ("claude:sonnet-high", "sonnet"),
-    ("claude:opus-medium", "medium"),
-    ("claude:opus-high", "high"),
-    ("claude:opus-xhigh", "xhigh"),
-    ("codex:luna-low", "gpt-6-luna low"),
-    ("codex:sol-medium", "gpt-6.1-sol medium"),
-    ("codex:sol-high", "gpt-6.1-sol high"),
-    ("codex:sol-xhigh", "gpt-6.1-sol xhigh"),
-    ("codex:astra", "gpt-6-astra xhigh"),
-];
 
 fn default_tier() -> String {
     DEFAULTS["default_tier"]["value"].as_str().expect("default_tier is text").to_owned()
@@ -135,21 +119,17 @@ impl Run {
     }
 }
 
-/// The tier key a run's tier column names: a RUN_TIERS value maps back to its key, anything else is kept.
+/// The tier key a run's tier column names: a ledger label on the ladder maps back to its key, anything else is kept.
 pub fn tier_key(tier: &str) -> String {
     let tier = match tier.trim() {
         "" => "-",
         trimmed => trimmed,
     };
-    if RUN_TIERS.iter().any(|(key, _)| *key == tier) {
-        return tier.to_owned();
-    }
-    RUN_TIERS.iter().find(|(_, run)| *run == tier).map_or(tier, |(key, _)| key).to_owned()
+    crate::router::tier::label_key(tier).unwrap_or(tier).to_owned()
 }
 
 pub fn tier_rank(tier: &str) -> usize {
-    let key = tier_key(tier);
-    TIER_ORDER.iter().position(|ordered| *ordered == key).unwrap_or(TIER_ORDER.len())
+    crate::router::tier::rank(&tier_key(tier))
 }
 
 fn provider(tier: &str) -> String {

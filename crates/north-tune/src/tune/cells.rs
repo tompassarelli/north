@@ -1,6 +1,7 @@
 //! The cells a tick decides from the ledger: the ETA and budget of each tier family and category with a closed box, each with its evidence.
 use crate::ledger::ClosedReport;
-use crate::dispatch::{BUDGET_TIMES, FAMILIES, LEDGER_WINDOW, eta_minutes};
+use crate::dispatch::{BUDGET_TIMES, LEDGER_WINDOW, eta_minutes};
+use crate::usage::decide::world::ModelFamily;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,7 +31,7 @@ pub fn decide(week: &ClosedReport, times: &BTreeMap<String, (f64, String)>) -> V
     let families: BTreeSet<(&str, &str)> = week
         .cells
         .iter()
-        .filter_map(|cell| Some((FAMILIES.into_iter().find(|family| cell.tier.contains(family))?, cell.category.as_str())))
+        .filter_map(|cell| Some((ModelFamily::named(&cell.tier)?.word(), cell.category.as_str())))
         .collect();
     for (family, category) in families {
         let Some(figures) = week.figures(family, category) else { continue };

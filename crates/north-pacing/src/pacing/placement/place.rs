@@ -4,9 +4,10 @@ use std::path::Path;
 use super::admit::{fall_through, settle};
 use super::case;
 use super::gate::{self, Decision};
-use super::launch::{LEAD_ON_TRUSTED, Launch, Overrides, Placed, brief_text, family_of, home_path_refusal, is_lead, lead_refusal, machine_load, trusted};
+use super::launch::{LEAD_ON_TRUSTED, Launch, Overrides, Placed, brief_text, home_path_refusal, is_lead, lead_refusal, machine_load, trusted};
 use super::recent;
 use super::refusal::Refusal;
+use crate::usage::decide::world::ModelFamily;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::hops::timed;
 use crate::fleet::model::{LaunchRequest, Role};
@@ -49,7 +50,7 @@ impl Placer<'_> {
         let text = timed("placement brief", || brief_text(request.system_prompt.as_deref(), &request.prompt).map(|brief| super::needs::with_needs(&gate::anchored(&brief, Some(&request.cwd), request.task().as_deref()), needs)))?;
         let repository = gate::launch_repository(Some(&request.cwd), request.task().as_deref());
         let model = request.model.as_deref();
-        let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()), lead: is_lead(request), role: request.role(), model, family: family_of(model), operator, repository: &repository };
+        let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()), lead: is_lead(request), role: request.role(), model, family: ModelFamily::serving(model), operator, repository: &repository };
         if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
             return Ok(Err(Refusal::Final(why)));
         }
