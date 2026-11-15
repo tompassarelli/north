@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|done|report|commit|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|weekly-limit|crash [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|done|report|commit|idle-interrupt|hand-in|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|weekly-limit|crash [ARG...]";
+const HAND_IN_COMMAND: &str = "safe-push --to main --wait";
 const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
 const NOT_DONE_REPORT: &str = "Not done: test\nStop: landing";
@@ -23,6 +24,7 @@ enum Trace {
     Commit,
     NotDone,
     IdleInterrupt,
+    HandIn,
     CancelQueued,
     SlowHooks,
     SignedOutOnce,
@@ -40,6 +42,7 @@ impl Trace {
             "commit" => Some(Self::Commit),
             "not-done" => Some(Self::NotDone),
             "idle-interrupt" => Some(Self::IdleInterrupt),
+            "hand-in" => Some(Self::HandIn),
             "cancel-queued" => Some(Self::CancelQueued),
             "slow-hooks" => Some(Self::SlowHooks),
             "signed-out-once" => Some(Self::SignedOutOnce),
@@ -80,6 +83,7 @@ impl<W: Write> Fake<W> {
                 Ok(false)
             }
             Some("interrupt") => {
+                record_interrupt()?;
                 self.respond(&id, json!({"still_queued": []}))?;
                 if !self.turn.is_empty() {
                     self.abort()?;
@@ -153,10 +157,11 @@ impl<W: Write> Fake<W> {
             self.reply(uuid, "OK")?;
             return self.finish();
         }
+        let input = if self.trace == Trace::HandIn { json!({"command": HAND_IN_COMMAND}) } else { Value::Null };
         self.emit(json!({
             "type": "assistant",
             "parent_tool_use_id": null,
-            "message": {"role": "assistant", "content": [{"type": "tool_use", "id": TOOL, "name": "Bash"}]},
+            "message": {"role": "assistant", "content": [{"type": "tool_use", "id": TOOL, "name": "Bash", "input": input}]},
             "user_message_uuids": [uuid],
         }))?;
         self.emit(json!({"type": "system", "subtype": "task_started", "task_id": TASK, "tool_use_id": TOOL, "description": "fake tool", "task_type": "local_bash", "is_backgrounded": false}))
@@ -250,6 +255,14 @@ impl<W: Write> Fake<W> {
         writeln!(self.out, "{frame}")?;
         self.out.flush()
     }
+}
+
+fn record_interrupt() -> io::Result<()> {
+    let Some(log) = env::var_os("FAKE_CLAUDE_INTERRUPT_LOG") else {
+        return Ok(());
+    };
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
+    writeln!(file, "interrupt")
 }
 
 fn stall_once() -> bool {

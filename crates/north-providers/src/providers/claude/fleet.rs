@@ -8,7 +8,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, Machine, ProviderName, Quota, Status, Transcript, UsageLimit};
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
-use crate::fleet::tickets::FINISH_TOOL;
+use crate::fleet::tickets::{FINISH_TOOL, HAND_IN_TOOL};
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{ClientRefusal, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
@@ -161,6 +161,10 @@ impl Runtime for Claude {
         Ok(vec![encode_interrupt(&format!("interrupt-{}", new_uuid()?))])
     }
 
+    fn hands_in(&self, transcript: &Transcript) -> bool {
+        transcript.entries.last().is_some_and(|entry| entry.kind == EntryKind::Tool && hand_in_call(&entry.text))
+    }
+
     fn close(&self, _transcript: &Transcript) -> Vec<String> {
         Vec::new()
     }
@@ -293,6 +297,10 @@ fn observe_user_text(frame: &Value, text: &str, transcript: &mut Transcript) {
     transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
     let (kind, text) = user_text::entry(text, frame["isReplay"] == true, frame["isSynthetic"] == true);
     push(transcript, kind, text);
+}
+
+fn hand_in_call(call: &str) -> bool {
+    call.starts_with(HAND_IN_TOOL) || call.strip_prefix("Bash ").is_some_and(|command| command.split(['&', ';', '|', '\n']).any(|part| part.trim_start().starts_with("safe-push ")))
 }
 
 /// The report line of an accepted `finish` call, which is the session's report because north's hook ends the turn at that call.

@@ -27,9 +27,10 @@ impl Fleet {
     }
 
     pub(super) fn prompt_live(&self, record: &SessionRecord, id: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
-        let transcript = self.recent(self.runtime(record)?.as_ref(), record)?;
+        let runtime = self.runtime(record)?;
+        let transcript = self.recent(runtime.as_ref(), record)?;
         match delivery {
-            Delivery::Now if transcript.status != Status::Idle => self.send_urgent(record, &transcript, id, text),
+            Delivery::Now if transcript.status != Status::Idle && !runtime.hands_in(&transcript) => self.send_urgent(record, &transcript, id, text),
             _ => self.send_text(record, &transcript, id, text),
         }
     }

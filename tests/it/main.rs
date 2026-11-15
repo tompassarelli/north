@@ -3,6 +3,7 @@ mod depbox_broker;
 mod capacity_exclusive_native;
 mod capacity_host;
 mod fleet_launch;
+mod fleet_hand_in;
 mod golden_path;
 mod fleet_spool;
 mod fleet_state_root;

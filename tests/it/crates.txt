@@ -22,6 +22,7 @@ threads_snapshot north-threads
 capacity_agent_compile north-capacity north-capacity-host north-runtime
 cargo_config north
 fleet_launch north-core north-fleet north-dispatch
+fleet_hand_in north-core north-fleet north-fleet-supervisor north-providers
 fleet_spool north-core north-fleet
 fleet_state_root north-providers north-fleet-supervisor
 policy_replay_login north-convo

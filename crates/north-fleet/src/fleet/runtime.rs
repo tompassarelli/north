@@ -138,6 +138,9 @@ pub trait Runtime: Send + Sync {
     fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>>;
     fn message(&self, transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>>;
     fn interrupt(&self, transcript: &Transcript) -> NorthResult<Vec<String>>;
+    fn hands_in(&self, _transcript: &Transcript) -> bool {
+        false
+    }
     fn close(&self, transcript: &Transcript) -> Vec<String>;
     fn observe(&self, frame: &Value, transcript: &mut Transcript);
     fn signals(&self, frame: &Value) -> Vec<TurnSignal>;

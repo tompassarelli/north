@@ -89,6 +89,7 @@ pub(crate) fn environment(mut command: Command, root: &Path, host: &str) -> Comm
         .env("FAKE_CLAUDE_HOOK_MS", "1500")
         .env("FAKE_CLAUDE_SIGNED_OUT_MARK", root.join("signed-out"))
         .env("FAKE_CLAUDE_STALL_MARK", root.join("stalled"))
+        .env("FAKE_CLAUDE_INTERRUPT_LOG", root.join("claude-interrupts"))
         .env("NORTH_FLEET_SESSION", "")
         .env_remove("NORTH_FLEET_TEST")
         .env_remove("NIRI_SOCKET")
