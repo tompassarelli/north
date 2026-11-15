@@ -1,5 +1,5 @@
-//! `north coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]`: the coordinator follows the account with the most week headroom before its own
-//! account runs out. A move is a revive of the `coordinator` record onto the account, which carries the conversation and keeps the model; the
+//! `north coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]`: the coordinator moves to the next seat of its chain before its own account
+//! runs out, or to the account with the most week headroom when no chain is set (north#1552). A move is a revive of the `coordinator` record onto the account, which carries the conversation and keeps the model; the
 //! host holds the session, so the move looks at no window and runs the same from a sandboxed shell.
 use std::path::PathBuf;
 use std::time::Duration;
@@ -11,6 +11,7 @@ use crate::fleet::runtime::COORDINATOR;
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::{AccountOutlook, Runway};
 
+use super::coordinator_chain::{self, Seat};
 use super::placement::Overrides;
 use super::{revive, router};
 
@@ -36,7 +37,8 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
         return start_when_due(&fleet);
     }
     let record = fleet.fleet_coordinator()?.ok_or_else(|| NorthError::Refused("the fleet records no coordinator".into()))?;
-    match decide(&record.account, &outlooks()?, to.as_deref()) {
+    let chain = coordinator_chain::read().map_err(NorthError::State)?;
+    match decide(&record.account, &outlooks()?, to.as_deref(), &chain) {
         Verdict::Stay { reason } => println!("north coordinator move: staying on account {}: {reason}", record.account),
         Verdict::Stranded { reason } => return Err(NorthError::Refused(format!("the coordinator on account {} cannot move: {reason}", record.account))),
         Verdict::Move { to, reason } => move_to(&fleet, &record.account, &to, &reason, effort)?,
@@ -56,7 +58,8 @@ fn start_when_due(fleet: &Fleet) -> NorthResult<()> {
     }
     stamp(DECIDED);
     let Some(record) = fleet.fleet_coordinator()? else { return Ok(()) };
-    let Verdict::Move { to, reason } = decide(&record.account, &outlooks()?, None) else { return Ok(()) };
+    let chain = coordinator_chain::read().map_err(NorthError::State)?;
+    let Verdict::Move { to, reason } = decide(&record.account, &outlooks()?, None, &chain) else { return Ok(()) };
     move_to(fleet, &record.account, &to, &reason, None)
 }
 
@@ -119,7 +122,18 @@ fn fit_target(outlook: &AccountOutlook) -> bool {
     outlook.week_used.is_some_and(|used| used < 100.0) && !endangered(outlook)
 }
 
-pub(super) fn decide(current: &str, outlooks: &[AccountOutlook], requested: Option<&str>) -> Verdict {
+fn next_seat(current: &str, next: &Seat, outlooks: &[AccountOutlook]) -> Verdict {
+    match outlooks.iter().find(|outlook| outlook.account == next.account) {
+        Some(target) if fit_target(target) => Verdict::Move {
+            to: next.account.clone(),
+            reason: format!("account {current} runs out in under {TRIGGER_MINUTES:.0} minutes; the chain's next seat is account {} with {:.0}% of its week left", next.account, headroom(target)),
+        },
+        Some(_) => Verdict::Stranded { reason: format!("the chain's next seat, account {}, is out or burning toward its limit", next.account) },
+        None => Verdict::Stranded { reason: format!("the chain's next seat, account {}, has no usage reading", next.account) },
+    }
+}
+
+pub(super) fn decide(current: &str, outlooks: &[AccountOutlook], requested: Option<&str>, chain: &[Seat]) -> Verdict {
     let Some(mine) = outlooks.iter().find(|outlook| outlook.account == current) else {
         return Verdict::Stranded { reason: format!("account {current} has no usage reading") };
     };
@@ -133,6 +147,12 @@ pub(super) fn decide(current: &str, outlooks: &[AccountOutlook], requested: Opti
     }
     if !endangered(mine) {
         return Verdict::Stay { reason: format!("account {current} lasts past {TRIGGER_MINUTES:.0} minutes") };
+    }
+    if coordinator_chain::holds(chain, current) {
+        return match coordinator_chain::after(chain, current) {
+            Some(next) => next_seat(current, next, outlooks),
+            None => Verdict::Stranded { reason: format!("account {current} is the chain's last seat and runs out in under {TRIGGER_MINUTES:.0} minutes") },
+        };
     }
     let best = outlooks.iter().filter(|outlook| outlook.account != current && fit_target(outlook)).max_by(|left, right| headroom(left).total_cmp(&headroom(right)).then_with(|| right.account.cmp(&left.account)));
     match best {

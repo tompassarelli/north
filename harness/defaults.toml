@@ -1798,6 +1798,22 @@ source = "coordinator: on 2026-11-10 between 21:04 and 21:35 UTC the coordinator
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/coordinator_role.rs"]
 
+[coordinator_chain]
+value = []
+allowed = { min_len = 0 }
+unit = "the coordinator's ordered seats, each { provider, account, model }: when the coordinator's account runs out inside its trigger, north moves it to the seat after that account; an empty list keeps the most-headroom move"
+source = "north#1552 (2026-11-14): the coordinator follows one ordered chain of seats in config and moves before its meter runs out; no seat list is set yet, so the most-headroom move still decides"
+fallback = "an empty list keeps the most-headroom move"
+consumers = ["src/cli/fleet/coordinator_chain.rs"]
+
+[public_only_providers]
+value = ["gemini"]
+allowed = { min_len = 0 }
+unit = "providers whose every model in harness/model-catalog.toml is restricted to public code, which a coordinator seat may not name because the coordinator serves private repositories"
+source = "north#1552 (2026-11-14): harness/model-catalog.toml restricts each gemini model to public code only (checked 2026-11-08)"
+fallback = "none: a seat naming a listed provider is refused when the chain is read"
+consumers = ["src/cli/fleet/coordinator_chain.rs"]
+
 [graph_retired_writers]
 value = ["decision-log"]
 allowed = { min_len = 0 }
