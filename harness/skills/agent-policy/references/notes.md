@@ -114,3 +114,26 @@ then backed out a good landing it took for a rollback. A guard port deleted
 sources in north (de27467a) that south still registered, so `agents sync`
 failed for every session until a 4-step order restored it: the new guard
 beside the old files, promotion, removal of the registration, then deletion.
+
+## Replay proof
+
+Prove a fix at any level by replaying a real past mistake against it, because an
+enforcer that never fired on a real case may not fire at all.
+
+A lane that fixes an agent behavior through harness text cuts its case under
+`harness/cases/NAME.toml` at a turn that loaded the text it changes. Its report
+shows the following run failing on the base text and passing on the lane's,
+and the lane commits the `NAME.proof.jsonl` that the run writes:
+
+```text
+north policy-replay case harness/cases/NAME.toml --arm base=north@origin/main --arm lane=north@HEAD
+```
+
+A lane ticking a detector-filed box lands only with that proof reading kept. A
+judged case decides only at the 90% level; on an inconclusive replay the text
+stays as it is.
+
+## Experiment entries
+
+Each entry in `docs/rationale/experiments.toml` names its metric, direction and
+bar, its windows, its review date and its owner issue.

@@ -87,3 +87,22 @@ ownership. Use the sanctioned capacity wrapper for contained heavy work.
 Purpose-built authentication may consume an existing key, such as through
 `ssh-add` or an SSH identity option. Naming/using a credential is distinct from
 printing its value. Keep secrets out of source, logs, chat, and arguments.
+
+## Inferred land checks
+
+A repository with no `land.check` lines gets land checks inferred from its root
+by project kind: `Cargo.toml` runs `cargo test` and `cargo clippy`; a
+`package.json` with `bun.lock` runs `bun install --frozen-lockfile` and then its
+`test` script, else `bun test`; a `flake.nix` with `checks` runs
+`nix flake check`. Each runs in the repository's flake dev shell when it has
+one. A missing toolchain exits 75, which is no verdict rather than a refusal.
+Explicit `land.check` lines replace inference, and `land.inferred = false` in
+`.safe-push` turns it off.
+
+## Lane garbage collection
+
+The hourly `north lane gc` timer deletes landed, clean, idle lanes and their
+branches. It bundles an unlanded lane to `~/archive/lanes` before removing it
+when all its issues are closed and it has been idle 7 days, or when it names no
+issue, has no owner and has been idle 14 days. It flags lanes unlanded for 24
+hours, keeps the rest, and reports each lane with its issue state to its lead.

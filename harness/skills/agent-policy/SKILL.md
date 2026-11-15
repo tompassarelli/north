@@ -23,26 +23,20 @@ the existing owner rather than a new rule, because duplicates conflict.
 
 Fix a repeated correction at the highest level that works: architecture, then
 types, lint, test and prose last, because each lower level is enforced less
-reliably. Prove the fix by replaying a real past mistake against it, because an
-enforcer that never fired on a real case may not fire at all. A lane that fixes
-an agent behavior through harness text (a skill, `CLAUDE.md` or an agent
-definition) adds its case under `harness/cases/`, cut at a turn that loaded the
-text it changes. Its report shows `north policy-replay case
-harness/cases/NAME.toml --arm base=north@origin/main --arm lane=north@HEAD`
-failing on the base text and passing on the lane's, and the lane commits the
-`NAME.proof.jsonl` that run writes, because text a replay never saw fail may
-change nothing. A lane ticking a detector-filed box lands only with that proof
-reading kept. A judged case decides only at the 90% level; on an inconclusive
-replay the text stays as it is. Once an enforcer holds the rule, delete the
-prose, because it then only costs context.
-[enforcers.md](references/enforcers.md) lists the rules a hook or gate already
-holds; add a row when you add an enforcer.
+reliably. A lane that changes harness text (a skill, `CLAUDE.md` or an agent
+definition) to fix an agent behavior adds a case under `harness/cases/` and
+shows `north policy-replay case` failing on the base text and passing on the
+lane's, because text a replay never saw fail may change nothing; the
+[notes](references/notes.md#replay-proof) give the command, the proof file and
+the judged-case bar. Once an enforcer holds the rule, delete the prose, because
+it then only costs context; [enforcers.md](references/enforcers.md) lists the
+rules a hook or gate already holds, and gains a row with each new enforcer.
 
-A policy or routing change lands with its entry in `docs/rationale/experiments.toml`
-(metric, direction and bar, windows, review date, owner issue), because a rule
-nobody reviews stays forever whether or not it paid off. A lesson becomes policy
-only through such an entry, which `north check experiments judge` keeps, reverts or
-brings to Tom with the numbers on its review date.
+A policy or routing change, including every lesson turned into policy, lands
+with its entry in
+`docs/rationale/experiments.toml`, because a rule nobody reviews stays forever
+whether or not it paid off; on its review date `north check experiments judge`
+keeps it, reverts it or brings it to Tom with the numbers.
 
 ## SKILL.md and references
 
@@ -57,24 +51,22 @@ facts count.
 
 ## Change and activate
 
-1. Read owner instructions; edit an owned worktree, never a projection or pin,
-   because projections are regenerated.
-2. Follow [skill-creator](references/guides/anthropic-skill-creator.md) for
-   frontmatter and resources, and register and validate as [notes.md](references/notes.md) describes.
-3. Across repositories, land new source and confirm it runs live before landing
-   the caller switch or registration that depends on it, and delete the old
-   source last. Never point the south repository, a registration or a runtime
-   selector at source that is not landed and live, because each reverse order
-   broke landing or `agents sync` fleet-wide ([notes](references/notes.md#landing-order-across-repositories)).
-4. Land the owner and catalog commits, update clean main checkouts, run
-   `agents sync`, and verify the active ID, owner revision and provider
-   projection resolve to that landed source, because policy that is not active
-   is not retained; unlanded or ambiguous authority blocks activation.
+1. Read the owner instructions and edit an owned worktree, never a projection
+   or pin, because projections are regenerated. Follow
+   [skill-creator](references/guides/anthropic-skill-creator.md) for
+   frontmatter and resources.
+2. Across repositories, land new source and confirm it runs live before the
+   caller switch, registration or runtime selector that depends on it, and delete the old source
+   last, because each reverse order broke landing or `agents sync` fleet-wide
+   ([notes](references/notes.md#landing-order-across-repositories)).
+3. Land, update clean main checkouts, run `agents sync`, and confirm that the
+   active ID, owner revision and provider projection resolve to the landed
+   source, because policy that is not active is not retained.
 
 ## Read when
 
-- [notes.md](references/notes.md): choosing a layer, validation, catalog,
-  permission, activation and sizing detail.
+- [notes.md](references/notes.md): choosing a layer, registration,
+  validation, permission and activation detail.
 - [guards.md](references/guards.md): implementing or changing a guard, its
   identity, activity gate, provider wiring or fixtures.
 - [importing.md](references/importing.md): importing a third-party skill;
@@ -82,5 +74,4 @@ facts count.
 - [watching.md](references/watching.md): a followed outside source is due
   for its monthly review, or a source joins the follow list.
 - [guides.md](references/guides.md): harness redesign or audit. Run
-  `north config check guides` first, because guides older than
-  90 days are stale.
+  `north config check guides` first, because a guide over 90 days old is stale.
