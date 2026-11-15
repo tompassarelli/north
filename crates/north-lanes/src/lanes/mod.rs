@@ -2,6 +2,7 @@ mod buck_daemons;
 mod exec;
 mod gc;
 pub use gc::USAGE as GC_USAGE;
+pub use gc::RESTORE_USAGE;
 mod hardcoded_paths;
 mod home_move;
 mod landed_release;
@@ -30,7 +31,7 @@ mod unpushed;
 mod verdict;
 
 pub use exec::{changed_locks, run as lane_exec};
-pub use gc::{Inputs as LaneGcInputs, repo as repo_verb, run as lane_gc, run_in as lane_gc_in};
+pub use gc::{Inputs as LaneGcInputs, repo as repo_verb, restore_verb as lane_restore, restore_archived, run as lane_gc, run_in as lane_gc_in};
 pub use hardcoded_paths::run as hardcoded_paths;
 pub use landed_release::{ReleasedTarget, release_landed_targets};
 pub use home_move::run as home_move;

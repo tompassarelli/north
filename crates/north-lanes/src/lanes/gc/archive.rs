@@ -5,26 +5,14 @@ use std::path::{Path, PathBuf};
 
 use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;
-use super::evidence::IssueState;
 use super::exec::{git, git_with, LIMIT};
 use north_base::foundation::clock::Timestamp;
 
-pub(super) const CLOSED_ISSUE_HOURS: f64 = 24.0;
-pub(super) const NO_ISSUE_HOURS: f64 = 14.0 * 24.0;
+pub(super) const UNHELD_HOURS: f64 = 24.0;
 const LOCK_STALE_MS: i64 = 3_600_000;
 const STALE_LOCK: std::time::Duration = std::time::Duration::from_secs(60);
 const SNAPSHOT_DATE: &str = "1000000000 +0000";
 const IDENTITY: [&str; 4] = ["-c", "user.name=north lane gc", "-c", "user.email=lane-gc@north.invalid"];
-
-pub(super) fn window_hours(issues: &[IssueState]) -> Option<f64> {
-    if issues.is_empty() {
-        Some(NO_ISSUE_HOURS)
-    } else if issues.iter().all(|state| *state == IssueState::Closed) {
-        Some(CLOSED_ISSUE_HOURS)
-    } else {
-        None
-    }
-}
 
 pub(in crate::lanes) struct Lane<'a> {
     pub(in crate::lanes) main: &'a Path,

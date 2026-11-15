@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::Gc;
-use super::archive::window_hours;
+use super::archive::UNHELD_HOURS;
 use super::evidence::{LaneFacts, committed, committed_each, lane_class, lane_issues, landed, landed_each, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
 use super::half::Lanes;
@@ -279,16 +279,14 @@ impl Gc {
         }
         let idle_hours = if dirty && self.idle_for(lane, 24.0) { lane.age_h } else { 0.0 };
         let class = lane_class(&LaneFacts { dirty, equivalent: lane.landed.landed, issues: &states, idle_hours, held: !held.is_empty() });
-        if let Some(window) = window_hours(&states) {
-            let why = if held.is_empty() { self.archive_hold(sweep, lane, window, &issues) } else { held };
-            if why.is_empty() {
-                let found = ArchiveLane { worktree: Some(&lane.path), branch: &lane.branch, tip: &lane.tip, place: &lane.place, issues: &issues, rejected: None };
-                if self.archive_lane(sweep, &found) {
-                    return Ok(true);
-                }
-            } else if self.options.dry_run {
-                println!("{}: {} {}: keep ({why})", sweep.name, class.label(), lane.place);
+        let why = if held.is_empty() { self.archive_hold(sweep, lane, &issues) } else { held };
+        if why.is_empty() {
+            let found = ArchiveLane { worktree: Some(&lane.path), branch: &lane.branch, tip: &lane.tip, place: &lane.place, issues: &issues, rejected: None };
+            if self.archive_lane(sweep, &found) {
+                return Ok(true);
             }
+        } else if self.options.dry_run {
+            println!("{}: {} {}: keep ({why})", sweep.name, class.label(), lane.place);
         }
         self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Row { place: &lane.place, branch: &lane.branch, ahead: lane.landed.ahead, dirty: lane.dirty, class });
         let shown = if lane.branch.is_empty() { "(detached)" } else { &lane.branch };
@@ -313,9 +311,9 @@ impl Gc {
         self.archive_lane(sweep, &found)
     }
 
-    fn archive_hold(&mut self, sweep: &Container, lane: &Worktree, window: f64, issues: &[String]) -> String {
-        if !self.idle_for(lane, window) {
-            return format!("touched within {} days", window / 24.0);
+    fn archive_hold(&mut self, sweep: &Container, lane: &Worktree, issues: &[String]) -> String {
+        if !self.idle_for(lane, UNHELD_HOURS) {
+            return format!("touched within {UNHELD_HOURS}h");
         }
         if let Some(ticket) = land_queue::waiting_on(&land_queue::queues(&self.home.join(".local/state")), &land_queue::local_host(), &lane.path).first() {
             return format!("land ticket {} still waits", ticket.display());

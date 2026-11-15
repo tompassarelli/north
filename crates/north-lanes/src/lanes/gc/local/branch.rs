@@ -1,5 +1,5 @@
 use super::super::Gc;
-use super::super::archive::window_hours;
+use super::super::archive::UNHELD_HOURS;
 use super::super::evidence::{LaneFacts, lane_class, lane_issues, protected_branch};
 use super::super::judged::Landed;
 use super::super::report::Row;
@@ -38,18 +38,16 @@ impl Gc {
         let issues = lane_issues(&sweep.main, &sweep.own, &sweep.base, branch, tip).unwrap_or_default();
         let states = self.issue_states(&issues);
         let class = lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false });
-        if let Some(window) = window_hours(&states) {
-            let touched_ms = reflog_ms(&sweep.common.join("logs/refs/heads").join(branch)).max(sweep.committed(tip) as f64 * 1000.0);
-            let age_h = (self.now_ms as f64 - touched_ms) / HOUR_MS;
-            let why = if age_h < window { format!("touched within {} days", window / 24.0) } else { self.local_archive_guard(&sweep.main, &name, &issues, branch, None) };
-            if why.is_empty() {
-                let found = ArchiveLane { worktree: None, branch, tip, place: &format!("branch {branch}"), issues: &issues, rejected: None };
-                if self.archive_lane(sweep, &found) {
-                    return Ok(());
-                }
-            } else if self.options.dry_run {
-                println!("{name}: {} branch {branch}: keep ({why})", class.label());
+        let touched_ms = reflog_ms(&sweep.common.join("logs/refs/heads").join(branch)).max(sweep.committed(tip) as f64 * 1000.0);
+        let age_h = (self.now_ms as f64 - touched_ms) / HOUR_MS;
+        let why = if age_h < UNHELD_HOURS { format!("touched within {UNHELD_HOURS}h") } else { self.local_archive_guard(&sweep.main, &name, &issues, branch, None) };
+        if why.is_empty() {
+            let found = ArchiveLane { worktree: None, branch, tip, place: &format!("branch {branch}"), issues: &issues, rejected: None };
+            if self.archive_lane(sweep, &found) {
+                return Ok(());
             }
+        } else if self.options.dry_run {
+            println!("{name}: {} branch {branch}: keep ({why})", class.label());
         }
         let row = Row { place: "(branch)", branch, ahead: verdict.ahead, dirty: "", class };
         let hours = self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);

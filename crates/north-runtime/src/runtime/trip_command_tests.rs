@@ -6,7 +6,7 @@ use super::{Ran, cases, retried};
 
 const LEASE: &str = r#"{"decision":"RELEASED","lease":"5d0c","start":[["scope",0.03]],"subjectSeconds":8.836}"#;
 const LOST: &str = "north capacity offload: the connection ended (ssh exit 1) before the remote host reported the command's exit";
-const CASE: &str = "lane_gc_journeys::unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_state in north";
+const CASE: &str = "lane_gc_journeys::unheld_unlanded_lanes_are_archived_after_a_day_and_held_or_ignored_ones_stay_reported_with_issue_state in north";
 
 #[test]
 fn a_rerun_that_exits_100_fails_its_case_and_one_that_loses_its_connection_runs_again() {

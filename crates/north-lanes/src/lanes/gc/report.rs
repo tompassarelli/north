@@ -133,5 +133,6 @@ impl Gc {
             c.pruned_branch_configs,
             c.dropped_upstreams
         );
+        println!("{}: archived {} lanes, freed {:.1} GiB, refused {}", north_base::platform::host::name(), c.archived, c.archived_bytes as f64 / f64::from(1u32 << 30), c.refused);
     }
 }

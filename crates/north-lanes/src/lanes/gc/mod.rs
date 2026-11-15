@@ -12,6 +12,7 @@ mod local;
 mod remote;
 mod remote_boxes;
 mod report;
+mod restore;
 mod scratch;
 mod state;
 mod strays;
@@ -36,6 +37,7 @@ use liveness::{Hosts, Trees};
 use state::{StaleReport, write_atomically};
 
 pub use audit::run as repo;
+pub use restore::{USAGE as RESTORE_USAGE, restore as restore_archived, run as restore_verb};
 pub(super) use archive::{Lane as ArchivedLane, archive, broken, retire_broken};
 pub(super) use evidence::{lane_issues, origin_repo};
 pub(super) use targets::{BuildTarget, drop_build_target, gib};
@@ -67,6 +69,8 @@ pub(super) struct Counts {
     dropped_targets: usize,
     dropped_bytes: u64,
     archived: usize,
+    archived_bytes: u64,
+    refused: usize,
     pruned_branch_configs: usize,
     dropped_upstreams: usize,
 }

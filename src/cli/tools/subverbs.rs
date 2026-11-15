@@ -114,6 +114,7 @@ const LANE: &[(&str, Run)] = &[
     ("reclaim", north_reclaim::reclaim::run),
     ("remove", |arguments| outside_the_sandbox("lane", "remove", crate::lanes::remove, arguments)),
     ("rescue", crate::lanes::wt_rescue),
+    ("restore", crate::lanes::lane_restore),
     ("restore-packed-refs", crate::worker_sandbox::restore_packed_refs),
     ("seed", |arguments| crate::lanes::target_seed(arguments, builds_with_buck2())),
     ("stray", |arguments| outside_the_sandbox("lane", "stray", crate::lanes::stray, arguments)),

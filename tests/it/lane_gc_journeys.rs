@@ -248,10 +248,9 @@ impl Classified {
     }
 
     fn kept_intact(&self) -> bool {
-        ["wip", "own", "held"]
+        ["wip", "held"]
             .iter()
             .all(|b| self.rig.home.join("code/north/worktrees").join(b).is_dir() && self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/heads/{b}")]))
-            && self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", "refs/heads/loose"])
     }
 
     fn gone(&self, lane: &str) -> bool {
@@ -260,7 +259,7 @@ impl Classified {
 }
 
 #[test]
-fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_state() {
+fn unheld_unlanded_lanes_are_archived_after_a_day_and_held_or_ignored_ones_stay_reported_with_issue_state() {
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
     let rig = &fixture.rig;
@@ -275,19 +274,21 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
         "north: retire ~/code/north/worktrees/equiv (equiv, ",
         "north: archive ~/code/north/worktrees/sup (",
         "north: stale-dirty ~/code/north/worktrees/wip: surface to north-parent",
-        "north: owned ~/code/north/worktrees/own: surface to north-parent (north#5 north#6)",
+        "north: archive ~/code/north/worktrees/own (unheld, issues north#5 north#6) to ~/archive/lanes/north, then reap",
         "north: owned ~/code/north/worktrees/held: surface to north-parent",
-        "would alert scratch-parent: 26 lanes hold unique work",
+        "north: archive branch loose (unheld, names no issue) to ~/archive/lanes/north, then reap",
+        "galileo: archive branch lane-26 (unheld, names no issue) to ~/archive/lanes/galileo, then reap",
     ] {
         assert!(dry.contains(expected), "{expected}\n{dry}");
     }
-    assert!(dry.lines().any(|line| line == "north: owned branch loose: surface to north-parent"), "{dry}");
+    assert!(!dry.contains("would alert"), "{dry}");
     assert!(fixture.kept_intact() && !fixture.gone("equiv") && !rig.root.join("alerts").exists());
     assert!(rig.git_ok(&fixture.main, &["config", "--get", "branch.gone.remote"]), "a dry run prunes nothing");
     assert!(dry.contains("north: drop the origin/main upstream of 1 lane branches"), "{dry}");
 
     let out = fixture.run(&[]);
-    assert!(fixture.gone("equiv") && fixture.gone("sup") && fixture.kept_intact(), "{out}");
+    assert!(fixture.gone("equiv") && fixture.gone("sup") && fixture.gone("own") && fixture.kept_intact(), "{out}");
+    assert!(!rig.git_ok(&fixture.main, &["rev-parse", "-q", "--verify", "refs/heads/loose"]), "{out}");
     assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.gone.remote"]), "a section whose branch no longer exists is pruned: {out}");
     assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.own.merge"]) && !rig.git_ok(&fixture.main, &["config", "--get", "branch.own.remote"]), "a kept lane drops the origin/main upstream lanes no longer write: {out}");
     assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.equiv.remote"]), "a section whose branch this run deleted is pruned: {out}");
@@ -298,7 +299,7 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
 
     let mut unlanded: Vec<String> = rig.read("unlanded.txt").lines().filter(|line| !line.starts_with('#')).map(|line| line.split('\t').collect::<Vec<_>>()).filter(|fields| fields[1] == "north").map(|fields| fields[3].to_string()).collect();
     unlanded.sort();
-    assert_eq!(unlanded, ["held", "loose", "own", "wip"]);
+    assert_eq!(unlanded, ["held", "wip"]);
     let stale: Value = serde_json::from_str(&rig.read("stale.json")).unwrap();
     let mut owned: Vec<(String, Vec<String>, String)> = stale["repos"]["north"]["owned"]
         .as_array()
@@ -311,15 +312,15 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     let fault = || vec!["fault: names no issue".to_string()];
     assert_eq!(
         owned,
-        [("held".into(), fault(), parent.clone()), ("loose".into(), fault(), parent.clone()), ("own".into(), vec!["north#5=closed".into(), "north#6=open".into()], parent.clone()), ("wip".into(), fault(), parent)]
+        [("held".into(), fault(), parent.clone()), ("wip".into(), fault(), parent)]
     );
-    let alerts = rig.read("alerts");
-    assert_eq!(alerts.lines().count(), 1, "{alerts}");
-    assert!(alerts.starts_with("normal|scratch-parent: 26 lanes hold unique work"), "{alerts}");
+    assert!(!rig.root.join("alerts").exists(), "no parent holds lanes past the alert threshold once the unheld ones are archived");
 
     let bundles: Vec<PathBuf> = fs::read_dir(rig.home.join("archive/lanes/north")).unwrap().map(|entry| entry.unwrap().path()).filter(|path| path.extension().is_some_and(|ext| ext == "bundle")).collect();
-    assert_eq!(bundles.len(), 1, "{out}");
-    assert!(rig.git_ok(&fixture.main, &["bundle", "verify", "-q", bundles[0].to_str().unwrap()]));
+    assert_eq!(bundles.len(), 3, "{out}");
+    for bundle in &bundles {
+        assert!(rig.git_ok(&fixture.main, &["bundle", "verify", "-q", bundle.to_str().unwrap()]));
+    }
 }
 
 impl Rig {

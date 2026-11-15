@@ -21,10 +21,11 @@ when it is finished, and pushes no tag:
     a clean worktree whose tip is none of these is landed when a landed ticket from this host, in
     this host's queue, the verdicts the lander sent back to its outbox or the records mirror, names
     that worktree with the head it still has and the commit the lander made is on origin/main;
-  - archived: a lane or local branch that is not landed and whose issues are all closed, idle
-    24 hours (a guess, settled by how many bundles are restored in the following week), or that names no issue and has no owner, idle 14 days, is first bundled to
+  - archived: a lane or local branch that is not landed and that no live Fleet session, live claim or peer host
+    holds, idle 24 hours, is first bundled to
     --archive DIR/<project>/ (default ~/archive/lanes; uncommitted and untracked changes ride
-    as one snapshot commit on the branch) with a line in index.tsv; the bundle must verify and
+    as one snapshot commit on the branch) with a line in index.tsv; `north lane restore BRANCH` brings it back
+    to a worktree with those changes unstaged, as they were. The bundle must verify and
     hold the lane's head before the lane is removed with git worktree remove --force and its
     branch deleted. A directory under worktrees/ that git no longer registers (a half-removed lane) is
     bundled the same way when no process, Fleet session or land ticket holds it and it holds no ignored
@@ -62,8 +63,7 @@ also deletes each cargo target (cargo's CACHEDIR.TAG) directly under the temp di
 target/ one level below it that no process holds open and that has had no build within --idle-hours.
 Issue state comes from the GitHub mirror, else from one search of the open issues (one GitHub call per run); no
 lane or local branch costs a call of its own.
-Everything else is kept: a lane whose issue is still open or whose state is unknown, and a
-lane inside its window. Each lane kept on an open issue is printed under it (kept on open
+Everything else is kept: a held lane, and a lane inside its 24 hours. Each held lane on an open issue is printed under it (kept on open
 REPO#N: ...). Each is written to the unlanded report
 (default ~/.local/state/agents/lane-gc/unlanded.txt: age, container, path, branch, ahead count,
 dirty, first commit subject, Refs, class) and to stale.json under its Fleet parent, with the
