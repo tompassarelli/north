@@ -633,12 +633,13 @@ Rejected or changed:
 
 ## 7. Break glass
 
-The coordinator's look budgets exist so that an investigation goes to a worker. They cannot bind when no
-worker can start, so `north fleet break-glass --issue REPO#N REASON...` lifts them for at most 30 minutes
-(`break_glass_minutes`), and only when the harness measures the stall itself: the last two launches
-failed, or the launch probe exits non-zero. A coordinator that merely wants to read more is refused. The grant
+The coordinator's look budgets exist so that an investigation goes to a worker. They cannot bind during an
+incident, so `north fleet break-glass --issue REPO#N REASON...` lifts them for at most 30 minutes
+(`break_glass_minutes`), and only when the harness measures the incident itself: the last two launches
+failed, the launch probe exits non-zero, the laptop's capacity watchdog reports an active host-overload
+episode, or the coordinator host booted in the last 30 minutes. A coordinator that merely wants to read more is refused. The grant
 is recorded with who, why and when, opens a box on the issue that tracks the cause, and is printed in
-Tom's next `north gate digest`, so the lift is never silent and never outlasts the stall.
+Tom's next `north gate digest`, so the lift is never silent and never outlasts the incident.
 **Enforced by** `crates/north-guard/src/guard/break_glass.rs`.
 
 ## 8. Closing confirmed reports by rule: dropped

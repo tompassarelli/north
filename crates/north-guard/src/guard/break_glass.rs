@@ -15,9 +15,11 @@ const PROBE_PROVIDER: &str = "claude";
 const PROBE_LIMIT: Duration = Duration::from_secs(300);
 const OWNER: &str = "tompassarelli";
 const LANDING_REPO: &str = "north";
+const INCIDENT_MINUTES: u64 = 30;
+const WATCHDOG_STATE: &str = "overload.json";
 const LANDER_SILENT: Duration = Duration::from_secs(30 * 60);
 
-pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard while `north ledger flow --stall-alarm` reports a landing stall, until the stall clears)";
+pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's look budgets for at most 30 minutes, only while the harness measures an incident: the last two launches failed, the launch probe exits non-zero, the laptop load alarm is firing, or the coordinator host rebooted in the last 30 minutes, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard while `north ledger flow --stall-alarm` reports a landing stall, until the stall clears)";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Grant {
@@ -37,10 +39,43 @@ pub struct Landing {
     pub opened_ms: u64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Incident {
+    WorkersCannotLaunch(String),
+    LoadAlarm,
+    Rebooted(u64),
+}
+
+impl Incident {
+    pub fn evidence(&self) -> String {
+        match self {
+            Self::WorkersCannotLaunch(measured) => measured.clone(),
+            Self::LoadAlarm => "the laptop load alarm is firing".into(),
+            Self::Rebooted(minutes) => format!("the coordinator host rebooted {minutes} minutes ago"),
+        }
+    }
+
+    fn cause(&self) -> &'static str {
+        match self {
+            Self::WorkersCannotLaunch(_) => "workers could not launch",
+            Self::LoadAlarm => "the laptop load alarm was firing",
+            Self::Rebooted(_) => "the coordinator host had just rebooted",
+        }
+    }
+
+    fn done_when(&self) -> &'static str {
+        match self {
+            Self::WorkersCannotLaunch(_) => "`north runtime probe launch claude` exits 0 and the last two entries of ~/.local/state/agents/dispatch/launches.jsonl have `\"launched\":true`",
+            Self::LoadAlarm => "`north capacity watchdog report --minutes 5` no longer flags an overload",
+            Self::Rebooted(_) => "`north fleet rebooted` lists no session this reboot stranded and `north fleet break-glass` is refused because the host has been up more than 30 minutes",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Refusal {
     NoReason,
-    WorkersCanLaunch(String),
+    NoIncident(String),
     NoIssue(String),
     Unrecorded(String),
     BoxNotOpened(String),
@@ -50,7 +85,7 @@ impl Refusal {
     pub fn message(&self) -> String {
         match self {
             Self::NoReason => format!("break glass needs a reason. {USAGE}"),
-            Self::WorkersCanLaunch(measured) => format!("break glass refused: workers can launch ({measured}), so the coordinator's budgets stay; write the brief and staff a worker instead"),
+            Self::NoIncident(why) => format!("break glass refused: {why}, so the coordinator's budgets stay; write the brief and staff a worker instead"),
             Self::NoIssue(measured) => format!("break glass refused: {measured}, but no --issue REPO#N names the issue that tracks it, so nothing was lifted"),
             Self::Unrecorded(why) => format!("break glass refused: the ledger could not record it ({why}), so nothing was lifted"),
             Self::BoxNotOpened(why) => format!("break glass is lifted and recorded, but the box on the tracking issue was not opened ({why}); open it by hand"),
@@ -63,6 +98,8 @@ pub trait World {
     fn who(&self) -> String;
     fn recent_launches(&self, count: usize) -> Vec<bool>;
     fn probe_exit(&self) -> Option<i32>;
+    fn load_alarm(&self) -> bool;
+    fn booted_ms(&self) -> Option<u64>;
     fn landing_stalls(&self) -> State;
     fn grants(&self) -> Vec<Grant>;
     fn record(&self, grant: &Grant) -> Result<(), String>;
@@ -85,6 +122,22 @@ pub fn measured_stall(world: &impl World) -> Result<String, String> {
     }
 }
 
+pub fn measured_incident(world: &impl World) -> Result<Incident, String> {
+    if world.load_alarm() {
+        return Ok(Incident::LoadAlarm);
+    }
+    if let Some(booted) = world.booted_ms() {
+        let age = world.now_ms().saturating_sub(booted);
+        if age < INCIDENT_MINUTES * 60_000 {
+            return Ok(Incident::Rebooted(age / 60_000));
+        }
+    }
+    if let Ok(measured) = measured_stall(world) {
+        return Ok(Incident::WorkersCannotLaunch(measured));
+    }
+    Err(format!("workers can launch, the laptop load alarm is not firing and the coordinator host has not rebooted in the last {INCIDENT_MINUTES} minutes"))
+}
+
 pub fn invoke(world: &impl World, reason: &str, issue: Option<&str>) -> Result<Grant, Refusal> {
     let reason = reason.trim();
     if reason.is_empty() {
@@ -104,11 +157,12 @@ pub fn invoke(world: &impl World, reason: &str, issue: Option<&str>) -> Result<G
         world.record(&grant).map_err(Refusal::Unrecorded)?;
         return Ok(grant);
     }
-    let evidence = measured_stall(world).map_err(Refusal::WorkersCanLaunch)?;
+    let incident = measured_incident(world).map_err(Refusal::NoIncident)?;
+    let evidence = incident.evidence();
     let issue = issue.map(str::trim).filter(|issue| !issue.is_empty()).ok_or_else(|| Refusal::NoIssue(evidence.clone()))?;
     let grant = Grant { at_ms: now, until_ms: now + minutes() * 60_000, who: world.who(), reason: reason.to_owned(), issue: Some(issue.to_owned()), evidence, landing: None };
     world.record(&grant).map_err(Refusal::Unrecorded)?;
-    match world.open_box(issue, &tracking_box(&grant)) {
+    match world.open_box(issue, &tracking_box(&grant, &incident)) {
         Ok(()) => Ok(grant),
         Err(why) => Err(Refusal::BoxNotOpened(why)),
     }
@@ -123,13 +177,15 @@ pub fn lifted(grants: &[Grant], stalls: &State, now_ms: u64) -> bool {
         || grants.iter().filter_map(|grant| grant.landing.as_ref()).any(|landing| stalls.get(&landing.repo).is_some_and(|episode| episode.opened_ms == landing.opened_ms))
 }
 
-pub fn tracking_box(grant: &Grant) -> String {
+pub fn tracking_box(grant: &Grant, incident: &Incident) -> String {
     format!(
-        "- [ ] Find and fix why workers could not launch: break glass was used at {} by {} ({}): {}. Done when: `north runtime probe launch {PROBE_PROVIDER}` exits 0 and the last two entries of ~/.local/state/agents/dispatch/launches.jsonl have `\"launched\":true`.",
+        "- [ ] Find and fix the incident behind break glass: it was used at {} by {} because {} ({}): {}. Done when: {}.",
         clock(grant.at_ms),
         grant.who,
+        incident.cause(),
         grant.evidence,
-        one_line(&grant.reason)
+        one_line(&grant.reason),
+        incident.done_when()
     )
 }
 
@@ -162,16 +218,21 @@ fn one_line(text: &str) -> String {
 
 pub struct Live {
     state: PathBuf,
+    booted_ms: Option<u64>,
 }
 
 impl Live {
     pub fn here() -> Self {
         let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
-        Self { state }
+        Self { state, booted_ms: None }
     }
 
     pub fn in_state(state: PathBuf) -> Self {
-        Self { state }
+        Self { state, booted_ms: None }
+    }
+
+    pub fn booted_at(self, booted_ms: Option<u64>) -> Self {
+        Self { booted_ms, ..self }
     }
 
     fn ledger(&self) -> PathBuf {
@@ -220,6 +281,17 @@ impl World for Live {
         command.args(["runtime", "probe", "launch", PROBE_PROVIDER]);
         let output = process::try_run_command_within(command, None, PROBE_LIMIT).ok()?;
         Some(output.map_or(-1, |output| output.status.code().unwrap_or(-1)))
+    }
+
+    fn load_alarm(&self) -> bool {
+        let dir = std::env::var_os("CAPACITY_WATCHDOG_DIR").map(PathBuf::from).unwrap_or_else(|| self.state.join("agents/watchdog"));
+        let Ok(text) = std::fs::read_to_string(dir.join(WATCHDOG_STATE)) else { return false };
+        let Ok(state) = serde_json::from_str::<serde_json::Value>(&text) else { return false };
+        state["reported"].as_bool() == Some(true)
+    }
+
+    fn booted_ms(&self) -> Option<u64> {
+        self.booted_ms
     }
 
     fn landing_stalls(&self) -> State {

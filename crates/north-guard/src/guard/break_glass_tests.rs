@@ -9,6 +9,8 @@ const NOW: u64 = 1_800_000_000_000;
 struct Fake {
     launches: Vec<bool>,
     probe: Option<i32>,
+    alarm: bool,
+    booted: Option<u64>,
     recorded: RefCell<Vec<Grant>>,
     boxes: RefCell<Vec<(String, String)>>,
     landing: State,
@@ -16,7 +18,15 @@ struct Fake {
 
 impl Fake {
     fn new(launches: &[bool], probe: Option<i32>) -> Self {
-        Self { launches: launches.to_vec(), probe, recorded: RefCell::default(), boxes: RefCell::default(), landing: State::new() }
+        Self { launches: launches.to_vec(), probe, alarm: false, booted: None, recorded: RefCell::default(), boxes: RefCell::default(), landing: State::new() }
+    }
+
+    fn alarm(self) -> Self {
+        Self { alarm: true, ..self }
+    }
+
+    fn booted(self, at: u64) -> Self {
+        Self { booted: Some(at), ..self }
     }
 
     fn stalled(mut self, repo: &str, opened_ms: u64) -> Self {
@@ -38,6 +48,12 @@ impl World for Fake {
     fn probe_exit(&self) -> Option<i32> {
         self.probe
     }
+    fn load_alarm(&self) -> bool {
+        self.alarm
+    }
+    fn booted_ms(&self) -> Option<u64> {
+        self.booted
+    }
     fn landing_stalls(&self) -> State {
         self.landing.clone()
     }
@@ -55,10 +71,23 @@ impl World for Fake {
 }
 
 #[test]
-fn break_glass_is_refused_while_a_worker_can_launch() {
+fn break_glass_opens_on_incident() {
+    let launching = || Fake::new(&[true, true], Some(0));
+    for (world, evidence) in [(launching().booted(NOW - 10 * 60_000), "the coordinator host rebooted 10 minutes ago"), (launching().booted(NOW - 29 * 60_000), "the coordinator host rebooted 29 minutes ago"), (launching().alarm(), "the laptop load alarm is firing")] {
+        let grant = invoke(&world, "an incident", Some("north#1626")).expect("an incident opens break glass");
+        assert_eq!(grant.evidence, evidence);
+        assert_eq!(grant.until_ms - grant.at_ms, 30 * 60_000);
+        assert_eq!(world.boxes.borrow().len(), 1);
+        assert!(world.boxes.borrow()[0].1.starts_with("- [ ] ") && world.boxes.borrow()[0].1.contains("Done when:"));
+    }
+    for world in [launching().booted(NOW - 31 * 60_000), launching()] {
+        let refused = invoke(&world, "an incident", Some("north#1626"));
+        assert!(matches!(refused, Err(Refusal::NoIncident(_))), "{refused:?}");
+        assert!(world.recorded.borrow().is_empty() && world.boxes.borrow().is_empty());
+    }
     for world in [Fake::new(&[false, true], Some(0)), Fake::new(&[true, false], None), Fake::new(&[false], Some(0)), Fake::new(&[], Some(0))] {
         let refused = invoke(&world, "load trace", Some("north#1106"));
-        assert!(matches!(refused, Err(Refusal::WorkersCanLaunch(_))), "{refused:?}");
+        assert!(matches!(refused, Err(Refusal::NoIncident(_))), "{refused:?}");
         assert!(world.recorded.borrow().is_empty() && world.boxes.borrow().is_empty());
     }
     assert!(matches!(invoke(&Fake::new(&[false, false], Some(0)), "  ", Some("north#1106")), Err(Refusal::NoReason)));
@@ -107,5 +136,5 @@ fn break_glass_lifts_then_expires_and_is_in_the_digest() {
     let stall_digest = digest_section(&stall_grants, NOW - 1, NOW + 31 * 60_000);
     assert!(stall_digest.contains("lifted until the landing stall clears") && stall_digest.contains("the landing-is-stalled issue of north"), "{stall_digest}");
     let other_repo = Fake::new(&[true, true], Some(0)).stalled("wisp", NOW - 60_000);
-    assert!(matches!(invoke(&other_repo, "landing outage", None), Err(Refusal::WorkersCanLaunch(_))), "a stall in another repository lifts nothing");
+    assert!(matches!(invoke(&other_repo, "landing outage", None), Err(Refusal::NoIncident(_))), "a stall in another repository lifts nothing");
 }

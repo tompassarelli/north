@@ -126,7 +126,7 @@ state = "live"
 
 [[hold.also]]
 guard_kind = "test"
-guard = "break_glass_is_refused_while_a_worker_can_launch"
+guard = "break_glass_opens_on_incident"
 state = "live"
 
 [[hold]]
