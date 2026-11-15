@@ -20,6 +20,8 @@ mod offload_request;
 mod record_request;
 #[path = "withdraw_request_tests.rs"]
 mod withdraw_request;
+#[path = "sockets_tests.rs"]
+mod sockets;
 
 fn git(directory: &Path, arguments: &[&str]) {
     let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"]).args(arguments).output().unwrap();
@@ -261,10 +263,12 @@ fn every_kept_runtime_socket_is_listed_with_its_reach() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         (UnixListener::bind(&path).unwrap(), path)
     };
-    let _kept: Vec<_> = super::sockets::KEPT.iter().map(|(prefix, _)| bind(&format!("{prefix}0"))).collect();
+    let bound: Vec<_> = super::sockets::KEPT.iter().map(|(prefix, _)| bind(&format!("{prefix}0"))).collect();
     let (_peer, session) = bind("cc-socks/1.sock");
-    let hidden = super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]);
-    assert_eq!(hidden, vec![session], "a kept socket is hidden, or another Claude Code session's messaging socket stays reachable from a worker command");
+    let mut listed: Vec<PathBuf> = bound.iter().map(|(_, path)| path.clone()).collect();
+    listed.sort();
+    let kept = super::sockets::kept(scratch.path());
+    assert!(kept == listed && !kept.iter().any(|entry| session.starts_with(entry)), "a kept socket is hidden, or another Claude Code session's messaging socket stays reachable from a worker command");
 }
 
 #[test]
@@ -286,11 +290,8 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     std::fs::create_dir_all(scratch.path().join("north-spares")).unwrap();
     let (link, spare) = (scratch.path().join("north-links/tom_gex45"), scratch.path().join("north-spares/tom_gex45.sock"));
     let (_linked, _spared) = (UnixListener::bind(&link).unwrap(), UnixListener::bind(&spare).unwrap());
-    let mut hidden = super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]);
-    hidden.sort();
-    let mut masters = vec![master, host, taker, link, spare];
-    masters.sort();
-    assert_eq!(hidden, masters, "an offload, host, taker or fleet-link master or a spare shell's holder is reachable from a worker although its name begins as north's own sockets do");
+    let masters = [master, host, taker, link, spare];
+    assert!(super::sockets::kept(scratch.path()).is_empty(), "{masters:?}: an offload, host, taker or fleet-link master or a spare shell's holder is reachable from a worker although its name begins as north's own sockets do");
     let declared = |host: &str| (host == "gex45").then(|| format!("tom@{host}")).ok_or_else(|| format!("{host} is not a host this one reaches"));
     let run = "capacity offload run --host gex45 --base aaa --head bbb --timeout 60 -- true";
     for allowed in [run, "capacity offload run --background --host gex45 --base aaa --head bbb --timeout 60 -- true", "capacity offload free --host gex45", "capacity offload hosts", "capacity offload slots"] {
@@ -442,10 +443,10 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
 fn namespaces_laid_before_a_nixos_activation_moved_ssh_config_are_not_reused_north_1083() {
     use super::broker::Laid;
     let socket = PathBuf::from("/run/user/1000/bus");
-    let before = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/d980-etc-ssh-ssh_config")), inodes: Vec::new() };
-    let after = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/zhf1-etc-ssh-ssh_config")), inodes: Vec::new() };
+    let before = Laid { kept: Vec::new(), hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/d980-etc-ssh-ssh_config")), inodes: Vec::new() };
+    let after = Laid { kept: Vec::new(), hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/zhf1-etc-ssh-ssh_config")), inodes: Vec::new() };
     assert!(!before.serves(&after));
-    assert!(before.serves(&Laid { hidden: vec![socket], ssh_config: before.ssh_config.clone(), inodes: Vec::new() }));
+    assert!(before.serves(&Laid { kept: Vec::new(), hidden: vec![socket], ssh_config: before.ssh_config.clone(), inodes: Vec::new() }));
 }
 
 #[test]

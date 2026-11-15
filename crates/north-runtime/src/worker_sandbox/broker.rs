@@ -574,8 +574,9 @@ fn hung_up(stream: &UnixStream) -> bool {
     rustix::net::recv(stream, &mut [0u8; 1], RecvFlags::PEEK | RecvFlags::DONTWAIT).is_ok_and(|read| read == 0)
 }
 
-/// What a namespace maker laid its overlay over: the sockets it hid and the file `/etc/ssh/ssh_config` resolved to, which a NixOS activation moves to a new store path the old overlay does not cover (north#1083).
+/// What a namespace maker laid its overlay over: the kept entries of the runtime directory its view holds, the sockets outside that view it hid and the file `/etc/ssh/ssh_config` resolved to, which a NixOS activation moves to a new store path the old overlay does not cover (north#1083).
 pub(super) struct Laid {
+    pub(super) kept: Vec<(PathBuf, (u64, u64))>,
     pub(super) hidden: Vec<PathBuf>,
     pub(super) ssh_config: Option<PathBuf>,
     pub(super) inodes: Vec<(u64, u64)>,
@@ -585,14 +586,20 @@ impl Laid {
     fn now(runtime: &Path, request: &Request) -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         let agent = request.environment.iter().find(|(name, _)| name == super::sockets::AGENT_ENV).map(|(_, value)| PathBuf::from(value));
-        let hidden = super::sockets::hidden(runtime, &multiplexer(request), &super::sockets::ssh_reach(&home, rustix::process::getuid().as_raw(), agent.as_deref()));
-        let inodes = hidden.iter().filter_map(|path| std::fs::symlink_metadata(path).ok()).map(|metadata| (metadata.dev(), metadata.ino())).collect();
-        Self { hidden, ssh_config: super::sockets::ssh_config(), inodes }
+        Self::of(runtime, &multiplexer(request), &super::sockets::ssh_reach(&home, rustix::process::getuid().as_raw(), agent.as_deref()))
     }
 
-    /// Whether namespaces laid for `self` still serve `now`: they hide every socket there is now, each the very socket they laid the null device over, since a socket made again where an overlaid one was unlinked sheds that overlay (an ssh master that restarts does so), and overlay the ssh configuration ssh reads now.
+    pub(super) fn of(runtime: &Path, multiplexer: &Path, ssh: &[PathBuf]) -> Self {
+        let inode = |path: &Path| std::fs::symlink_metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()));
+        let kept = super::sockets::kept(runtime).into_iter().filter_map(|path| inode(&path).map(|inode| (path, inode))).collect();
+        let hidden = super::sockets::hidden(runtime, multiplexer, ssh);
+        let inodes = hidden.iter().filter_map(|path| inode(path)).collect();
+        Self { kept, hidden, ssh_config: super::sockets::ssh_config(), inodes }
+    }
+
+    /// Whether namespaces laid for `self` still serve `now`: their view holds every kept entry there is now, each the very entry they laid into it, they hide every socket outside it there is now, each the very socket they laid the null device over, since a socket made again where an overlaid one was unlinked sheds that overlay (an ssh master that restarts does so), and overlay the ssh configuration ssh reads now.
     pub(super) fn serves(&self, now: &Self) -> bool {
-        self.ssh_config == now.ssh_config && now.hidden.iter().all(|path| self.hidden.contains(path)) && now.inodes.iter().all(|inode| self.inodes.contains(inode))
+        self.ssh_config == now.ssh_config && now.kept.iter().all(|entry| self.kept.contains(entry)) && now.hidden.iter().all(|path| self.hidden.contains(path)) && now.inodes.iter().all(|inode| self.inodes.contains(inode))
     }
 }
 

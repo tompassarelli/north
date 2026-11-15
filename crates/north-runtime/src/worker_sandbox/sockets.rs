@@ -1,10 +1,11 @@
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::os::fd::BorrowedFd;
+use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
-use rustix::mount::{MountPropagationFlags, mount_bind, mount_change};
+use rustix::fs::{Mode, OFlags};
+use rustix::mount::{MountFlags, MountPropagationFlags, mount, mount_bind, mount_change, mount_recursive_bind};
 use rustix::thread::{LinkNameSpaceType, UnshareFlags, move_into_link_name_space, unshare};
 
 use north_base::foundation::offload::MASTER_SOCKET;
@@ -19,9 +20,11 @@ pub enum Reach {
     Desktop,
     /// One of north's own brokers, which judges each request by the peer the kernel names for it.
     Broker,
+    /// The capacity admission state, which builds read; every socket beneath it stays hidden.
+    Admission,
 }
 
-pub const KEPT: [(&str, Reach); 5] = [("wayland-", Reach::Desktop), ("pipewire-", Reach::Desktop), ("pulse", Reach::Desktop), ("private-desktop", Reach::Desktop), ("north", Reach::Broker)];
+pub const KEPT: [(&str, Reach); 6] = [("wayland-", Reach::Desktop), ("pipewire-", Reach::Desktop), ("pulse", Reach::Desktop), ("private-desktop", Reach::Desktop), ("north", Reach::Broker), (north_base::platform::admission_root::DIRECTORY, Reach::Admission)];
 const DEPTH: usize = 4;
 const SSH_CONFIG: &str = "/etc/ssh/ssh_config";
 pub const AGENT_ENV: &str = "SSH_AUTH_SOCK";
@@ -37,16 +40,21 @@ pub fn multiplexer(uid: u32, tmpdir: Option<OsString>) -> PathBuf {
     tmpdir.filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from).join(format!("tmux-{uid}"))
 }
 
-/// The sockets a worker command may not connect to: every socket in the runtime directory other than those of the display and audio servers and north's own, each kept with its reach in `KEPT`, the sockets of the terminal multiplexer, and the `ssh` ones through which ssh reaches another host without reading a key, the offload, host, taker and fleet-link masters and the spare shells' holders among them whatever north's own names keep. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
-pub fn hidden(runtime: &Path, multiplexer: &Path, ssh: &[PathBuf]) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    for entry in std::fs::read_dir(runtime).into_iter().flatten().flatten() {
+/// The entries of the runtime directory a worker command's view holds, and nothing beside them: those of the display and audio servers, north's own and the capacity admission state, each kept with its reach in `KEPT`, apart from the offload, host, taker and fleet-link masters, the spare shells' holders and the session hosts among north's own names. The view is an empty directory with each of these laid into it, so a socket made in the runtime directory after the view was laid, or one closed and made again, is not in it.
+pub fn kept(runtime: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(runtime).into_iter().flatten().flatten().filter(|entry| {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with(MASTER_SOCKET) || HIDDEN_NORTH.iter().any(|prefix| name.starts_with(prefix)) || !KEPT.iter().any(|(prefix, _)| name.starts_with(prefix)) {
-            sockets(&entry.path(), DEPTH, &mut found);
-        }
-    }
+        KEPT.iter().any(|(prefix, _)| name.starts_with(prefix)) && !name.starts_with(MASTER_SOCKET) && !HIDDEN_NORTH.iter().any(|prefix| name.starts_with(prefix))
+    }).map(|entry| entry.path()).collect();
+    found.sort();
+    found
+}
+
+/// The sockets a worker command may not connect to besides those its runtime view leaves out: those under the capacity admission state, the pull hand-over doors of queued runs among them, those of the terminal multiplexer, and the `ssh` ones through which ssh reaches another host without reading a key. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
+pub fn hidden(runtime: &Path, multiplexer: &Path, ssh: &[PathBuf]) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    sockets(&runtime.join(north_base::platform::admission_root::DIRECTORY), DEPTH, &mut found);
     sockets(multiplexer, DEPTH, &mut found);
     found.extend(ssh.iter().filter(|path| !found.contains(path)).cloned().collect::<Vec<_>>());
     found
@@ -108,11 +116,8 @@ fn sockets(path: &Path, depth: usize, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// Puts a null device over each of `paths` in a user and mount namespace of this process, which maps the caller's own user and group only; every command it then starts sees a refused connection there. A socket removed since it was listed needs no overlay, since nothing connects through a path that is gone. The overlay cannot be lifted from inside the Landlock domain applied after it, which refuses mount(2), and the domain's ptrace rule keeps the original sockets out of reach through the `/proc` entries of processes outside it. Needs a single-threaded process.
+/// Lays, in a user and mount namespace of this process that maps the caller's own user and group only, the view of the runtime directory `runtime` that holds its `kept` entries alone, and a null device over each of `paths` outside it; every command it then starts finds no other socket of the runtime directory and a refused connection at each of `paths`. A path removed since it was listed needs no overlay, since nothing connects through a path that is gone. Neither can be lifted from inside the Landlock domain applied after it, which refuses mount(2), and the domain's ptrace rule keeps the original sockets out of reach through the `/proc` entries of processes outside it. Needs a single-threaded process.
 pub fn hide(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
-    if paths.is_empty() {
-        return Ok(());
-    }
     let (uid, gid) = (rustix::process::getuid().as_raw(), rustix::process::getgid().as_raw());
     unshare(UnshareFlags::NEWUSER | UnshareFlags::NEWNS).map_err(|error| format!("unshare: {error}"))?;
     let write = |file: &str, text: String| std::fs::write(format!("/proc/self/{file}"), text).map_err(|error| format!("{file}: {error}"));
@@ -120,9 +125,37 @@ pub fn hide(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
     write("uid_map", format!("{uid} {uid} 1"))?;
     write("gid_map", format!("{gid} {gid} 1"))?;
     mount_change("/", MountPropagationFlags::SLAVE | MountPropagationFlags::REC).map_err(|error| format!("mount /: {error}"))?;
+    view(runtime)?;
     let mut failed: Vec<String> = paths.iter().filter_map(|path| mount_bind("/dev/null", path).err().filter(|error| *error != rustix::io::Errno::NOENT).map(|error| format!("{}: {error}", path.display()))).collect();
     failed.extend(own_includes_only(runtime).err());
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
+}
+
+fn view(runtime: &Path) -> Result<(), String> {
+    if !runtime.is_dir() {
+        return Ok(());
+    }
+    let entries = kept(runtime);
+    let real = rustix::fs::open(runtime, OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty()).map_err(|error| format!("{}: {error}", runtime.display()))?;
+    mount("tmpfs", runtime, "tmpfs", MountFlags::NOSUID | MountFlags::NODEV, "mode=0700").map_err(|error| format!("{}: {error}", runtime.display()))?;
+    let below = PathBuf::from(format!("/proc/self/fd/{}", real.as_raw_fd()));
+    let failed: Vec<String> = entries.iter().filter_map(|path| lay(&below, path).err().map(|error| format!("{}: {error}", path.display()))).collect();
+    if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
+}
+
+fn lay(below: &Path, path: &Path) -> std::io::Result<()> {
+    let Some(name) = path.file_name() else { return Ok(()) };
+    let source = below.join(name);
+    let Ok(kind) = std::fs::symlink_metadata(&source).map(|metadata| metadata.file_type()) else { return Ok(()) };
+    if kind.is_symlink() {
+        return std::os::unix::fs::symlink(std::fs::read_link(&source)?, path);
+    }
+    if kind.is_dir() {
+        std::fs::create_dir(path)?;
+    } else {
+        std::fs::File::create(path)?;
+    }
+    mount_recursive_bind(&source, path).map_err(std::io::Error::from)
 }
 
 /// The file ssh reads its system configuration from, with every link resolved: the overlay goes over this path.
