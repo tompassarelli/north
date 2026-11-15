@@ -19,6 +19,7 @@ enum Reach {
 }
 
 pub const LANDING: &str = "SAFE_PUSH_LANDING";
+pub const LAND_AFTER: &str = "SAFE_PUSH_LAND_AFTER";
 pub const LAND_BASE: &str = "SAFE_PUSH_LAND_BASE";
 pub const LAND_HEAD: &str = "SAFE_PUSH_LAND_HEAD";
 pub const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
@@ -33,6 +34,7 @@ pub const CHECK_CARRY: &str = "DEPBOX_CARRY";
 
 const CARRY: &[(&str, Reach)] = &[
     (LANDING, Reach::Landing),
+    (LAND_AFTER, Reach::Landing),
     (LAND_BASE, Reach::Landing),
     (LAND_HEAD, Reach::Landing),
     (LAND_STORE_VIEW, Reach::Landing),

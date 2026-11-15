@@ -174,7 +174,8 @@ impl Shared {
 
     pub(super) async fn run_list(self: &Arc<Self>, commands: &[String]) -> Listed {
         let plan = steps::timed("plan", || Plan::of(commands, &self.paths, &Records::at(Records::default_path()).read()));
-        if !plan.expensive.is_empty() {
+        let fail_fast = !self.arguments.after;
+        if fail_fast && !plan.expensive.is_empty() {
             say(&format!("safe-push: {} expensive land check(s) run in fail-fast order and are cancelled at the first failure: {}", plan.expensive.len(), plan.expensive.join("; ")));
         }
         let ordered: Vec<String> = plan.ordered().cloned().collect();
@@ -182,7 +183,7 @@ impl Shared {
         let (stop, stopped) = watch::channel(false);
         let stop = Arc::new(stop);
         tokio::spawn(forward_cancel(this.cancel.clone(), Arc::clone(&stop)));
-        let expensive = Arc::new(Self { cancel: stopped, fail_fast: true, ..(*this).clone() });
+        let expensive = if fail_fast { Arc::new(Self { cancel: stopped, fail_fast, ..(*this).clone() }) } else { Arc::clone(&this) };
         let mut offloaded = JoinSet::new();
         let mut local = Vec::new();
         let joined = this.spawn_batch(&ordered, &plan, &stop, &mut offloaded);

@@ -303,7 +303,7 @@ impl Shared {
             .env("SAFE_PUSH_LAND_HEAD", tree)
             .env("SAFE_PUSH_LAND_RUNTIME_HEAD", self.arguments.tree())
             .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
-            .env(carry::LANDING, landing)
+            .envs([(carry::LANDING, landing), (carry::LAND_AFTER, ["", "1"][usize::from(self.arguments.after)])])
             .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { north_base::store_pins::AT_HEAD })
             .env(carry::CHECK_ENDS, check_ends(timeout))
             .env(ONE_LANE_ENV, if self.arguments.one_lane { "1" } else { "" })
