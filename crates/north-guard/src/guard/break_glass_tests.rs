@@ -71,7 +71,7 @@ impl World for Fake {
 }
 
 #[test]
-fn break_glass_opens_on_incident() {
+fn break_glass_opens_on_incident_lifts_then_expires_and_is_in_the_digest() {
     let launching = || Fake::new(&[true, true], Some(0));
     for (world, evidence) in [(launching().booted(NOW - 10 * 60_000), "the coordinator host rebooted 10 minutes ago"), (launching().booted(NOW - 29 * 60_000), "the coordinator host rebooted 29 minutes ago"), (launching().alarm(), "the laptop load alarm is firing")] {
         let grant = invoke(&world, "an incident", Some("north#1626")).expect("an incident opens break glass");
@@ -92,10 +92,7 @@ fn break_glass_opens_on_incident() {
     }
     assert!(matches!(invoke(&Fake::new(&[false, false], Some(0)), "  ", Some("north#1106")), Err(Refusal::NoReason)));
     assert!(matches!(invoke(&Fake::new(&[false, false], Some(0)), "workers cannot start", None), Err(Refusal::NoIssue(_))));
-}
 
-#[test]
-fn break_glass_lifts_then_expires_and_is_in_the_digest() {
     let failed_launches = Fake::new(&[true, false, false], Some(0));
     let grant = invoke(&failed_launches, "workers cannot start", Some("north#1106")).unwrap();
     assert_eq!(grant.until_ms - grant.at_ms, minutes() * 60_000);
@@ -121,20 +118,28 @@ fn break_glass_lifts_then_expires_and_is_in_the_digest() {
     let live = Live::in_state(state.path().to_path_buf());
     live.record(&grant).unwrap();
     assert_eq!(live.grants(), grants);
+}
 
+#[test]
+fn a_landing_stall_grant_ends_after_its_minutes() {
     let stalled = Fake::new(&[true, true], Some(0)).stalled("north", NOW - 60_000);
     let landing_grant = invoke(&stalled, "landing outage", None).unwrap();
     assert!(stalled.boxes.borrow().is_empty(), "a landing stall already has its own issue");
     assert_eq!(landing_grant.landing.as_ref().map(|landing| landing.repo.as_str()), Some("north"));
+    assert_eq!(landing_grant.until_ms - landing_grant.at_ms, minutes() * 60_000);
 
     let stall_grants = stalled.grants();
     assert!(lifted(&stall_grants, &stalled.landing, NOW));
+    assert!(lifted(&stall_grants, &stalled.landing, NOW + 29 * 60_000));
+    assert!(!lifted(&stall_grants, &stalled.landing, NOW + 30 * 60_000), "the lift ends after the configured minutes even while the stall record stays fresh");
     assert!(!lifted(&stall_grants, &State::new(), NOW), "a cleared stall lifts nothing");
     let reopened: State = [("north".to_owned(), Episode { opened_ms: NOW, ..Episode::default() })].into_iter().collect();
     assert!(!lifted(&stall_grants, &reopened, NOW), "a new episode of the stall is not the one granted");
 
     let stall_digest = digest_section(&stall_grants, NOW - 1, NOW + 31 * 60_000);
-    assert!(stall_digest.contains("lifted until the landing stall clears") && stall_digest.contains("the landing-is-stalled issue of north"), "{stall_digest}");
+    assert!(stall_digest.contains("expired at") && stall_digest.contains("the landing-is-stalled issue of north"), "{stall_digest}");
+    assert!(digest_section(&stall_grants, NOW - 1, NOW + 60_000).contains("the landing stall of north stays fresh"));
+
     let other_repo = Fake::new(&[true, true], Some(0)).stalled("wisp", NOW - 60_000);
     assert!(matches!(invoke(&other_repo, "landing outage", None), Err(Refusal::NoIncident(_))), "a stall in another repository lifts nothing");
 }

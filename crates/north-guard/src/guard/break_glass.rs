@@ -19,7 +19,7 @@ const INCIDENT_MINUTES: u64 = 30;
 const WATCHDOG_STATE: &str = "overload.json";
 const LANDER_SILENT: Duration = Duration::from_secs(30 * 60);
 
-pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's reach guard for at most 30 minutes, only while the harness measures an incident: the last two launches failed, the launch probe exits non-zero, the laptop load alarm is firing, or the coordinator host rebooted in the last 30 minutes, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard while `north ledger flow --stall-alarm` reports a landing stall, until the stall clears)";
+pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's reach guard for at most 30 minutes, only while the harness measures an incident: the last two launches failed, the launch probe exits non-zero, the laptop load alarm is firing, or the coordinator host rebooted in the last 30 minutes, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard for at most 30 minutes while `north ledger flow --stall-alarm` reports a fresh landing stall in north)";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Grant {
@@ -147,7 +147,7 @@ pub fn invoke(world: &impl World, reason: &str, issue: Option<&str>) -> Result<G
     if let Some(episode) = world.landing_stalls().remove(LANDING_REPO) {
         let grant = Grant {
             at_ms: now,
-            until_ms: now,
+            until_ms: now + minutes() * 60_000,
             who: world.who(),
             reason: reason.to_owned(),
             issue: None,
@@ -169,12 +169,16 @@ pub fn invoke(world: &impl World, reason: &str, issue: Option<&str>) -> Result<G
 }
 
 pub fn active(grants: &[Grant], now_ms: u64) -> Option<&Grant> {
-    grants.iter().filter(|grant| grant.at_ms <= now_ms && now_ms < grant.until_ms).max_by_key(|grant| grant.until_ms)
+    grants.iter().filter(|grant| grant.landing.is_none() && grant.at_ms <= now_ms && now_ms < grant.until_ms).max_by_key(|grant| grant.until_ms)
 }
 
 pub fn lifted(grants: &[Grant], stalls: &State, now_ms: u64) -> bool {
     active(grants, now_ms).is_some()
-        || grants.iter().filter_map(|grant| grant.landing.as_ref()).any(|landing| stalls.get(&landing.repo).is_some_and(|episode| episode.opened_ms == landing.opened_ms))
+        || grants.iter().any(|grant| {
+            grant.at_ms <= now_ms
+                && now_ms < grant.until_ms
+                && grant.landing.as_ref().is_some_and(|landing| stalls.get(&landing.repo).is_some_and(|episode| episode.opened_ms == landing.opened_ms))
+        })
 }
 
 pub fn tracking_box(grant: &Grant, incident: &Incident) -> String {
@@ -197,7 +201,14 @@ pub fn digest_section(grants: &[Grant], since_ms: u64, now_ms: u64) -> String {
     let mut text = format!("Break glass used since you last looked ({}): the coordinator's reach guard was lifted while workers could not start or while the landing was stalled; each names what was measured and what tracks the cause.\n", used.len());
     for grant in used {
         let (state, tracked) = match &grant.landing {
-            Some(landing) => ("lifted until the landing stall clears".to_owned(), format!("the landing-is-stalled issue of {}", landing.repo)),
+            Some(landing) => {
+                let state = if now_ms < grant.until_ms {
+                    format!("lifted until {} or while the landing stall of {} stays fresh", clock(grant.until_ms), landing.repo)
+                } else {
+                    format!("expired at {}", clock(grant.until_ms))
+                };
+                (state, format!("the landing-is-stalled issue of {}", landing.repo))
+            }
             None => {
                 let state = if now_ms < grant.until_ms { format!("lifted until {}", clock(grant.until_ms)) } else { format!("expired at {}", clock(grant.until_ms)) };
                 (state, grant.issue.clone().unwrap_or_default())
