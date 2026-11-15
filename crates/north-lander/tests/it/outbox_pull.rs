@@ -302,7 +302,8 @@ fn a_refusal_reaches_the_hand_in_on_the_lanes_host_by_the_landers_push_with_no_r
 
 #[test]
 fn remote_lane_lands_through_the_landers_pull_of_its_hosts_outbox_with_no_patch_carried() {
-    let pull = Pull::new();
+    let here = north_base::platform::land_queue::local_host();
+    let pull = Pull::declaring(&format!("[hosts.\"{here}\"]\nssh = \"{here}\"\n"));
     let bin = pull.world.path().join("bin");
     write_executable(&bin.join("judge"), "#!/bin/sh\ncat > /dev/null\nexit 0\n");
     write_executable(&bin.join("betterleaks"), NO_SECRETS);
@@ -327,7 +328,7 @@ fn remote_lane_lands_through_the_landers_pull_of_its_hosts_outbox_with_no_patch_
     git(&build_host, &["commit", "-q", "-m", "Finish on a build host"]);
 
     let mut enqueue = queueing(&pull.world, "serve::enqueue_process", "NORTH_LAND_IT_ARGUMENTS", &["--repo", build_host.to_str().unwrap()]);
-    enqueue.env("XDG_STATE_HOME", &pull.remote).env("RESIDENT_CAP_HOST", "gex45");
+    enqueue.env("XDG_STATE_HOME", &pull.remote).env("RESIDENT_CAP_HOST", &here);
     let queued = enqueue.output().unwrap();
     let text = report(&queued);
     assert!(queued.status.success() && text.contains("Done: queued (outbox)"), "{text}");
