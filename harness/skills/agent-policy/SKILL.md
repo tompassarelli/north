@@ -2,8 +2,8 @@
 name: agent-policy
 description: >-
   Author or change agent instructions, skills, hooks, guards or modules; turn lasting corrections into policy; import skills; audit the harness; review a followed source.
-grounded: 2026-11-15
-written: 2026-11-15
+grounded: 2026-11-12
+written: 2026-11-12
 metadata:
   kind: playbook
 ---
@@ -26,17 +26,17 @@ types, lint, test and prose last, because each lower level is enforced less
 reliably. A lane that changes harness text (a skill, `CLAUDE.md` or an agent
 definition) to fix an agent behavior adds a case under `harness/cases/` and
 shows `north policy-replay case` failing on the base text and passing on the
-lane's, because text a replay never saw fail may change nothing (the
-[notes](references/notes.md#replay-proof) give the command, proof file and
-judged-case bar). Once an enforcer holds the rule, delete the prose, because it
-then only costs context; [enforcers.md](references/enforcers.md) lists the
-rules a hook or gate already holds, one row per enforcer.
+lane's, because text a replay never saw fail may change nothing; the
+[notes](references/notes.md#replay-proof) give the command, the proof file and
+the judged-case bar. Once an enforcer holds the rule, delete the prose, because
+it then only costs context; [enforcers.md](references/enforcers.md) lists the
+rules a hook or gate already holds, and gains a row with each new enforcer.
 
 A policy or routing change, including every lesson turned into policy, lands
-with its entry in `docs/rationale/experiments.toml`, because a rule nobody
-reviews stays forever whether or not it paid off. On its review date,
-`north check experiments judge` keeps it, reverts it or brings it to Tom with
-the numbers.
+with its entry in
+`docs/rationale/experiments.toml`, because a rule nobody reviews stays forever
+whether or not it paid off; on its review date `north check experiments judge`
+keeps it, reverts it or brings it to Tom with the numbers.
 
 ## SKILL.md and references
 
@@ -56,9 +56,8 @@ facts count.
    [skill-creator](references/guides/anthropic-skill-creator.md) for
    frontmatter and resources.
 2. Across repositories, land new source and confirm it runs live before the
-   caller switch, registration or runtime selector that depends on it, and
-   delete the old source last, because each reverse order broke landing or
-   `agents sync` fleet-wide
+   caller switch, registration or runtime selector that depends on it, and delete the old source
+   last, because each reverse order broke landing or `agents sync` fleet-wide
    ([notes](references/notes.md#landing-order-across-repositories)).
 3. Land, update clean main checkouts, run `agents sync`, and confirm that the
    active ID, owner revision and provider projection resolve to the landed
