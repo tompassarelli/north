@@ -253,6 +253,21 @@ fn a_lane_test_binary_run_by_path_outside_depbox_is_refused() {
 }
 
 #[test]
+fn every_kept_runtime_socket_is_listed_with_its_reach() {
+    use std::os::unix::net::UnixListener;
+    let scratch = tempfile::tempdir().unwrap();
+    let bind = |name: &str| {
+        let path = scratch.path().join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        (UnixListener::bind(&path).unwrap(), path)
+    };
+    let _kept: Vec<_> = super::sockets::KEPT.iter().map(|(prefix, _)| bind(&format!("{prefix}0"))).collect();
+    let (_peer, session) = bind("cc-socks/1.sock");
+    let hidden = super::sockets::hidden(scratch.path(), &scratch.path().join("tmux-0"), &[]);
+    assert_eq!(hidden, vec![session], "a kept socket is hidden, or another Claude Code session's messaging socket stays reachable from a worker command");
+}
+
+#[test]
 fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_carries_no_injected_code() {
     if offload_request::played() {
         return;
