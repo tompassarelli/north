@@ -149,7 +149,11 @@ pub(super) fn fleet_launch_in(launch: &Launch, name: &str, survey: &Survey, dire
 fn started(name: &str, (program, words): (String, Vec<String>)) -> Result<String, String> {
     let mut child = std::process::Command::new(&program);
     child.args(&words).env_remove(north_fleet_supervisor::fleet::runtime::SESSION_ENV).env_remove(north_fleet_supervisor::fleet::runtime::ROLE_ENV);
-    match north_base::platform::process::try_run_command_within(child, None, LAUNCH_WAIT) {
+    let ran = north_base::platform::process::try_run_command_within(child, None, LAUNCH_WAIT);
+    if let Ok(Some(output)) = &ran {
+        super::waits::record(name, &String::from_utf8_lossy(&output.stderr), placement::now());
+    }
+    match ran {
         Err(error) => {
             let why = format!("{program} did not start: {error}");
             Err(failed_launch(name, why.clone(), &why))
@@ -335,8 +339,11 @@ pub fn watch_failures(pages: &[record::FailurePage], send: &mut dyn FnMut(&str, 
     sent_all
 }
 
-pub fn report_failures(records: &[Record], at: f64, dry_run: bool) -> bool {
-    let pages = record::failure_pages(records, at);
+pub fn report_failures(records: &[Record], at: f64, dry_run: bool, live: &BTreeSet<String>) -> bool {
+    let pages: Vec<record::FailurePage> = record::failure_pages(records, at)
+        .into_iter()
+        .map(|page| if super::tasks::starved(&page.cause) { record::FailurePage { stderr: format!("{}\n{}", page.stderr, super::tasks::lines(&north_base::platform::host::name(), live).join("\n")), ..page } } else { page })
+        .collect();
     if dry_run {
         for page in &pages {
             println!("would page the coordinator: {}", page.line());

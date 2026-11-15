@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::claims;
@@ -68,8 +68,11 @@ impl Fleet {
         let host = Host::new(host_dir.clone());
         let started = !host.running();
         if started {
+            let starting = Instant::now();
             (self.hosts)(&host_dir, &spec, &record.provider, idle_exit(record), &account.recorded_label())?;
+            let socket = starting.elapsed();
             host.send(&runtime.handshake())?;
+            eprintln!("  session host waits: socket {:.1} s, first reply {:.1} s", socket.as_secs_f64(), (starting.elapsed() - socket).as_secs_f64());
         }
         hops::record(&trace, &hops::Span { session: record.name.clone(), hop: hops::Hop::HostOpen, start_ms: since_ms, end_ms: now_ms() });
         let held_unit = spare.map(|taken| taken.running.unit.clone());

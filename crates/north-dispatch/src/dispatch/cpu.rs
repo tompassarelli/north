@@ -3,15 +3,14 @@ use super::effects;
 use super::record;
 use super::slots::Host;
 use super::survey::Survey;
+use super::tasks::{leaves, DEPTH, SLICES};
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 const CGROUPS: &str = "/sys/fs/cgroup";
-const SLICES: [&str; 2] = ["system.slice", "user.slice"];
 const SAMPLE: Duration = Duration::from_secs(5);
 const TOP: usize = 10;
-const DEPTH: usize = 6;
 const KEY: &str = "dispatch-cpu-overload";
 const STATE: &str = "cpu-overload.json";
 
@@ -35,17 +34,17 @@ pub(super) fn page(survey: &Survey, at: f64) {
     let open = std::fs::read(record::directory().join(STATE)).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).is_some_and(|state| state["open"] == true);
     let over = measure.load > 2.0 * measure.cores;
     if over && !open {
-        open_episode(host, at);
+        open_episode(host, &survey.live, at);
     } else if !over && open {
         close_episode(host, at);
     }
 }
 
-fn open_episode(host: &Host, at: f64) {
+fn open_episode(host: &Host, live: &std::collections::BTreeSet<String>, at: f64) {
     let Some(measure) = host.measure else { return };
     let idle = measure.idle_cores.map_or_else(|| "unread".to_owned(), |idle| format!("{idle:.1}"));
     let summary = format!("north fleet dispatch on {}: load {:.1} on {:.0} cores, {idle} idle cores", host.name, measure.load, measure.cores);
-    let text = std::iter::once(format!("{summary}; the CPU consumers:")).chain(lines(&host.name)).collect::<Vec<_>>().join("\n");
+    let text = std::iter::once(format!("{summary}; the CPU consumers:")).chain(lines(&host.name)).chain([super::waits::slowest(&host.name, at)]).chain(super::tasks::lines(&host.name, live)).collect::<Vec<_>>().join("\n");
     match effects::page_condition(KEY, &text) {
         Ok(()) => effects::remember(STATE, &json!({"open": true, "at": at})),
         Err(why) => eprintln!("north fleet dispatch: CPU overload not paged: {why}"),
@@ -89,17 +88,6 @@ fn sample() -> Vec<(String, f64, usize)> {
     rows.sort_by(|a, b| b.1.total_cmp(&a.1));
     rows.truncate(TOP);
     rows
-}
-
-fn leaves(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
-    let children: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().filter_map(|entry| entry.ok().map(|entry| entry.path())).filter(|path| path.is_dir()).collect();
-    if children.is_empty() || depth == 0 {
-        out.push(dir.to_path_buf());
-    } else {
-        for child in &children {
-            leaves(child, depth - 1, out);
-        }
-    }
 }
 
 fn usage_usec(unit: &Path) -> Option<u64> {

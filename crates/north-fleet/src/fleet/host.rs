@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -14,8 +14,8 @@ use super::detached::{self, Prior};
 use super::model::ProviderName;
 use super::runtime::{HostSpec, binary, new_uuid};
 
-const SOCKET_WAIT: Duration = Duration::from_secs(10);
-const REPLY_WAIT: Duration = Duration::from_secs(10);
+const SOCKET_WAIT: Duration = Duration::from_secs(60);
+const REPLY_WAIT: Duration = Duration::from_secs(60);
 const TERM_GRACE: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(50);
 
@@ -134,7 +134,10 @@ impl Host {
         for frame in frames {
             writer.write_all(format!("{frame}\n").as_bytes())?;
             let mut reply = String::new();
-            replies.read_line(&mut reply)?;
+            replies.read_line(&mut reply).map_err(|error| match error.kind() {
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => NorthError::State(format!("the session host did not answer a frame within {} s", REPLY_WAIT.as_secs())),
+                _ => error.into(),
+            })?;
             if !reply.contains("host_seq") {
                 return Err(NorthError::State(format!("session host refused a frame: {}", reply.trim())));
             }
@@ -233,7 +236,7 @@ impl Host {
             }
             std::thread::sleep(POLL);
         }
-        Err(NorthError::State("session host did not open its socket".into()))
+        Err(NorthError::State(format!("session host did not open its socket within {} s", SOCKET_WAIT.as_secs())))
     }
 }
 

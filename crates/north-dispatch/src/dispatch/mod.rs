@@ -64,6 +64,7 @@ mod spin;
 mod stops;
 mod strands;
 mod survey;
+mod tasks;
 pub use survey::{record_closed_reports, refresh_fleet_listings, spend_now};
 mod tier;
 pub mod shares;
@@ -72,6 +73,7 @@ pub mod waste;
 mod tries;
 mod work;
 mod wait;
+mod waits;
 #[cfg(test)]
 mod backlog_tests;
 #[cfg(test)]
@@ -281,7 +283,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     if let Err(why) = &told {
         eprintln!("north fleet dispatch: {why}");
     }
-    let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run);
+    let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run, &survey.live);
     let watched = freeze::watch(&survey.here, frozen, dry_run, now);
     disk::print(&survey, dry_run);
     if !dry_run {
