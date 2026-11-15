@@ -106,23 +106,20 @@ fn unreviewed_landing(directory: &Path, gate: Option<&str>, commit: &str, accept
     [crossed, after_gate, unaccepted].into_iter().all(std::convert::identity)
 }
 
-/// The test functions the lane `fork..head` removes from each Rust file it changes, by name: those its base defines and its head does not, whether it deletes or renames them.
+/// The test functions the lane `fork..head` removes, by name: those the Rust files it changes define at its base and none of them defines at its head, so a test it renames counts and one it moves between files does not.
 fn deleted_tests(directory: &Path, fork: &str, head: &str, files: &[String]) -> Vec<String> {
-    files
-        .iter()
-        .filter(|file| file.ends_with(".rs"))
-        .flat_map(|file| test_functions(&source_at(directory, fork, file)).difference(&test_functions(&source_at(directory, head, file))).cloned().collect::<Vec<_>>())
-        .collect()
+    let defined = |revision: &str| files.iter().filter(|file| file.ends_with(".rs")).flat_map(|file| test_functions(&source_at(directory, revision, file))).collect::<BTreeSet<_>>();
+    defined(fork).difference(&defined(head)).cloned().collect()
 }
 
-/// The refusal of the shadow gate `DELETIONS` for the lane `base..head`: the test functions it removes, unless it is an exact revert of main or holds a reviewer accept of its patch from a session that did not author it.
+/// The refusal of the gate `DELETIONS` for the lane `base..head`: the test functions it removes, unless it is an exact revert of main or holds a reviewer accept of its patch from a session that did not author it.
 fn deleted_refusal(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<Option<String>, String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
     let deleted = deleted_tests(directory, &fork, head, &files);
     let reverting = patch_id(directory, &fork, head).ok().and_then(|patch| reverted(directory, &fork, head, &patch));
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
-    Ok(Some(deleted).filter(|deleted| !deleted.is_empty()).filter(|_| reverting.is_none()).filter(|_| accepted.is_empty()).map(|deleted| format!("the lane deletes test functions {} and holds no review accept of its patch {patch} from a reviewer session that did not author the lane", deleted.join(", "))))
+    Ok(Some(deleted).filter(|deleted| !deleted.is_empty()).filter(|_| reverting.is_none()).filter(|_| accepted.is_empty()).map(|deleted| format!("the lane deletes test functions {} and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", deleted.join(", "))))
 }
 
 fn source_at(directory: &Path, revision: &str, file: &str) -> String {
@@ -162,19 +159,30 @@ pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, fini
     let outcome = each_commit(directory, base, head, |from, to| check_listed(directory, base, from, to, accepts, &finished));
     let fork = git::merge_base(directory, base, head);
     let deletions = deleted_refusal(directory, base, head, accepts, &finished);
-    holdlist::record(state, DELETIONS, (head, patch_id(directory, &fork, head).ok().as_deref()), deletions.as_ref().ok().and_then(|found| found.as_deref()));
+    let deletions_enforced = holdlist::enforcing(directory, DELETIONS, [base, head]);
+    if !deletions_enforced {
+        holdlist::record(state, DELETIONS, (head, patch_id(directory, &fork, head).ok().as_deref()), deletions.as_ref().ok().and_then(|found| found.as_deref()));
+    }
+    let deletion_exit = match deletions {
+        Ok(Some(refusal)) | Err(refusal) if deletions_enforced => {
+            let _ = writeln!(out, "{DELETIONS}: refused: {refusal}");
+            1
+        }
+        _ => 0,
+    };
     let enforce = holdlist::enforcing(directory, SELF, [base, head]);
     if !enforce {
         holdlist::record(state, SELF, (head, patch_id(directory, &fork, head).ok().as_deref()), outcome.as_ref().err().map(String::as_str));
     }
-    match outcome {
+    let exit = match outcome {
         Ok(()) => 0,
         Err(refusal) => {
             let verb = if enforce { "refused" } else { "would refuse (shadow)" };
             let _ = writeln!(out, "{SELF}: {verb}: {refusal}");
             u8::from(enforce)
         }
-    }
+    };
+    exit.max(deletion_exit)
 }
 
 #[cfg(test)]
