@@ -114,9 +114,10 @@ fn replay(options: &Options) -> Result<Replayed, String> {
     if verdict == Verdict::Green {
         let _ = fs::remove_file(&log);
     }
-    let class = class(&verdict);
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    let class = described(&class(&verdict), &text);
     let failures = match verdict {
-        Verdict::Refused(_) | Verdict::RedMain(_) => named_failures(&log, &class),
+        Verdict::Refused(_) | Verdict::RedMain(_) => named_failures(&text, &class),
         _ => BTreeSet::new(),
     };
     Ok(Replayed { verdict: class, failures })
@@ -143,13 +144,26 @@ fn kept_log(checkout: &Path, base: &str) -> Result<PathBuf, String> {
     Ok(logs.join(format!("{micros}-replay-{}.log", &base[..base.len().min(12)])))
 }
 
-fn named_failures(log: &Path, class: &str) -> BTreeSet<Failure> {
-    let found = red_check::failures(&fs::read_to_string(log).unwrap_or_default());
+fn named_failures(log: &str, class: &str) -> BTreeSet<Failure> {
+    let found = red_check::failures(log);
     if !found.is_empty() {
         return found;
     }
-    let check = class.split("; log:").next().unwrap_or(class).trim();
-    BTreeSet::from([Failure::Line(check.to_owned())])
+    BTreeSet::from([Failure::Line(class.to_owned())])
+}
+
+fn described(class: &str, log: &str) -> String {
+    let (kind, detail) = class.split_once(' ').unwrap_or((class, ""));
+    if !matches!(kind, "failed" | "red-main") {
+        return class.to_owned();
+    }
+    let unrooted = |text: &str| text.split_whitespace().filter(|word| !word.trim_start_matches(['(', '"', '`']).starts_with('/')).collect::<Vec<_>>().join(" ");
+    let check = unrooted(detail.split("; log:").next().unwrap_or_default());
+    if !check.is_empty() {
+        return format!("{kind} {check}");
+    }
+    let lines: Vec<String> = log.lines().map(red_check::log_text).filter(|line| line.contains('✗') || line.starts_with("error")).take(3).map(unrooted).collect();
+    if lines.is_empty() { format!("{kind} with no failing line in its log") } else { format!("{kind} {}", lines.join(" | ")) }
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -178,6 +192,11 @@ pub fn verdict_of(output: &str) -> Option<&str> {
 
 pub fn failures_of(output: &str) -> BTreeSet<Failure> {
     output.lines().filter_map(|line| line.strip_prefix(FAILURE)).filter_map(Failure::from_key).collect()
+}
+
+/// Whether a replay reached no verdict, so it says nothing about the build that ran it.
+pub fn no_verdict(verdict: &str) -> bool {
+    matches!(verdict.split_whitespace().next(), Some("transient" | "deferred" | "error"))
 }
 
 pub fn recorded_class(verdict: &str) -> Option<&str> {

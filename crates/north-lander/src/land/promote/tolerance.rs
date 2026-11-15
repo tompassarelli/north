@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{LANDER_PATHS, Repository, Round, run_replay};
+use super::{LANDER_PATHS, Repository, Round, replay_twice};
 use crate::land::candidate::git;
 use crate::land::{enqueue, replay, sheriff};
 use north_landing::landing::red_check::Failure;
@@ -38,7 +38,7 @@ fn differs(why: String) -> Untolerated {
 
 pub(super) fn tolerated(held: &Held, repository: &Repository, checker: &str, round: &Round, base: &str, candidate: &replay::Replayed) -> Result<String, Untolerated> {
     let binary = held.binary.ok_or_else(|| differs("no held runtime to compare with".to_owned()))?;
-    let against = run_replay(binary, &repository.checkout, base, checker, &round.tickets()).map_err(differs)?;
+    let against = replay_twice(binary, &repository.checkout, base, checker, &round.tickets());
     if first_word(&against.verdict) != first_word(&candidate.verdict) {
         return Err(differs(format!("the held runtime replayed {}", first_word(&against.verdict))));
     }

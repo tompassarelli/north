@@ -198,6 +198,12 @@ fn run_replay(binary: &Path, checkout: &Path, base: &str, checker: &str, tickets
     }
 }
 
+fn replay_twice(binary: &Path, checkout: &Path, base: &str, checker: &str, tickets: &[PathBuf]) -> replay::Replayed {
+    let once = || run_replay(binary, checkout, base, checker, tickets).unwrap_or_else(|error| replay::Replayed { verdict: format!("error {error}"), failures: Default::default() });
+    let first = once();
+    if replay::no_verdict(&first.verdict) { once() } else { first }
+}
+
 fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str, divergences: &mut Vec<Divergence>, unreached: &mut Vec<String>) -> usize {
     let mut replayed = 0;
     for round in recorded(&repository.queue.join("done"), ROUNDS) {
@@ -215,10 +221,10 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
             println!("north land promote: round {lanes} recorded {class}: not replayable, the lander did not record the main it was decided on");
             continue;
         };
-        let outcome = run_replay(binary, &repository.checkout, &base, checker, &round.tickets()).unwrap_or_else(|error| replay::Replayed { verdict: format!("error {error}"), failures: Default::default() });
+        let outcome = replay_twice(binary, &repository.checkout, &base, checker, &round.tickets());
         let verdict = outcome.verdict.clone();
         let shown = verdict.split_whitespace().next().unwrap_or_default();
-        if matches!(shown, "transient" | "deferred" | "error") && !replay::same(&round.verdict, &verdict) {
+        if replay::no_verdict(&verdict) && !replay::same(&round.verdict, &verdict) {
             println!("north land promote: round {lanes} on {} recorded {class} but the candidate's replay reached no verdict: {verdict}", &base[..base.len().min(12)]);
             unreached.push(format!("round {lanes}: {verdict}"));
             continue;

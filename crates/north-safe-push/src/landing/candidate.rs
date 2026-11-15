@@ -61,7 +61,7 @@ pub struct LandCheckResult {
 pub enum Reached {
     DependenciesFailed,
     CrateFetchFailed { lock_changed: bool },
-    ScansRefused,
+    ScansRefused(Gate),
     /// A scan that could not judge the lane, such as the private-kind judge timing out, exited no verdict.
     ScansNoVerdict,
     LandChecks(LandCheckResult),
@@ -72,7 +72,7 @@ pub fn classify(head: &str, reached: &Reached, log: &str) -> Verdict {
         Reached::DependenciesFailed => return Verdict::Transient("bun install failed".to_owned()),
         Reached::CrateFetchFailed { lock_changed: true } => return Verdict::Refused("cargo fetch --locked failed for the Cargo.lock this lane changed".to_owned()),
         Reached::CrateFetchFailed { lock_changed: false } => return Verdict::Transient("cargo fetch --locked failed".to_owned()),
-        Reached::ScansRefused => return Verdict::Refused(last_actions_run(log).unwrap_or_default()),
+        Reached::ScansRefused(gate) => return Verdict::Refused(format!("{} refused: {}", gate.label(), refusing_line(log))),
         Reached::ScansNoVerdict => return Verdict::Transient("a scan reached no verdict, such as the private-kind judge timing out".to_owned()),
         Reached::LandChecks(checks) => checks,
     };
@@ -91,6 +91,12 @@ pub fn classify(head: &str, reached: &Reached, log: &str) -> Verdict {
     } else {
         Verdict::Refused(last_actions_run(log).unwrap_or_default())
     }
+}
+
+fn refusing_line(log: &str) -> &str {
+    let lines = || log.lines().map(str::trim).filter(|line| !line.is_empty());
+    let marked = lines().find_map(|line| line.split_once("✗ ").map(|(_, rest)| rest.trim_end_matches(" NOT pushed.").trim_end_matches(';')));
+    marked.or_else(|| lines().next_back()).unwrap_or("the scan printed no line")
 }
 
 fn last_actions_run(log: &str) -> Option<String> {
@@ -196,7 +202,7 @@ fn observe(shell: &Shell, timeline: &Timeline, root: &str, origin_url: &str, (ba
                 let lane = landing_refusals::Lane { at: "candidate", root, branch: "", head };
                 lane.record(&state_home(), gate.label(), &format!("north land scan {} exited {code}", target.arguments(gate).unwrap_or_default().join(" ")));
             }
-            Err(Refused(_)) => return Observed::Done(Facts { reached: Reached::ScansRefused, ran: false }),
+            Err(Refused(_)) => return Observed::Done(Facts { reached: Reached::ScansRefused(gate), ran: false }),
         }
     }
     land_checks(shell, timeline, root, (base, head), claimed)
