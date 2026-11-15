@@ -67,22 +67,32 @@ mod tests {
         let named = |path: &Path| path.display().to_string();
         let work = home.join("eval-data/eval-a/work/task-1");
         let arm_lane = work.join("p/worktrees/worker");
-        let other_arm = home.join("eval-data/eval-a/work/task-2/p/worktrees/worker");
-        for directory in [work.join("p/main/.git"), work.join("state/north/fleet/worker"), arm_lane.join("src"), other_arm.clone(), home.join("eval-data/eval-a/work/task-3")] {
+        let second = work.join("p/worktrees/second");
+        let other_work = home.join("eval-data/eval-a/work/task-2");
+        let other_arm = other_work.join("p/worktrees/worker");
+        let fleet = work.join("state/north/fleet/worker");
+        for directory in [work.join("p/main/.git"), fleet.clone(), arm_lane.join("src"), second.clone(), other_arm.clone()] {
             std::fs::create_dir_all(directory).unwrap();
         }
-        let arm_environment = |root: &Path| [("HOME".to_owned(), home.display().to_string()), ("NORTH_TEST_ROOT".to_owned(), root.display().to_string())];
-        let arm = Context::from_request("", &arm_lane, &arm_environment(&work.join("state")));
+        let record = |lane: &Path| Some((fleet.clone(), serde_json::json!({ "name": "worker", "cwd": lane })));
+        let environment = |root: &Path| [("HOME".to_owned(), named(home)), ("NORTH_TEST_ROOT".to_owned(), named(&root.join("state")))];
+        let arm = Context::from_request("", &arm_lane, &environment(&work)).with_recorded(record(&arm_lane));
         let arm_file = named(&arm_lane.join("src/new.rs"));
         assert_eq!(outside(&arm, std::slice::from_ref(&arm_file), None), None);
-        for path in [work.join("state/north/fleet/worker/session.json"), work.join("p/main/file"), other_arm.join("file")] {
-            assert_eq!(outside(&arm, &[named(&path)], None), Some(named(&path)));
-        }
-        let unmarked = Context::from_request("", &arm_lane, &[("HOME".to_owned(), home.display().to_string())]);
-        let elsewhere = Context::from_request("", &arm_lane, &arm_environment(&home.join("eval-data/eval-a/work/task-3/state")));
-        let beside = Context::from_request("", &arm_lane, &arm_environment(&home.join("state")));
-        for other in [&unmarked, &elsewhere, &beside] {
-            assert_eq!(outside(other, std::slice::from_ref(&arm_file), None), Some(arm_file.clone()));
+        let forged_root = Context::from_request("", &other_arm, &environment(&other_work)).with_recorded(record(&arm_lane));
+        let beside = Context::from_request("", &second, &environment(&work)).with_recorded(record(&arm_lane));
+        let unrecorded = Context::from_request("", &arm_lane, &environment(&work));
+        let crossing = Context::from_request("", &other_arm, &environment(&work)).with_recorded(record(&other_arm));
+        let refused = [
+            (&arm, fleet.join("session.json")),
+            (&arm, work.join("p/main/file")),
+            (&forged_root, other_arm.join("file")),
+            (&beside, second.join("file")),
+            (&unrecorded, arm_lane.join("src/new.rs")),
+            (&crossing, other_arm.join("file")),
+        ];
+        for (context, path) in refused {
+            assert_eq!(outside(context, &[named(&path)], None), Some(named(&path)));
         }
     }
 

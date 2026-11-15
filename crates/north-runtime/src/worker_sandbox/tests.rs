@@ -392,7 +392,7 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     for directory in [state.join("threads"), state.join("convo"), state.join("north/profiles"), state.join("north/fleet"), state.join("north/land"), main.clone()] {
         std::fs::create_dir_all(directory).unwrap();
     }
-    let context = Context { home, cwd: main, uid: 0, user_runtime: root.path().join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
+    let context = Context { home, cwd: main, uid: 0, user_runtime: root.path().join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), eval_lane: None, runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
     let roots = removable(&context);
     for store in ["threads", "convo", "north/profiles", "north/fleet"] {
         let store = state.join(store).canonicalize().unwrap();
@@ -406,7 +406,7 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     let lease = state.join(north_control_plane::LEASE_DATABASE);
     let guarded = [cache, lease.clone(), PathBuf::from(format!("{}-wal", lease.display())), PathBuf::from(format!("{}-shm", lease.display()))];
     for land_check in [false, true] {
-        let context = Context { home: context.home.clone(), cwd: context.cwd.clone(), uid: 0, user_runtime: context.user_runtime.clone(), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check };
+        let context = Context { home: context.home.clone(), cwd: context.cwd.clone(), uid: 0, user_runtime: context.user_runtime.clone(), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), eval_lane: None, runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check };
         let (roots, written) = (removable(&context), super::writable(&context, &removable(&context)));
         assert!(!guarded.iter().any(|guard| roots.iter().chain(&written).any(|path| guard.starts_with(path) || path.starts_with(guard))), "a worker may write or remove one of {guarded:?}: the private-blob cache the private-file refusal trusts, or the control-plane lease the lander's push gate trusts (land check: {land_check})");
     }
@@ -430,7 +430,7 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
         std::fs::create_dir_all(directory).unwrap();
     }
     std::os::unix::fs::symlink("runtimes/a", state.join("current")).unwrap();
-    let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, user_runtime: home.join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()), session: None, agent_socket: None, offload_slot: None, land_check: false };
+    let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, user_runtime: home.join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), eval_lane: None, runtimes: Some(runtimes.clone()), session: None, agent_socket: None, offload_slot: None, land_check: false };
     let hidden: Vec<PathBuf> = super::lane_only::hidden(&context, None, &[]).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
     assert!(!hidden.iter().any(|path| runtimes.join("a/tree/bin").starts_with(path)), "the north runtime is hidden: {hidden:?}");
     assert!(hidden.contains(&state.join("profiles")), "the agent state beside the runtime is readable: {hidden:?}");
@@ -514,7 +514,7 @@ fn a_confined_write_child() {
     };
     let home = PathBuf::from(home);
     let lane_only = std::env::var_os(WRITE_DOMAIN).is_some_and(|domain| domain == "lane");
-    let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, user_runtime: home.join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
+    let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, user_runtime: home.join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), eval_lane: None, runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check: false };
     let confined = if lane_only {
         super::confine_to_lane(&context, &[])
     } else {

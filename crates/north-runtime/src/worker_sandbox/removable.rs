@@ -7,7 +7,7 @@ use super::except::{Entries, beneath_except};
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
 
-const HOST_PLACED: [&str; 6] = ["HOME", "NORTH_TEST_ROOT", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "CARGO_HOME", super::sockets::AGENT_ENV];
+const HOST_PLACED: [&str; 5] = ["HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "CARGO_HOME", super::sockets::AGENT_ENV];
 const CLIENT_PLACED: [&str; 2] = ["TMPDIR", "CARGO_TARGET_DIR"];
 
 /// Where a worker command runs, read from its environment.
@@ -24,6 +24,7 @@ pub struct Context {
     pub cargo_target: Option<PathBuf>,
     pub named_lanes: Vec<PathBuf>,
     pub named_projects: Vec<PathBuf>,
+    pub eval_lane: Option<PathBuf>,
     pub runtimes: Option<PathBuf>,
     pub session: Option<String>,
     pub agent_socket: Option<PathBuf>,
@@ -37,10 +38,19 @@ impl Context {
         Self::from_env_in(command, &std::env::current_dir().unwrap_or_default())
     }
 
-    /// The context of `command`, run from `cwd` with this process's environment: the hook of a file tool judges the path it names as a command would be.
+    /// The context of `command`, run from `cwd` with this process's environment: the hook of a file tool judges the path it names as a command would be. An evaluation arm's worker also reaches the lane its own launch record names ([`Self::with_recorded`]), the record of the fleet session this process's cgroup runs in, never a root its environment names.
     pub fn from_env_in(command: &str, cwd: &Path) -> Self {
         let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
-        Self::with(command, cwd.to_path_buf(), set)
+        let context = Self::with(command, cwd.to_path_buf(), set);
+        let in_eval = context.cwd.starts_with(context.home.join(EVAL_DATA));
+        let own = in_eval.then(|| lane_grant::own_session(&Peer::of(std::process::id()), &Host::own(), "").ok()).flatten();
+        context.with_recorded(own)
+    }
+
+    /// This context with the lane of an evaluation arm's worker, read from `own`, the directory and launch record of its own fleet session ([`eval_lane`]). Unlike a lane under `~/code`, it adds its project's git state but not the worktrees directory beside it, so the worker creates no second worktree there.
+    pub(super) fn with_recorded(mut self, own: Option<(PathBuf, serde_json::Value)>) -> Self {
+        self.eval_lane = own.and_then(|(directory, record)| eval_lane(&self.home, &directory, &record));
+        self
     }
 
     /// The context of `command` when another process runs it in `cwd` with `environment`: the broker reads the handoff it starts from the request the worker command sent, not from its own directory and environment.
@@ -59,8 +69,7 @@ impl Context {
     fn with(command: &str, cwd: PathBuf, set: impl Fn(&str) -> Option<PathBuf>) -> Self {
         let uid = rustix::process::getuid().as_raw();
         let home = set("HOME").unwrap_or_default();
-        let mut named = named(&home, command);
-        named.lanes.extend(eval_lane(&home, &cwd, set("NORTH_TEST_ROOT").as_deref()));
+        let named = named(&home, command);
         Self {
             home,
             cwd,
@@ -74,6 +83,7 @@ impl Context {
             cargo_target: set("CARGO_TARGET_DIR"),
             named_lanes: named.lanes,
             named_projects: named.projects,
+            eval_lane: None,
             runtimes: runtimes(),
             session: set("NORTH_FLEET_SESSION").and_then(|session| session.into_os_string().into_string().ok()),
             agent_socket: set(super::sockets::AGENT_ENV),
@@ -117,6 +127,7 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     }
     roots.extend(projects(context).iter().filter_map(|project| check_lane(project)));
     roots.extend(lanes(context));
+    roots.extend(context.eval_lane.clone());
     roots.extend(super::buck::daemon_dirs(context));
     roots
 }
@@ -146,7 +157,8 @@ pub(super) fn projects(context: &Context) -> Vec<PathBuf> {
 
 /// The git common directories of the projects a command run from `context` works in, those of its lanes among them, each once, read only from their main checkouts, whose `.git` a worker may not write: a lane's gitfile and a worktree's `commondir` lie where a worker writes, so a common directory read through them is whichever one the worker names, and a domain made from it could write and remove beneath that one (south#118).
 pub(super) fn project_git_common_dirs(context: &Context) -> Vec<PathBuf> {
-    let mut commons: Vec<PathBuf> = projects(context).iter().filter_map(|project| main_common_dir(&project.join("main"))).collect();
+    let eval_project = context.eval_lane.as_deref().and_then(Path::parent).and_then(Path::parent).map(Path::to_path_buf);
+    let mut commons: Vec<PathBuf> = projects(context).into_iter().chain(eval_project).filter_map(|project| main_common_dir(&project.join("main"))).collect();
     commons.sort();
     commons.dedup();
     commons
@@ -204,16 +216,18 @@ pub(super) fn lane(home: &Path, cwd: &Path) -> Option<PathBuf> {
     Some(project.join("worktrees").join(slug))
 }
 
-/// The lane an evaluation arm's worker runs in: `~/eval-data/.../WORK/p/worktrees/SLUG`, when `cwd` lies in it and the arm's fixture root `test_root` (`NORTH_TEST_ROOT`, which the arm sets to `WORK/state`) names that WORK directory; no other directory under `eval-data` is a lane.
-fn eval_lane(home: &Path, cwd: &Path, test_root: Option<&Path>) -> Option<PathBuf> {
-    let root = test_root?;
-    let plain = root.components().all(|part| matches!(part, Component::Normal(_) | Component::RootDir));
-    let inside = root.strip_prefix(home.join("eval-data")).ok().is_some_and(|rest| rest.components().count() > 1);
-    let worktrees = root.parent().filter(|_| plain && inside)?.join("p/worktrees");
-    match cwd.strip_prefix(&worktrees).ok()?.components().next()? {
-        Component::Normal(slug) => Some(worktrees.join(slug)),
-        _ => None,
-    }
+const EVAL_DATA: &str = "eval-data";
+const EVAL_FLEET: &str = "state/north/fleet";
+
+/// The lane of an evaluation arm's worker whose launch record `record` lies in the fleet directory `directory`: the lane the record names ([`lane_grant::own_lane`]) when, as real paths, the fleet is `WORK/state/north/fleet` under `~/eval-data` and that lane is `WORK/p/worktrees/SLUG` of the same WORK, so neither the working directory, nor a second worktree beside the lane, nor a link out of WORK reaches another directory.
+fn eval_lane(home: &Path, directory: &Path, record: &serde_json::Value) -> Option<PathBuf> {
+    let fleet = directory.canonicalize().ok()?.parent()?.to_path_buf();
+    let work = fleet.ends_with(EVAL_FLEET).then(|| fleet.ancestors().nth(3)).flatten()?;
+    let data = home.canonicalize().ok()?.join(EVAL_DATA);
+    work.strip_prefix(&data).ok().filter(|rest| rest.components().count() > 0)?;
+    let lane = lane_grant::own_lane(record["name"].as_str()?, record).ok()?.canonicalize().ok()?;
+    let slug = lane.strip_prefix(work.join("p/worktrees")).ok()?;
+    matches!(slug.components().collect::<Vec<_>>().as_slice(), [Component::Normal(_)]).then_some(lane)
 }
 
 /// What `command` names by absolute path (`~/code/PROJECT` and `~/code/PROJECT/worktrees/SLUG`, also written with `~` or `$HOME`).
