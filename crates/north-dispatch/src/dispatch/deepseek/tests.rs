@@ -168,3 +168,18 @@ fn a_resting_session_stops_counting_against_the_provider_cap_once_its_review_job
     assert_eq!(super::counted(&lists, &BTreeSet::new()), 4);
     assert_eq!(super::counted(&lists, &queued), 2);
 }
+
+#[test]
+fn deepseek_never_staffs_a_confinement_box() {
+    let hosts = vec![host("nexus", 6, Ok(0)), host("whiterabbit", 8, Ok(0))];
+    let accounts = vec![sized("claude:a", &["nexus"], MAX_5X, Room { five_hour: 80.0, week: 80.0, week_reset_h: 100.0 })];
+    let mut confinement = issue("north", 1485, "- [ ] A worker client is given no project or local setting source, only its profile settings.\n- [ ] A session's lane grant covers every lane its record names, in any project.", &[]);
+    confinement.title = "Worker confinement holds from kernel-held facts through reads, settings, launches and the agent runtime".into();
+    let mut planned = survey(vec![confinement], hosts, accounts);
+    planned.deepseek = Seen { settings: Settings { hosts: vec!["whiterabbit".into()], slot_cap: 4, ..Settings::read() }, ..Seen::default() };
+
+    let outcome = decide(&planned, "test");
+
+    let placed: Vec<(String, &str)> = outcome.launches.iter().map(|launch| (launch.item.to_string(), launch.account.as_str())).collect();
+    assert_eq!(placed, [("north#1485".to_owned(), "claude:a"), ("north#1485".to_owned(), "claude:a")], "the claude_only patterns of harness/opencode.toml keep worker confinement boxes on Claude");
+}
