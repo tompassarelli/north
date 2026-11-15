@@ -41,6 +41,9 @@ impl Fixture {
         }
         write_executable(&programs.join("ssh"), "#!/bin/sh\n");
         assert!(Command::new("sh").args(["-c", "git init -q && git remote add origin https://github.com/tompassarelli/north.git"]).current_dir(&main).status().unwrap().success());
+        let mirror = north_trusted_mirror::Mirror::repository(&main).unwrap();
+        assert!(Command::new("git").arg("init").arg("-q").arg("--bare").arg(&mirror).status().unwrap().success());
+        assert!(Command::new("git").arg("--git-dir").arg(&mirror).args(["config", "remote.origin.url", "https://github.com/tompassarelli/north.git"]).status().unwrap().success());
         write_executable(&shim.join("gh"), format!("#!/bin/sh\n# {}\necho 'echo the command the issue holds'\n", gh_shim::MARKER));
         write_executable(&lane.join("gh"), "#!/bin/sh\necho 'echo the command the lane holds'\n");
         std::fs::write(fleet.join(NAME).join("host.scope"), "north-session-398cca43.scope\n").unwrap();
@@ -129,4 +132,19 @@ fn a_session_placed_on_a_build_host_runs_its_box_check_from_its_own_unit() {
     });
     let (code, _, stderr) = fixture.ask(CGROUP, &words, &fixture.lane);
     assert_eq!(code, 0, "a check asked after the session's first ended is run: {stderr}");
+}
+
+#[test]
+fn a_done_when_check_reads_the_origin_from_the_trusted_mirror() {
+    let fixture = Fixture::new();
+    let mirror = north_trusted_mirror::Mirror::repository(&fixture.main).unwrap();
+    assert!(Command::new("git").arg("--git-dir").arg(&mirror).args(["config", "remote.origin.url", "https://github.com/tompassarelli/wisp.git"]).status().unwrap().success());
+    assert!(Command::new("git").args(["remote", "set-url", "origin", "https://github.com/tompassarelli/north.git"]).current_dir(&fixture.main).status().unwrap().success());
+    let (code, stdout, stderr) = fixture.ask(CGROUP, &["task", "check", "--done-when", "--box", BOX, ISSUE], &fixture.lane);
+    assert_eq!((code, stdout.as_str()), (126, ""), "a main checkout whose own origin a worker repointed at the issue's repository started the checker: {stderr}");
+    assert!(stderr.contains("tompassarelli/wisp") && stderr.contains("which is not tompassarelli/north"), "{stderr}");
+    std::fs::remove_dir_all(&mirror).unwrap();
+    let (code, stdout, stderr) = fixture.ask(CGROUP, &["task", "check", "--done-when", "--box", BOX, ISSUE], &fixture.lane);
+    assert_eq!((code, stdout.as_str()), (126, ""), "a host with no trusted mirror started the checker: {stderr}");
+    assert!(stderr.contains("no trusted mirror") && !mirror.exists(), "the broker made a mirror from the main checkout a worker writes: {stderr}");
 }

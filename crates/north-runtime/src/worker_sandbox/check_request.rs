@@ -1,10 +1,10 @@
-//! The Done-when check the outside broker runs for a session whose domain keeps the ledger and the checker's lock unwritable (north#1137): a session asks for the check of one box of the issue it was launched for, one check at a time, and never writes its verdict. The request is the words `task check --done-when --box TEXT OWNER/REPO#N` and nothing else of the caller's: no directory, no environment and no option reach the process the broker starts. That process is the broker's own north as the checker, in the main checkout its home registers for the issue's repository, which no worker domain writes and whose origin it has read to be that repository, with the environment the broker gives an offload's process (offload_request.rs) and its `PATH` behind the gh shim under the asking session's name. The checker reads the command from the issue, runs it in a new worker domain on its own checkout of origin/main, so a command someone wrote into an issue has a session's reach and no more, and writes the ledger record, the Evidence stamp and the tick itself, outside that domain.
+//! The Done-when check the outside broker runs for a session whose domain keeps the ledger and the checker's lock unwritable (north#1137): a session asks for the check of one box of the issue it was launched for, one check at a time, and never writes its verdict. The request is the words `task check --done-when --box TEXT OWNER/REPO#N` and nothing else of the caller's: no directory, no environment and no option reach the process the broker starts. That process is the broker's own north as the checker, in the main checkout its home registers for the issue's repository, which no worker domain writes and whose trusted mirror's origin it has read to be that repository, with the environment the broker gives an offload's process (offload_request.rs) and its `PATH` behind the gh shim under the asking session's name. The checker reads the command from the issue, runs it in a new worker domain on its own checkout of origin/main, so a command someone wrote into an issue has a session's reach and no more, and writes the ledger record, the Evidence stamp and the tick itself, outside that domain.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use north_base::platform::lead_assignment::{self, Checkable};
+use north_trusted_mirror::Mirror;
 use rustix::fs::{FlockOperation, flock};
 
 use super::lane_grant::{self, Host};
@@ -66,7 +66,7 @@ pub(super) fn granted(check: &Check, peer: &Peer, host: &Host, runtime: &Path, h
         return Err(format!("{} holds {}, and a session asks for the check of a box of its own task issue or one the coordinator assigned it only, not of {reference}", asking.name, if issues.is_empty() { "no issue".to_owned() } else { issues.join(", ") }));
     }
     let environment = environment(&asking.name, offload_request::environment(&host.environment, runtime, homes, None)?, &host.home)?;
-    let directory = main_checkout(check, &host.code, &environment)?;
+    let directory = main_checkout(check, &host.code)?;
     let arguments = ["task", "check", "--done-when", "--confined", "--box", &check.words, &reference].map(str::to_owned).to_vec();
     Ok(Granted { _turn: turn(&asking)?, session: asking.name, arguments, directory, environment })
 }
@@ -98,13 +98,17 @@ pub(super) fn turn_in(directory: &Path, name: &str, lock: &str) -> Result<File, 
     flock(&held, FlockOperation::NonBlockingLockExclusive).map(|()| held).map_err(|_| format!("{name} has a check running, and a session runs one at a time; ask again when it ends"))
 }
 
-/// The main checkout of the repository `check` names among the projects under `code` (`CODE/REPO/main`), as the broker places one (request_checkout.rs), whose origin, read from the repository that checkout keeps, is that repository.
-fn main_checkout(check: &Check, code: &[PathBuf], environment: &[(String, String)]) -> Result<PathBuf, String> {
+/// The main checkout of the repository `check` names among the projects under `code` (`CODE/REPO/main`), as the broker places one (request_checkout.rs), whose origin, read from the configuration of the trusted mirror beside it and never from the checkout's own, which a worker writes, is that repository; a host with no such mirror is refused rather than given one made from that checkout.
+fn main_checkout(check: &Check, code: &[PathBuf]) -> Result<PathBuf, String> {
     let slug = format!("{}/{}", check.owner, check.repository);
     let main = code.iter().find_map(|root| request_checkout::registered(code, &root.join(&check.repository).join("main")).ok()).ok_or_else(|| format!("this host keeps no main checkout of {slug}"))?;
-    let read = Command::new("git").arg("-C").arg(&main.top).args(["config", "--get", "remote.origin.url"]).env_clear().envs(environment.iter().cloned()).envs(main.pinned()).output().map_err(|error| format!("git config in {}: {error}", main.top.display()))?;
+    let mirror = Mirror::repository(&main.top)?;
+    if !mirror.join("HEAD").is_file() {
+        return Err(format!("this host keeps no trusted mirror of {slug} at {}, and the check reads its origin from that mirror alone", mirror.display()));
+    }
+    let read = north_trusted_mirror::command(&mirror).args(["config", "--local", "--get", "remote.origin.url"]).output().map_err(|error| format!("git config in {}: {error}", mirror.display()))?;
     let origin = String::from_utf8_lossy(&read.stdout).trim().to_owned();
-    if origin_names(&origin, &slug) { Ok(main.top) } else { Err(format!("{} has the origin {origin:?}, which is not {slug}", main.top.display())) }
+    if origin_names(&origin, &slug) { Ok(main.top) } else { Err(format!("the trusted mirror {} of {} has the origin {origin:?}, which is not {slug}", mirror.display(), main.top.display())) }
 }
 
 /// Whether the remote address `origin` ends in the repository `slug` (`OWNER/REPO`), with or without `.git`.
