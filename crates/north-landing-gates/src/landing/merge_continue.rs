@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::merge_set::{self, Kind};
+use north_base::foundation::exit::NO_VERDICT_STATUS;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Operation {
@@ -83,10 +84,22 @@ fn confined(generator: Command, confinement: Confinement) -> Result<Command, Str
     Ok(jailed)
 }
 
-fn generate(worktree: &Path, command: &str, code: &[String], tree: Option<&str>, confinement: Confinement) -> Result<(), String> {
+/// Why an index could not be regenerated, and whether its generator exited `NO_VERDICT`, so the step reached no verdict on the lane.
+pub struct Unrefreshed {
+    pub message: String,
+    pub no_verdict: bool,
+}
+
+impl From<String> for Unrefreshed {
+    fn from(message: String) -> Self {
+        Self { message, no_verdict: false }
+    }
+}
+
+fn generate(worktree: &Path, command: &str, code: &[String], tree: Option<&str>, confinement: Confinement) -> Result<(), Unrefreshed> {
     let output = confined(generator(worktree, command, code, tree)?, confinement)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
     if !output.status.success() {
-        return Err(format!("{command} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(Unrefreshed { message: format!("{command} failed: {}", String::from_utf8_lossy(&output.stderr).trim()), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS) });
     }
     Ok(())
 }
@@ -106,7 +119,7 @@ fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation, 
         }
     }
     for (command, generator) in commands {
-        generate(worktree, command, generator, None, confinement)?;
+        generate(worktree, command, generator, None, confinement).map_err(|failed| failed.message)?;
     }
     let mut add = vec!["add", "--"];
     add.extend(conflicted);
@@ -187,7 +200,7 @@ pub fn fold(worktree: &Path, config: &Path, base: &str) -> Result<Vec<String>, S
     Ok(folded)
 }
 
-pub fn refresh(worktree: &Path, picked_onto: &str) -> Result<Vec<String>, String> {
+pub fn refresh(worktree: &Path, picked_onto: &str) -> Result<Vec<String>, Unrefreshed> {
     let rules = rules_at(worktree, picked_onto)?;
     let changed = stdout(worktree, &["diff", "--name-only", "-z", picked_onto, "HEAD"])?;
     let changed = changed.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();

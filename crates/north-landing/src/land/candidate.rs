@@ -243,9 +243,10 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
             return refuse(logs, name, "regenerate", &format!("could not read the regenerate rules: {error}; NOT landed."));
         }
     }
-    if let Err(error) = merge_continue::refresh(worktree, &picked_onto) {
+    if let Err(failed) = merge_continue::refresh(worktree, &picked_onto) {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-        return refuse(logs, name, "regenerate", &format!("could not regenerate an index the lane leaves stale: {error}; NOT landed."));
+        let kind = if failed.no_verdict { format!("regenerate.{}", north_base::foundation::exit::NO_VERDICT_KIND) } else { "regenerate".to_owned() };
+        return refuse(logs, name, &kind, &format!("could not regenerate an index the lane leaves stale: {}; NOT landed.", failed.message));
     }
     let found = match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
         Ok(found) => found,

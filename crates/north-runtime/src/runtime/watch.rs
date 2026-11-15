@@ -16,34 +16,44 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 mod exits;
+mod refusals;
 
 use exits::{capacity_parked, lasting_host_exits};
+use refusals::land_refusals;
 
 const WATCH_S: i64 = 10 * 60;
 const PRIOR_S: i64 = 60 * 60;
 const LEAST: usize = 2;
 const SAMPLE: usize = 3;
+const RATE_S: i64 = 5 * 60;
+const REFUSED_ALL: usize = 5;
 
 static READING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d[\d.]*").expect("a reading pattern"));
 
-/// What one span held: the sessions this host started, the reason of each launch that failed to start after placement let it through, and this host's session-host exits and land refusals; a launch placement refused or queued is a decision, not a failure, so no span holds it.
+/// What one span held: the sessions this host started, the reason of each launch that failed to start after placement let it through, and this host's session-host exits, the land tickets it landed, and its land refusals: `land_refusals` counts every refusal a gate decided and, from `settled` on, every refusal whose step reached no verdict, while `verdict_refusals` counts only the decided ones; a launch placement refused or queued is a decision, not a failure, so no span holds it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Window {
     pub(super) launches: usize,
     pub(super) failures: Vec<String>,
     pub(super) host_exits: Vec<String>,
     pub(super) land_refusals: usize,
+    pub(super) verdict_refusals: usize,
+    pub(super) landings: usize,
 }
 
 impl Window {
-    fn read(layout: &Layout, start: i64, end: i64, judged: i64) -> Self {
+    fn read(layout: &Layout, start: i64, end: i64, judged: i64, settled: i64) -> Self {
+        let settled = Timestamp::from_unix_seconds(settled.clamp(start, end));
         let (start, end) = (Timestamp::from_unix_seconds(start), Timestamp::from_unix_seconds(end));
+        let (refused, after) = (land_refusals(&layout.ledger(), (start, end)), land_refusals(&layout.ledger(), (settled, end)));
         let moves = |machine: &str, from: Option<&str>, to: &str| Store::open(&layout.ledger()).and_then(|store| store.moves_between(machine, from, to, start, end)).unwrap_or(0);
         Self {
             launches: moves("fleet-session", None, "live"),
             failures: launch_failures(&threads_ledger(layout), &start.iso(), &end.iso()),
             host_exits: lasting_host_exits(&layout.ledger(), (start, end), Timestamp::from_unix_seconds(judged), &capacity_parked(&threads_ledger(layout), &start.iso(), &end.iso())),
-            land_refusals: moves("land-ticket", None, "failed"),
+            land_refusals: refused.decided + after.no_verdict,
+            verdict_refusals: refused.decided,
+            landings: moves("land-ticket", None, "landed"),
         }
     }
 }
@@ -80,14 +90,14 @@ fn named(risen: &[&str], since: &Window, prior: &Window) -> String {
     risen.iter().map(|kind| describe(kind)).collect::<Vec<_>>().join(", ")
 }
 
-/// The kinds that ran worse in the `watched` seconds since the swap than over the hour before it: launch failures by `launches_failed_more`, and session-host exits and land refusals by rate, each counting only once it happened `LEAST` times, so one stray failure rolls nothing back.
+/// The kinds that ran worse in the `watched` seconds since the swap than over the hour before it: launch failures by `launches_failed_more`, and session-host exits and land refusals by rate, each counting only once it happened `LEAST` times, so one stray failure rolls nothing back. Land refusals rise by rate only over a window of `RATE_S` (a guess, settled by how far apart the lander's refusals fall), since a rate over the few tickets of the first minutes decides nothing, and a refusal whose step reached no verdict counts only after `RATE_S`, since inside it such a refusal is the install's own (north#1570), while after it a runtime whose every step reaches no verdict still rolls back. Under the floor, land refusals rose when every ticket decided since the swap was refused with a verdict and there were `REFUSED_ALL` of them (a guess: the laptop's lander refused at most 4 tickets in a row with no landing between them in the 7 days to 2026-11-15, over 4214 landings; that run measured per runtime over more weeks settles it), so a runtime that refuses every lane from its first second rolls back inside the floor.
 pub(super) fn risen(since: &Window, prior: &Window, watched: i64) -> Vec<&'static str> {
     let watched = watched.max(1) as f64;
     let rose = |since: usize, prior: usize| since >= LEAST && since as f64 / watched > prior as f64 / PRIOR_S as f64;
     [
         ("launch failures", launches_failed_more(since, prior)),
         ("session-host exits", rose(since.host_exits.len(), prior.host_exits.len())),
-        ("land refusals", rose(since.land_refusals, prior.land_refusals)),
+        ("land refusals", (watched >= RATE_S as f64 && rose(since.land_refusals, prior.land_refusals)) || (since.landings == 0 && since.verdict_refusals >= REFUSED_ALL)),
     ]
     .into_iter()
     .filter(|(_, worse)| *worse)
@@ -110,7 +120,7 @@ pub(super) fn judge(layout: &Layout, live: &str, swaps: &[Swap], at: i64, name: 
     if at - swap.at > WATCH_S || trusted {
         return Verdict::Quiet;
     }
-    let (since, prior) = (Window::read(layout, swap.at, at, at), Window::read(layout, swap.at - PRIOR_S, swap.at, at));
+    let (since, prior) = (Window::read(layout, swap.at, at, at, swap.at + RATE_S), Window::read(layout, swap.at - PRIOR_S, swap.at, at, swap.at - PRIOR_S));
     let risen = risen(&since, &prior, at - swap.at);
     if risen.is_empty() {
         return Verdict::Quiet;

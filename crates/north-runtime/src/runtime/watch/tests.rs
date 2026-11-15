@@ -268,3 +268,43 @@ fn a_window_a_rollback_opened_is_reported_and_rolls_nothing_back() {
     let Verdict::Report { why, .. } = judge(&layout, rolled_back_to, &swaps, 1_794_562_542, "whiterabbit") else { panic!("the window the rollback opened rolled back again") };
     assert_eq!(why, "session-host exits (burnb2-fin-op16, f-queue-wait) rose in the 148s since 439abac8 came back by rollback on whiterabbit, over the hour before");
 }
+
+fn land_ledger(state: &std::path::Path) -> (Layout, impl Fn(&str, i64, &str)) {
+    let layout = Layout { state: state.to_path_buf() };
+    drop(Store::open(&layout.ledger()).unwrap());
+    let db = rusqlite::Connection::open(layout.ledger()).unwrap();
+    let state = state.to_path_buf();
+    let decide = move |ticket: &str, at: i64, to: &str| {
+        let kind = if ticket.contains("regen") { "regenerate.no-verdict" } else { "rebase-compile" };
+        let cause = format!("failed {}", state.join(format!("{ticket}.{kind}.log")).display());
+        db.execute("INSERT INTO lifecycle_moves(machine, instance, from_state, to_state, at_ms, moved_by, cause, refused) VALUES ('land-ticket', ?1, 'queued', ?2, ?3, '{}', ?4, 0)", rusqlite::params![ticket, to, at * 1000, cause]).unwrap();
+    };
+    (layout, decide)
+}
+
+/// On 2026-11-15 the watch rolled whiterabbit back from c38f4787, which changes only tests, 109 s after its swap for two land refusals against one in the hour before: all three were regenerate steps whose head-north found no whole runtime and no build-ahead artifact and exited 75, so no gate reached a verdict (north#1570). A runtime whose every step reaches no verdict past the install, or that refuses every lane from its first second, still rolls back.
+#[test]
+fn the_2026_11_15_rollback_of_c38f4787_does_not_happen() {
+    let state = tempfile::tempdir().unwrap();
+    let (layout, decide) = land_ledger(state.path());
+    let (c38f, swapped) = ("c38f47870a4e57b1164a9548ff61f2db3fde1e59", 1_794_705_384);
+    decide("after-runs-1508-regen", 1_794_702_975, "failed");
+    decide("n1544-regen-patch", 1_794_705_457, "failed");
+    decide("derived-1537-regen", 1_794_705_476, "failed");
+    let swaps = [Swap { runtime: c38f.into(), at: swapped, estimated: false, rollback: false }];
+    assert_eq!(judge(&layout, c38f, &swaps, 1_794_705_493, "whiterabbit"), Verdict::Quiet);
+    assert_eq!(judge(&layout, c38f, &swaps, swapped + 400, "whiterabbit"), Verdict::Quiet, "the install's no-verdict refusals stay uncounted once the window holds a rate");
+    for (n, after) in [320, 340, 360].into_iter().enumerate() {
+        decide(&format!("late-{n}-regen"), swapped + after, "failed");
+    }
+    assert!(matches!(judge(&layout, c38f, &swaps, swapped + 400, "whiterabbit"), Verdict::RollBack { .. }), "no-verdict refusals past the install still roll a runtime back");
+
+    let state = tempfile::tempdir().unwrap();
+    let (layout, decide) = land_ledger(state.path());
+    for after in [20, 40, 60, 80, 100] {
+        decide(&format!("lane-{after}"), swapped + after, "failed");
+    }
+    assert!(matches!(judge(&layout, c38f, &swaps, swapped + 110, "whiterabbit"), Verdict::RollBack { .. }), "a runtime that refuses every lane rolls back under the floor");
+    decide("landed-105", swapped + 105, "landed");
+    assert_eq!(judge(&layout, c38f, &swaps, swapped + 110, "whiterabbit"), Verdict::Quiet, "a landing since the swap shows it does not refuse every lane");
+}

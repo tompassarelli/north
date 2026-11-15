@@ -15,6 +15,8 @@ pub const RED_MAIN: u8 = Code::RedMain as u8;
 pub const RED_MAIN_STATUS: i32 = Code::RedMain as i32;
 pub const NO_VERDICT: u8 = Code::NoVerdict as u8;
 pub const NO_VERDICT_STATUS: i32 = Code::NoVerdict as i32;
+/// The last word of a land refusal log's kind when the refusing step's program exited `NO_VERDICT`: the lander names that log `NAME.KIND.no-verdict.log`, and the runtime watch tells such a refusal apart from one a gate decided by it.
+pub const NO_VERDICT_KIND: &str = "no-verdict";
 pub const SLOTS_BUSY: u8 = Code::SlotsBusy as u8;
 pub const SLOTS_BUSY_STATUS: i32 = Code::SlotsBusy as i32;
 pub const ALREADY_PLACED: u8 = Code::AlreadyPlaced as u8;
