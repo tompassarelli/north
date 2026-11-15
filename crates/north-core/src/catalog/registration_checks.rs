@@ -442,6 +442,9 @@ pub(super) fn canonical(root: &Path) -> NorthResult<String> {
 }
 
 pub(super) fn fetch_main(root: &Path) -> NorthResult<String> {
+    if let Some(pinned) = pinned_beside(root, env::var_os(north_base::foundation::offload::BESIDE_ENV).map(PathBuf::from).as_deref()) {
+        return pinned;
+    }
     static FETCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
     let fetch = FETCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -466,6 +469,11 @@ pub(super) fn fetch_main(root: &Path) -> NorthResult<String> {
     let fetched = git_text(root, &["rev-parse", "--verify", &format!("{private}^{{commit}}")]);
     let _ = git_output(root, &["update-ref", "-d", &private]);
     fetched
+}
+
+fn pinned_beside(root: &Path, beside: Option<&Path>) -> Option<NorthResult<String>> {
+    let beside = fs::canonicalize(beside?).ok()?;
+    fs::canonicalize(root).ok()?.starts_with(&beside).then(|| git_text(root, &["rev-parse", "HEAD"]))
 }
 
 pub(super) fn git_text(root: &Path, arguments: &[&str]) -> NorthResult<String> {
@@ -513,3 +521,7 @@ fn resolve_cached<'a>(
     }
     Ok(&resolved[repo])
 }
+
+#[cfg(test)]
+#[path = "registration_checks_tests.rs"]
+mod tests;
