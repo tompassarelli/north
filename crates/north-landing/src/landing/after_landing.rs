@@ -9,79 +9,52 @@ use crate::platform::rolling_issue::{self, Tracker};
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD
 
 Run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
-in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
-for HEAD is not added again.";
-mod body;
-
-use body::{dropped_before, kept_boxes, render, split_sections};
+in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then file a child issue under the repository's open After-landing gate debt issue for each gate that failed on HEAD; a gate whose child is open already is not filed again.";
 
 const ADVISORY_FROM: &str = "north-after-landing-advisory-base";
-const MARKER: &str = "<!-- after-landing-gate: ";
 const TAIL_LINES: usize = 15;
-const BODY_LIMIT: usize = 60_000;
 const TITLE: &str = "After-landing gate debt";
+const FIELDS: &str = "Category: bug-known-cause\nSpec: measured\nScope: cross-module\nClass: a gate that runs after landing failed on a landed commit: the child names its gate and commit.\n";
+const STANDING_BODY: &str = "Gates that run after landing and failed. Each failed gate is a child issue of this one, fixed forward on main and closed by its own Done when.";
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Failure {
     pub gate: String,
     pub output: String,
+    pub check: String,
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum Filing {
-    Nothing,
-    Create { title: String, body: String },
-    Edit { number: u64, body: String },
-}
-
-pub struct Filed {
-    pub number: u64,
+pub struct Child {
+    pub parent: u64,
+    pub title: String,
     pub body: String,
 }
 
-pub fn filing(head: &str, date: &str, existing: Option<&Filed>, failures: &[Failure]) -> Filing {
+/// The children under the standing debt issue `parent` for HEAD's failed gates: one per gate, skipping a gate whose child is open under any commit.
+pub fn children(parent: u64, head: &str, date: &str, open_titles: &[String], failures: &[Failure]) -> Vec<Child> {
     let sha = short(head);
-    let current = existing.map_or("", |filed| filed.body.as_str());
-    let new: Vec<&Failure> = failures.iter().filter(|failure| !current.contains(&marker(sha, &failure.gate))).collect();
-    if new.is_empty() {
-        return Filing::Nothing;
-    }
-    let mut sections = split_sections(current);
-    sections.insert(0, section(sha, date, &new));
-    let (mut dropped, kept) = (dropped_before(current), kept_boxes(current));
-    while sections.len() > 1 && render(dropped, &kept, &sections).chars().count() > BODY_LIMIT {
-        sections.pop();
-        dropped += 1;
-    }
-    let body = render(dropped, &kept, &sections);
-    match existing {
-        Some(filed) => Filing::Edit { number: filed.number, body },
-        None => Filing::Create { title: TITLE.to_owned(), body },
-    }
+    failures
+        .iter()
+        .filter(|failure| {
+            let prefix = format!("{TITLE}: {} failed on ", failure.gate);
+            !open_titles.iter().any(|title| title.starts_with(&prefix))
+        })
+        .map(|failure| Child { parent, title: format!("{TITLE}: {} failed on {sha}", failure.gate), body: child_body(sha, date, failure) })
+        .collect()
 }
 
 fn short(head: &str) -> &str {
     &head[..head.len().min(12)]
 }
 
-fn marker(sha: &str, gate: &str) -> String {
-    format!("{MARKER}{sha} {gate} -->")
-}
-
-fn section(sha: &str, date: &str, failures: &[&Failure]) -> String {
-    let gates: Vec<&str> = failures.iter().map(|failure| failure.gate.as_str()).collect();
-    let mut text = String::new();
-    for failure in failures {
-        text.push_str(&marker(sha, &failure.gate));
-        text.push('\n');
-    }
-    text.push_str(&format!("### {sha} ({date}) gates: {}\n", gates.join(", ")));
-    for failure in failures {
-        let lines: Vec<&str> = failure.output.lines().collect();
-        let tail = lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n");
-        text.push_str(&format!("\n{}\n```\n{tail}\n```\n", failure.gate));
-    }
-    text
+fn child_body(sha: &str, date: &str, failure: &Failure) -> String {
+    let lines: Vec<&str> = failure.output.lines().collect();
+    let tail = lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n");
+    format!(
+        "{FIELDS}\nThe {} gate failed on {sha} ({date}), a commit already landed: fix it forward on main, then close this issue.\n\nDone when: `{}` exits 0.\n\n```text\n{tail}\n```\n",
+        failure.gate, failure.check
+    )
 }
 
 struct Args {
@@ -197,19 +170,35 @@ fn gate_and_file(args: &Args) -> Result<String, String> {
         return Ok(format!("every gate passed on {}", args.head));
     }
     let mut tracker = rolling_issue::Gh::of(&repo);
-    let existing = tracker.open(TITLE)?.map(|issue| Filed { number: issue.number, body: issue.body });
+    let Some(standing) = tracker.open(TITLE)? else {
+        tracker.create(TITLE, STANDING_BODY)?;
+        return Err(format!("{repo} has no open {TITLE} issue: the coordinator was asked to file it, and the {} failed gate(s) of {} were not filed as children; a rerun of this head files them under it", failures.len(), args.head));
+    };
+    let open: Vec<String> = tracker.listed(&format!("in:title \"{TITLE}\""))?.into_iter().map(|(_, title)| title).collect();
     let date = git(&main, &["log", "-1", "--format=%cs", &args.head])?;
-    match filing(&args.head, date.trim(), existing.as_ref(), &failures) {
-        Filing::Nothing => Ok(format!("{repo}#{} already names every failed gate", existing.map_or(0, |filed| filed.number))),
-        Filing::Edit { number, body } => {
-            tracker.edit(number, &body)?;
-            Ok(format!("added the new failures to {repo}#{number}"))
-        }
-        Filing::Create { title, body } => {
-            tracker.create(&title, &body)?;
-            Ok(format!("filed {title} in {repo}"))
+    let filed = children(standing.number, &args.head, date.trim(), &open, &failures);
+    if filed.is_empty() {
+        return Ok(format!("{repo}#{} already has an open child for every failed gate", standing.number));
+    }
+    let (mut created, mut refused) = (Vec::new(), Vec::new());
+    for child in &filed {
+        match file_child(&repo, child) {
+            Ok(line) => created.push(line),
+            Err(why) => refused.push(why),
         }
     }
+    if refused.is_empty() { Ok(created.join("; ")) } else { Err(refused.join("; ")) }
+}
+
+fn file_child(repo: &str, child: &Child) -> Result<String, String> {
+    let north = std::env::current_exe().map_err(|error| format!("cannot find the north binary: {error}"))?;
+    let parent = format!("{repo}#{}", child.parent);
+    let output = Command::new(&north)
+        .args(["issue", "child", &parent, "--title", &child.title, "--body", &child.body])
+        .output()
+        .map_err(|error| format!("cannot run {}: {error}", north.display()))?;
+    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)).trim().to_owned();
+    if output.status.success() { Ok(text) } else { Err(format!("{:?} was not filed under {parent}: {text}", child.title)) }
 }
 
 fn run_gates(main: &Path, args: &Args) -> Result<Vec<Failure>, String> {
@@ -321,7 +310,7 @@ pub fn repo_check_failures(tree: &Path, checks: &[(String, String)], base: &str,
                 Err(error) => format!("cannot run {command}: {error}"),
             };
             println!("after-landing: check {name} failed\n{output}");
-            Some(Failure { gate: name.clone(), output })
+            Some(Failure { gate: name.clone(), output, check: command.clone() })
         })
         .collect()
 }
@@ -342,7 +331,7 @@ pub fn repo_advisory_failures(tree: &Path, checks: &[(String, String)], base: &s
                 return None;
             }
             println!("after-landing: advisory {name} recorded as debt\n{output}");
-            Some(Failure { gate: name.clone(), output })
+            Some(Failure { gate: name.clone(), output, check: command.clone() })
         })
         .collect()
 }

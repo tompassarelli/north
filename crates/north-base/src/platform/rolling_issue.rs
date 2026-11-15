@@ -128,7 +128,7 @@ impl Tracker for Gh {
     }
 
     fn listed(&self, search: &str) -> Result<Vec<(u64, String)>, String> {
-        let found = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--search", search, "--json", "number,title"])?;
+        let found = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--limit", "500", "--search", search, "--json", "number,title"])?;
         Ok(found.as_array().into_iter().flatten().filter_map(|issue| Some((issue["number"].as_u64()?, issue["title"].as_str()?.to_owned()))).collect())
     }
 

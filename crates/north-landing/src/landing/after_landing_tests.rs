@@ -1,4 +1,4 @@
-use super::{Failure, Filed, Filing, filing};
+use super::{Child, Failure, children};
 
 #[test]
 fn an_advisory_after_landing_check_files_what_it_prints_on_stdout_even_when_it_exits_zero_and_not_its_stderr_notes() {
@@ -13,13 +13,16 @@ fn an_advisory_after_landing_check_files_what_it_prints_on_stdout_even_when_it_e
 }
 
 #[test]
-fn the_debt_issue_keeps_the_facet_lines_class_line_and_unticked_box_dispatch_needs_when_it_rewrites_a_body_that_lacks_them() {
-    let existing = Filed { number: 572, body: "Gates that run after landing and failed.\n\n<!-- after-landing-gate: aaaaaaaaaaaa code-health -->\n### aaaaaaaaaaaa (2026-11-05) gates: code-health\n".into() };
-    let failures = [Failure { gate: "code-health".into(), output: "hotspot".into() }];
-    let Filing::Edit { body, .. } = filing("bbbbbbbbbbbbbbbb", "2026-11-06", Some(&existing), &failures) else { panic!("an existing debt issue is edited") };
-    let header: Vec<&str> = body.lines().take_while(|line| !line.trim().is_empty()).collect();
-    assert!(header.iter().any(|line| line.starts_with("Category: ")) && header.iter().any(|line| line.starts_with("Class: ")), "dispatch refuses a bug issue with no Class: line in its header: {body}");
-    assert!(header.iter().any(|line| line.starts_with("Spec: ")) && header.iter().any(|line| line.starts_with("Scope: ")), "dispatch skips an issue with no Spec: or Scope: line: {body}");
-    assert!(body.lines().any(|line| line.starts_with("- [ ] ")), "dispatch staffs only an issue with an unticked box: {body}");
-    assert!(body.contains("<!-- after-landing-gate: aaaaaaaaaaaa code-health -->"), "the older section stays: {body}");
+fn a_failed_gate_is_filed_as_a_child_of_its_tracker() {
+    let failures = [Failure { gate: "code-health".into(), output: "hotspot".into(), check: "north land scan code-health base..head".into() }];
+    let filed: Vec<Child> = children(722, "bbbbbbbbbbbbbbbb", "2026-11-06", &[], &failures);
+    let [child] = filed.as_slice() else { panic!("one failed gate files one child: {filed:?}") };
+    assert_eq!(child.parent, 722);
+    assert!(child.body.contains("Done when: `north land scan code-health base..head` exits 0."), "a child names its runnable check: {}", child.body);
+    assert!(["Category: ", "Spec: ", "Scope: ", "Class: "].iter().all(|field| child.body.lines().any(|line| line.starts_with(field))), "dispatch needs the four header lines: {}", child.body);
+    assert!(!child.body.lines().any(|line| line.trim_start().starts_with("- [")), "a child holds no checkbox line: {}", child.body);
+    let open = [child.title.clone()];
+    assert!(children(722, "bbbbbbbbbbbbbbbb", "2026-11-06", &open, &failures).is_empty(), "an open child already files this gate");
+    let older_commit = ["After-landing gate debt: code-health failed on aaaaaaaaaaaa".to_owned()];
+    assert!(children(722, "bbbbbbbbbbbbbbbb", "2026-11-06", &older_commit, &failures).is_empty(), "an open child under an older commit already files this gate");
 }

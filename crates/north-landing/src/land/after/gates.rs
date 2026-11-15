@@ -75,7 +75,7 @@ pub fn run(landed: &Landed) -> Vec<Failure> {
         print!("{output}");
         println!("after-landing: gate {} {}", gate.name(), if passed { "passed" } else { "failed" });
         if !passed {
-            failures.push(Failure { gate: gate.name().to_owned(), output });
+            failures.push(Failure { gate: gate.name().to_owned(), output, check: format!("north land scan {} {}..{}", gate.name(), landed.base, landed.head) });
         }
     }
     failures

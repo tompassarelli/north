@@ -118,7 +118,7 @@ pub fn gate(landed: &Landed, link: &dyn Fn(&Path) -> Result<(), String>) -> Vec<
     if !north_concerns::PROJECTS.contains(&landed.project) {
         return Vec::new();
     }
-    let failure = |output: String| vec![Failure { gate: "concerns".to_owned(), output }];
+    let failure = |output: String| vec![Failure { gate: "concerns".to_owned(), output, check: format!("north check concerns {}", landed.project) }];
     let contracts = match at_base(landed, registry::PATH).map_or(Ok(Vec::new()), |text| attribute::contracts(&text)) {
         Ok(contracts) => contracts,
         Err(why) => return failure(format!("concerns.toml at {} does not read: {why}", landed.base)),
@@ -214,6 +214,7 @@ fn refusal(landed: &Landed, weighed: &Weighed) -> Failure {
     Failure {
         gate: format!("concerns: {} not reverted", weighed.concern),
         output: format!("contract concern {}, read by {} in one after-landing run: {}; a concern reverts only a landing whose parent reads green twice and which reads red twice the same way, so {} stays on main{}", weighed.verdicts(), landed.north, outcome(weighed.compared.pair), weighed.commit, weighed.outputs()),
+        check: format!("north check concerns {}", landed.project),
     }
 }
 
@@ -221,7 +222,7 @@ fn revert(landed: &Landed, lander: &Lander, commit: &str, weighed: &[Weighed]) -
     let names = weighed.iter().map(|weighed| weighed.concern.as_str()).collect::<Vec<_>>().join(", ");
     let verdicts = weighed.iter().map(Weighed::verdicts).collect::<Vec<_>>().join("; ");
     let outcome = queue(landed, lander, commit, &names, &verdicts);
-    Failure { gate: format!("concerns: {names}"), output: format!("contract concerns {verdicts}, read by {} in one after-landing run; {}", landed.north, outcome.unwrap_or_else(|why| format!("{commit} was not reverted: {why}"))) }
+    Failure { gate: format!("concerns: {names}"), output: format!("contract concerns {verdicts}, read by {} in one after-landing run; {}", landed.north, outcome.unwrap_or_else(|why| format!("{commit} was not reverted: {why}"))), check: format!("north check concerns {}", landed.project) }
 }
 
 fn queue(landed: &Landed, lander: &Lander, commit: &str, names: &str, verdicts: &str) -> Result<String, String> {
