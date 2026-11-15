@@ -93,8 +93,7 @@ impl Fleet {
                 LAND_WATCH => clears(text),
                 _ => false,
             },
-            Sender::Session(sender) => self.role_of(sender) == Some(Role::Reviewer) && !refuses(text),
-            Sender::Tom => false,
+            Sender::Session(_) | Sender::Tom => false,
         };
         held_notice && delivery != Delivery::Now && !text.starts_with(GATE) && from.author(text) == *from && self.role_of(name) == Some(Role::Lead)
     }
@@ -144,11 +143,6 @@ impl Fleet {
         self.spool().put(&row)?;
         Ok(row)
     }
-}
-
-fn refuses(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    ["not accepted", "reject", "refus"].iter().any(|word| lower.contains(word))
 }
 
 fn relayed_report(text: &str) -> bool {
@@ -260,13 +254,10 @@ mod tests {
         assert_eq!(fleet.send_message(&Sender::fleet(), OWNER, "[from worker] Split: two lanes.", Delivery::Queued).unwrap(), Sent::Held, "a relayed Split report woke the lead");
         assert_eq!(owner.frames.lock().unwrap().len(), 2, "a held relayed report woke the lead");
         live(&fleet, "commit-reviewer");
-        let record = fleet.root.join("commit-reviewer/session.json");
-        let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
-        json["role"] = "reviewer".into();
-        std::fs::write(&record, json.to_string()).unwrap();
-        assert_eq!(fleet.send_message(&Sender::Session("commit-reviewer".into()), OWNER, "ACCEPT abc.", Delivery::Queued).unwrap(), Sent::Held, "an accepting reviewer note woke the lead");
-        assert_eq!(fleet.send_message(&Sender::Session("commit-reviewer".into()), OWNER, "not accepted, abc.", Delivery::Queued).unwrap(), Sent::HandedIn, "a refusing reviewer note waited for the digest");
-        assert_eq!(owner.frames.lock().unwrap().len(), 3, "a refusal did not wake the lead");
+        for verdict in ["ACCEPT abc.", "not accepted, abc.", "HOLD abc, the head is not final."] {
+            assert_eq!(fleet.send_message(&Sender::Session("commit-reviewer".into()), OWNER, verdict, Delivery::Queued).unwrap(), Sent::HandedIn, "a reviewer verdict waited for the digest: {verdict}");
+        }
+        assert_eq!(owner.frames.lock().unwrap().len(), 5, "a reviewer verdict did not wake the lead");
 
         fleet.forget(OWNER).unwrap();
         assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled again", Delivery::Queued).unwrap(), Sent::Unreached);
