@@ -1,4 +1,4 @@
-//! `north depbox fetch|run -- COMMAND...`: runs the code a dependency brings (build scripts, proc macros, test binaries, install scripts) in a bubblewrap namespace with an empty home, runtime directory and secrets directory, where the checkout and the package caches are the only writable paths and the toolchain directories of home are read-only; `run` has no network, `fetch` shares it for installs and fetches. A call already inside a sandbox of the same mode runs its command directly, so a shim or land check nested in depbox enters no second sandbox.
+//! `north depbox fetch|run -- COMMAND...`: runs the code a dependency brings (build scripts, proc macros, test binaries, install scripts) in a bubblewrap namespace with an empty home, runtime directory and secrets directory, where the checkout and the package caches are the only writable paths (cargo's extracted crate sources only in `fetch`) and the toolchain directories of home are read-only; `run` has no network, `fetch` shares it for installs and fetches. A call already inside a sandbox of the same mode runs its command directly, so a shim or land check nested in depbox enters no second sandbox.
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -30,8 +30,10 @@ const WORKER_SANDBOX: &str = "--worker-sandbox";
 const HAND_OFF: &str = "--hand-off";
 pub const CACHES: [&str; 4] = [".bun/install/cache", ".cargo/registry", ".cargo/git", ".cache/nix"];
 pub const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
-pub const READS: [&str; 14] = [
-    ".cargo/bin", ".rustup", ".gitconfig", ".config/git", ".nix-profile", ".local/bin", ".local/share/north", ".local/state/north/runtimes", ".local/state/north/dev-shells", ".local/state/nix/profile", ".local/state/nix/profiles", ".local/lib/firn/cli", "code/nixos-config/pins", "code/north/pins",
+pub const CRATE_SOURCES: [&str; 2] = [".cargo/registry/src", ".cargo/git/checkouts"];
+pub const TRUSTED_BUILDS: &str = ".local/state/north/head-north";
+pub const READS: [&str; 15] = [
+    ".cargo/bin", ".rustup", ".gitconfig", ".config/git", ".nix-profile", ".local/bin", ".local/share/north", ".local/state/north/runtimes", ".local/state/north/dev-shells", ".local/state/nix/profile", ".local/state/nix/profiles", ".local/lib/firn/cli", "code/nixos-config/pins", "code/north/pins", TRUSTED_BUILDS,
 ];
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {
@@ -149,12 +151,7 @@ impl Sandbox {
             box_.arguments.push(alias.into());
         }
         box_.take_check();
-        let builds: &[&str] = if mode == Mode::Run { &BUILD_CACHES } else { &[] };
-        for directory in CACHES.iter().chain(builds).map(|directory| home.join(directory)) {
-            std::fs::create_dir_all(&directory).map_err(|error| (1, format!("{}: {error}", directory.display())))?;
-            box_.bind("--bind", &directory, &directory);
-            box_.binds.push(directory);
-        }
+        box_.bind_caches()?;
         for path in READS.iter().map(|path| home.join(path)).filter(|path| path.exists()) {
             box_.read(path);
         }
@@ -171,6 +168,20 @@ impl Sandbox {
             box_.binds.push(live);
         }
         Ok(box_)
+    }
+
+    /// Binds the package caches writable, and in `run` the build caches too, with cargo's extracted crate sources read-only inside them, since only `fetch`, which runs no build script, extracts them and a later build outside depbox compiles them; and makes the directory of the north builds head-north trusts, so a sandbox binds it read-only among the reads and keeps its own builds in the shared cache instead.
+    fn bind_caches(&mut self) -> Result<(), (u8, String)> {
+        let run = self.mode == Mode::Run;
+        let (builds, sources): (&[&str], &[&str]) = if run { (&BUILD_CACHES, &CRATE_SOURCES) } else { (&[], &[]) };
+        for (flag, directory) in CACHES.iter().chain(builds).map(|directory| ("--bind", directory)).chain(sources.iter().map(|directory| ("--ro-bind", directory))) {
+            let directory = self.home.join(directory);
+            std::fs::create_dir_all(&directory).map_err(|error| (1, format!("{}: {error}", directory.display())))?;
+            self.bind(flag, &directory, &directory);
+            self.binds.push(directory);
+        }
+        let _ = std::fs::create_dir_all(self.home.join(TRUSTED_BUILDS));
+        Ok(())
     }
 
     /// Takes from the gate the variables a land check set for this program, past depbox's own control variables, and binds the check's scratch directory through the descriptor that checked it, so no link swapped in between is followed.

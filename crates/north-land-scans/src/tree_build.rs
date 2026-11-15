@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use sha2::Digest as _;
+
 use north_base::platform::north_binary::north_binary;
 
 use crate::git;
@@ -31,7 +33,7 @@ pub fn prefetch(wanted: &Wanted, out: &mut impl std::io::Write) {
     let Some(destination) = ssh_destination(&host) else { return };
     let started = std::time::Instant::now();
     let _ = writeln!(out, "{caller}: building north for the tree on {host}, so this host builds none");
-    let command = format!("./bin/head-north --code {code} --build && printf '{BUILT}%s\\n' \"${{XDG_CACHE_HOME:-$HOME/.cache}}/north/head-north/$(git rev-parse 'HEAD^{{tree}}')/north\"");
+    let command = format!("rm -rf .tree-north && north=$(XDG_CACHE_HOME=\"$PWD/.tree-north\" ./bin/head-north --code {code} --build) && printf '{BUILT}%s %s\\n' \"$(sha256sum <\"$north\" | cut -d' ' -f1)\" \"$north\"");
     let built = Command::new(north_binary())
         .current_dir(directory)
         .args(["capacity", "offload", "run", "--host", &host, "--base", base, "--head", head, "--timeout", BUILD_SECONDS, "--", &command])
@@ -39,11 +41,11 @@ pub fn prefetch(wanted: &Wanted, out: &mut impl std::io::Write) {
         .stderr(Stdio::inherit())
         .output();
     let remote = built.ok().filter(|output| output.status.success()).and_then(|output| String::from_utf8_lossy(&output.stdout).lines().find_map(|line| line.strip_prefix(BUILT)).map(str::to_owned));
-    let Some(remote) = remote.filter(|remote| remote.ends_with(&format!("/{tree}/north"))) else {
+    let Some((digest, remote)) = remote.as_deref().and_then(|line| line.split_once(' ')).filter(|(digest, remote)| digest.len() == 64 && remote.starts_with('/')) else {
         let _ = writeln!(out, "{caller}: {host} did not build north for the tree, so this host builds it");
         return;
     };
-    match copy(&destination, &remote, &cached) {
+    match copy(&destination, remote, digest, &cached) {
         Ok(()) => {
             let _ = writeln!(out, "{caller}: built north for the tree on {host} and copied it here in {} s", started.elapsed().as_secs());
         }
@@ -64,8 +66,8 @@ fn clean_tree(directory: &Path, head: &str) -> Option<String> {
 }
 
 fn cache() -> PathBuf {
-    let home = || PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache");
-    std::env::var_os("XDG_CACHE_HOME").filter(|cache| !cache.is_empty()).map_or_else(home, PathBuf::from).join("north/head-north")
+    let home = || PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state");
+    std::env::var_os("XDG_STATE_HOME").filter(|state| !state.is_empty()).map_or_else(home, PathBuf::from).join("north/head-north")
 }
 
 fn live_covers(directory: &Path, code: &str) -> bool {
@@ -84,7 +86,7 @@ fn ssh_destination(host: &str) -> Option<String> {
     String::from_utf8_lossy(&listed.stdout).lines().find_map(|line| line.split_once(' ').filter(|(name, ssh)| *name == host && !ssh.is_empty()).map(|(_, ssh)| ssh.trim().to_owned()))
 }
 
-fn copy(destination: &str, remote: &str, cached: &Path) -> Result<(), String> {
+fn copy(destination: &str, remote: &str, digest: &str, cached: &Path) -> Result<(), String> {
     let directory = cached.parent().ok_or("no cache directory")?;
     let part = directory.with_extension("part");
     fs::create_dir_all(directory.parent().ok_or("no cache root")?).map_err(|error| error.to_string())?;
@@ -93,6 +95,10 @@ fn copy(destination: &str, remote: &str, cached: &Path) -> Result<(), String> {
     let status = Command::new("ssh").args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", destination, "--", &format!("cat {quoted}")]).stdin(Stdio::null()).stdout(file).stderr(Stdio::null()).status();
     let copied = status.map_err(|error| format!("ssh: {error}")).and_then(|status| if status.success() { Ok(()) } else { Err(format!("ssh exited {status}")) }).and_then(|()| {
         use std::os::unix::fs::PermissionsExt;
+        let got = fs::read(&part).map(|bytes| sha2::Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>()).map_err(|error| error.to_string())?;
+        if got != digest {
+            return Err(format!("the copy hashes to {got}, not the {digest} the build host printed"));
+        }
         fs::set_permissions(&part, fs::Permissions::from_mode(0o755)).map_err(|error| error.to_string())?;
         fs::create_dir_all(directory).map_err(|error| error.to_string())?;
         fs::rename(&part, cached).map_err(|error| error.to_string())

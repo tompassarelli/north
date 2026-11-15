@@ -191,6 +191,11 @@ reason = "starts the dependency box or a worker sandbox, which a remote worker c
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
+name = "depbox_broker::a_confined_check_cannot_plant_the_north_or_the_crate_source_a_later_unconfined_run_of_another_tree_uses"
+reason = "starts the dependency box, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
 name = "golden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client"
 reason = "its after-landing run starts the candidate jail, whose mounts a remote worker refuses: bwrap: Failed to make / slave: Operation not permitted"
 test = "it"

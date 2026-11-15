@@ -5,7 +5,11 @@ code=() defer=0
 [ "${1:-}" != --code ] || { code=(--code "$2"); shift 2; }
 [ "${1:-}" != --no-build ] || { defer=1; shift; }
 live=${XDG_STATE_HOME:-$HOME/.local/state}/north/current/north
-cache=${XDG_CACHE_HOME:-$HOME/.cache}/north/head-north
+cache=${XDG_STATE_HOME:-$HOME/.local/state}/north/head-north
+if ! { mkdir -p "$cache" 2>/dev/null && probe=$(mktemp -p "$cache" .probe.XXXXXX 2>/dev/null) && rm -f "$probe"; }; then
+  grep -qs '^NoNewPrivs:[[:space:]]*1$' /proc/self/status || { printf 'head-north: %s is not writable and this run is not confined, so it runs no north from the cache confined runs share\n' "$cache" >&2; exit 75; }
+  cache=${XDG_CACHE_HOME:-$HOME/.cache}/north/head-north
+fi
 keep=4 hold=3600 settle=${HEAD_NORTH_SETTLE:-2}
 engine=${HEAD_NORTH_ENGINE:-/etc/buildbarn/store-generation}
 build() {
@@ -89,7 +93,7 @@ pick() {
   fi
 }
 covered=${SAFE_PUSH_LAND_RUNTIME_HEAD:-${SAFE_PUSH_LAND_HEAD:-HEAD}} shun=0 leased=0
-[ "${1:-}" != --build ] || { pick; exit 0; }
+[ "${1:-}" != --build ] || { pick; printf '%s\n' "$north"; exit 0; }
 for attempt in 1 2 3 4 5; do
   pick
   if lease "$north"; then

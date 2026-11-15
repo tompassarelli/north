@@ -117,6 +117,7 @@ fn here(scratch: &Path) -> Result<Candidate, String> {
     for written in depbox::CACHES.iter().chain(&depbox::BUILD_CACHES).chain(&WRITTEN_STATE).map(|path| home.join(path)) {
         std::fs::create_dir_all(&written).map_err(|error| format!("{}: {error}", written.display()))?;
     }
+    let _ = std::fs::create_dir_all(home.join(depbox::TRUSTED_BUILDS));
     let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
     Ok(Candidate { home, checkout, runtime, scratch: scratch.to_owned() })
 }

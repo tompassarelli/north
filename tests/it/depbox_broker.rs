@@ -92,3 +92,54 @@ fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
     let refused = viewed(&pinned, "pinned");
     assert!(!refused.status.success() && String::from_utf8_lossy(&refused.stderr).contains(&missing), "a pinned store entry the host lacks did not refuse the run: {}", String::from_utf8_lossy(&refused.stderr));
 }
+
+#[test]
+fn a_confined_check_cannot_plant_the_north_or_the_crate_source_a_later_unconfined_run_of_another_tree_uses() {
+    let scratch = tempfile::tempdir().unwrap();
+    let home = scratch.path().join("home");
+    let git = |directory: &std::path::Path, arguments: &[&str]| {
+        let output = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"]).args(arguments).current_dir(directory).output().unwrap();
+        assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    let other = home.join("code/other/main");
+    std::fs::create_dir_all(other.join("bin")).unwrap();
+    std::fs::copy(crate::support::manifest_dir().join("bin/head-north"), other.join("bin/head-north")).unwrap();
+    git(&other, &["init", "-q"]);
+    git(&other, &["add", "."]);
+    git(&other, &["commit", "-qm", "head-north"]);
+    let tree = git(&other, &["rev-parse", "HEAD^{tree}"]);
+    let live = home.join(".local/state/north/current/north");
+    std::fs::create_dir_all(live.parent().unwrap()).unwrap();
+    std::fs::write(&live, "#!/bin/sh\nif [ \"$1 $2\" = 'runtime covers' ]; then printf %s \"$0\"; exit 0; fi\necho live north\n").unwrap();
+    std::fs::set_permissions(&live, <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755)).unwrap();
+    let source = home.join(".cargo/registry/src/index.crates.io-0/dependency-1.0.0/src/lib.rs");
+    std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+    std::fs::write(&source, "pub fn kept() {}\n").unwrap();
+    let lane = home.join("code/fixture/main");
+    std::fs::create_dir_all(&lane).unwrap();
+    git(&lane, &["init", "-q"]);
+    let planted = home.join(format!(".cache/north/head-north/{tree}/north"));
+    let plant = format!("mkdir -p {0} && printf '#!/bin/sh\\necho planted north\\n' >{0}/north && chmod +x {0}/north; printf 'pub fn planted() {{}}\\n' >{1}; true", planted.parent().unwrap().display(), source.display());
+    let confined = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
+        .args(["depbox", "run", "--", "sh", "-c", &plant])
+        .current_dir(&lane)
+        .env("HOME", &home)
+        .env("XDG_STATE_HOME", home.join(".local/state"))
+        .env("DEPBOX_ADMITTED", "1")
+        .env_remove("XDG_CACHE_HOME")
+        .env_remove("DEPBOX")
+        .env_remove("NORTH_WORKER_SANDBOXED")
+        .output()
+        .unwrap();
+    assert!(confined.status.success() && planted.is_file(), "the confined check did not run in depbox: {}", String::from_utf8_lossy(&confined.stderr));
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "pub fn kept() {}\n", "a build in depbox rewrote an extracted crate source a later build outside it compiles");
+    let mut unconfined = Command::new("bash");
+    unconfined.args(["bin/head-north", "--version"]).current_dir(&other).env("HOME", &home).env("XDG_STATE_HOME", home.join(".local/state"));
+    for name in ["XDG_CACHE_HOME", "SAFE_PUSH_LAND_HEAD", "SAFE_PUSH_LAND_RUNTIME_HEAD", "NORTH_OFFLOAD_SLOT", "HEAD_NORTH_TREE", "DEPBOX", "NORTH_WORKER_SANDBOXED"] {
+        unconfined.env_remove(name);
+    }
+    let ran = unconfined.output().unwrap();
+    let said = String::from_utf8_lossy(&ran.stdout);
+    assert!(ran.status.success() && said.contains("live north") && !said.contains("planted"), "an unconfined head-north of another tree ran the north a confined check planted for it: {said} {}", String::from_utf8_lossy(&ran.stderr));
+}

@@ -463,7 +463,10 @@ candidate touching every checker's code took 78 to 164 s per check on gex45.
   the candidate selects (`land/slots/shared_build.rs`). In the after-landing run it starts beside every other check
   and the head-north checks start once it passes, still beside the rest; before a push with clippy listed it runs
   beside clippy. All of it uses one runner host, and when the live runtime covers the union the build is a no-op.
-- `bin/head-north` keeps the build per host under `~/.cache/north/head-north/TREE/north`, keyed by the clean
+- `bin/head-north` keeps an unconfined run's build per host under `~/.local/state/north/head-north/TREE/north` and a
+  confined run's under `~/.cache/north/head-north`; each run reads only its own, and an unconfined run that cannot
+  write its directory exits 75. A build host's north copied back for an after-landing step is checked against the
+  digest the build host printed. The build is keyed by the clean
   checkout's tree and built under a lock, so a second slot or a second check on the same tree runs it; a dirty tree
   builds in place as before. It keeps the 4 most recently used trees and sets `NORTH_HOME` to the checkout, which is
   where the in-tree `target/debug/north` resolved its harness.
