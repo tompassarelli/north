@@ -2,8 +2,8 @@
 name: workers
 description: >-
   Lead-side staffing: spawn, restaff, review, park or land workers or leads; tiers, ETAs, briefs, reports; cloud workers; auto-wake; fleet take-over.
-grounded: 2026-11-13
-written: 2026-11-13
+grounded: 2026-11-15
+written: 2026-11-15
 ---
 # Workers
 
@@ -16,10 +16,10 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 - Take the ETA from the `eta` line of `north ledger worker --recommend '<Category and facet lines>'`, or mark your estimate `(uncalibrated)` on `eta n/a`. Size each leaf to 20 minutes or less or name why.
 - Launch with no `--model`: `north fleet dispatch` and `north fleet launch` route from the brief's `Category:` line. A Haiku brief says to wait on any run over a minute with Monitor, because Haiku ended its turn mid-run.
 - `north fleet dispatch` staffs DeepSeek on leaves outside credentials, sandbox and locking up to the cap in harness/opencode.toml, and sends each DeepSeek `Done:` to a sampled Sonnet review or to safe-push; never launch, relay or forget a DeepSeek worker by hand.
-- Admit a run only when it produces part of the artifact or its result changes the next action and you can name that fork first; uncertainty, confidence, completeness and idle capacity admit none, and no scout, reviewer, verifier, judge, watchdog, status collector or second coordinator shadows ordinary delivery unless asked for that deliverable or an external boundary's answer changes the decision.
+- Admit a run only when it produces part of the artifact, or its result changes the next action and you can name that fork first; uncertainty, confidence, completeness and idle capacity admit none. No scout, reviewer, verifier, judge, watchdog, status collector or second coordinator shadows ordinary delivery unless asked for that deliverable or an external boundary's answer changes the decision.
 - A leaf needs the owner only for a direction choice or a subjective feel judgment; send the owner no test checklist unless they asked for a playtest.
 - Restaff every stop at the same tier as a fresh worker with `Follows: <agent id and tier>` and the failed evidence; dispatch climbs one rung only on a worker-caused spin it reads from the ledger, never from a `Stop:` line, so keep every other stop on its rung ([tiers.md](references/tiers.md)). Message a running worker only with its own task's follow-up; never revive a finished one by message, because its context is spent.
-- Brief header, before the first blank line, then goal, Sources and the state checked at spawn: `Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:` (first line an outside oracle, with a backticked command; on a leaf it is the check that closes the issue), `ETA:`, `Files:`, any `Follows:` and `Needs:`.
+- Brief header, before the first blank line, then goal, Sources and the state checked at spawn: `Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:` (first line an outside oracle, with a backticked command; on a leaf it is the check that closes the issue), `ETA:`, `Files:`, any `Follows:` and `Needs:`, and `Box:` when the brief closes one box of an issue ([brief.md](references/brief.md)).
 - Read [tiers.md](references/tiers.md) when the routing does not settle the tier or the next tier cannot run here; [brief.md](references/brief.md) whenever you write a brief, pick ready work, queue a box behind another lane, or do research Tom asks for inline; [runtime-incidents.md](references/runtime-incidents.md) when a worker or lead fails to start, dies, stops answering or misreports.
 
 ## Placement
