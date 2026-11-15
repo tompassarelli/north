@@ -57,7 +57,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | Layer | Crate | What it is for |
 |---|---|---|
 | 1 platform | north-foundation | The error type, the clock port and time values, and identifiers. |
-| 1 platform | north-base | Adapters to the outside world (git, GitHub, processes, SQLite, ssh, Nix), the shell lexer, the lifecycle store and the verdict cache, and records that belong to layers above it. |
+| 1 platform | north-base | Typed adapters to the outside world: git, GitHub, processes, SQLite, ssh and Nix. |
 | 1 platform | north-strategy-types | The decision records the kernel writes and strategies read: one Case and one Decision per decision kind. |
 | 1 platform | north-shared-config | The shared configuration a host reads, fetched into the state directory with its freshness bound. |
 | 1 platform | north-publish | Create a file whole in one step, so no reader sees part of it. |
@@ -81,8 +81,8 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 2 records | north-graph-change | The change queries the lander asks of the graph: affected tests, shared tests, blame, splits. |
 | 2 records | north-github-mirror | The local copy of GitHub issues, CI runs and check results that pollers read. |
 | 2 records | north-coverage | The map from each Rust test to the functions it executes and the tests that reach a change. |
-| 3 rules | north-pace | Account usage readings, the router's tier, price and brief vocabulary, and the spend and credit books. |
-| 3 rules | north-calibration | Calibration of estimates against run records, and a graft that re-exports the threads ledger under its own name. |
+| 3 rules | north-pace | Account usage, and the spend and credit books it feeds. |
+| 3 rules | north-calibration | Calibration of estimates against run records. |
 | 3 rules | north-capacity | Machine capacity leases and admission. |
 | 3 rules | north-code-health | The code-health report, its gates, the layers check and the Rust habit checks. |
 | 3 rules | north-implicit-state | The implicit-state shapes: rules that find state kept outside a typed lifecycle. |
@@ -99,7 +99,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 4 sessions | north-resume | The messages a resumed session opens with and whether it may resume. |
 | 4 sessions | north-fleet | Headless agent sessions: the session model, the delivery journal, turns, tickets and the watch. |
 | 4 sessions | north-fleet-supervisor | The session registry and supervisor: start, hand-in, handover. |
-| 4 sessions | north-providers | The Claude, Codex, OpenCode, pi and agy adapters, and the run ledger. |
+| 4 sessions | north-providers | Adapters to each agent provider's command-line client: Claude, Codex, OpenCode, pi and agy. |
 | 4 workspace | north-lanes | Worktree and pin lifecycle: new, reap, rescue, gc, layout checks. |
 | 4 landing | north-land-sandbox | The sandbox a land check runs in: fence, recorder, supervisor. |
 | 4 landing | north-land-checks | The check slots of a landing: select, run, cache. |
@@ -109,15 +109,15 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 4 capacity | north-capacity-host | Host leases, the dependency box, the watchdog and the PATH gate. |
 | 5 orchestration | north-pacing | Placement of work on hosts and accounts, laptop state and the resident cap. |
 | 5 orchestration | north-dispatch | The dispatch decision: which box runs next, on which tier, with which brief. |
-| 5 orchestration | north-runtime | Runtime update, canary, order and pin, and the worker sandbox. |
+| 5 orchestration | north-runtime | Runtime update: the canary, the order and the pin of the build each host runs. |
 | 5 orchestration | north-offload | Running a land check, a session's build and the compiler cache on another host: which host has room, the slot a run holds and the script that ships and starts it. |
-| 6 operations | north-timers | The timers and watches, the outside, job and usage-web readers, and the privacy judge. |
+| 6 operations | north-timers | The timers and the watches they start. |
 | 6 operations | north-tune | Tuned values and the learning-loop checks. |
-| 6 operations | north-flow | The flow report, and agents, detectors, experiments, tempo and tool mining. |
+| 6 operations | north-flow | The flow report: how work moved through the fleet, read from the records. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
 | 6 operations | north-desktop | The desktops agents drive: an isolated private desktop, screenshots off the owner's screen, and the game client a playtest opens. |
 | 6 operations | north-ci | The CI north runs and watches: private checks posted as commit statuses, and the main-is-red sheriff. |
-| 6 operations | north-ops | Thirty unrelated operations verb families, from agent capture to desktop upkeep. |
+| 6 operations | north-ops | Operations verbs not yet moved to the crate that owns their domain; the crate is removed once the last one moves (docs/rationale/north-ops-split.md). |
 | 6 operations | north-issue-boxes | An issue's checkboxes as work: converted into child issues, and ticked when their check passes. |
 | 6 operations | north-claims | Claims a written text makes about the tree, checked against it: cited commands, flags, paths and keys, and a design review's facts. |
 | 6 operations | north-credentials | Every credential the fleet uses, with its kind, expiry and renewal path, and the renewals themselves. |
@@ -125,14 +125,14 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-expectations | Declared expectations judged on a timer, each alerting once per breach and once per clear. |
 | 6 operations | north-reclaim | Disk room on the fleet's hosts: what may be deleted or archived, under which budget, and when. |
 | 6 operations | north-health | Health facts: failed starts, flows, issues, loops, red main, rework. |
-| 6 operations | north-convo | Transcript search, and policy replay, and the context audit. |
+| 6 operations | north-convo | Search and audit of agent transcripts, with replays of the policy over them. |
 | 6 operations | north-lander-doctor | The lander doctor: each health bound read live and the remedy for each stuck state. |
 | 6 operations | north-land-watch | The watch on landings and their GitHub checks. |
 | 6 operations | north-graph-ingest | Load what north already records into the fact graph. |
-| 6 operations | north-core | The agent catalog and policy contract, and grounding, the crate-split tool, build time, Nix upkeep, the contract probe and proxy calls. |
+| 6 operations | north-core | The agent catalog and policy contract; the crate is dissolved into the crates that own its other modules (docs/rationale/architecture-layers.md). |
 | 7 command | north-tui | The fleet terminal screen, input, transcript and digest views. |
 | 7 command | north-monitor | One live terminal screen of fleet, landing queue, runtime versions and health. |
-| 7 command | north | Command routing and the composition root, and the dash report, launch admission, the eval runner and verify-north. |
+| 7 command | north | The `north` command: argument routing and the composition root that wires each port to its implementation. |
 
 ## Owning boundary
 

@@ -92,7 +92,7 @@ Each crate is placed in the lowest layer that lets every one of its dependencies
 | north-tune |  | 6 / 1 | 1,543 | 465 | 9 / 70 | Tuned values and the learning-loop checks. |
 | north-replay |  | 5 / 1 | 732 | 1,292 | 2 / 23 | Strategy replay: logged decision cases decided again by the linked code. |
 | north-flow (and) |  | 10 / 1 | 9,960 | 3,436 | 48 / 321 | The flow report, and agents, detectors, experiments, tempo and tool mining. |
-| north-ops (and) |  | 14 / 1 | 16,767 | 24,825 | 83 / 374 | Thirty-eight unrelated operations verb families, from docs indexes to desktop upkeep. |
+| north-ops (and) |  | 14 / 1 | 16,767 | 24,825 | 83 / 374 | Operations verbs not yet moved to the crate that owns their domain; the crate is removed once the last one moves. |
 | north-health |  | 4 / 3 | 1,519 | 1,668 | 16 / 19 | Health facts: failed starts, flows, issues, loops, red main, rework. |
 | north-convo (and) |  | 3 / 1 | 7,338 | 1,509 | 12 / 92 | Transcript search, and policy replay, and the context audit. |
 | north-lander-doctor |  | 4 / 1 | 2,195 | 3,410 | 9 / 94 | The lander doctor: each health bound read live and the remedy for each stuck state. |
