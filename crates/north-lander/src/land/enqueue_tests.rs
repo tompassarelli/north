@@ -274,7 +274,7 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits"] {
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
-    assert!(queued.iter().all(|command| !command.contains("cargo nextest run")), "a lane outside the trust boundary leaves its test line to the run after landing: {queued:#?}");
+    assert!(queued.iter().any(|command| command.contains("cargo nextest run")), "with tests_after_landing off every lane runs its test line before queueing (north#1537): {queued:#?}");
     fs::create_dir_all(repo.join("crates/north-runtime/src/worker_sandbox")).unwrap();
     fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
     let bounded = commit(repo, "widen a worker sandbox grant");
