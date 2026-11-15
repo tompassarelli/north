@@ -52,9 +52,13 @@ pub fn paths(issue: &Issue, box_text: Option<&str>) -> Vec<String> {
 }
 
 pub(super) fn named(text: &str) -> Vec<String> {
-    text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '`' | '(' | ')' | '\'' | '"'))
-        .map(|word| word.trim_end_matches(['.', ';', ':']))
-        .filter(|word| PATH.is_match(word) && !word.starts_with("http") && !word.starts_with("origin/"))
+    let words: Vec<&str> = text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '`' | '(' | ')' | '\'' | '"')).filter(|word| !word.is_empty()).collect();
+    words
+        .iter()
+        .enumerate()
+        .filter(|(at, _)| *at == 0 || !matches!(words[*at - 1], "-R" | "--repo"))
+        .map(|(_, word)| word.trim_end_matches(['.', ';', ':']))
+        .filter(|word| PATH.is_match(word) && !word.starts_with("http") && !word.starts_with("origin/") && !word.contains("github.com/"))
         .map(|word| word.trim_end_matches('/').to_owned())
         .collect()
 }
