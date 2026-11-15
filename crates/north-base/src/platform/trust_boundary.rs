@@ -34,7 +34,7 @@ pub fn crossing<'a>(document: &toml_edit::DocumentMut, files: &'a [String]) -> O
     Some(crossing_in(&boundary, files))
 }
 
-/// The files of `files` in `two_accept_paths`, whose change needs two review accepts whatever its trailers say, `None` when harness/defaults.toml lists none.
-pub fn needing_two(files: &[String]) -> Option<Vec<&str>> {
-    Some(crossing_in(&listed(TWO_ACCEPTS)?, files))
+/// The files of `files` in `two_accept_paths` of a harness/defaults.toml `document`, whose change needs two review accepts whatever its trailers say, `None` when it lists none.
+pub fn needing_two<'a>(document: &toml_edit::DocumentMut, files: &'a [String]) -> Option<Vec<&'a str>> {
+    Some(crossing_in(&listed_in(document, TWO_ACCEPTS)?, files))
 }

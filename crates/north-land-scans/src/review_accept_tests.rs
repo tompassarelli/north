@@ -4,6 +4,10 @@ use super::*;
 use north_base::platform::finish_record::Finished;
 use north_base::platform::review_accept::Accept;
 
+fn north_lists() -> &'static str {
+    north_base::platform::harness::table(DEFAULTS)
+}
+
 fn git_in(directory: &Path, arguments: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .current_dir(directory)
@@ -25,7 +29,7 @@ fn a_withdrawn_accept_no_longer_counts() {
     std::fs::create_dir(&repo).unwrap();
     let accepts = Accepts(root.path().join("accepts"));
     git_in(&repo, &["init", "-q", "-b", "main"]);
-    let base = commit(&repo, &[("crates/north-lander/src/land.rs", "a\n")], "base");
+    let base = commit(&repo, &[("crates/north-lander/src/land.rs", "a\n"), (DEFAULTS, north_lists())], "base");
     let lane = commit(&repo, &[("crates/north-lander/src/land.rs", "b\n")], "inside the boundary");
     let test = commit(&repo, &[("crates/north-lander/tests/land.rs", "t\n")], "a test");
     accept(&accepts, &repo, &base, &lane, "reviewer-a");
@@ -69,7 +73,8 @@ fn a_live_fix_lane_that_changes_verify_north_login_with_no_review_accepts_is_ref
     let accepts = Accepts(root.path().join("accepts"));
     git_in(&repo, &["init", "-q", "-b", "main"]);
     let files = ["README.md", "docs/rationale/0027-product-verification.md", "docs/onboarding.md", "flake.nix", "src/bin/verify_north/login.rs", "src/bin/verify_north/main.rs"];
-    let base = commit(&repo, &files.map(|file| (file, "a\n")), "base");
+    let base_files: Vec<(&str, &str)> = files.map(|file| (file, "a\n")).into_iter().chain([(DEFAULTS, north_lists())]).collect();
+    let base = commit(&repo, &base_files, "base");
     let lane = commit(&repo, &files.map(|file| (file, "b\n")), "Make the Quickstart one command\n\nLive-fix: launch gate for north#1281");
     let refusal = check(&repo, &base, &lane, &accepts, &[]).unwrap_err();
     assert!(refusal.contains("holds 0 of 2 review accepts") && refusal.contains("src/bin/verify_north/login.rs"), "{refusal}");
@@ -84,7 +89,7 @@ fn a_live_fix_speed_cut_lands_on_one_accept() {
     std::fs::create_dir(&repo).unwrap();
     let accepts = Accepts(root.path().join("accepts"));
     git_in(&repo, &["init", "-q", "-b", "main"]);
-    let base = commit(&repo, &[(LANDER, "a\n")], "base");
+    let base = commit(&repo, &[(LANDER, "a\n"), (DEFAULTS, north_lists())], "base");
     let plain = commit(&repo, &[(LANDER, "b\n")], "a lander change");
     accept(&accepts, &repo, &base, &plain, "reviewer-a");
     assert!(check(&repo, &base, &plain, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "without Live-fix one accept does not land it");
@@ -104,7 +109,7 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_
     std::fs::create_dir(&repo).unwrap();
     let accepts = Accepts(root.path().join("accepts"));
     git_in(&repo, &["init", "-q", "-b", "main"]);
-    let base = commit(&repo, &[(LANDER, "a\n"), ("src/a.rs", "a\n")], "base");
+    let base = commit(&repo, &[(LANDER, "a\n"), ("src/a.rs", "a\n"), (DEFAULTS, north_lists())], "base");
 
     let outside = commit(&repo, &[("src/a.rs", "b\n")], "outside the boundary");
     assert_eq!(check(&repo, &base, &outside, &accepts, &[]), Ok(()), "a lane outside trust_boundary_paths needs no accept");
@@ -147,6 +152,18 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_
     let pretend = commit(&repo, &[(LANDER, "c\n")], &format!("Revert\n\nThis reverts commit {inside}."));
     accept(&accepts, &repo, &inside, &pretend, "reviewer-a");
     assert!(check(&repo, &inside, &pretend, &accepts, &[]).is_err(), "a message naming a revert does not make a different patch one");
+
+    let south = root.path().join("south");
+    std::fs::create_dir(&south).unwrap();
+    git_in(&south, &["init", "-q", "-b", "main"]);
+    let eval = "agents/decisions/harness/overhaul-2026-11-11/evals/run.sh";
+    let own_lists = "[trust_boundary_paths]\nvalue = [\"agents/decisions/harness/overhaul-2026-11-11/evals/\"]\n";
+    let south_base = commit(&south, &[(DEFAULTS, own_lists), (eval, "a\n")], "base");
+    let script = commit(&south, &[(eval, "b\n")], "an eval script");
+    assert!(check(&south, &south_base, &script, &accepts, &[]).unwrap_err().contains("holds 0 of 2 review accepts"), "an eval script of a repository whose own list names it needs two accepts");
+    accept(&accepts, &south, &south_base, &script, "reviewer-a");
+    accept(&accepts, &south, &south_base, &script, "reviewer-b");
+    assert_eq!(check(&south, &south_base, &script, &accepts, &[]), Ok(()), "two accepts land it under the repository's own list");
 }
 
 #[test]
@@ -156,7 +173,7 @@ fn accepts_recorded_on_the_reviewers_host_count_on_a_build_host_lander() {
     let repo = root.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     git_in(&repo, &["init", "-q", "-b", "main"]);
-    let base = commit(&repo, &[(LANDER, "a\n")], "base");
+    let base = commit(&repo, &[(LANDER, "a\n"), (DEFAULTS, north_lists())], "base");
     let inside = commit(&repo, &[(LANDER, "b\n")], "inside the boundary");
 
     let reviewers_state = root.path().join("reviewers-host");

@@ -4,9 +4,10 @@ use std::path::Path;
 
 use north_base::build_inputs::live_fix;
 use north_base::platform::finish_record::{FinishRecords, Finished};
-use north_base::platform::harness::{DEFAULTS, document};
+use north_base::platform::harness::DEFAULTS;
 use north_base::platform::review_accept::{Accepts, patch_id};
 use north_base::platform::trust_boundary;
+use toml_edit::DocumentMut;
 
 use crate::test_file::is_test_file;
 use crate::{Range, git, holdlist};
@@ -16,6 +17,11 @@ const REVERTS: [&str; 2] = ["This reverts commit ", "Reverts: "];
 
 fn changed(directory: &Path, fork: &str, head: &str) -> Option<Vec<String>> {
     git::text(directory, &["diff", "--name-only", "--no-renames", fork, head]).map(|names| names.lines().map(str::to_owned).collect())
+}
+
+fn lists_at(directory: &Path, base: &str) -> Result<DocumentMut, String> {
+    let text = git::text(directory, &["show", &format!("{base}:{DEFAULTS}")]).ok_or_else(|| format!("{DEFAULTS} is not at {base}, so no change can be told to cross a trust boundary"))?;
+    text.parse::<DocumentMut>().map_err(|error| format!("{DEFAULTS} at {base} does not parse: {error}"))
 }
 
 /// The commits on main below `fork` whose exact reverse is the lane's patch `patch`, named by git's `This reverts commit` line or
@@ -56,16 +62,17 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
     Ok((patch, accepted))
 }
 
-/// `Err` is a lane that changes a `trust_boundary_paths` or `two_accept_paths` file and holds fewer accepts than it needs: the accepts of two distinct reviewer sessions for its patch id, or one for a change of test files alone, an exact revert, or a lane whose commits carry a `Live-fix:` trailer and change no `two_accept_paths` file.
+/// `Err` is a lane that changes a `trust_boundary_paths` or `two_accept_paths` file of the harness/defaults.toml at its landing `base` and holds fewer accepts than it needs: the accepts of two distinct reviewer sessions for its patch id, or one for a change of test files alone, an exact revert, or a lane whose commits carry a `Live-fix:` trailer and change no `two_accept_paths` file.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
-    let crossing = trust_boundary::crossing(document(DEFAULTS), &files).ok_or("harness/defaults.toml lists no trust_boundary_paths, so no change can be told to cross one")?;
+    let lists = lists_at(directory, base)?;
+    let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {base} lists no trust_boundary_paths, so no change can be told to cross one"))?;
     if crossing.is_empty() {
         return Ok(());
     }
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
-    let two = trust_boundary::needing_two(&files).unwrap_or_default();
+    let two = trust_boundary::needing_two(&lists, &files).unwrap_or_default();
     let speed_cut = two.is_empty() && live_fix(&git::messages(directory, &fork, head)).is_some();
     let needed = if speed_cut || files.iter().all(is_test_file) || reverted(directory, &fork, head, &patch).is_some() { 1 } else { 2 };
     if accepted.len() >= needed {
