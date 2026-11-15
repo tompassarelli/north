@@ -27,3 +27,52 @@ fn the_runtime_socket_view_is_built_from_the_kept_list_alone() {
     assert_eq!(names(&now), names(&laid), "the runtime view followed sockets made or remade after it was laid");
     assert!(laid.serves(&now), "a socket outside the kept list made or remade after the view was laid needed new namespaces, so a command already running in the old ones reaches it");
 }
+
+const PROBE: &str = "NORTH_1397_SOCKET_PROBE";
+
+#[test]
+fn a_confined_command_cannot_connect_to_a_hidden_socket_of_each_kind() {
+    use super::super::{Context, Reader, confine, executable, readable, removable, sockets};
+    if let Some(targets) = std::env::var_os(PROBE) {
+        let context = Context::from_env("probe");
+        let runtime = sockets::runtime(&context);
+        let hidden = sockets::hidden(&runtime, &sockets::multiplexer(context.uid, std::env::var_os("TMUX_TMPDIR")), &sockets::ssh_reach(&context.home, context.uid, context.agent_socket.as_deref()));
+        sockets::overlay(&runtime, &hidden).unwrap();
+        let roots = removable(&context);
+        assert!(matches!(confine(Some(&roots), &readable(&context, Reader::of(true)), Some(&executable(&context)), None, &[]), Ok(landlock::RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+        for target in std::env::split_paths(&targets).filter(|target| std::os::unix::net::UnixStream::connect(target).is_ok()) {
+            println!("reached {}", target.display());
+        }
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let (home, runtime, tmpdir) = (scratch.path().join("home"), scratch.path().join("run"), scratch.path().join("tmp"));
+    let uid = rustix::process::getuid().as_raw();
+    let agent = scratch.path().join("agent");
+    let hidden_kinds = [runtime.join("bus"), runtime.join("north-session-hosts/0a1b.sock"), runtime.join("north-broker/broker.sock"), runtime.join(format!("{}/handover/0a1b.sock", north_base::platform::admission_root::DIRECTORY)), tmpdir.join(format!("tmux-{uid}/default")), agent.clone()];
+    let kept = [runtime.join("wayland-1"), runtime.join("north-gh-broker/broker.sock"), runtime.join("north-outside/broker.sock")];
+    std::fs::create_dir_all(&home).unwrap();
+    let _listening: Vec<UnixListener> = hidden_kinds.iter().chain(&kept).map(|path| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        UnixListener::bind(path).unwrap()
+    }).collect();
+    let output = std::process::Command::new("unshare")
+        .args(["--user", "--map-current-user", "--keep-caps", "--mount", "--"])
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::sockets::a_confined_command_cannot_connect_to_a_hidden_socket_of_each_kind", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", &home)
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .env("TMUX_TMPDIR", &tmpdir)
+        .env("SSH_AUTH_SOCK", &agent)
+        .env(PROBE, std::env::join_paths(hidden_kinds.iter().chain(&kept)).unwrap())
+        .current_dir(&home)
+        .output()
+        .unwrap();
+    let (stdout, stderr) = (String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success() && stdout.contains("running 1 test"), "the confined probe did not run: {stdout}{stderr}");
+    let reached: Vec<&str> = stdout.lines().filter_map(|line| line.strip_prefix("reached ")).collect();
+    let expected: Vec<String> = kept.iter().map(|path| path.display().to_string()).collect();
+    assert_eq!(reached, expected, "a confined command reached a hidden socket, or missed a kept one: {stderr}");
+}

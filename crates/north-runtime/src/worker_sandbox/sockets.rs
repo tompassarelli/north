@@ -18,13 +18,14 @@ const HIDDEN_NORTH: [&str; 5] = [north_base::platform::ssh::HOST_MASTER, "north-
 pub enum Reach {
     /// A display or audio server, which a worker's private desktop and browser automation use.
     Desktop,
-    /// One of north's own brokers, which judges each request by the peer the kernel names for it.
+    /// One of north's own brokers a worker command is meant to reach, the outside broker or the GitHub broker, each of which judges a request by the peer the kernel names for it.
     Broker,
-    /// The capacity admission state, which builds read; every socket beneath it stays hidden.
-    Admission,
+    /// State a worker command reads or writes and no broker: the capacity admission state, the gh request budget, the land probe's scratch and north's other entries; every socket beneath it stays hidden.
+    State,
 }
 
-pub const KEPT: [(&str, Reach); 6] = [("wayland-", Reach::Desktop), ("pipewire-", Reach::Desktop), ("pulse", Reach::Desktop), ("private-desktop", Reach::Desktop), ("north", Reach::Broker), (north_base::platform::admission_root::DIRECTORY, Reach::Admission)];
+/// The runtime entries a worker's view keeps, each by the prefix of its name; the first prefix a name begins with gives its reach.
+pub const KEPT: [(&str, Reach); 8] = [("wayland-", Reach::Desktop), ("pipewire-", Reach::Desktop), ("pulse", Reach::Desktop), ("private-desktop", Reach::Desktop), ("north-outside", Reach::Broker), ("north-gh-broker", Reach::Broker), ("north", Reach::State), (north_base::platform::admission_root::DIRECTORY, Reach::State)];
 const DEPTH: usize = 4;
 const SSH_CONFIG: &str = "/etc/ssh/ssh_config";
 pub const AGENT_ENV: &str = "SSH_AUTH_SOCK";
@@ -40,6 +41,11 @@ pub fn multiplexer(uid: u32, tmpdir: Option<OsString>) -> PathBuf {
     tmpdir.filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from).join(format!("tmux-{uid}"))
 }
 
+fn reach(path: &Path) -> Option<Reach> {
+    let name = path.file_name()?.to_string_lossy();
+    KEPT.iter().find(|(prefix, _)| name.starts_with(prefix)).map(|(_, reach)| *reach)
+}
+
 /// The entries of the runtime directory a worker command's view holds, and nothing beside them: those of the display and audio servers, north's own and the capacity admission state, each kept with its reach in `KEPT`, apart from the offload, host, taker and fleet-link masters, the spare shells' holders and the session hosts among north's own names. The view is an empty directory with each of these laid into it, so a socket made in the runtime directory after the view was laid, or one closed and made again, is not in it.
 pub fn kept(runtime: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = std::fs::read_dir(runtime).into_iter().flatten().flatten().filter(|entry| {
@@ -51,10 +57,12 @@ pub fn kept(runtime: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// The sockets a worker command may not connect to besides those its runtime view leaves out: those under the capacity admission state, the pull hand-over doors of queued runs among them, those of the terminal multiplexer, and the `ssh` ones through which ssh reaches another host without reading a key. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
+/// The sockets a worker command may not connect to besides those its runtime view leaves out: those beneath each kept entry of `Reach::State`, the pull hand-over doors of queued runs under the capacity admission state among them, those of the terminal multiplexer, and the `ssh` ones through which ssh reaches another host without reading a key. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
 pub fn hidden(runtime: &Path, multiplexer: &Path, ssh: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    sockets(&runtime.join(north_base::platform::admission_root::DIRECTORY), DEPTH, &mut found);
+    for entry in kept(runtime).into_iter().filter(|path| reach(path) == Some(Reach::State)) {
+        sockets(&entry, DEPTH, &mut found);
+    }
     sockets(multiplexer, DEPTH, &mut found);
     found.extend(ssh.iter().filter(|path| !found.contains(path)).cloned().collect::<Vec<_>>());
     found
@@ -124,6 +132,11 @@ pub fn hide(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
     write("setgroups", "deny".to_owned())?;
     write("uid_map", format!("{uid} {uid} 1"))?;
     write("gid_map", format!("{gid} {gid} 1"))?;
+    overlay(runtime, paths)
+}
+
+/// Lays `hide`'s view and null devices in the user and mount namespace this process already runs in.
+pub(super) fn overlay(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
     mount_change("/", MountPropagationFlags::SLAVE | MountPropagationFlags::REC).map_err(|error| format!("mount /: {error}"))?;
     view(runtime)?;
     let mut failed: Vec<String> = paths.iter().filter_map(|path| mount_bind("/dev/null", path).err().filter(|error| *error != rustix::io::Errno::NOENT).map(|error| format!("{}: {error}", path.display()))).collect();
