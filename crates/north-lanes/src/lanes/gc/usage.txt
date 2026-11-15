@@ -1,10 +1,5 @@
-usage: north lane gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idle-hours H] [--state FILE] [--archive DIR] [--sessions-stdin]
+usage: north lane gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idle-hours H] [--state FILE] [--archive DIR]
        north lane gc --unlanded
-
-A host that does not hold the fleet registry (a build host) sweeps nothing, landed lanes included, unless
-the laptop's own run passes it the live sessions of that host on stdin (--sessions-stdin: a JSON array of
-name, parent, cwd, status, conversation and provider); the laptop's run does this over ssh for every host
-with offload_builds, and prints how many live sessions each host was given.
 
 For every ~/code/<project> container with main/ (clients, resources and archive are
 skipped; lanes are swept only where worktrees/ exists, origin branches in every container

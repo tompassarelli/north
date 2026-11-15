@@ -29,7 +29,7 @@ impl Hosts {
     }
 }
 
-pub(super) fn alive_status(session: &Value) -> bool {
+fn alive_status(session: &Value) -> bool {
     session.get("status").and_then(Value::as_str) != Some("exited")
 }
 
