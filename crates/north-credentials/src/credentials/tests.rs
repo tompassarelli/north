@@ -37,6 +37,7 @@ expires = "2027-01-01"
     );
     let home = directory.join("home");
     write(&home.join("tokens/claude-a"), SECRET);
+    std::fs::File::open(home.join("tokens/claude-a")).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(NOW)).unwrap();
     write(
         &home.join("profiles/claude-a/.credentials.json"),
         &format!(r#"{{"claudeAiOauth":{{"accessToken":"{SECRET}","refreshToken":"{SECRET}-r","expiresAt":1,"refreshTokenExpiresAt":{}}}}}"#, (NOW + 3 * DAY) * 1000),

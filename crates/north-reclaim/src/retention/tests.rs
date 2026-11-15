@@ -14,6 +14,16 @@ fn hours_before_now(hours: u64) -> u64 {
     NOW - hours * HOUR
 }
 
+fn stamp(path: &Path, at: u64) {
+    let time = rustix::fs::Timespec { tv_sec: i64::try_from(at).unwrap(), tv_nsec: 0 };
+    rustix::fs::utimensat(rustix::fs::CWD, path, &rustix::fs::Timestamps { last_access: time, last_modification: time }, rustix::fs::AtFlags::SYMLINK_NOFOLLOW).unwrap();
+    if fs::symlink_metadata(path).unwrap().is_dir() {
+        for entry in fs::read_dir(path).unwrap() {
+            stamp(&entry.unwrap().path(), at);
+        }
+    }
+}
+
 struct Local;
 
 impl Remote for Local {
@@ -167,8 +177,7 @@ impl Store {
     }
 
     fn age_and_seal(&self, entry: &Path, age_hours: u64) {
-        let stamp = format!("@{}", hours_before_now(age_hours));
-        assert!(Command::new("find").arg(entry).args(["-exec", "touch", "-h", "-d", &stamp, "{}", "+"]).status().unwrap().success());
+        stamp(entry, hours_before_now(age_hours));
         assert!(Command::new("chmod").args(["-R", "a-w"]).arg(entry).status().unwrap().success());
     }
 

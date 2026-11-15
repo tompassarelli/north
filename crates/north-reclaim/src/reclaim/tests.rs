@@ -124,6 +124,8 @@ fn scratch_of_an_ended_session_goes_once_idle_past_the_limit_and_held_by_no_proc
     symlink(held.join("out.log"), machine.path("proc/4242/fd/3")).unwrap();
     let stale = machine.scratch("claude", "stale", Ended, 3 * DAY);
     drop(std::os::unix::net::UnixListener::bind(stale.join("broker.sock")).unwrap());
+    let stale_since = (machine.now - 3 * DAY).duration_since(UNIX_EPOCH).unwrap().as_secs();
+    assert!(std::process::Command::new("touch").arg("-d").arg(format!("@{stale_since}")).arg(stale.join("broker.sock")).status().unwrap().success());
     touch(&stale, machine.now - 3 * DAY);
 
     assert_eq!(machine.reclaim(false), vec![stale.clone(), abandoned.clone()]);
