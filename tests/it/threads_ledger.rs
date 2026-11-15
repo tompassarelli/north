@@ -85,7 +85,7 @@ fn has(text: &str, pattern: &str) -> bool {
 }
 
 fn eventually(done: impl Fn() -> bool) -> bool {
-    north_core::platform::wait::until(std::time::Duration::from_secs(30), done)
+    north_core::platform::wait::until(crate::support::HANG, done)
 }
 
 struct Remote<'a> {

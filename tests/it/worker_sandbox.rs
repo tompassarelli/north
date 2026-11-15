@@ -1,7 +1,7 @@
+use crate::support::HANG;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const HANG: std::time::Duration = std::time::Duration::from_secs(3600);
 const CHILD: &str = "NORTH_706_REMOVE_COMPUTED";
 
 fn git(directory: &Path, arguments: &[&str]) {

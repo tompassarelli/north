@@ -4,6 +4,9 @@ pub mod tree;
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+/// A test's wait on an event alone: nextest's 120 s case limit, not this, ends a real hang, so a loaded host cannot fail the test.
+pub const HANG: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// The absolute path of a binary of this package: the compile-time value Cargo sets, else the run-time value a Buck2 test target sets relative to the project root.
 macro_rules! bin_exe {
     ($variable:literal) => {

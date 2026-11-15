@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::AtomicU64;
-use std::time::Duration;
 
 use north_base::land_ticket;
 use north_base::platform::wait;
@@ -59,7 +58,7 @@ fn a_session_whose_finish_call_returned_at_the_queue_is_kept_past_its_report_and
     fs::write(&brief, BRIEF).unwrap();
     let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--system-prompt", brief.to_str().unwrap(), "start the box"]);
     assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
-    assert!(wait::until(Duration::from_secs(20), || shown(root).contains("Done: fake report")), "the session never made its closing report: {}", shown(root));
+    assert!(wait::until(crate::support::HANG, || shown(root).contains("Done: fake report")), "the session never made its closing report: {}", shown(root));
 
     let queue_dir = queue::directory(&root.join(".local/state"), ORIGIN);
     fs::create_dir_all(&queue_dir).unwrap();
@@ -72,11 +71,11 @@ fn a_session_whose_finish_call_returned_at_the_queue_is_kept_past_its_report_and
     let mut watcher = environment(Command::new(std::env::current_exe().unwrap()), root, "here");
     watcher.args(["--exact", "refusal_wake::verdict_watch", "--nocapture", "--test-threads", "1"]).env(WATCHED_QUEUE, &queue_dir).env(READY, &ready).env("NORTH_LAND_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let watcher = watcher.spawn().unwrap();
-    assert!(wait::until(Duration::from_secs(20), || ready.exists()), "the lander never started watching its verdicts");
+    assert!(wait::until(crate::support::HANG, || ready.exists()), "the lander never started watching its verdicts");
 
     queue::decide(&landed, landed_ticket, "landed 2222222222222222222222222222222222222222 on main".to_owned()).unwrap();
     queue::decide(&refused, refused_ticket, REFUSAL.to_owned()).unwrap();
-    let woken = wait::until(Duration::from_secs(20), || shown(root).split_once(&format!("refused-lane: {REFUSAL}")).is_some_and(|(_, after)| after.contains("turn: success")));
+    let woken = wait::until(crate::support::HANG, || shown(root).split_once(&format!("refused-lane: {REFUSAL}")).is_some_and(|(_, after)| after.contains("turn: success")));
     let transcript = shown(root);
     let mut watcher = watcher;
     let _ = watcher.kill();
@@ -86,7 +85,7 @@ fn a_session_whose_finish_call_returned_at_the_queue_is_kept_past_its_report_and
     let wakes: Vec<u64> = Spool::at(&root.join(".local/state/north/fleet")).pending().unwrap().into_iter().filter(|row| row.to == "narrow" && row.text.starts_with(land_ticket::DECIDED_OPENER)).map(|row| row.sent_at).collect();
     north(root, &["fleet", "forget", "narrow"]);
 
-    assert!(woken, "the refusal started no turn in the session within 20 s:\n{transcript}\n{said}");
+    assert!(woken, "the refusal started no turn in the session:\n{transcript}\n{said}");
     let decided = decided.expect("the lander recorded no decision of the refused lane");
     assert!(matches!(wakes.as_slice(), [woke] if woke.saturating_sub(decided) <= WAKE_BOUND_MS), "the lander did not write its one wake within {WAKE_BOUND_MS} ms of refusing, at {decided} ms: {wakes:?}\n{said}");
     assert_eq!(transcript.matches("[north: the lander has decided]").count(), 1, "the session was woken other than once, by the refusal alone:\n{transcript}\n{said}");

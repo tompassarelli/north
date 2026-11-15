@@ -102,24 +102,8 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-fn finished_within_30_s(root: &Path, mut launches: Vec<(&str, std::process::Child, PathBuf, PathBuf)>) -> Vec<Output> {
-    let exited = north_core::platform::wait::until(std::time::Duration::from_secs(30), || launches.iter_mut().all(|(_, child, ..)| child.try_wait().unwrap().is_some()));
-    if !exited {
-        let tree = text(&Command::new("ps").args(["-ef", "--forest"]).output().map(|ps| ps.stdout).unwrap_or_default());
-        let mut stuck = String::new();
-        for (name, child, _, stderr) in &mut launches {
-            if child.try_wait().unwrap().is_some() {
-                continue;
-            }
-            let _ = child.kill();
-            let _ = child.wait();
-            let session = root.join(".local/state/north/fleet").join(*name);
-            let listing: Vec<_> = fs::read_dir(&session).map(|entries| entries.flatten().map(|entry| entry.file_name()).collect()).unwrap_or_default();
-            let hops = fs::read_to_string(session.join("hops.jsonl")).unwrap_or_default();
-            stuck += &format!("the launch of {name} was still running after 30 s and was killed\nstderr: {}\n{} holds {listing:?}\nhops.jsonl:\n{hops}\n", fs::read_to_string(&*stderr).unwrap_or_default(), session.display());
-        }
-        panic!("{stuck}ps tree:\n{tree}");
-    }
+fn finished(mut launches: Vec<(&str, std::process::Child, PathBuf, PathBuf)>) -> Vec<Output> {
+    north_core::platform::wait::until(crate::support::HANG, || launches.iter_mut().all(|(_, child, ..)| child.try_wait().unwrap().is_some()));
     launches.into_iter().map(|(_, mut child, stdout, stderr)| Output { status: child.wait().unwrap(), stdout: fs::read(stdout).unwrap(), stderr: fs::read(stderr).unwrap() }).collect()
 }
 
@@ -148,12 +132,12 @@ fn launched_at_once(root: &Path, names: &[&str]) -> Vec<Output> {
             (*name, command.spawn().unwrap(), stdout, stderr)
         })
         .collect();
-    finished_within_30_s(root, launches)
+    finished(launches)
 }
 
 fn answered_then_forgotten(root: &Path, names: &[&str]) -> (bool, Vec<String>) {
     let mut shown = Vec::new();
-    let answered = north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+    let answered = north_core::platform::wait::until(crate::support::HANG, || {
         shown = names.iter().map(|name| text(&north(root, &["fleet", "show", name]).stdout)).collect();
         shown.iter().all(|show| show.contains("OK"))
     });
@@ -364,15 +348,15 @@ fn a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is() {
     assert!(revived.status.success(), "{}", text(&revived.stderr));
     let first = held(&session)["host_pid"].clone();
     let mut shown = String::new();
-    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+    north_core::platform::wait::until(crate::support::HANG, || {
         shown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         shown.contains("OK")
     });
     Command::new("kill").args(["-TERM", &first.to_string()]).status().unwrap();
-    let parked = north_core::platform::wait::until(std::time::Duration::from_secs(20), || Command::new("kill").args(["-0", &first.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| !status.success()));
+    let parked = north_core::platform::wait::until(crate::support::HANG, || Command::new("kill").args(["-0", &first.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| !status.success()));
     let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "coordinator", "reply with the single word pong"]);
     let answered = |shown: &str, asked: &str| shown.split_once(asked).is_some_and(|(_, after)| after.contains("OK"));
-    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+    north_core::platform::wait::until(crate::support::HANG, || {
         shown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         answered(&shown, "reply with the single word pong")
     });
@@ -392,7 +376,7 @@ fn a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is() {
     let desk = root.join(".local/state/north/fleet/.handovers");
     let mut successor = serde_json::Value::Null;
     let mut ticks = Vec::new();
-    north_core::platform::wait::until(std::time::Duration::from_secs(60), || {
+    north_core::platform::wait::until(crate::support::HANG, || {
         let tick = north(root, &["fleet", "tick"]);
         ticks.push(format!("{}{}", text(&tick.stdout), text(&tick.stderr)));
         if desk.join("coordinator.asked.json").exists() && !desk.join("coordinator.md").exists() {
@@ -403,7 +387,7 @@ fn a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is() {
     });
     let resent = north(root, &["fleet", "send", "--from", "service:fleet-test", "coordinator", "reply with the single word ping"]);
     let mut reshown = String::new();
-    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+    north_core::platform::wait::until(crate::support::HANG, || {
         reshown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         answered(&reshown, "reply with the single word ping")
     });

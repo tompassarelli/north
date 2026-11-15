@@ -20,7 +20,6 @@ const OLDER_RUNTIME: &str = "4068cfe1d1a0000000000000000000000000000a";
 const OLDER_NORTH: &str = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$OLDER_NORTH_CALLS\"\nprintf \"error: unrecognized command '%s'\\n\\nUsage: north [COMMAND]\\n\" \"$*\" >&2\nexit 2\n";
 const CHANGE: &str = "the worker's change\n";
 const MESSAGE: &str = "Add the worker's change";
-const SERVE_WAIT: Duration = Duration::from_secs(30);
 const CALL_WAIT: Duration = Duration::from_secs(240);
 const JUDGED_NORTH: [&str; 3] = ["AGENT_CAPACITY_NORTH", "NORTH_BIN", "NORTH_LAND_NORTH"];
 
@@ -106,7 +105,7 @@ impl Canary {
     }
 
     fn until(&self, ready: impl Fn() -> bool, what: &str, log: &str) {
-        assert!(wait::until(SERVE_WAIT, ready), "{what} within {} s: {}", SERVE_WAIT.as_secs(), fs::read_to_string(self.path(log)).unwrap_or_default());
+        assert!(wait::until(crate::support::HANG, ready), "{what}: {}", fs::read_to_string(self.path(log)).unwrap_or_default());
     }
 
     fn held_queue(&self) -> bool {

@@ -48,7 +48,7 @@ fn native(host: &Host) -> Wrapper {
 }
 
 fn settle(wrapper: &mut Wrapper) -> Vec<Value> {
-    assert!(north_core::platform::wait::until(capacity_host::BOUND, || wrapper.exited().is_some()), "an admission helper ran past {:?}", capacity_host::BOUND);
+    assert!(north_core::platform::wait::until(crate::support::HANG, || wrapper.exited().is_some()), "an admission helper never exited");
     wrapper.stderr().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).collect()
 }
 

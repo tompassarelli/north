@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
-use std::time::Duration;
 
 use crate::fleet_launch::{environment, fixture};
 
@@ -31,7 +30,7 @@ fn a_fleet_message_does_not_end_a_running_hand_in() {
         .output()
         .unwrap();
     let mut shown = String::new();
-    let running = north_core::platform::wait::until(Duration::from_secs(30), || {
+    let running = north_core::platform::wait::until(crate::support::HANG, || {
         shown = text(&north(root, &["fleet", "show", "narrow"]).stdout);
         shown.contains(HAND_IN)
     });

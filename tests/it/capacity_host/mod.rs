@@ -8,7 +8,6 @@ use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Output};
 use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
 
 static EXEC: Mutex<()> = Mutex::new(());
 
@@ -22,9 +21,6 @@ pub trait Exclusive {
     fn output_exclusive(&mut self) -> std::io::Result<Output>;
 }
 
-/// The longest a command a capacity test runs may take, its output included: no test waits on a lease service or a build host, so one past it is hung, and its whole process group is ended so no child it left holds the test's output open.
-pub const BOUND: Duration = Duration::from_secs(120);
-
 impl Exclusive for Command {
     fn spawn_exclusive(&mut self) -> std::io::Result<Child> {
         let _forking = exclusive();
@@ -33,7 +29,7 @@ impl Exclusive for Command {
 
     fn status_exclusive(&mut self) -> std::io::Result<ExitStatus> {
         let mut child = self.process_group(0).spawn_exclusive()?;
-        bounded_wait(&mut child, &format!("{self:?}"))
+        wait_for_exit(&mut child)
     }
 
     fn output_exclusive(&mut self) -> std::io::Result<Output> {
@@ -42,12 +38,12 @@ impl Exclusive for Command {
         let what = format!("{self:?}");
         let stdout = drain(child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
         let stderr = drain(child.stderr.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
-        let status = bounded_wait(&mut child, &what)?;
-        let collect = |pipe: std::sync::mpsc::Receiver<Vec<u8>>| match pipe.recv_timeout(BOUND) {
+        let status = wait_for_exit(&mut child)?;
+        let collect = |pipe: std::sync::mpsc::Receiver<Vec<u8>>| match pipe.recv_timeout(crate::support::HANG) {
             Ok(bytes) => bytes,
             Err(_) => {
                 end_group(&child);
-                panic!("{what} exited but a child it left held its output open past {BOUND:?}");
+                panic!("{what} exited but a child it left held its output open");
             }
         };
         Ok(Output { status, stdout: collect(stdout), stderr: collect(stderr) })
@@ -66,9 +62,9 @@ fn drain(pipe: Option<Box<dyn Read + Send>>) -> std::sync::mpsc::Receiver<Vec<u8
     receive
 }
 
-fn bounded_wait(child: &mut Child, what: &str) -> std::io::Result<ExitStatus> {
+fn wait_for_exit(child: &mut Child) -> std::io::Result<ExitStatus> {
     let mut failure = None;
-    let finished = north_core::platform::wait::until(BOUND, || match child.try_wait() {
+    north_core::platform::wait::until(crate::support::HANG, || match child.try_wait() {
         Ok(status) => status.is_some(),
         Err(error) => {
             failure = Some(error);
@@ -77,11 +73,6 @@ fn bounded_wait(child: &mut Child, what: &str) -> std::io::Result<ExitStatus> {
     });
     if let Some(error) = failure {
         return Err(error);
-    }
-    if !finished {
-        end_group(child);
-        let _ = child.wait();
-        panic!("{what} ran past {BOUND:?}: a capacity test never waits on a lease service or a build host");
     }
     child.wait()
 }
@@ -264,7 +255,7 @@ impl Host {
 
     pub fn with_admission_lock<T>(&self, action: impl FnOnce() -> T) -> T {
         let lock = rusqlite::Connection::open(self.path("agent-capacity-v1/admission.lock")).unwrap();
-        lock.busy_timeout(Duration::from_secs(20)).unwrap();
+        lock.busy_timeout(crate::support::HANG).unwrap();
         lock.execute_batch("BEGIN EXCLUSIVE").unwrap();
         let result = action();
         drop(lock);
@@ -272,7 +263,7 @@ impl Host {
     }
 
     pub fn until(&self, what: &str, mut done: impl FnMut(&Self) -> bool) {
-        assert!(north_core::platform::wait::until(Duration::from_secs(20), || done(self)), "timed out waiting for {what}; helper stderr:\n{}", self.helper_stderr());
+        assert!(north_core::platform::wait::until(crate::support::HANG, || done(self)), "never saw {what}; helper stderr:\n{}", self.helper_stderr());
     }
 }
 

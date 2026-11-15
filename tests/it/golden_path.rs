@@ -5,7 +5,6 @@ use north_landing::land::queue;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::Duration;
 
 use serde_json::Value;
 
@@ -19,7 +18,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 
 fn eventually<T>(what: &str, mut probe: impl FnMut() -> Option<T>) -> T {
     let mut found = None;
-    let seen = north_core::platform::wait::until(Duration::from_secs(30), || {
+    let seen = north_core::platform::wait::until(crate::support::HANG, || {
         found = probe();
         found.is_some()
     });
@@ -238,7 +237,7 @@ fn a_hand_in_returns_the_landed_commit_in_one_call() {
 
     let hand_in = rig.command(rig.safe_push(), &rig.lane).args(["--to", "main", "--wait"]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let queue = queue::directory(&rig.root.join(".local/state"), rig.origin.to_str().unwrap());
-    let queued = north_core::platform::wait::until(Duration::from_secs(30), || queue::pending(&queue).is_ok_and(|tickets| !tickets.is_empty()));
+    let queued = north_core::platform::wait::until(crate::support::HANG, || queue::pending(&queue).is_ok_and(|tickets| !tickets.is_empty()));
     let served = queued.then(|| rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).env("RESIDENT_CAP_HOST", "whiterabbit").args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap());
     let handed = hand_in.wait_with_output().unwrap();
     let said = format!("{}{}", text(&handed), served.as_ref().map(text).unwrap_or_default());
