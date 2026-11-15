@@ -794,7 +794,7 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
             .env("NORTH_OFFLOAD_TETHER_SECONDS", "3")
-            .env("NORTH_OFFLOAD_DROPPED_SECONDS", "12")
+            .env("NORTH_OFFLOAD_DROPPED_SECONDS", "120")
             .env("PATH", &path)
             .env_remove(north_foundation::foundation::offload::SLOT_ENV)
             .env_remove("NORTH_OFFLOAD_ROOT")
