@@ -260,6 +260,11 @@ pub fn page_condition(key: &str, line: &str) -> Result<(), String> {
     fleet_send(&["fleet", "send", "--now", "--from", SENDER, "--key", key, COORDINATOR, line])
 }
 
+/// Ends the condition `key` the coordinator was paged under, so the next episode pages again.
+pub fn clear_condition(key: &str, line: &str) -> Result<(), String> {
+    fleet_send(&["fleet", "send", "--now", "--from", SENDER, "--key", key, "--cleared", COORDINATOR, line])
+}
+
 fn fleet_send(arguments: &[&str]) -> Result<(), String> {
     let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
     match run_within(&north, arguments, Duration::from_secs(30)) {
@@ -382,7 +387,7 @@ pub fn ask_for_boxes(cfg: &DocumentMut, listed: &BTreeSet<String>, issues: &[&Is
     }
 }
 
-fn remember(file: &str, value: &serde_json::Value) {
+pub(super) fn remember(file: &str, value: &serde_json::Value) {
     let saved = std::fs::create_dir_all(record::directory()).map_err(|error| error.to_string()).and_then(|()| serde_json::to_vec(value).map_err(|error| error.to_string()));
     if let Err(why) = saved.and_then(|bytes| std::fs::write(record::directory().join(file), bytes).map_err(|error| error.to_string())) {
         eprintln!("north fleet dispatch: {file} not recorded: {why}");

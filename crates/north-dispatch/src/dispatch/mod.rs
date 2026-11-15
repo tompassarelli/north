@@ -284,6 +284,9 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run);
     let watched = freeze::watch(&survey.here, frozen, dry_run, now);
     disk::print(&survey, dry_run);
+    if !dry_run {
+        cpu::page(&survey, now);
+    }
     exit(told, reported, watched)
 }
 

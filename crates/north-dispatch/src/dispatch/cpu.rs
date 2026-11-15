@@ -1,5 +1,9 @@
-//! The cgroup units that used the most CPU on this dispatch host over a short sample, printed by a dry run when the host's one-minute load is over twice its cores.
+//! The cgroup units that used the most CPU on this dispatch host over a short sample: a dry run prints them when the host's one-minute load is over twice its cores, and a placing round pages the coordinator with them once per overload.
+use super::effects;
+use super::record;
+use super::slots::Host;
 use super::survey::Survey;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -8,20 +12,61 @@ const SLICES: [&str; 2] = ["system.slice", "user.slice"];
 const SAMPLE: Duration = Duration::from_secs(5);
 const TOP: usize = 10;
 const DEPTH: usize = 6;
+const KEY: &str = "dispatch-cpu-overload";
+const STATE: &str = "cpu-overload.json";
+
+fn overloaded(survey: &Survey) -> Option<&Host> {
+    survey.hosts.iter().find(|host| host.name == survey.here).filter(|host| host.measure.is_some_and(|measure| measure.load > 2.0 * measure.cores))
+}
 
 /// Prints the ten largest CPU consumers by unit name, largest first, each with the cores it used in the sample and its process count. Only names are printed, never a command line, environment or path.
 pub(super) fn print(survey: &Survey) {
-    let Some(host) = survey.hosts.iter().find(|host| host.name == survey.here) else { return };
-    if !host.measure.is_some_and(|measure| measure.load > 2.0 * measure.cores) {
-        return;
+    if let Some(host) = overloaded(survey) {
+        for line in lines(&host.name) {
+            println!("{line}");
+        }
     }
+}
+
+/// Pages the coordinator once when this host goes over twice its cores, with the load, the idle cores and the same unit lines the dry run prints, and once more when the load falls back. The keyed send holds the page open for the whole overload, so the coordinator hears of one episode at most once.
+pub(super) fn page(survey: &Survey, at: f64) {
+    let Some(host) = survey.hosts.iter().find(|host| host.name == survey.here) else { return };
+    let Some(measure) = host.measure else { return };
+    let open = std::fs::read(record::directory().join(STATE)).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).is_some_and(|state| state["open"] == true);
+    let over = measure.load > 2.0 * measure.cores;
+    if over && !open {
+        open_episode(host, at);
+    } else if !over && open {
+        close_episode(host, at);
+    }
+}
+
+fn open_episode(host: &Host, at: f64) {
+    let Some(measure) = host.measure else { return };
+    let idle = measure.idle_cores.map_or_else(|| "unread".to_owned(), |idle| format!("{idle:.1}"));
+    let summary = format!("north fleet dispatch on {}: load {:.1} on {:.0} cores, {idle} idle cores", host.name, measure.load, measure.cores);
+    let text = std::iter::once(format!("{summary}; the CPU consumers:")).chain(lines(&host.name)).collect::<Vec<_>>().join("\n");
+    match effects::page_condition(KEY, &text) {
+        Ok(()) => effects::remember(STATE, &json!({"open": true, "at": at})),
+        Err(why) => eprintln!("north fleet dispatch: CPU overload not paged: {why}"),
+    }
+}
+
+fn close_episode(host: &Host, at: f64) {
+    let Some(measure) = host.measure else { return };
+    let text = format!("north fleet dispatch on {}: load {:.1} on {:.0} cores; the CPU overload cleared", host.name, measure.load, measure.cores);
+    match effects::clear_condition(KEY, &text) {
+        Ok(()) => effects::remember(STATE, &json!({"open": false, "at": at})),
+        Err(why) => eprintln!("north fleet dispatch: CPU overload clearing not paged: {why}"),
+    }
+}
+
+fn lines(name: &str) -> Vec<String> {
     let rows = sample();
     if rows.is_empty() {
-        println!("host {} cpu: not read: no cgroup CPU counters under {CGROUPS}", host.name);
+        return vec![format!("host {name} cpu: not read: no cgroup CPU counters under {CGROUPS}")];
     }
-    for (name, cores, procs) in rows {
-        println!("host {} cpu: {name} {cores:.2} cores, {procs} processes", host.name);
-    }
+    rows.into_iter().map(|(unit, cores, procs)| format!("host {name} cpu: {unit} {cores:.2} cores, {procs} processes")).collect()
 }
 
 fn sample() -> Vec<(String, f64, usize)> {
