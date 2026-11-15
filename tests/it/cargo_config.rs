@@ -1,5 +1,5 @@
 #[test]
-fn a_cargo_config_or_subcommand_planted_where_a_worker_writes_steers_no_capacity_run() {
+fn a_cargo_config_or_subcommand_planted_in_a_worker_writable_home_steers_no_capacity_run() {
     let wrapper = |marker: &std::path::Path| format!("[build]\nrustc-wrapper = \"{}\"\n", marker.with_extension("sh").display());
     let build: &[&str] = &["build", "--offline", "--quiet"];
     refuses_planted("home/.cargo/config.toml", "home/code/proj/worktrees/lane", "~/.cargo/config.toml naming a build wrapper", wrapper, build);
