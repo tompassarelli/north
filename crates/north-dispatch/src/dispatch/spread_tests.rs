@@ -75,3 +75,28 @@ pub(super) fn every_build_hosts_line_over_the_wait_bar_holds_each_box_with_its_e
     assert!(outcome.skipped.iter().all(|(_, why)| why.contains("95 s on gex45")), "{:?}", outcome.skipped);
     assert_eq!(outcome.skipped.len(), 2);
 }
+
+fn laptop_at_the_0631z_round(measure: Option<super::measure::Measure>, reading: Option<&Saturation>) -> Host {
+    Host { name: "whiterabbit".into(), cap: Some(200), room: None, running: Ok(16), measure, builds: None }.read(reading)
+}
+
+#[test]
+fn one_round_charges_its_own_launches_against_host_headroom() {
+    let accounts = vec![account("claude:a", &["whiterabbit"])];
+    let idle = super::measure::Measure { cores: 24.0, memory_total_mib: 65_536.0, memory_available_mib: 49_152.0, load: 1.0 };
+    let measured = laptop_at_the_0631z_round(Some(idle), Some(&Saturation { backlog: None, ..reading(900.0, 936.0, 0) }));
+    assert_eq!(measured.free(), Ok(46), "53 sessions of 768 MiB fit above the memory floor, and the 23 idle cores take 46 at half a core each, under the 184 the cap leaves");
+    let mut pools = super::slots::Pools::new(&[measured], &accounts);
+    let mut taken = 0;
+    while pools.host("whiterabbit") > 0 {
+        pools.take("whiterabbit");
+        taken += 1;
+    }
+    assert_eq!(taken, 46, "a round of launches takes the slots of the headroom and no more");
+
+    let unmeasured = laptop_at_the_0631z_round(None, None);
+    assert_eq!(unmeasured.free(), Err("host whiterabbit has no memory reading".to_owned()), "16/200 resident is not headroom");
+    let (launched, skipped) = placed(vec![unmeasured], accounts, 97);
+    assert!(launched.is_empty(), "{launched:?}");
+    assert!(skipped[0].contains("whiterabbit takes nothing: host whiterabbit has no memory reading"), "{}", skipped[0]);
+}

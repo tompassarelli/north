@@ -34,6 +34,12 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   host that mints its own), and `Saturation::refusal` refuses a host whose token is at or past
   `github_app::PUSHED_FRESH_SECONDS`, naming the host and the age, in dispatch and in `north fleet launch`
   placement alike.
+- **A host dispatch could not measure was given its whole resident cap.** On 2026-11-15 the 06:31Z round read the laptop
+  at 16 of 200 resident, 184 free, and placed 97 DeepSeek sessions there; the 06:36Z round placed 37 more, and the
+  laptop's load reached about 340 (north#1543). A host's free slots are now the least of its resident cap less its
+  sessions, the sessions its measured memory has room for and the sessions its idle cores take, each charged half a core
+  (a guess that the measured peak cores of a resident session settles), and a host with no memory reading takes nothing;
+  every launch of the round takes one slot from that count.
 
 `north fleet dispatch --dry-run` prints each host's line with its refusal or the builds its queue still takes, and a
 `skip ITEM: ready, not placed: ...` line naming the bound that stopped each box: the spend rule's refusal for the account, the

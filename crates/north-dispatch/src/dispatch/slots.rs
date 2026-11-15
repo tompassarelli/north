@@ -1,9 +1,17 @@
-//! Free worker slots: a host has the sessions its measured memory has room for, or an explicit resident cap minus the sessions it runs, no more than the builds
+//! Free worker slots: a host has the sessions its measured memory and idle cores have room for, no more than an explicit resident cap less the sessions it runs, and none without a memory reading, no more than the builds
 //! its admission queue takes. Whether an account may take a worker is the spend rule's call
 //! (`crate::spend`), which counts the workers this run has started.
 pub use crate::pacing::placement::room::{Charge, PlanSize, Room};
 use crate::spend::{Starter, View};
 use std::collections::BTreeMap;
+
+/// Cores of load one resident session is charged; a guess that the measured peak cores of a resident session settles.
+const SESSION_CORES_GUESS: f64 = 0.5;
+
+/// Sessions the cores the one-minute load leaves idle take, each charged `SESSION_CORES_GUESS`.
+fn cpu_room(measure: super::measure::Measure) -> i64 {
+    (((measure.cores - measure.load).max(0.0) / SESSION_CORES_GUESS).floor()) as i64
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Host {
@@ -49,19 +57,18 @@ impl Host {
 
     pub fn free(&self) -> Result<i64, String> {
         let running = self.running.clone()?;
-        match (self.cap, self.room) {
-            (Some(cap), room) => Ok((cap - running).max(0).min(room.unwrap_or(i64::MAX))),
-            (None, Some(room)) => Ok(room),
-            (None, None) => Err(format!("host {} has no memory reading", self.name)),
-        }
+        let room = self.room.ok_or_else(|| format!("host {} has no memory reading", self.name))?;
+        let resident = self.cap.map_or(i64::MAX, |cap| (cap - running).max(0));
+        Ok(resident.min(room).min(self.measure.map_or(i64::MAX, cpu_room)))
     }
 
     pub fn line(&self) -> String {
         let measured = self.measure.map_or_else(String::new, |measure| format!("; load {:.1} on {:.0} cores, {:.0} of {:.0} MiB available", measure.load, measure.cores, measure.memory_available_mib, measure.memory_total_mib));
-        let state = match (&self.running, self.cap) {
+        let running = self.running.as_ref().copied().unwrap_or_default();
+        let state = match (self.free(), self.cap) {
             (Err(why), _) => format!("host {}: takes nothing: {why}", self.name),
-            (Ok(running), None) => format!("host {}: {running} running, {} free by measured memory", self.name, self.room.unwrap_or(0)),
-            (Ok(running), Some(cap)) => format!("host {}: {running}/{cap} resident, {} free", self.name, (cap - running).max(0)),
+            (Ok(free), None) => format!("host {}: {running} running, {free} free by measured headroom", self.name),
+            (Ok(free), Some(cap)) => format!("host {}: {running}/{cap} resident, {free} free by measured headroom", self.name),
         };
         let builds = self.builds.map_or_else(String::new, |builds| format!("; its admission queue takes {builds} more builds"));
         format!("{state}{builds}{measured}")
