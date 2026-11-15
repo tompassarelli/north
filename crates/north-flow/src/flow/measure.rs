@@ -155,8 +155,7 @@ fn fill(env: &mut Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     row.insert("slug".into(), json!(slug));
     let mut source = Source { env, repo, path, slug, now, autoland: false };
     let fetched = source.git(&["fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"]);
-    let main_at = source.git(&["log", "-1", "--format=%ct", "origin/main"]).and_then(|at| at.trim().parse::<f64>().ok());
-    let lander = queue.as_deref().map_or_else(lander::Reading::default, |queue| lander::judge(&lander::Facts { main_at, ..lander::read(queue, now, &places.flow()) }));
+    let lander = queue.as_deref().map_or_else(lander::Reading::default, |queue| lander::judge(&lander::read(queue, now, &places.flow())));
     row.insert("lander".into(), json!(lander));
     fetched?;
     let queue = source.git(&["config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"]);

@@ -92,10 +92,10 @@ fn modified(path: &Path) -> Option<SystemTime> {
 }
 
 /// When the queue in `done` last landed a lane: its newest ticket whose verdict is `landed`.
-fn last_landed(done: &Path) -> Option<SystemTime> {
+pub(super) fn last_landed(done: &Path) -> Option<SystemTime> {
     let mut tickets: Vec<(SystemTime, PathBuf)> = fs::read_dir(done).ok()?.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).filter_map(|path| Some((modified(&path)?, path))).collect();
     tickets.sort_by(|left, right| right.cmp(left));
-    tickets.into_iter().find(|(_, path)| queue::read(path).is_ok_and(|ticket| ticket.verdict.is_some_and(|verdict| verdict.starts_with("landed ")))).map(|(at, _)| at)
+    tickets.into_iter().find(|(_, path)| queue::read(path).is_ok_and(|ticket| ticket.verdict.is_some_and(|verdict| verdict.starts_with("landed ")) && !ticket.branch.starts_with("sheriff-"))).map(|(at, _)| at)
 }
 
 /// Whether a runtime held off the lander is due its retry: only a landing moves current, and a held lander lands nothing, so the hold ends when no queue on this host has landed a lane for `link_hold::RETRY_AFTER_QUIET_SECONDS` since the hold began.

@@ -37,7 +37,7 @@ fn stalled_text(repo: &str, reading: &Reading) -> String {
     let oldest = reading.oldest_minutes.map_or_else(|| "unknown".to_owned(), |minutes| format!("{minutes:.0}m"));
     let line = reading.last_line.as_deref().unwrap_or("no lander log");
     format!(
-        "Lander stalled in {repo}: {} lanes queued, the oldest waiting {oldest}, and origin/main unmoved {:.0}m > {:.0}m (its limit from the lander's p90 candidate check and floor); lander's last log line: {line}",
+        "Lander stalled in {repo}: {} lanes queued, the oldest waiting {oldest}, and queued with no landing for {:.0}m > {:.0}m (the stall bound); lander's last log line: {line}",
         reading.depth,
         reading.idle_minutes.unwrap_or_default(),
         reading.stall_limit_minutes,

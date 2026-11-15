@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,6 @@ pub use super::bisect::OWNER;
 pub use super::queue::QUARANTINE;
 pub const ROUNDS: &str = "watchdog/rounds.json";
 pub const PAGES: &str = "watchdog-pages.json";
-pub const STALE_MICROS: u64 = 20 * 60 * 1_000_000;
 pub const PAGE_GAP_MICROS: u64 = 15 * 60 * 1_000_000;
 const CHECKING_EVERY_MICROS: u64 = 30 * 1_000_000;
 const KEPT: usize = 3;
@@ -62,7 +61,7 @@ impl Invariant {
     pub fn statement(self) -> &'static str {
         match self {
             Invariant::RepeatedError => "(a) no repository repeats the same error three rounds in a row",
-            Invariant::StaleLane => "(b) no lane waits in the queue longer than 20 minutes",
+            Invariant::StaleLane => "(b) no lane waits in the queue past the stall bound while no lane lands",
             Invariant::SharedBranch => "(c) no branch is claimed by two worktrees",
         }
     }
@@ -225,22 +224,35 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
             save_rounds(queue, &[])?;
         }
     }
-    for (path, ticket) in queue::pending(queue).map_err(|error| error.to_string())? {
-        let named = u64::try_from(queue::queued_micros(&path)).unwrap_or(u64::MAX);
-        let written = fs::metadata(&path).and_then(|metadata| metadata.modified()).ok().and_then(|modified| modified.duration_since(UNIX_EPOCH).ok()).map_or(0, |since| u64::try_from(since.as_micros()).unwrap_or(u64::MAX));
-        let age = now.saturating_sub(named.max(written));
-        if age <= STALE_MICROS {
-            continue;
-        }
-        let detail = format!("lane {} ({}) waited {} minutes", ticket.branch, path.file_name().unwrap_or_default().to_string_lossy(), age / 60_000_000);
-        let repair = stale_repair();
-        found.push(Violation { invariant: Invariant::StaleLane, queue: queue.to_owned(), detail, repairs: vec![repair] });
+    let pending = queue::pending(queue).map_err(|error| error.to_string())?;
+    let queued_since = |path: &Path| {
+        let named = u64::try_from(queue::queued_micros(path)).unwrap_or(u64::MAX);
+        let written = fs::metadata(path).and_then(|metadata| metadata.modified()).ok().and_then(|modified| modified.duration_since(UNIX_EPOCH).ok()).map_or(0, |since| u64::try_from(since.as_micros()).unwrap_or(u64::MAX));
+        named.max(written)
+    };
+    let [_, done, ..] = north_base::land_ticket::directories(queue);
+    let landed = super::promote::last_landed(&done).and_then(|at| u64::try_from(at.duration_since(UNIX_EPOCH).ok()?.as_micros()).ok());
+    let bound = stall_bound_micros();
+    if let Some((path, ticket)) = pending.iter().min_by_key(|(path, _)| queued_since(path)).filter(|(path, _)| stalled(now, queued_since(path), landed, bound)) {
+        let waited = now.saturating_sub(queued_since(path));
+        let landing = landed.map_or_else(|| "no lane has landed from this queue".to_owned(), |at| format!("the last lane landed {} minutes ago", now.saturating_sub(at) / 60_000_000));
+        let detail = format!("lane {} ({}) waited {} minutes with {} queued; {landing}", ticket.branch, path.file_name().unwrap_or_default().to_string_lossy(), waited / 60_000_000, pending.len());
+        found.push(Violation { invariant: Invariant::StaleLane, queue: queue.to_owned(), detail, repairs: vec![stale_repair()] });
     }
     Ok(found)
 }
 
+fn stall_bound_micros() -> u64 {
+    let minutes = north_base::platform::harness::default_number("lander_stall_floor_minutes");
+    u64::try_from(Duration::from_secs_f64(minutes * 60.0).as_micros()).unwrap_or(u64::MAX)
+}
+
+fn stalled(now: u64, queued: u64, landed: Option<u64>, bound: u64) -> bool {
+    now.saturating_sub(queued) > bound && landed.is_none_or(|at| now.saturating_sub(at) > bound)
+}
+
 fn stale_repair() -> Repair {
-    Repair::Nothing("the lane stays queued; a lane that waits behind a backlog is not broken".to_owned())
+    Repair::Nothing("no repair runs on its own; the lander has landed no lane within the stall bound".to_owned())
 }
 
 fn repeated(rounds: &[Observation]) -> Option<String> {

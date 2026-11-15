@@ -1,24 +1,21 @@
 use super::*;
 
-fn night_of_2026_11_08(now: f64) -> Facts {
-    Facts {
-        now,
-        depth: 9,
-        oldest_queued_at: Some(1_794_077_425.0),
-        last_landed_at: Some(1_794_078_192.0),
-        check_started_at: Some(1_794_078_195.0),
-        check_p90_s: Some(204.0),
-        main_at: Some(1_794_077_917.0),
-        last_line: Some("safe-push: candidate batch of 8 ended without a verdict".into()),
-    }
-}
-
 #[test]
-fn the_lander_stall_of_2026_11_08_alarms_on_the_first_flow_tick_past_ten_minutes_of_unmoved_main() {
-    assert!(!judge(&night_of_2026_11_08(1_794_078_300.0)).stalled, "19:05 UTC, main unmoved 6.4 min");
-    let reading = judge(&night_of_2026_11_08(1_794_078_600.0));
-    assert!(reading.stalled, "19:10 UTC, main unmoved 11.4 min, over the 10 min floor: {reading:?}");
-    assert_eq!(reading.stall_limit_minutes, 10.0);
+fn the_lander_stall_of_2026_11_15_is_named_with_eleven_lanes_waiting_on_a_landing_26_minutes_old() {
+    let now = 1_794_107_820.0;
+    let facts = Facts {
+        now,
+        depth: 11,
+        oldest_queued_at: Some(now - 34.0 * 60.0),
+        last_landed_at: Some(now - 26.0 * 60.0),
+        check_started_at: None,
+        check_p90_s: Some(900.0),
+        last_line: None,
+    };
+    let reading = judge(&facts);
+    assert!(reading.stalled, "{reading:?}");
+    assert_eq!(reading.stall_limit_minutes, 5.0);
+    assert_eq!(reading.reasons, vec!["11 queued with no landing for 26m > 5m".to_owned()]);
     let cold: Vec<Vec<serde_json::Value>> = [1, 1, 1, 6].iter().map(|minutes| vec![serde_json::json!({ "name": "test", "conclusion": "success", "started_at": "2026-11-11T15:00:00Z", "completed_at": format!("2026-11-11T15:0{minutes}:00Z"), "steps": [{ "conclusion": "success" }] })]).collect();
     assert_eq!(super::super::stall::job_slowest(&cold).get("test"), Some(&6.0), "a cold-cache run in the history sets the job's limit, so the next one is not a stall");
 }

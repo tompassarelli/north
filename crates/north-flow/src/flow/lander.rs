@@ -1,6 +1,6 @@
 //! The lander's own queue: tickets waiting in `land-queue/<origin key>/`, the newest landing it
 //! recorded and the candidate check it is running, read per repository so a stalled lander shows
-//! even when GitHub has nothing pending; a queue holding lanes while origin/main stays unmoved past its limit is stalled.
+//! even when GitHub has nothing pending; a queue holding lanes while no lane has landed past the stall bound is stalled.
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
@@ -37,7 +37,6 @@ pub struct Facts {
     pub last_landed_at: Option<f64>,
     pub check_started_at: Option<f64>,
     pub check_p90_s: Option<f64>,
-    pub main_at: Option<f64>,
     pub last_line: Option<String>,
 }
 
@@ -136,7 +135,8 @@ pub fn read(directory: &Path, now: f64, state: &Path) -> Facts {
     done.sort_by(|left, right| right.0.total_cmp(&left.0));
     let last_landed_at = done.into_iter().find_map(|(at, path)| {
         let ticket = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
-        (land_ticket::read(records.as_ref(), directory, &path, ticket.as_ref().and_then(|ticket| ticket["verdict"].as_str())) == Phase::Landed).then_some(at)
+        let revert = ticket.as_ref().and_then(|ticket| ticket["branch"].as_str()).is_some_and(|branch| branch.starts_with("sheriff-"));
+        (!revert && land_ticket::read(records.as_ref(), directory, &path, ticket.as_ref().and_then(|ticket| ticket["verdict"].as_str())) == Phase::Landed).then_some(at)
     });
     let check_started_at = records.as_ref().and_then(|store| checking_started_at(store, directory));
     let logs: Vec<(f64, PathBuf)> = listed(&directory.join("logs"), "log").into_iter().filter_map(|path| Some((started_at(&path)?, path))).collect();
@@ -159,20 +159,16 @@ pub fn read(directory: &Path, now: f64, state: &Path) -> Facts {
         last_landed_at,
         check_started_at,
         check_p90_s: percentile_90(&mut durations),
-        main_at: None,
         last_line: newest.and_then(|(_, path)| last_line(path)),
     }
 }
 
 pub fn judge(facts: &Facts) -> Reading {
     let minutes = |since: f64| (facts.now - since).max(0.0) / 60.0;
-    let floor = default_number("lander_stall_floor_minutes");
     let multiple = default_number("lander_check_p90_multiple");
     let check_limit_minutes = facts.check_p90_s.map(|p90| multiple * p90 / 60.0);
-    let stall_limit_minutes = check_limit_minutes.map_or(floor, |limit| limit.max(floor));
-    let moved = facts.main_at.or(facts.last_landed_at);
-    let idle_since = [moved, facts.oldest_queued_at].into_iter().flatten().reduce(f64::max);
-    let idle_minutes = idle_since.filter(|_| facts.depth > 0).map(minutes);
+    let stall_limit_minutes = default_number("lander_stall_floor_minutes");
+    let idle_minutes = facts.oldest_queued_at.filter(|_| facts.depth > 0).map(|oldest| facts.last_landed_at.map_or(minutes(oldest), |landed| minutes(oldest).min(minutes(landed))));
     let mut reading = Reading {
         depth: facts.depth,
         oldest_minutes: facts.oldest_queued_at.map(minutes),

@@ -111,7 +111,7 @@ impl Fleet {
     }
 
     fn addressable(&self, name: &str) -> bool {
-        self.session_dir(name).is_ok_and(|dir| dir.exists()) || self.held_elsewhere(name).is_ok_and(|held| held.is_some())
+        self.record(name).is_ok_and(|record| !record.ended()) || self.held_elsewhere(name).is_ok_and(|held| held.is_some())
     }
 
     pub(super) fn known_elsewhere(&self, name: &str) -> NorthResult<bool> {

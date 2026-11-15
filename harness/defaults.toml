@@ -1527,12 +1527,12 @@ fallback = "none; the slow-check detector reads this value"
 consumers = ["crates/north-flow/src/detectors/slow_check.rs"]
 
 [lander_stall_floor_minutes]
-value = 10
+value = 5
 allowed = { min = 1, max = 10080 }
-unit = "least minutes origin/main may go unmoved while the lander queue holds a lane, before north ledger flow --stall-alarm sends the proxy an urgent message and opens the repository's landing-is-stalled issue; the limit is lander_check_p90_multiple times the lander's p90 candidate check, never below this floor"
-source = "tom: a stalled lander alarms within minutes the way a red main does, after north landed nothing from 2:00 to 2:31 AM on 2026-11-08 and no alarm went out (north#841, 2026-11-08)"
+unit = "least minutes the lander queue may hold a lane with no lane landed before it is stalled: north ledger flow --stall-alarm sends the proxy an urgent message and opens the repository's landing-is-stalled issue, and the lander watchdog pages its owner or the proxy; the same bound for both, independent of the lander's check time"
+source = "tom: a stalled lander alarms within minutes the way a red main does, after north landed nothing from 2:00 to 2:31 AM on 2026-11-08 and no alarm went out (north#841, 2026-11-08); tom asked on 2026-11-15 that a stall be caught within minutes, when the lander ran 25 minutes stalled and the coordinator found it (north#1631); 5 minutes is a guess until the stall alarm's record shows the false-alarm rate"
 fallback = "none"
-consumers = ["crates/north-flow/src/flow/lander.rs"]
+consumers = ["crates/north-flow/src/flow/lander.rs", "crates/north-lander/src/land/watchdog.rs"]
 
 [lander_check_p90_multiple]
 value = 2
