@@ -192,7 +192,7 @@ fn a_test_the_graph_does_not_know_runs_when_the_lane_changes_a_crate_its_package
         ("test:north::it::worker_sandbox::a_known_test", "in-binary", "north::it"),
         ("crate:north", "root", "."),
         ("crate:north-runtime", "root", "crates/north-runtime"),
-        ("crate:north-ops", "root", "crates/north-ops"),
+        ("crate:north-claims", "root", "crates/north-claims"),
         ("crate:north", "depends-on", "crate:north-runtime"),
         ("coverage:north", "commit", "c0ffee"),
         ("fn:crates/north-runtime/src/worker_sandbox/mod.rs:1-9", "in-file", "crates/north-runtime/src/worker_sandbox/mod.rs"),
@@ -205,7 +205,7 @@ fn a_test_the_graph_does_not_know_runs_when_the_lane_changes_a_crate_its_package
         present("tests/it/worker_sandbox.rs", "a_known_test"),
         present("tests/it/worker_sandbox.rs", "a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state"),
         present("crates/north-runtime/src/worker_sandbox/tests.rs", "a_new_unit_test"),
-        present("crates/north-ops/src/report.rs", "a_test_outside_the_closure"),
+        present("crates/north-claims/src/report.rs", "a_test_outside_the_closure"),
     ];
     let cone = cone::of(&facts, &change, Some(&Hunks::new())).unwrap();
     assert!(cone.tests.is_empty(), "the map holds no edge from the changed region");

@@ -23,7 +23,7 @@ rust_library(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
-        "//crates/north-ops:north-ops",
+        "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//third-party:regex",
         "//third-party:toml_edit",
     ],
@@ -39,7 +39,7 @@ north_rust_test(
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     deps = [
-        "//crates/north-ops:north-ops",
+        "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//third-party:regex",
         "//third-party:toml_edit",
     ],

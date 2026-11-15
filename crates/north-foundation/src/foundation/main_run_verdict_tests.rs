@@ -1,4 +1,4 @@
-use north_base::foundation::main_run_verdict::{Kept, Verdict, judge};
+use super::{Kept, Verdict, judge};
 
 const TIMEOUT_LOG: &str = "test\tTest\t2026-11-14T19:24:41.7710459Z [2026-11-14T19:24:41.767+00:00]         TIMEOUT [  60.001s] north::it golden_path::a_slow_case";
 const FAILED_LOG: &str = "test\tTest\t2026-11-14T19:24:41.7710459Z [2026-11-14T19:24:41.767+00:00]         FAIL [   0.526s] north::it golden_path::a_failed_case";

@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::fleet::overlap::{self, Lane};
+use north_fleet_supervisor::fleet::overlap::{self, Lane};
 use crate::citation_check;
 
 static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#{2,3} +(.+)$").expect("heading pattern"));

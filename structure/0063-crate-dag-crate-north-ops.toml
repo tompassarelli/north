@@ -1,6 +1,0 @@
-[[crate_dag.crate]]
-name = "north-ops"
-layer = 6
-paths = ["crates/north-ops/src/**"]
-may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes", "north-registries", "north-runtime-follow", "north-control-plane"]
-

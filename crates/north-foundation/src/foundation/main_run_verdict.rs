@@ -161,3 +161,7 @@ pub fn not_judged(kept: &Kept) -> Option<String> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "main_run_verdict_tests.rs"]
+mod tests;

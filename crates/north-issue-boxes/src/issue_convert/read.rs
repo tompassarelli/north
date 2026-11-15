@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use crate::foundation::clock::rfc3339_seconds;
-use crate::platform::github;
+use north_base::foundation::clock::rfc3339_seconds;
+use north_base::platform::github;
 
 const MOST_PAGES: usize = 100;
 

@@ -1,4 +1,4 @@
-use crate::platform::box_oracles;
+use north_base::platform::box_oracles;
 
 use super::{OPEN, Stamp, Verdict};
 

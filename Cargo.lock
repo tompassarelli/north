@@ -1047,7 +1047,6 @@ dependencies = [
  "north-machine-model",
  "north-mutants",
  "north-offload",
- "north-ops",
  "north-providers",
  "north-reclaim",
  "north-registries",
@@ -1234,7 +1233,7 @@ dependencies = [
 name = "north-claims"
 version = "0.1.0"
 dependencies = [
- "north-ops",
+ "north-fleet-supervisor",
  "regex",
  "toml_edit",
 ]
@@ -1703,8 +1702,9 @@ name = "north-issue-boxes"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-calibration",
+ "north-dispatch",
  "north-github-mirror",
- "north-ops",
  "north-providers",
  "regex",
  "serde",
@@ -1935,38 +1935,6 @@ dependencies = [
  "rustix 0.38.44",
  "serde_json",
  "tempfile",
- "toml_edit",
-]
-
-[[package]]
-name = "north-ops"
-version = "0.1.0"
-dependencies = [
- "fancy-regex",
- "north-base",
- "north-calibration",
- "north-capacity-host",
- "north-control-plane",
- "north-dispatch",
- "north-fleet-supervisor",
- "north-github-mirror",
- "north-health",
- "north-lanes",
- "north-pace",
- "north-providers",
- "north-registries",
- "north-threads",
- "percent-encoding",
- "proptest",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "time",
- "tokio",
  "toml_edit",
 ]
 

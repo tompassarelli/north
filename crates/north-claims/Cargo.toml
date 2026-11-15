@@ -10,7 +10,7 @@ publish = false
 doctest = false
 
 [dependencies]
-north-ops = { path = "../north-ops" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 regex.workspace = true
 toml_edit.workspace = true
 

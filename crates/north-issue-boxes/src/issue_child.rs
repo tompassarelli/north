@@ -4,7 +4,7 @@ use north_base::platform::broker_client::Client;
 use serde_json::json;
 
 use super::issue_convert::{manifest, read, scan, slug};
-use crate::platform::box_oracles::done_when_command;
+use north_base::platform::box_oracles::done_when_command;
 
 const USAGE: &str = "usage: north issue child [OWNER/]REPO#N --title TITLE --body BODY [--type Task|Bug|Feature] [--label LABEL]...
 

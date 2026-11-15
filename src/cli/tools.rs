@@ -54,7 +54,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("policy-replay", crate::policy_replay::run),
     ("defaults-measure", north_tune::defaults_measure::run),
     ("spend", super::spend::run),
-    ("control-plane", north_ops::ops::control_plane::run),
+    ("control-plane", super::control_plane::run),
     ("coordinator", |arguments| match arguments.first().map(String::as_str) {
         Some("calls") => {
             eprintln!("did you mean: north config coordinator {}", arguments.join(" "));

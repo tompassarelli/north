@@ -5,9 +5,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::boxes::{self, Checkbox};
-use crate::pacing::placement::needs::declared;
-use crate::platform::box_oracles::done_when_command;
-use crate::threads::claims;
+use north_dispatch::pacing::placement::needs::declared;
+use north_base::platform::box_oracles::done_when_command;
+use north_calibration::threads::claims;
 
 /// The longest title a created issue may carry.
 pub const LONGEST_TITLE: usize = 80;

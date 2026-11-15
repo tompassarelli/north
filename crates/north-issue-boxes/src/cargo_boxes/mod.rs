@@ -4,9 +4,9 @@ mod workspace;
 
 use std::path::PathBuf;
 
-use crate::error::{NorthError, NorthResult};
-use crate::platform::github;
-use crate::platform::rolling_issue::{Gh, Tracker};
+use north_base::error::{NorthError, NorthResult};
+use north_base::platform::github;
+use north_base::platform::rolling_issue::{Gh, Tracker};
 
 pub use workspace::Workspace;
 

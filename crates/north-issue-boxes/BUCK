@@ -24,8 +24,10 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-calibration:north-calibration",
+        "//crates/north-dispatch:north-dispatch",
         "//crates/north-github-mirror:north-github-mirror",
-        "//crates/north-ops:north-ops",
+        "//crates/north-providers:north-providers",
         "//third-party:regex",
         "//third-party:serde",
         "//third-party:serde_json",
@@ -46,8 +48,9 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-calibration:north-calibration",
+        "//crates/north-dispatch:north-dispatch",
         "//crates/north-github-mirror:north-github-mirror",
-        "//crates/north-ops:north-ops",
         "//crates/north-providers:north-providers",
         "//third-party:regex",
         "//third-party:serde",

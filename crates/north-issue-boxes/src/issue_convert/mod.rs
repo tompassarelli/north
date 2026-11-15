@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::foundation::clock::Timestamp;
-use crate::platform::betterleaks;
-use crate::threads::claims;
+use north_base::foundation::clock::Timestamp;
+use north_base::platform::betterleaks;
+use north_calibration::threads::claims;
 use manifest::{Manifest, Parent, Row, Scan, Tracker};
 
 pub(crate) mod boxes;
@@ -110,7 +110,7 @@ fn home() -> PathBuf {
 /// The box slug of each claim on `item` that still holds it, None for a claim on the whole issue. No fleet is read, so
 /// a claim whose session died holds its box until it goes stale: the box stays in the body, which loses nothing.
 fn live_claims(item: &str, opened: i64) -> Result<Vec<Option<String>>, String> {
-    let database = crate::threads::client::threads_database();
+    let database = north_calibration::threads::client::threads_database();
     if !database.is_file() {
         println!("claims: no threads ledger at {}, so no box is read as held", database.display());
         return Ok(Vec::new());

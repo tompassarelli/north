@@ -2,4 +2,4 @@
 name = "north-claims"
 layer = 6
 paths = ["crates/north-claims/src/**"]
-may_use = ["north-ops"]
+may_use = ["north-fleet-supervisor"]

@@ -156,10 +156,6 @@ path = "tests/land/main.rs"
 kind = "lines"
 
 [[set]]
-path = "crates/north-ops/src/ops/mod.rs"
-kind = "lines"
-
-[[set]]
 path = "crates/north-capacity/src/capacity/mod.rs"
 kind = "lines"
 

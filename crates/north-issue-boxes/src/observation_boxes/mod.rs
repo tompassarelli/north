@@ -1,9 +1,9 @@
 use std::process::Command;
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
-use crate::platform::github;
-use crate::platform::rolling_issue::{Gh, Tracker};
+use north_base::error::{NorthError, NorthResult};
+use north_base::foundation::clock::Timestamp;
+use north_base::platform::github;
+use north_base::platform::rolling_issue::{Gh, Tracker};
 
 const MARKER: &str = "Observe: `";
 const OPEN: &str = "- [ ] ";

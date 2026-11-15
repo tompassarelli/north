@@ -62,7 +62,6 @@ crates_before = [
   "north-machine-model",
   "north-mutants",
   "north-offload",
-  "north-ops",
   "north-pace",
   "north-pacing",
   "north-providers",
@@ -815,11 +814,11 @@ owner = "tompassarelli/north#1233"
 lead = "proxy"
 
 [[check]]
-id = "n1276-north-docs-thirty-modules"
-box = "north-ops holds at most 30 top-level modules"
-command = "test $(grep -c '^pub mod' crates/north-ops/src/ops/mod.rs) -le 30"
-review = "2026-11-26"
-owner = "tompassarelli/north#1276"
+id = "n1435-north-ops-stays-gone"
+box = "north-ops is gone: its verb families live in the crates that own them, and no crate of that name returns"
+command = "test ! -e crates/north-ops"
+review = "2026-12-15"
+owner = "tompassarelli/north#1435"
 lead = "proxy"
 
 [[check]]
