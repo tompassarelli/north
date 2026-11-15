@@ -64,6 +64,15 @@ fn five_launches_started_together_share_one_answer_from_a_host_that_answers_one_
     }
 }
 
+/// On 2026-11-14 placement printed gex45's disk bound as the 94 GiB eviction line although `[hosts.gex45]` sets `disk_free_gib = 150`.
+#[test]
+fn placement_applies_the_configured_disk_bound_to_a_surveyed_host() {
+    let cfg: DocumentMut = "[hosts.gex45]\ndisk_free_gib = 150\n".parse().unwrap();
+    let reading = Saturation { memory_total_mib: 64.0, memory_available_mib: 32.0, disk_free_gib: 140.0, disk_total_gib: 935.0, backlog: None, token_age_s: None, disk_bound_gib: None };
+    let facts = with_disk_bounds(Some(&cfg), &[machine("gex45")], vec![Facts { saturation: Some(reading), ..Facts::default() }]);
+    assert_eq!(facts[0].saturation.map(|bounded| bounded.disk_bound()), Some(150.0));
+}
+
 static GUARDED: Memo = Mutex::new(None);
 
 /// On 2026-11-12 a launch placed work from a host's answer two minutes old, so a host whose disk or memory ran short since then still took it.

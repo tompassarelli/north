@@ -99,11 +99,22 @@ impl super::gate::Machine {
 /// The host's saturation reading, from the PLACEMENT_HOSTS fixture alone when that is set, else the cache when under a
 /// minute old, else a fresh probe here or over ssh `destination`; None when unreadable.
 pub(in crate::pacing) fn saturation(name: &str, destination: &str) -> Option<Saturation> {
-    let bound = super::sampling::config().ok().and_then(|cfg| {
-        let setting = cfg.get("hosts")?.get(name)?.get("disk_free_gib")?;
-        setting.as_float().or_else(|| setting.as_integer().map(|whole| whole as f64))
-    });
+    let bound = super::sampling::config().ok().and_then(|cfg| disk_bound(&cfg, name));
     read_saturation(name, destination).map(|reading| reading.bounded(bound))
+}
+
+/// The `disk_free_gib` a host's `[hosts.NAME]` table sets, None when it sets none.
+fn disk_bound(cfg: &DocumentMut, name: &str) -> Option<f64> {
+    let setting = cfg.get("hosts")?.get(name)?.get("disk_free_gib")?;
+    setting.as_float().or_else(|| setting.as_integer().map(|whole| whole as f64))
+}
+
+/// Each machine's facts with its saturation reading held to the host's configured disk bound, whether the reading was probed, cached or recorded.
+fn with_disk_bounds(cfg: Option<&DocumentMut>, machines: &[Machine], facts: Vec<Facts>) -> Vec<Facts> {
+    machines.iter().zip(facts).map(|(machine, facts)| {
+        let bound = cfg.and_then(|cfg| disk_bound(cfg, &machine.name));
+        Facts { saturation: facts.saturation.map(|reading| reading.bounded(bound)), ..facts }
+    }).collect()
 }
 
 fn read_saturation(name: &str, destination: &str) -> Option<Saturation> {
@@ -233,7 +244,8 @@ pub(in crate::pacing) fn probed_machines(machines: Vec<Machine>, fleet_load: &BT
 
 /// Each machine's facts in one ssh round trip apiece, asked at once; a host silent past `SURVEY_DEADLINE` is placed from its last recorded reading.
 pub(in crate::pacing) fn surveyed(machines: &[Machine], cwd: Option<&str>) -> Vec<Facts> {
-    survey_via(&PASS, &records(), machines, cwd, SURVEY_DEADLINE, Arc::new(fetch), &silent_host)
+    let facts = survey_via(&PASS, &records(), machines, cwd, SURVEY_DEADLINE, Arc::new(fetch), &silent_host);
+    with_disk_bounds(super::sampling::config().ok().as_ref(), machines, facts)
 }
 
 /// What a launch asks a host: everything placement reads, or only whether its directory is there when it reads another launch's answer; the survey keeper asks everything with a saturation reading taken now.
