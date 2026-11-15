@@ -34,7 +34,7 @@ pub struct Rebased<'a> {
 }
 
 pub fn line(scope: &Scope) -> String {
-    format!("CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo check --all-targets --locked --offline {}", scope.arguments())
+    format!("CARGO_TARGET_DIR=target north --worker-sandbox --candidate -- ./bin/land-shell --dev -- cargo check --all-targets --locked --offline {}", scope.arguments())
 }
 
 fn north(program: &Path, tree: &Path, arguments: &[&str], limit: Duration) -> Result<(Option<i32>, String), String> {
@@ -92,7 +92,7 @@ pub fn outcome(rebased: &Rebased, program: &Path, logs: &Path, name: &str) -> Re
     if !rebased.tree.join("Cargo.toml").is_file() {
         return Ok(Outcome::Judged(None));
     }
-    let metadata = match cargo_manifest::read(rebased.tree, GRACE) {
+    let metadata = match cargo_manifest::read(rebased.tree, program, GRACE) {
         Read::Metadata(metadata) => metadata,
         Read::Unreadable { line, log, named } => return unreadable(rebased, logs, name, &format!("{line}\n{log}"), &named).map(|refused| Outcome::Judged(Some(refused))),
         Read::Unjudged { why, log } => return unjudged(logs, name, &why, &log),

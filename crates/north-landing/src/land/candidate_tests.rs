@@ -1,6 +1,8 @@
 use super::*;
 use north_base::foundation::shim::write_script;
 
+const PASS_JAILED: &str = "if [ \"$1\" = --worker-sandbox ]; then shift 3; exec \"$@\"; fi\n";
+
 fn commit_all(root: &Path, message: &str) {
     git(root, &["add", "-A"]).unwrap();
     git(root, &["commit", "-q", "-m", message]).unwrap();
@@ -123,12 +125,12 @@ fn rebase_compile_scenario(dir: &Path) {
     fs::create_dir_all(tree.join(".cargo")).unwrap();
     fs::write(tree.join(".cargo/config.toml"), "[build\nrustc = \"the lane's own program\"\n").unwrap();
     let north = dir.join("north");
-    write_script(&north, &format!("echo \"$NORTH_OFFLOAD_LANDER_SLOT $*\" >> {}\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) printf 'error[E0063]: missing field `user_runtime` in initializer of `a::Context`\\n --> crates/b/src/lib.rs:1:35\\nerror: could not compile `b`\\n' >&2; exit 101 ;;\nesac\n", dir.join("asked").display()));
+    write_script(&north, &format!("{PASS_JAILED}echo \"$NORTH_OFFLOAD_LANDER_SLOT $*\" >> {}\ncase \"$3\" in\n  choose) echo build-host-one ;;\n  run) printf 'error[E0063]: missing field `user_runtime` in initializer of `a::Context`\\n --> crates/b/src/lib.rs:1:35\\nerror: could not compile `b`\\n' >&2; exit 101 ;;\nesac\n", dir.join("asked").display()));
     let logs = dir.join("logs");
     let unmoved = Rebased { tree: &repo, checked_on: Some(&moved), picked_onto: &moved, head: &head, shipped_from: &moved };
     assert!(rebase_compile::judge(&unmoved, &north, &logs, "lane").unwrap().is_none() && !dir.join("asked").exists(), "a lane checked on the main it is picked onto compiles nothing");
     let rebased = Rebased { tree: &tree, checked_on: Some(&checked_on), picked_onto: &moved, head: &head, shipped_from: &moved };
-    let refused = rebase_compile::judge(&rebased, &north, &logs, "lane").unwrap().expect("the lane rebased onto the moved main does not compile, its manifest read from the repository's main checkout, where neither the lane's cargo config, which cargo cannot parse, nor its flake's dev shell applies");
+    let refused = rebase_compile::judge(&rebased, &north, &logs, "lane").unwrap().expect("the lane rebased onto the moved main does not compile, its manifest read in the candidate jail from outside its tree, where neither the lane's cargo config, which cargo cannot parse, nor its flake's dev shell applies");
     assert_eq!(refused.gates, crate::landing_refusals::REBASE_COMPILE);
     assert!(refused.verdict.contains("error[E0063]: missing field `user_runtime`") && refused.verdict.contains("--> crates/b/src/lib.rs:1:35"), "on 2026-11-13 80b143969c, checked on an older main, was pushed onto 68f3121884 without a compile and main stayed red with E0063: {}", refused.verdict);
     assert!(fs::read_to_string(dir.join("asked")).unwrap().contains("cargo check --all-targets --locked --offline -p a -p b"), "the base changed crate a, which the lane's crate b depends on, so both are checked");
@@ -140,7 +142,7 @@ fn rebase_compile_scenario(dir: &Path) {
     let lane_tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
     assert!(rebase_compile::reused(&ahead, &lane_tree, "waiting").flatten().is_some_and(|refused| refused.verdict.contains("error[E0063]")), "the compile that ran while the lane waited, onto the main it is picked onto, still refuses it before its push");
     let offline = dir.join("offline");
-    write_script(&offline, "case \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n");
+    write_script(&offline, &format!("{PASS_JAILED}case \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n"));
     assert!(rebase_compile::judge(&rebased, &offline, &logs, "lane").unwrap().is_none(), "cargo exits 101 for a resolver failure too, which says nothing about the lane");
     let rechecked = git(&repo, &["commit-tree", &format!("{checked_on}^{{tree}}"), "-p", &checked_on, "-m", "Check the lane again"]).unwrap();
     let unjudged = [(dir.join("unjudged.json"), Ticket { branch: "unjudged".to_owned(), head: head.clone(), root: repo.clone(), origin: repo.display().to_string(), gated_from: Some(rechecked.clone()), ..Default::default() })];

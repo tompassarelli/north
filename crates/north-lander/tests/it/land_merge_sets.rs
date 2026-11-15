@@ -9,7 +9,8 @@ use north_lander::landing::merge_set;
 
 const DRIVER: &str = "NORTH_MERGE_SETS_DRIVER";
 const HOME: &str = "NORTH_MERGE_SETS_HOME";
-const OWN_RULES: &str = "land_merge_sets::a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick";
+const OWN_RULES: &str = "land_merge_sets::a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick_in_its_rebase_compile";
+const OFFLOADED: &str = "offloaded";
 const OWN_ATTRIBUTES: &str = "land_merge_sets::a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick_through_its_merge_attributes";
 const JAILED: &str = "jailed";
 
@@ -129,7 +130,7 @@ fn north_shim(home: &Path, name: &str) {
     let jailed = home.join(JAILED);
     let built = home.join("built-north");
     write_script(&built, INDEX);
-    write_script(&shim, &format!("if [ \"$1\" = --worker-sandbox ]; then echo \"$*\" >>'{}'; shift 3; IN_CANDIDATE_JAIL=1 exec \"$@\"; fi\nif [ \"$1\" = runtime ] && [ \"$2\" = build-ahead ]; then echo '{}'; exit 0; fi\n{DRIVER}=\"$*\" exec '{}' {name} --exact --quiet --test-threads=1\n", jailed.display(), built.display(), exe.display()));
+    write_script(&shim, &format!("if [ \"$1\" = --worker-sandbox ]; then echo \"$*\" >>'{}'; shift 3; IN_CANDIDATE_JAIL=1 exec \"$@\"; fi\nif [ \"$1 $2 $3\" = \"capacity offload choose\" ]; then echo build-host-one; exit 0; fi\nif [ \"$1 $2 $3\" = \"capacity offload run\" ]; then echo \"$*\" >>'{}'; exit 0; fi\nif [ \"$1\" = runtime ] && [ \"$2\" = build-ahead ]; then echo '{}'; exit 0; fi\n{DRIVER}=\"$*\" exec '{}' {name} --exact --quiet --test-threads=1\n", jailed.display(), home.join(OFFLOADED).display(), built.display(), exe.display()));
     merge_set::run_drivers_with(&shim);
 }
 
@@ -142,6 +143,11 @@ fn own_rules(home: &Path) {
         write(root, "structure/9000-allow-rules.toml", "[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"crates/north-a/src/rules.rs\"\nreason = \"an external format\"\n");
     });
     let generator = lane(&main, "generator", |root| write(root, "crates/north-docs/src/structure_index.rs", "fn lane_code() {}\n"));
+    let queued_on = run(&main, &["rev-parse", "HEAD"]);
+    edit(&main, "Cargo.toml", |text| text.replace("serde = \"1\"", "serde = \"1.0\""));
+    commit(&main, "Move main past the lanes' checks");
+    run(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let (ticket, generator) = (Ticket { gated_from: Some(queued_on.clone()), ..ticket }, Ticket { gated_from: Some(queued_on), ..generator });
     let tickets = vec![(home.join("queue/rules.json"), ticket), (home.join("queue/generator.json"), generator)];
     let worktree = main.parent().unwrap().join("worktrees/lander");
     let base = candidate::prepare(&main, &worktree).unwrap();
@@ -151,6 +157,9 @@ fn own_rules(home: &Path) {
     assert!(matches!(built.picks[..], [Pick::Included, Pick::Included]), "{:?}", built.picks.iter().map(candidate::recorded).collect::<Vec<_>>());
     let jailed = fs::read_to_string(home.join(JAILED)).unwrap_or_default();
     assert!(jailed.starts_with("--worker-sandbox --candidate -- ") && jailed.contains(&home.join("built-north").display().to_string()) && jailed.contains("structure-index"), "the landing base's regenerate command runs inside the candidate jail: {jailed:?}");
+    assert!(jailed.lines().any(|line| line.starts_with("--worker-sandbox --candidate -- env -C /tmp cargo metadata ")), "the compile after the rebase read the rebased manifest outside the candidate jail: {jailed:?}");
+    let offloaded = fs::read_to_string(home.join(OFFLOADED)).unwrap_or_default();
+    assert!(!offloaded.is_empty() && offloaded.lines().all(|line| line.contains(" -- CARGO_TARGET_DIR=target north --worker-sandbox --candidate -- ./bin/land-shell --dev -- cargo check ")), "the compile line shipped to the build host runs the rebased lane outside the candidate jail: {offloaded:?}");
     assert_eq!(run(&worktree, &["show", "HEAD:structure.toml"]).matches("[[implicit_state.allow]]").count(), 2);
 }
 
@@ -191,6 +200,7 @@ fn isolated(name: &str, scenario: fn(&Path)) {
     let output = Command::new(std::env::current_exe().unwrap())
         .args([name, "--exact", "--nocapture", "--test-threads=1"])
         .env(HOME, home.path())
+        .env("NORTH_LAND_NORTH", home.path().join("north"))
         .env("HOME", home.path())
         .env("XDG_STATE_HOME", home.path().join("state"))
         .env("NORTH_TEST_ROOT", home.path())
@@ -203,7 +213,7 @@ fn isolated(name: &str, scenario: fn(&Path)) {
 }
 
 #[test]
-fn a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick() {
+fn a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick_in_its_rebase_compile() {
     isolated(OWN_RULES, own_rules);
 }
 

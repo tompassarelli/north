@@ -3,10 +3,12 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use north_base::platform::{git, process};
+use north_base::platform::process;
 
 const ARGUMENTS: [&str; 5] = ["metadata", "--no-deps", "--offline", "--format-version", "1"];
 const CARGO_FAILED: i32 = 101;
+const JAIL: [&str; 3] = ["--worker-sandbox", "--candidate", "--"];
+const OUTSIDE_THE_TREE: &str = "/tmp";
 
 pub enum Read {
     Metadata(String),
@@ -14,14 +16,11 @@ pub enum Read {
     Unjudged { why: String, log: String },
 }
 
-pub fn read(tree: &Path, limit: Duration) -> Read {
+pub fn read(tree: &Path, north: &Path, limit: Duration) -> Read {
     let manifest = tree.join("Cargo.toml");
     let line = format!("cargo {} --manifest-path {}", ARGUMENTS.join(" "), manifest.display());
-    let Some(main) = main_checkout(tree) else {
-        return Read::Unjudged { why: format!("`{line}` has no main checkout of the lane's repository to run from"), log: String::new() };
-    };
-    let mut command = Command::new("cargo");
-    command.args(ARGUMENTS).arg("--manifest-path").arg(&manifest).current_dir(&main).stdin(Stdio::null());
+    let mut command = Command::new(north);
+    command.args(JAIL).args(["env", "-C", OUTSIDE_THE_TREE, "cargo"]).args(ARGUMENTS).arg("--manifest-path").arg(&manifest).current_dir(tree).stdin(Stdio::null());
     let output = match process::try_run_group_traced_within(command, limit) {
         Ok(Ok(output)) => output,
         Ok(Err(stalled)) => return Read::Unjudged { why: format!("`{line}` gave no answer within {} s: {stalled}", limit.as_secs()), log: String::new() },
@@ -30,7 +29,7 @@ pub fn read(tree: &Path, limit: Duration) -> Read {
     let log = String::from_utf8_lossy(&output.stderr).into_owned();
     match output.status.code() {
         Some(0) => Read::Metadata(String::from_utf8_lossy(&output.stdout).into_owned()),
-        Some(CARGO_FAILED) => Read::Unreadable { named: named(&log, &[format!("{}/", tree.display()), relative(&main, tree)]), line, log },
+        Some(CARGO_FAILED) => Read::Unreadable { named: named(&log, &[format!("{}/", tree.display()), relative(Path::new(OUTSIDE_THE_TREE), tree)]), line, log },
         code => Read::Unjudged { why: format!("`{line}` ended with {code:?} and named no manifest error"), log },
     }
 }
@@ -41,12 +40,6 @@ fn named(log: &str, prefixes: &[String]) -> Vec<String> {
         .filter(|line| !line.is_empty() && *line != "Caused by:" && !line.starts_with(|first: char| first == '|' || first.is_ascii_digit()))
         .map(|line| prefixes.iter().fold(line.to_owned(), |line, prefix| line.replace(prefix, "")))
         .collect()
-}
-
-fn main_checkout(tree: &Path) -> Option<PathBuf> {
-    let output = git::run(tree, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok().filter(|output| output.status.success())?;
-    let common = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-    (common.file_name()? == ".git").then(|| common.parent().map(Path::to_path_buf)).flatten()
 }
 
 fn relative(from: &Path, to: &Path) -> String {
