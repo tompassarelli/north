@@ -46,6 +46,7 @@ pub fn read(at: Timestamp) -> Result<Landed, String> {
     for repo in landing_repos(&policy) {
         let dir = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code").join(checkout(&repo)).join("main");
         if !dir.is_dir() {
+            unread.push(format!("{repo}: no checkout at {}", dir.display()));
             continue;
         }
         match commits_of(&repo, &dir, since) {
