@@ -1,7 +1,7 @@
 use north_foundation::foundation::clock::Timestamp;
 use toml_edit::{DocumentMut, Item, Table};
 
-pub const MEASURES: [&str; 4] = ["cloud_launches", "launch_failures", "closed_boxes", "heartbeat_age_minutes"];
+pub const MEASURES: [&str; 5] = ["cloud_launches", "launch_failures", "closed_boxes", "heartbeat_age_minutes", "drill_age_days"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Direction {

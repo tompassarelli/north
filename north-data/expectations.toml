@@ -53,3 +53,14 @@ owner = "ops-observability"
 fix = "a second host reads the Nexus heartbeat over ssh, so the checker's own death alerts"
 on = "elsewhere"
 host = "nexus"
+
+[[expectation]]
+name = "nexus-drill"
+measure = "drill_age_days"
+breach_when = "above"
+threshold = 8
+window = "8d"
+owner = "ops-observability"
+fix = "the weekly synthetic breach did not reach both channels on Nexus, so neither the drill's silence nor a missed channel stays quiet; restart its timer and clear the alert once a fresh drill is recorded"
+on = "elsewhere"
+host = "nexus"

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 const REMOTE_WAIT: Duration = Duration::from_secs(30);
 const HEARTBEAT: &str = "ops/heartbeat.json";
+const DRILL: &str = "ops/drill.json";
 
 pub struct Machine {
     pub directory: PathBuf,
@@ -15,26 +16,26 @@ pub struct Machine {
     pub at: f64,
 }
 
-fn local_heartbeat(directory: &Path) -> Result<Value, String> {
-    let path = directory.join(HEARTBEAT);
+fn local_record(directory: &Path, name: &str) -> Result<Value, String> {
+    let path = directory.join(name);
     let bytes = std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     serde_json::from_slice(&bytes).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-fn remote_heartbeat(host: &str) -> Result<Value, String> {
-    let command = format!("cat ~/.local/state/agents/{HEARTBEAT}");
+fn remote_record(host: &str, name: &str) -> Result<Value, String> {
+    let command = format!("cat ~/.local/state/agents/{name}");
     let output = run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, &command], REMOTE_WAIT).ok_or_else(|| format!("ssh {host} did not return within {} s", REMOTE_WAIT.as_secs()))?;
     if !output.status.success() {
         return Err(format!("ssh {host}: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
-    serde_json::from_slice(&output.stdout).map_err(|error| format!("ssh {host} heartbeat: {error}"))
+    serde_json::from_slice(&output.stdout).map_err(|error| format!("ssh {host} {name}: {error}"))
 }
 
 impl Machine {
     fn heartbeat_age_minutes(&self, expectation: &Expectation) -> Result<f64, String> {
         let beat = match expectation.host.as_deref() {
-            Some(host) if host != self.host => remote_heartbeat(host)?,
-            _ => local_heartbeat(&self.directory)?,
+            Some(host) if host != self.host => remote_record(host, HEARTBEAT)?,
+            _ => local_record(&self.directory, HEARTBEAT)?,
         };
         let at = beat["at"].as_f64().ok_or("heartbeat has no time")?;
         Ok(((self.now() - at) / 60.0).max(0.0))
@@ -43,6 +44,15 @@ impl Machine {
     fn launches(&self, expectation: &Expectation, counted: impl Fn(&north_dispatch::dispatch::LaunchRecord) -> bool) -> f64 {
         let since = self.now() - expectation.window_seconds;
         launch_records(&self.directory.join("dispatch")).iter().filter(|record| record.at >= since && counted(record)).count() as f64
+    }
+
+    fn drill_age_days(&self, expectation: &Expectation) -> f64 {
+        let record = match expectation.host.as_deref() {
+            Some(host) if host != self.host => remote_record(host, DRILL),
+            _ => local_record(&self.directory, DRILL),
+        };
+        let at = record.ok().and_then(|record| record["at"].as_f64());
+        at.map_or(f64::INFINITY, |at| ((self.now() - at) / 86_400.0).max(0.0))
     }
 }
 
@@ -57,6 +67,7 @@ impl Machine {
             "launch_failures" => Ok(self.launches(expectation, north_dispatch::dispatch::LaunchRecord::failed)),
             "closed_boxes" => ledger::closed_report(&expectation.window).map(|report| report.closed as f64).map_err(|error| error.user_message()),
             "heartbeat_age_minutes" => self.heartbeat_age_minutes(expectation),
+            "drill_age_days" => Ok(self.drill_age_days(expectation)),
             other => Err(format!("no measure named {other}")),
         }
     }
