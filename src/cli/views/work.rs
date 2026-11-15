@@ -9,6 +9,8 @@ use crate::foundation::clock::Timestamp;
 use crate::router::moment::Moment;
 use north_unblocks::review::{self, ClassLoss, Owners, classes, mirror_closed, threads_db};
 
+mod landed;
+
 pub struct Work {
     pub text: String,
     pub json: Value,
@@ -94,11 +96,20 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
     let lanes = crate::flow::work_rows();
     let lane_lines = crate::flow::work_lines(&lanes);
     let losses = harness_losses(window_ms, now);
-    let text = text(window, &digest, &sessions, &tree, &report, &lane_lines, &losses);
+    let today = landed::read(at);
+    let headline = match &today {
+        Ok(landed) => landed.lines(),
+        Err(why) => format!("Landed today: unread: {why}\n"),
+    };
+    let text = format!("{headline}\n{}", text(window, &digest, &sessions, &tree, &report, &lane_lines, &losses));
     let json = json!({
         "at": at.iso(),
         "now_ms": now,
         "window": window,
+        "landed_today": match &today {
+            Ok(landed) => landed.json(),
+            Err(why) => json!({"unread": why}),
+        },
         "landed": books.landed.iter().map(|landing| json!({"task": landing.task_ref, "sha": landing.sha, "landed_ms": landing.landed_ms})).collect::<Vec<_>>(),
         "sessions": sessions,
         "gates": gates.iter().map(|gate| json!({"label": gate.label, "session": gate.session, "question": gate.question, "recommended": gate.recommended, "default_at_ms": gate.default_at_ms})).collect::<Vec<_>>(),
