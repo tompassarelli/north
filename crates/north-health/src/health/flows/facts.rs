@@ -1,5 +1,6 @@
 //! `north health facts`: this host's own record of each flow's outcome, as JSON for the laptop's watchdog.
 use std::fs;
+use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
@@ -143,9 +144,13 @@ fn name_spool_verbs(home: &Path, faults: &mut [Fault]) {
     }
 }
 
+const VERB_PREFIX: u64 = 512;
+
 fn spool_verb(path: &Path) -> Option<String> {
-    let argv: Vec<String> = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
-    argv.into_iter().next()
+    let mut head = Vec::new();
+    fs::File::open(path).ok()?.take(VERB_PREFIX).read_to_end(&mut head).ok()?;
+    let argv = head.trim_ascii_start().strip_prefix(b"[")?;
+    serde_json::Deserializer::from_slice(argv).into_iter::<String>().next()?.ok()
 }
 
 pub fn gather(home: &Path) -> HostFacts {
