@@ -273,6 +273,7 @@ fn revert(runtimes: &Runtimes, divergence: &Divergence, commit: &str, found: &st
     if !sheriff::without(&worktree, &tip, commit)? {
         return Err(format!("{} no longer reverts cleanly onto {}", short(commit), short(&tip)));
     }
+    sheriff::follow_removed_tests(&worktree);
     let branch = format!("sheriff-revert-{}", short(commit));
     git(&worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = git(&worktree, &["log", "-1", "--format=%s", commit])?;

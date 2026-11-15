@@ -11,6 +11,7 @@ mod gate;
 pub mod host_class;
 mod lints;
 mod plan;
+mod prune;
 mod rule;
 mod scan;
 mod sources;
@@ -21,7 +22,7 @@ mod workspace;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north buck targets [--check [--third-party]] [--root DIR] | north buck host-cases --filter [PACKAGE...] | north buck compare-cases NAME...";
+const USAGE: &str = "usage: north buck targets [--check [--third-party]] [--root DIR] | north buck host-cases --filter [PACKAGE...] | north buck host-cases --prune | north buck compare-cases NAME...";
 
 pub use cases::{CaseReader, Sides};
 
@@ -46,6 +47,9 @@ const INFRASTRUCTURE_STATUS: u8 = 75;
 pub fn run(arguments: &[String], cargo: &Cargo, sides: &Sides, state: &Path) -> u8 {
     if let Some((verb, names)) = arguments.split_first() && verb == "compare-cases" && !names.is_empty() {
         return u8::from(!cases::compare(Path::new("."), names, sides, &mut std::io::stdout()));
+    }
+    if arguments == ["host-cases", "--prune"] {
+        return prune();
     }
     if let Some(("host-cases", rest)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) {
         return host_cases(rest);
@@ -192,4 +196,17 @@ fn write(files: &[Generated]) -> Result<u8, String> {
         println!("{} {}", if file.content.is_some() { "wrote" } else { "removed" }, file.path.display());
     }
     Ok(0)
+}
+
+fn prune() -> u8 {
+    match prune::prune(Path::new(".")) {
+        Ok(rewritten) => {
+            rewritten.iter().for_each(|path| println!("{}", path.display()));
+            0
+        }
+        Err(why) => {
+            eprintln!("north buck host-cases --prune: {why}");
+            1
+        }
+    }
 }

@@ -135,7 +135,7 @@ fn stale(workspace: &Workspace, own: &BTreeSet<Member>) -> Result<(), String> {
 }
 
 /// Whether a Rust source under `dir`, outside build output, declares `fn function(`, leaving out the directories of other packages.
-fn defines(dir: &Path, function: &str) -> bool {
+pub(crate) fn defines(dir: &Path, function: &str) -> bool {
     let declaration = format!("fn {function}(");
     let Ok(entries) = std::fs::read_dir(dir) else { return false };
     entries.filter_map(Result::ok).any(|entry| {

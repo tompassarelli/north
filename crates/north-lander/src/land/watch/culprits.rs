@@ -95,6 +95,7 @@ fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome
         git(&worktree, &["reset", "-q", "--hard", &main])?;
         return Err(format!("{range} no longer reverts cleanly onto main {}", short(&main)));
     }
+    sheriff::follow_removed_tests(&worktree);
     let branch = format!("revert-{}", short(&lane.tip));
     git(&worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = git(&worktree, &["log", "-1", "--format=%s", &lane.tip])?;

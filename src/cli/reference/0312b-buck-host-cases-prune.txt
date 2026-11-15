@@ -1,0 +1,1 @@
+  buck host-cases --prune                      Drop each host case of build/host-cases.list and the manifests whose test function the tree no longer has, printing each file rewritten

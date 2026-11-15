@@ -239,6 +239,7 @@ fn queue(landed: &Landed, lander: &Lander, commit: &str, names: &str, verdicts: 
     if !sheriff::without(&worktree, landed.head, commit)? {
         return Err(format!("it no longer reverts cleanly onto {}", landed.head));
     }
+    sheriff::follow_removed_tests(&worktree);
     let branch = format!("concerns-revert-{}", &commit[..commit.len().min(12)]);
     git(&worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = message.lines().next().unwrap_or_default();

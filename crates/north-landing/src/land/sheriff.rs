@@ -430,6 +430,26 @@ fn lane_ticket(lander: &Lander, parent: &str, tip: &str, lane: &str) -> Option<T
     })
 }
 
+/// Drops from the index of `worktree`, a revert staged and not yet committed, every host-case entry naming a test the revert removes, so main never holds a build entry for a test it lacks; a prune that fails is reported and the revert still queues, since a stale host case is better than a red main left standing.
+pub fn follow_removed_tests(worktree: &Path) {
+    if let Err(error) = prune_removed_tests(worktree) {
+        println!("north land: the revert in {} keeps its host-case entries: {error}", worktree.display());
+    }
+}
+
+fn prune_removed_tests(worktree: &Path) -> Result<(), String> {
+    let pruned = Command::new(super::after::follow::program()).args(["buck", "host-cases", "--prune"]).current_dir(worktree).stdin(std::process::Stdio::null()).output().map_err(|error| format!("north buck host-cases --prune: {error}"))?;
+    if !pruned.status.success() {
+        return Err(format!("north buck host-cases --prune: {}", String::from_utf8_lossy(&pruned.stderr).trim()));
+    }
+    let rewritten: Vec<&str> = std::str::from_utf8(&pruned.stdout).unwrap_or_default().lines().collect();
+    if rewritten.is_empty() {
+        return Ok(());
+    }
+    git(worktree, &[&["add", "--"], rewritten.as_slice()].concat())?;
+    Ok(())
+}
+
 pub fn queue_revert(lander: &Lander, worktree: &Path, branch: &str) -> Result<String, String> {
     queue_revert_in(&lander.repo, &lander.queue, worktree, branch)
 }
@@ -451,6 +471,7 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: 
     if !without(worktree, tip, lane)? {
         return Err(format!("{} no longer reverts cleanly onto {}", short(lane), short(tip)));
     }
+    follow_removed_tests(worktree);
     git(worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = git(worktree, &["log", "-1", "--format=%s", lane])?;
     let since = if tip == request.head { String::new() } else { format!(" and still at the tip {}", short(tip)) };
