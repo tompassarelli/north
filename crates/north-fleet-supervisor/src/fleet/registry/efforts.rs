@@ -16,9 +16,23 @@ pub fn admitted(model: Option<&str>, asked: Option<Effort>) -> Option<Effort> {
     sonnet(model).then(|| asked.filter(|effort| sonnet_effort(*effort)).unwrap_or(Effort::High))
 }
 
+/// The effort a hand-picked Claude model with none asked is pinned to: the catalog cell's effort for its family
+/// (harness/model-catalog.toml), so the record holds the effort the client is given; none for a family the catalog names no cell for.
+fn pinned(model: &str) -> Option<Effort> {
+    let family = model.to_lowercase();
+    if family.contains("sonnet") || family.contains("haiku") {
+        Some(Effort::High)
+    } else if family.contains("opus") {
+        Some(Effort::Medium)
+    } else {
+        None
+    }
+}
+
 /// The effort a launch records: none unless asked, high for Sonnet when none is asked, low, medium or high
-/// for Sonnet when asked, the session's seeded draw from a runtime's effort arms, and refused by a
-/// runtime that takes none, for Sonnet at any other effort, or outside a runtime's arms.
+/// for Sonnet when asked, the session's seeded draw from a runtime's effort arms, the catalog's pin for any other
+/// Claude model it is given with none asked, and refused by a runtime that takes none, for Sonnet at any other
+/// effort, or outside a runtime's arms.
 pub fn taken(runtime: &dyn Runtime, model: Option<&str>, effort: Option<Effort>, seed: &str) -> NorthResult<Option<Effort>> {
     let arms = runtime.effort_arms();
     match (effort, sonnet(model)) {
@@ -28,6 +42,7 @@ pub fn taken(runtime: &dyn Runtime, model: Option<&str>, effort: Option<Effort>,
         (Some(asked), _) => Ok(Some(asked)),
         (None, true) if runtime.takes_effort() => Ok(Some(Effort::High)),
         (None, _) if !arms.is_empty() => Ok(Some(drawn(seed, arms))),
+        (None, _) if runtime.takes_effort() => Ok(model.and_then(pinned)),
         _ => Ok(effort),
     }
 }
@@ -50,3 +65,7 @@ pub fn revived(record: &SessionRecord, runtime: &dyn Runtime, running: bool, eff
         Some(_) => taken(runtime, record.model.as_deref(), effort, &record.name),
     }
 }
+
+#[cfg(test)]
+#[path = "efforts_tests.rs"]
+mod tests;

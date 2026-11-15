@@ -137,7 +137,11 @@ impl Runtime for Stream {
     }
 
     fn models(&self) -> &'static [&'static str] {
-        &["opus", "sonnet", "claude-opus-5-5", "claude-sonnet-5-5"]
+        &["opus", "sonnet", "claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2"]
+    }
+
+    fn takes_effort(&self) -> bool {
+        true
     }
 
     fn roster(&self, _state_root: &Path, home: &Path, _policy: &Path) -> Roster {
