@@ -161,6 +161,7 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
     );
 }
 
+
 /// On 2026-11-07 around 22:17 UTC bd-832-redmain's failed `cd` let `git checkout -B` run in
 /// ~/code/north/main, because the shell kept going after the missing directory and git took the
 /// primary checkout the session started in. The guard follows each segment's cwd: the branch write
@@ -194,4 +195,40 @@ fn a_failed_cd_never_lets_git_checkout_b_run_in_a_primary_checkout_north_1041() 
         None,
         "the same failed cd from a lane leaves git in the lane, where its branch work belongs"
     );
+}
+
+#[test]
+fn main_checkout_takes_a_pull_or_merge_only_from_origin_main() {
+    let fixture = fixture();
+    let policy = Policy {
+        root: fixture.root.clone(),
+        home: std::env::var("HOME").unwrap(),
+    };
+    let main = format!("{}/proj/main", fixture.root);
+    let lane = format!("{}/proj/worktrees/main", fixture.root);
+    let decide = |command: &str, cwd: &str| {
+        let payload = serde_json::json!({"tool_name":"Bash", "cwd":cwd, "tool_input":{"command":command}});
+        policy.decide(&HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap())
+    };
+    for (command, cwd) in [
+        ("git pull -q --ff-only".to_string(), main.as_str()),
+        (format!("git -C {main} pull -q --ff-only"), "/tmp"),
+        (format!("git -C {main} pull origin n791-placement"), "/tmp"),
+        (format!("git -C {main} pull gex45 main"), "/tmp"),
+        (format!("git -C {main} merge --ff-only FETCH_HEAD"), "/tmp"),
+        (format!("git -C {main} merge --ff-only n791-placement"), "/tmp"),
+    ] {
+        let reason = decide(&command, cwd).unwrap_or_else(|| panic!("{command} was allowed"));
+        assert!(reason.contains("safe-push --to main") && reason.contains(&format!("north lane sync {main}")), "{reason}");
+    }
+    for (command, cwd) in [
+        (format!("git -C {main} merge --ff-only origin/main"), "/tmp"),
+        (format!("git -C {main} merge --ff-only refs/remotes/origin/main"), "/tmp"),
+        (format!("git -C {main} pull -q --ff-only origin main"), "/tmp"),
+        ("git merge --ff-only origin/main".to_string(), main.as_str()),
+        ("git pull -q --ff-only".to_string(), lane.as_str()),
+        (format!("git -C {lane} merge FETCH_HEAD"), "/tmp"),
+    ] {
+        assert_eq!(decide(&command, cwd), None, "{command}");
+    }
 }

@@ -53,3 +53,16 @@ fn pushed_token(pushed: &std::path::Path, now: i64) -> Result<String, String> {
     }
     Ok(token)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{AGENT_LOGINS, LANDER_LOGINS};
+
+    #[test]
+    fn the_agent_app_answers_to_both_its_old_and_its_north_fleet_login() {
+        assert!(AGENT_LOGINS.contains(&"socrates-agent[bot]"));
+        assert!(AGENT_LOGINS.contains(&"north-fleet[bot]"));
+        assert!(LANDER_LOGINS.contains(&"lander[bot]"));
+        assert!(LANDER_LOGINS.contains(&"north-lander[bot]"));
+    }
+}

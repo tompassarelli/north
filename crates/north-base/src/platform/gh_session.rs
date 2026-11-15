@@ -288,3 +288,7 @@ fn record(ledger: &Path, spend: Spend) {
         eprintln!("north gh-session: cannot record spend in {}: {error}", ledger.display());
     }
 }
+
+#[cfg(test)]
+#[path = "gh_session_tests.rs"]
+mod tests;
