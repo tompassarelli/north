@@ -70,3 +70,26 @@ pub(super) fn decide(bytes: &[u8], gate: &Gate, reply: impl FnOnce(&str) -> supe
 fn hook_error(file: &Path, kind: &str) {
     record_error(file, HOOK_ID, kind);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::foundation::hook_deadline::{within_by, within_by_clocks};
+
+    #[test]
+    fn a_stuck_decider_is_abandoned_at_the_deadline_with_a_note_instead_of_hanging() {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let stuck = within_by_clocks(Duration::from_secs(1), &|| Duration::from_secs(1), &|| Duration::ZERO, move || {
+            let _ = held.recv();
+            Some("never".to_owned())
+        });
+        assert!(stuck.is_none());
+        assert_eq!(within_by(Duration::from_secs(3600), &|| Duration::ZERO, || 7), Some(7));
+        drop(release);
+        let dir = tempfile::tempdir().unwrap();
+        let errors = dir.path().join("errors.tsv");
+        let note = conclude(stuck, &errors).unwrap();
+        assert!(note.contains(LATE_NOTE) && note.contains("additionalContext"));
+        assert!(std::fs::read_to_string(&errors).unwrap().ends_with("\tprompt-grounding\tdeadline\n"));
+    }
+}

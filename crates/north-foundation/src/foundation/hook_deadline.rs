@@ -17,6 +17,10 @@ pub fn within<T: Send + 'static>(deadline: Instant, work: impl FnOnce() -> T + S
 }
 
 pub fn within_by<T: Send + 'static>(limit: Duration, elapsed: &dyn Fn() -> Duration, work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    within_by_clocks(limit, elapsed, &run_delay, work)
+}
+
+pub fn within_by_clocks<T: Send + 'static>(limit: Duration, elapsed: &dyn Fn() -> Duration, run_delay: &dyn Fn() -> Duration, work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
     let ceiling = Duration::from_secs(HOOK_TIMEOUT_SECS.into());
     let starved_before = run_delay();
     let (sender, receiver) = mpsc::channel();
