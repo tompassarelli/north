@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use north_base::test_inputs::git::git_in;
 use north_github_mirror::read;
 use north_github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use serde_json::json;
@@ -11,20 +12,15 @@ const RETIRED: &str = "Commands:\n  fleet dispatch [--dry-run]  Place\n  ops div
 const STRANDED: &str = "the week's loss prints. Done when: `north ops climb run --dry-run` exits 0";
 const ARMS: &str = "arms are read in crates/north-climb/src/arms.rs.";
 
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = std::process::Command::new("git").current_dir(directory).env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@example.invalid").env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@example.invalid").args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}");
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
-}
 
 fn commit(directory: &Path, reference: &str, arms: bool) -> String {
     let path = directory.join("crates/north-climb/src/arms.rs");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     if arms { std::fs::write(&path, "").unwrap() } else { std::fs::remove_dir_all(directory.join("crates")).unwrap() }
     std::fs::write(directory.join("src/cli/reference.txt"), reference).unwrap();
-    git(directory, &["add", "-A"]);
-    git(directory, &["commit", "-qm", "change"]);
-    git(directory, &["rev-parse", "HEAD"])
+    git_in(directory, &["add", "-A"]);
+    git_in(directory, &["commit", "-qm", "change"]);
+    git_in(directory, &["rev-parse", "HEAD"])
 }
 
 fn stranded(directory: &Path, base: &str, head: &str, mirror: &Mirror, body: &str) -> (bool, String) {
@@ -44,8 +40,8 @@ fn a_removal_naming_an_open_box_check_fails_its_landing() {
     let root = tempfile::tempdir().unwrap();
     let north = root.path().join("north");
     std::fs::create_dir_all(north.join("src/cli")).unwrap();
-    git(&north, &["init", "-q", "-b", "main"]);
-    git(&north, &["remote", "add", "origin", "git@github.com:tompassarelli/north.git"]);
+    git_in(&north, &["init", "-q", "-b", "main"]);
+    git_in(&north, &["remote", "add", "origin", "git@github.com:tompassarelli/north.git"]);
     let base = commit(&north, REFERENCE, true);
     let head = commit(&north, RETIRED, false);
     let mirror = Mirror::at(root.path().join("github-mirror.db"));

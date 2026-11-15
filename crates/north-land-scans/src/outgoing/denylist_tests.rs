@@ -1,12 +1,9 @@
 use std::path::Path;
-use std::process::Command;
+
+use north_base::test_inputs::git::git_in;
 
 use super::*;
 
-fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git").current_dir(dir).args(args).output().unwrap();
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-}
 
 #[test]
 fn a_push_to_south_itself_is_private_whatever_the_origin_spelling_and_without_asking_github() {
@@ -14,8 +11,8 @@ fn a_push_to_south_itself_is_private_whatever_the_origin_spelling_and_without_as
     let south = dir.path().join("south");
     let main = south.join("main");
     std::fs::create_dir_all(&main).unwrap();
-    git(&main, &["init", "-q"]);
-    git(&main, &["remote", "add", "origin", "https://github.com/tompassarelli/south.git"]);
+    git_in(&main, &["init", "-q"]);
+    git_in(&main, &["remote", "add", "origin", "https://github.com/tompassarelli/south.git"]);
     let denylist = Denylist { south, south_named: false, config: None, kinds: None, mirror: None };
     assert!(denylist.is_south("https://github.com/tompassarelli/south.git"));
     assert_eq!(denylist.visibility_of("git@github.com:tompassarelli/south.git"), "PRIVATE");
