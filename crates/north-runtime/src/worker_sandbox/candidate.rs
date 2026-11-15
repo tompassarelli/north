@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use crate::capacity::depbox;
+use crate::runtime::layout;
+use crate::runtime::update::pull_held;
 
 use super::removable::git_dirs;
 
@@ -118,8 +120,28 @@ fn here(scratch: &Path) -> Result<Candidate, String> {
         std::fs::create_dir_all(&written).map_err(|error| format!("{}: {error}", written.display()))?;
     }
     let _ = std::fs::create_dir_all(home.join(depbox::TRUSTED_BUILDS));
+    prepared(&home.join(".local/state/north"), &checkout);
     let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
     Ok(Candidate { home, checkout, runtime, scratch: scratch.to_owned() })
+}
+
+/// Leaves on this host, before the check is confined, what it needs under the north state it reads only: a lease file in every runtime, which `bin/head-north` takes shared before it runs one and cannot create through the read-only bind, and the north built ahead for the checkout's tree, pulled from the build host that holds it over the ssh the confinement hides (north#1578).
+fn prepared(state: &Path, checkout: &Path) {
+    for runtime in std::fs::read_dir(state.join("runtimes")).into_iter().flatten().flatten().map(|entry| entry.path()) {
+        if runtime.file_name().and_then(|name| name.to_str()).is_some_and(layout::is_sha) && runtime.is_dir() {
+            let _ = std::fs::OpenOptions::new().create(true).append(true).open(runtime.join(layout::LEASE));
+        }
+    }
+    let Ok(output) = Command::new("git").arg("-C").arg(checkout).args(["rev-parse", "HEAD^{tree}"]).output() else { return };
+    let tree = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let artifact = state.join("runtime-artifacts").join(&tree);
+    if !layout::is_sha(&tree) || !layout::held(&artifact) || artifact.join("north").is_file() {
+        return;
+    }
+    let Ok(lock) = std::fs::OpenOptions::new().create(true).append(true).open(artifact.join("pull.lock")) else { return };
+    if rustix::fs::flock(&lock, rustix::fs::FlockOperation::LockExclusive).is_ok() && !artifact.join("north").is_file() && let Err(failure) = pull_held(&artifact, &tree) {
+        eprintln!("north worker-sandbox: {}", failure.message);
+    }
 }
 
 /// Runs `program` confined to the candidate checkout of the working directory, in a scratch directory of its own that is removed when it ends; its exit code.

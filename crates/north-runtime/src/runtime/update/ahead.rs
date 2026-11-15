@@ -191,18 +191,24 @@ fn fetched_north(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
         built_now(layout, tree, &commit, &checkout)?;
     }
     if !north.is_file() {
-        let stamp = fs::read_to_string(artifact.join(BUILT_FROM)).map_err(|error| failed(75, format!("no build-ahead artifact for tree {}: {error}", layout::short(tree))))?;
-        let commit = stamp.split_whitespace().next().unwrap_or_default().to_owned();
-        let staged = artifact.join(format!("pulled-{}.part", std::process::id()));
-        let fetched = pulled(&artifact, &stamp, &commit, &staged, |host, commit, into| pull::fetch(host, commit, into, &[BUILT_FROM])).and_then(|()| fs::rename(staged.join("north"), &north).map_err(|error| error.to_string()));
-        let _ = fs::remove_dir_all(&staged);
-        fetched.map_err(|why| failed(75, format!("the north built ahead for tree {} could not be pulled: {why}", layout::short(tree))))?;
+        pull_held(&artifact, tree)?;
     }
     println!("{}", north.display());
     Ok(())
 }
 
 /// Has a build host build the release north of `tree` from `commit` in `checkout` and waits for it, so the step asking gets a verdict for exactly that tree while this host compiles nothing. The request drains in a process of its own, since its slot goes on to build the requests queued behind it, and any drainer already holding a slot may claim it, so the wait ends only once the tree is neither building under its staging lock nor draining here, whose drainer runs while its request is filed (north#1570).
+/// Pulls the north built ahead for `tree` into its artifact from the build host that holds it, so a confined land check on this host can run it: the confinement binds `runtime-artifacts` read-only and hides the ssh keys, so the trusted wrapper pulls before it confines (north#1578).
+pub(crate) fn pull_held(artifact: &Path, tree: &str) -> Result<(), Failure> {
+    let north = artifact.join("north");
+    let stamp = fs::read_to_string(artifact.join(BUILT_FROM)).map_err(|error| failed(75, format!("no build-ahead artifact for tree {}: {error}", layout::short(tree))))?;
+    let commit = stamp.split_whitespace().next().unwrap_or_default().to_owned();
+    let staged = artifact.join(format!("pulled-{}.part", std::process::id()));
+    let fetched = pulled(artifact, &stamp, &commit, &staged, |host, commit, into| pull::fetch(host, commit, into, &[BUILT_FROM])).and_then(|()| fs::rename(staged.join("north"), &north).map_err(|error| error.to_string()));
+    let _ = fs::remove_dir_all(&staged);
+    fetched.map_err(|why| failed(75, format!("the north built ahead for tree {} could not be pulled: {why}", layout::short(tree))))
+}
+
 fn built_now(layout: &Layout, tree: &str, commit: &str, checkout: &Path) -> Result<(), Failure> {
     let log = layout.artifacts().join(format!("{tree}.log"));
     let mut drainer = None;

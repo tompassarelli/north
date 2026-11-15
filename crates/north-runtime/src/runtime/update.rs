@@ -39,6 +39,7 @@ pub(super) mod agent_link;
 pub(super) mod hold;
 mod ahead;
 pub(super) use ahead::run as build_ahead;
+pub(crate) use ahead::pull_held;
 mod build;
 mod caller;
 mod collect;
