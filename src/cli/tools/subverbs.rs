@@ -181,7 +181,7 @@ const RUNTIME: &[(&str, Run)] = &[
     ("hold", |arguments| north_runtime::worker_sandbox::hold_client::command(arguments, north_offload::land_offload::settles_fleet_here())),
     ("opencode", north_runtime::vendor_runtime::run_opencode),
     ("pi", north_runtime::vendor_runtime::run_pi),
-    ("review-fetch", |arguments| north_runtime::worker_sandbox::hold_client::fetch_command(arguments, north_offload::land_offload::settles_fleet_here())),
+    ("review-fetch", |arguments| north_runtime::worker_sandbox::hold_client::fetch_command(arguments, north_offload::land_offload::settles_fleet_here(), review_fetch_forwarded)),
 ];
 
 fn agent_runtime_update(arguments: &[String]) -> u8 {
@@ -230,4 +230,13 @@ fn review_holds() -> Vec<north_lander_doctor::facts::ReviewHold> {
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let standing = north_runtime::runtime::review_hold::standing(&environment, &home).unwrap_or_default();
     standing.into_iter().map(|hold| north_lander_doctor::facts::ReviewHold { commit: hold.commit, session: hold.session, why: hold.why }).collect()
+}
+
+fn review_fetch_forwarded(words: &[String]) -> Result<String, String> {
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    match crate::threads::client::ask_ledger_host(&words, &[]) {
+        Ok(Some(answer)) => Ok(String::from_utf8_lossy(&answer).trim().to_owned()),
+        Ok(None) => Err("this host holds the ledger and does not settle the fleet, so no host is asked for the review fetch".to_owned()),
+        Err(error) => Err(format!("the host that settles the fleet did not fetch the lane: {error}")),
+    }
 }

@@ -5,7 +5,7 @@ use north_base::platform::review_accept::Accepts;
 use super::peer::Peer;
 use super::{MARK, broker, hold_request, lane_grant};
 use crate::runtime::review_accept::{self, Accept};
-use crate::runtime::review_fetch::{self, Fetch};
+use crate::runtime::review_fetch;
 use crate::runtime::review_hold::{self, Ask, Caller, Holds, now};
 
 /// `north runtime hold` on a host that `settles` the fleet, or not (runtime/review_hold.rs); its exit code.
@@ -51,13 +51,16 @@ fn accept(accept: Accept) -> Result<String, String> {
     }
 }
 
-pub fn fetch_command(arguments: &[String], settles: bool) -> u8 {
-    review_fetch::run(arguments, settles, fetched)
-}
-
-fn fetched(fetch: &Fetch) -> Result<String, String> {
-    match brokered(&fetch.words(), "review fetch") {
+/// `north runtime review-fetch`: through the broker inside a worker sandbox, here on the host that `settles` the fleet, else asked of that host with `forward`, which runs the words it is given there and returns what they print.
+pub fn fetch_command(arguments: &[String], settles: bool, forward: impl FnOnce(&[String]) -> Result<String, String>) -> u8 {
+    review_fetch::run(arguments, |fetch| match brokered(&fetch.words(), "review fetch") {
         Some(told) => told,
-        None => review_fetch::main_here().and_then(|main| review_fetch::serve(&main, fetch)),
-    }
+        None => {
+            let main = fetch.main()?;
+            match settles {
+                true => review_fetch::serve(&main, fetch),
+                false => forward(&fetch.forwarded(&main)?),
+            }
+        }
+    })
 }

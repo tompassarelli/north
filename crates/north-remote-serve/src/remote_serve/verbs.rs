@@ -11,6 +11,7 @@ const INCIDENT_RECORD: &str = "record";
 const NORTH_ONLY_THREADS: [&str; 2] = ["ingest", "snapshot-pages"];
 const FLEET_ROW: [&str; 6] = ["put", "wait", "exchange", "settle", "register", "retire"];
 const OPERATOR_THREADS: [&str; 3] = ["queue", "job-run", "ingest"];
+const REVIEW_FETCH: &str = "runtime review-fetch";
 
 pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -26,6 +27,7 @@ pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
         ["north", "fleet", "usage", "--refresh", "--local", "--json"] => Some("fleet usage".to_string()),
         ["readlink", ".local/state/north/current"] => Some("readlink current".to_string()),
         ["north", "runtime", "health"] => Some("runtime health".to_string()),
+        ["north", "runtime", "review-fetch", "--project", project, lane] => review_fetch(project, lane),
         ["north", "holds", "list", "--here", "--json"] => Some("holds list".to_string()),
         ["north", "github-mirror", "serve"] => Some("github-mirror serve".to_string()),
         ["south", "land"] =>Some("south land".to_string()),
@@ -46,10 +48,19 @@ fn threads(rest: &[&str], north: bool) -> Option<&'static str> {
         .or_else(|| north.then(|| named(&NORTH_ONLY_THREADS)).flatten())
 }
 
-/// What a threads-only peer key reaches: a threads verb and nothing else, so the key an agent host's broker holds runs no fleet row, dispatch or south land; queue, job-run and ingest stay refused too, since a queued job runs on the peer as its operator and a job-run or ingest writes the operator's run history.
+/// What a threads-only peer key reaches: a threads verb, or the review fetch of a lane by name into the trusted mirror (north#1610), and nothing else, so the key an agent host's broker holds runs no fleet row, dispatch or south land; queue, job-run and ingest stay refused too, since a queued job runs on the peer as its operator and a job-run or ingest writes the operator's run history.
 pub(super) fn authorize_threads(argv: &[String]) -> Result<String, Refusal> {
     authorize(argv).and_then(|verb| match verb.strip_prefix("threads ") {
         Some(name) if !OPERATOR_THREADS.contains(&name) => Ok(verb),
+        None if verb == REVIEW_FETCH => Ok(verb),
         _ => Err(Refusal::Verb(verb)),
     })
+}
+
+fn plain(word: &str) -> bool {
+    !word.is_empty() && word.len() <= 64 && !word.starts_with('-') && word.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn review_fetch(project: &str, lane: &str) -> Option<String> {
+    (plain(project) && plain(lane)).then(|| REVIEW_FETCH.to_string())
 }
