@@ -102,10 +102,8 @@ pub(super) fn turn_in(directory: &Path, name: &str, lock: &str) -> Result<File, 
 fn main_checkout(check: &Check, code: &[PathBuf]) -> Result<PathBuf, String> {
     let slug = format!("{}/{}", check.owner, check.repository);
     let main = code.iter().find_map(|root| request_checkout::registered(code, &root.join(&check.repository).join("main")).ok()).ok_or_else(|| format!("this host keeps no main checkout of {slug}"))?;
-    let mirror = Mirror::repository(&main.top)?;
-    if !mirror.join("HEAD").is_file() {
-        return Err(format!("this host keeps no trusted mirror of {slug} at {}, and the check reads its origin from that mirror alone", mirror.display()));
-    }
+    let existing = Mirror::existing(&main.top)?;
+    let mirror = existing.git_dir();
     let read = north_trusted_mirror::command(&mirror).args(["config", "--local", "--get", "remote.origin.url"]).output().map_err(|error| format!("git config in {}: {error}", mirror.display()))?;
     let origin = String::from_utf8_lossy(&read.stdout).trim().to_owned();
     if origin_names(&origin, &slug) { Ok(main.top) } else { Err(format!("the trusted mirror {} of {} has the origin {origin:?}, which is not {slug}", mirror.display(), main.top.display())) }
