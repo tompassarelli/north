@@ -325,7 +325,7 @@ fn a_launch_reads_the_listing_the_keeper_recorded_without_asking_the_host() {
 }
 
 #[test]
-fn dispatched_lane_names_fit_review_fetch_and_session_name_caps_a_box_lane_at_the_limit_and_names_two_boxes_apart() {
+fn a_dispatched_name_fits_the_review_mirror() {
     let name_of = |box_text: &str| {
         let (hosts, accounts) = fleet();
         let outcome = decide(&survey(vec![issue("north", 1485, &format!("- [ ] {box_text}"), &[])], hosts, accounts), "test");
