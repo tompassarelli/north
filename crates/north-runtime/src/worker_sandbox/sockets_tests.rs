@@ -34,14 +34,22 @@ const PROBE: &str = "NORTH_1397_SOCKET_PROBE";
 fn a_confined_command_cannot_connect_to_a_hidden_socket_of_each_kind() {
     use super::super::{Context, Reader, confine, executable, readable, removable, sockets};
     if let Some(targets) = std::env::var_os(PROBE) {
+        use std::os::unix::fs::MetadataExt;
         let context = Context::from_env("probe");
         let runtime = sockets::runtime(&context);
         let hidden = sockets::hidden(&runtime, &sockets::multiplexer(context.uid, std::env::var_os("TMUX_TMPDIR")), &sockets::ssh_reach(&context.home, context.uid, context.agent_socket.as_deref()));
         sockets::overlay(&runtime, &hidden).unwrap();
         let roots = removable(&context);
         assert!(matches!(confine(Some(&roots), &readable(&context, Reader::of(true)), Some(&executable(&context)), None, &[]), Ok(landlock::RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
-        for target in std::env::split_paths(&targets).filter(|target| std::os::unix::net::UnixStream::connect(target).is_ok()) {
-            println!("reached {}", target.display());
+        for target in std::env::split_paths(&targets) {
+            match std::os::unix::net::UnixStream::connect(&target) {
+                Ok(_) => println!("reached {}", target.display()),
+                Err(error) => println!("connect {} refused: {error:?}", target.display()),
+            }
+        }
+        for entry in std::fs::read_dir(&runtime).into_iter().flatten().flatten() {
+            let path = entry.path();
+            println!("view {} {:?}", path.display(), std::fs::symlink_metadata(&path).map(|metadata| (metadata.file_type(), metadata.mode() & 0o7777)));
         }
         return;
     }
@@ -74,5 +82,5 @@ fn a_confined_command_cannot_connect_to_a_hidden_socket_of_each_kind() {
     assert!(output.status.success() && stdout.contains("running 1 test"), "the confined probe did not run: {stdout}{stderr}");
     let reached: Vec<&str> = stdout.lines().filter_map(|line| line.strip_prefix("reached ")).collect();
     let expected: Vec<String> = kept.iter().map(|path| path.display().to_string()).collect();
-    assert_eq!(reached, expected, "a confined command reached a hidden socket, or missed a kept one: {stderr}");
+    assert_eq!(reached, expected, "a confined command reached a hidden socket, or missed a kept one: {stderr}\n{stdout}");
 }
