@@ -282,7 +282,8 @@ the guard, the readout and P2's replay of section 1 share it.
   `north config agents off|on`, `north land abandon` and ticket removal, `north fleet stop|forget`.
 - Escape: `north coordinator incident REASON` grants a budget of 30 calls (`coordinator.incident_budget`) for an
   incident the coordinator must work itself, and writes a metric row with the reason, so the escape is
-  counted rather than a persistent switch-off.
+  counted rather than a persistent switch-off. What shipped instead is `north fleet break-glass` (section 7),
+  which lifts only while the harness itself measures that no worker can start or that landing is stalled.
 
 **Recurring work becomes code**: the classifier reduces each counted call to a shape (the verb, or
 the first two words of each pipeline stage after any `cd`), and the readout files one issue per
@@ -330,7 +331,7 @@ misjudging it costs.
 
 - calls by kind from the coordinator's transcript, split into streaks a `Tom` message started and streaks
   the coordinator started on its own (diagnosis Tom asks for is not the coordinator's failure);
-- research subagents launched and `north coordinator incident` escapes;
+- research subagents launched and `north fleet break-glass` grants;
 - turns woken by fleet messages, by sender kind;
 - landed boxes, counted from `Box:` trailers on commits that reached a main branch that day (section
   4), so every landing path counts, not only the lander's;
@@ -539,12 +540,17 @@ push access to South and the Firn timers are host configuration.
     delegate call and a `Tom` message resetting, a call with an `agent_id` not counting, two parallel
     writers under the lock, a test per `PreOther` tool, and a worker session untouched; with its
     experiments registry entries if the experiments judge is on main.
-11. **G2 the landing denial and the incident escape.** feature, module, rust, local-test; 40 min.
-    Files: the guard, `north cloud land` and the cloud courier, a `north coordinator incident` verb. Needs:
-    G1. Done when: `cargo test -p north-core guard::coordinator_delegation` passes a first-call denial of
-    `safe-push --to` and of a write inside a lane worktree, `north coordinator incident REASON` granting 30
-    calls and writing its row, and a cloud lane landing with no `north cloud land` from the launching
-    session.
+11. **G2 the landing denial and the incident escape.** Shipped on the role guard, as G1 was, not in a
+    new module. `crates/north-guard/src/guard/coordinator_role.rs` refuses from the first call
+    `safe-push`, `git commit` and an edit tool's write under `~/code`, a lane worktree included, unless
+    the lane is one doc or config file; `north fleet break-glass` (section 7) is the escape in place of a
+    `north coordinator incident` verb, lifting the look budgets for at most 30 minutes, or the reach guard
+    while north's landing is stalled, and recording each grant with who and why; and the laptop's
+    `north-cloud-reap` timer lands every cloud handback, so no launching session runs `north cloud land`.
+    Done when: `cargo test -p north-guard coordinator_role` passes
+    `the_coordinator_cannot_build_test_or_edit_a_repository` (an Edit, Write, MultiEdit and NotebookEdit
+    inside a lane worktree refused from the coordinator and open to a worker) and
+    `proxy_lands_its_own_config_lane` (`safe-push --to main` over a lane with code refused).
 12. **S1 South: place the five rules.** Repository: south, laptop. docs-policy, one-file, docs,
     local-test; 20 min. Files: `agents/rules.toml`. Needs: A1, G1, R2 on the runtime. Done when:
     `north check harness policy-gate session` exits 0 on the South lane with the placements of

@@ -145,6 +145,16 @@ fn the_coordinator_cannot_build_test_or_edit_a_repository() {
         assert!(denied(&coordinator(), &bash(command)), "{command}");
         assert_eq!(decide(&worker(), &bash(command)), Verdict::Allow, "a worker may run {command}");
     }
+    let lane_edits = [
+        tool("Edit", json!({"file_path": format!("{LANE}/crates/north-guard/src/guard/coordinator_role.rs"), "old_string": "a", "new_string": "b"})),
+        tool("Write", json!({"file_path": format!("{LANE}/docs/landing.md"), "content": "x"})),
+        tool("MultiEdit", json!({"file_path": "~/code/north/worktrees/lane/README.md", "edits": []})),
+        tool("NotebookEdit", json!({"notebook_path": format!("{LANE}/notes.ipynb"), "new_source": "x"})),
+    ];
+    for edit in &lane_edits {
+        assert!(denied(&coordinator(), edit), "{:?}", edit.tool_input);
+        assert_eq!(decide(&worker(), edit), Verdict::Allow, "a worker may edit its lane: {:?}", edit.tool_input);
+    }
     let open = ["bun run script.ts", "npm view left-pad", "nix develop -c true", "echo x > /tmp/note", "echo x 2>&1 | cat", "git apply --check /tmp/fix.diff", "go version", "north fleet list"];
     for command in open {
         let verdict = decide(&coordinator(), &bash(command));
