@@ -40,6 +40,7 @@ pub mod sync_gate;
 #[path = "catalog/sync_gate_tests.rs"]
 mod sync_gate_tests;
 
+use clap::Parser;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -413,6 +414,17 @@ fn usage() -> String {
 
 const CONFIG_CHECK_USAGE: &str = "usage: north config check guides [--refresh] [--guides DIR]";
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct GuideOptions {
+    #[arg(long, short = 'h')]
+    help: bool,
+    #[arg(long)]
+    refresh: bool,
+    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
+    guides: Option<String>,
+}
+
 pub fn config_check(arguments: &[String]) -> NorthResult<u8> {
     let usage = || NorthError::Usage(CONFIG_CHECK_USAGE.to_owned());
     let rest = match arguments.split_first() {
@@ -423,21 +435,13 @@ pub fn config_check(arguments: &[String]) -> NorthResult<u8> {
         }
         _ => return Err(usage()),
     };
-    let mut refresh = false;
-    let mut directory = None;
-    let mut options = rest.iter();
-    while let Some(option) = options.next() {
-        match option.as_str() {
-            "-h" | "--help" => {
-                println!("{CONFIG_CHECK_USAGE}");
-                return Ok(0);
-            }
-            "--refresh" => refresh = true,
-            "--guides" => directory = Some(options.next().ok_or_else(usage)?.clone()),
-            _ => return Err(usage()),
-        }
+    let options: GuideOptions = crate::arguments::parse(rest).map_err(|_| usage())?;
+    if options.help {
+        println!("{CONFIG_CHECK_USAGE}");
+        return Ok(0);
     }
-    let directory = PathBuf::from(directory.unwrap_or_else(|| guides::GUIDES_DIR.to_owned()));
+    let refresh = options.refresh;
+    let directory = PathBuf::from(options.guides.unwrap_or_else(|| guides::GUIDES_DIR.to_owned()));
     let outcome = if refresh { guides::refresh(&directory).map(|()| true) } else { guides::check(&directory) };
     match outcome {
         Ok(passed) => Ok(u8::from(!passed)),

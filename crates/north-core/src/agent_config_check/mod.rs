@@ -1,3 +1,4 @@
+use clap::Parser;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -116,6 +117,17 @@ fn usage() -> u8 {
     2
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Options {
+    #[arg(long)]
+    local: bool,
+    #[arg(long)]
+    policy_only: bool,
+    #[arg(long, short = 'v')]
+    verbose: bool,
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.first().is_some_and(|first| first == "policy-gate") {
         return policy_gate_command(&arguments[1..]);
@@ -123,15 +135,9 @@ pub fn run(arguments: &[String]) -> u8 {
     if arguments.first().is_some_and(|first| first == "tree-policy") {
         return tree_policy_command(&arguments[1..]);
     }
-    let (mut local, mut policy_only, mut verbose) = (false, false, false);
-    for argument in arguments {
-        match argument.as_str() {
-            "--local" => local = true,
-            "--policy-only" => policy_only = true,
-            "--verbose" | "-v" => verbose = true,
-            _ => return usage(),
-        }
-    }
+    let Ok(Options { local, policy_only, verbose }) = crate::arguments::parse(arguments) else {
+        return usage();
+    };
     let roots = Roots::from_env();
     let context = Context {
         north: crate::platform::harness::harness_root().unwrap_or_else(|_| roots.checkout("north")),
