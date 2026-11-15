@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use north_base::platform::harness::{DEFAULTS, document};
-use north_trusted_mirror::{Mirror, ORIGIN_MAIN};
+use north_trusted_mirror::Mirror;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -59,8 +59,16 @@ fn directories(host: &Host) -> Vec<PathBuf> {
     document(DEFAULTS)[DIRECTORIES]["value"].as_array().into_iter().flatten().filter_map(|entry| entry.as_str()).map(|entry| host.home.join(entry)).collect()
 }
 
-/// The registered file `script` names under one of `roots`, with its bytes: a regular executable file reached through no link whose bytes are the ones origin/main of its project's trusted mirror holds.
-fn registered(script: &Script, roots: &[PathBuf], host: &Host) -> Result<(PathBuf, Vec<u8>), String> {
+/// The registered file a start names: a regular executable file reached through no link whose bytes are the ones `commit`, origin/main of its project's trusted mirror fetched now, holds at `relative`.
+struct Registered {
+    path: PathBuf,
+    bytes: Vec<u8>,
+    mirror: Mirror,
+    commit: String,
+    relative: PathBuf,
+}
+
+fn registered(script: &Script, roots: &[PathBuf], host: &Host) -> Result<Registered, String> {
     if roots.is_empty() {
         return Err(format!("no evaluation directory is registered ({DIRECTORIES} is empty), so no script starts"));
     }
@@ -75,8 +83,8 @@ fn registered(script: &Script, roots: &[PathBuf], host: &Host) -> Result<(PathBu
     let main = request_checkout::project(&host.code, root).map(|(project, _)| project.join("main")).ok_or_else(|| format!("{} is in no project this host keeps, so no trusted mirror says what it holds", root.display()))?;
     let relative = path.strip_prefix(&main).map_err(|_| format!("{} is outside the main checkout {}, so no trusted mirror says what it holds", path.display(), main.display()))?;
     let mirror = Mirror::existing(&main)?;
-    mirror.fetch_origin()?;
-    let landed = north_trusted_mirror::command(mirror.git_dir()).args(["cat-file", "blob", &format!("{ORIGIN_MAIN}:{}", relative.display())]).output().map_err(|error| format!("git cat-file: {error}"))?;
+    let commit = mirror.fetch_origin()?;
+    let landed = north_trusted_mirror::command(mirror.git_dir()).args(["cat-file", "blob", &format!("{commit}:{}", relative.display())]).output().map_err(|error| format!("git cat-file: {error}"))?;
     if !landed.status.success() {
         return Err(format!("{} is not registered: origin/main of the trusted mirror tracks no such file", path.display()));
     }
@@ -84,7 +92,24 @@ fn registered(script: &Script, roots: &[PathBuf], host: &Host) -> Result<(PathBu
     if bytes != landed.stdout {
         return Err(format!("{} differs from origin/main of the trusted mirror, so it is not the registered script", path.display()));
     }
-    Ok((path, bytes))
+    let relative = relative.to_path_buf();
+    Ok(Registered { path, bytes, mirror, commit, relative })
+}
+
+/// The script in a checkout of the compared commit under the mirror's `trusted/worktrees`, which no worker writes, so the unit runs the bytes the check compared beside the files the script reads through `dirname "$0"`.
+fn checked_out(registered: &Registered, label: &Label) -> Result<PathBuf, String> {
+    let tree = registered.mirror.worktrees().join(unit_name(label));
+    let place = tree.to_string_lossy();
+    let git = |arguments: &[&str]| {
+        let output = north_trusted_mirror::command(registered.mirror.git_dir()).args(arguments).output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))?;
+        output.status.success().then_some(()).ok_or_else(|| format!("git {}: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim()))
+    };
+    if tree.exists() {
+        git(&["worktree", "remove", "--force", &place])?;
+    }
+    git(&["worktree", "prune"])?;
+    git(&["worktree", "add", "--quiet", "--detach", &place, &registered.commit])?;
+    Ok(tree.join(&registered.relative))
 }
 
 /// The runtime and the holds the script's header names.
@@ -125,8 +150,8 @@ fn running(units: &dyn Units, unit: &str) -> bool {
 
 /// Starts `start` for the session `parent` on `host` with the user manager `units`; the line naming the unit and its log.
 pub(super) fn serve(start: Start, parent: &str, host: &Host, units: &dyn Units) -> Result<String, String> {
-    let (path, bytes) = registered(&start.script, &directories(host), host)?;
-    let (runtime, holds) = header(&path, &bytes)?;
+    let registered = registered(&start.script, &directories(host), host)?;
+    let (runtime, holds) = header(&registered.path, &registered.bytes)?;
     let current = current_runtime(host)?;
     if runtime != ANY_RUNTIME && !current.starts_with(&runtime) {
         return Err(format!("{} measures the runtime {runtime}, and this host runs {}", start.script.0, &current[..current.len().min(10)]));
@@ -148,10 +173,11 @@ pub(super) fn serve(start: Start, parent: &str, host: &Host, units: &dyn Units) 
     let log = starts.join(format!("{}.log", start.label.word()));
     let agent = host.environment.iter().filter(|(name, value)| name == "SSH_AUTH_SOCK" && Path::new(value).is_absolute()).cloned();
     let environment = [("PATH".to_owned(), search_path(host)?), ("EVAL_START_ASKER".to_owned(), parent.to_owned()), ("EVAL_START_LABEL".to_owned(), start.label.word().to_owned())].into_iter().chain(agent).collect();
+    let path = checked_out(&registered, &start.label)?;
     let command = std::iter::once(plain(&path)?).chain(start.arguments.iter().cloned()).collect();
     let unit = Unit { name: name.clone(), description: format!("north eval-unit script {} for {parent}", start.script.0), environment, log: log.clone(), command, after: Vec::new() };
     units.start(&unit)?;
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = format!("{:x}", Sha256::digest(&registered.bytes));
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
     let row = json!({ "at": at, "by": parent, "script": start.script.0, "sha256": digest, "arguments": start.arguments, "label": start.label.word(), "unit": name, "log": log, "runtime": current, "holds": holds });
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(starts.join(RECORD)).map_err(|error| format!("{}: {error}", starts.join(RECORD).display()))?;

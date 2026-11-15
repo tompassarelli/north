@@ -1,6 +1,5 @@
 use north_foundation::test_inputs::git::git_in as git;
 use std::cell::RefCell;
-use std::os::unix::fs::PermissionsExt;
 
 use super::*;
 use crate::worker_sandbox::eval_units::Shown;
@@ -32,8 +31,7 @@ impl Units for Recorded {
 fn script(evals: &Path, name: &str, header: &str) {
     let path = evals.join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(&path, format!("#!/bin/sh\n{header}\necho ran\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    north_foundation::foundation::shim::write_script(&path, &format!("{header}\necho ran\n"));
 }
 
 fn start(script: &str, label: &str, arguments: &[&str]) -> Start {
@@ -69,7 +67,7 @@ fn only_a_tracked_unchanged_script_under_the_registered_directory_starts_and_an_
     script(&evals, "b/unregistered", "# eval-runtime: any\n# eval-holds: none");
     let units = Recorded::default();
 
-    let empty = registered(&Script::parse("b/start-block").unwrap(), &[], &host).unwrap_err();
+    let empty = registered(&Script::parse("b/start-block").unwrap(), &[], &host).err().unwrap();
     assert!(empty.contains("no evaluation directory is registered"), "{empty}");
     for (name, refusal) in [("b/unregistered", "the trusted mirror tracks no such file"), ("b/old-runtime", "measures the runtime 1111111111"), ("b/no-header", "names no runtime"), ("c/start-block", "is in no registered evaluation directory")] {
         let refused = serve(start(name, "blk-0", &[]), "evals-lead2", &host, &units).unwrap_err();
@@ -92,14 +90,40 @@ fn only_a_tracked_unchanged_script_under_the_registered_directory_starts_and_an_
     }
 }
 
-#[test]
-fn an_eval_script_is_checked_against_the_trusted_mirror() {
-    let (_scratch, host, checkout, evals) = landed();
-    std::fs::OpenOptions::new().append(true).open(evals.join("b/start-block")).and_then(|mut file| std::io::Write::write_all(&mut file, b"echo a worker's line\n")).unwrap();
-    git(&checkout, &["commit", "-q", "-am", "A script the worker changed"]);
-    let units = Recorded::default();
+struct Rewriting {
+    checkout_file: PathBuf,
+    ran: RefCell<Option<Vec<u8>>>,
+}
 
-    let refused = serve(start("b/start-block", "blk-5", &[]), "evals-lead2", &host, &units).unwrap_err();
+impl Units for Rewriting {
+    fn start(&self, unit: &Unit) -> Result<(), String> {
+        std::fs::write(&self.checkout_file, "#!/bin/sh\necho a worker's line\n").unwrap();
+        *self.ran.borrow_mut() = Some(std::fs::read(&unit.command[0]).unwrap());
+        Ok(())
+    }
+
+    fn show(&self, name: &str) -> Result<Shown, String> {
+        Recorded::default().show(name)
+    }
+
+    fn stop(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[test]
+fn an_eval_start_runs_the_bytes_it_checked() {
+    let (_scratch, host, checkout, evals) = landed();
+    let checkout_file = evals.join("b/start-block");
+    let landed_bytes = std::fs::read(&checkout_file).unwrap();
+    let units = Rewriting { checkout_file, ran: RefCell::new(None) };
+
+    serve(start("b/start-block", "blk-6", &[]), "evals-lead2", &host, &units).unwrap();
+    assert_eq!(units.ran.borrow().as_deref(), Some(&landed_bytes[..]), "the unit runs a file a worker rewrote after the check");
+
+    git(&checkout, &["commit", "-q", "-am", "A script the worker changed"]);
+    *units.ran.borrow_mut() = None;
+    let refused = serve(start("b/start-block", "blk-7", &[]), "evals-lead2", &host, &units).unwrap_err();
     assert!(refused.contains("differs from origin/main of the trusted mirror"), "{refused}");
-    assert!(units.started.borrow().is_empty(), "a script changed only in its checkout's head started");
+    assert!(units.ran.borrow().is_none(), "a script changed only in its checkout's head started");
 }
