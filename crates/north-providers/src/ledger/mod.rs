@@ -229,9 +229,7 @@ impl Ledger {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let conn = Connection::open(path).map_err(sql)?;
-        conn.busy_timeout(lock_wait).map_err(sql)?;
-        conn.pragma_update(None, "synchronous", "NORMAL").map_err(sql)?;
+        let conn = connect(path, lock_wait)?;
         if !conn.is_readonly(rusqlite::MAIN_DB).map_err(sql)? && schema_version(&conn).map_err(sql)? < SCHEMA_VERSION {
             let migration = std::fs::File::create(migration_lock(path))?;
             migration.lock()?;
@@ -440,6 +438,24 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
 
 fn sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// SQLite's read-only fallback cannot read a WAL database while no process holds its WAL files open, so a seat that may not write the ledger reads the checkpointed file as immutable.
+fn connect(path: &Path, lock_wait: Duration) -> NorthResult<Connection> {
+    let configure = |conn: Connection| -> rusqlite::Result<Connection> {
+        conn.busy_timeout(lock_wait)?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        Ok(conn)
+    };
+    match Connection::open(path).and_then(configure) {
+        Ok(conn) => Ok(conn),
+        Err(error) if std::fs::OpenOptions::new().write(true).open(path).is_err_and(|denied| denied.kind() == std::io::ErrorKind::PermissionDenied) => {
+            let uri = format!("file:{}?immutable=1", path.display());
+            let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI;
+            Connection::open_with_flags(uri, flags).and_then(configure).map_err(|_| sql(error))
+        }
+        Err(error) => Err(sql(error)),
+    }
 }
 
 /// Held while a ledger migrates: SQLite switches a file to WAL without its busy handler, so a second process switching the same new file at once fails with "database is locked".
