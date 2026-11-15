@@ -49,12 +49,13 @@ struct Served {
     body: u64,
 }
 
+/// One lock serves both variants, so the ledger host never holds two builds of the ledger in memory at once.
 fn served(database: &Path, withhold_native: bool, reuse: Duration) -> io::Result<Served> {
     let path = suffixed(database, if withhold_native { ".served-withheld" } else { ".served-full" });
     if let Some(found) = open_served(&path, database, reuse) {
         return Ok(found);
     }
-    let building = OpenOptions::new().create(true).append(true).open(suffixed(&path, ".lock"))?;
+    let building = OpenOptions::new().create(true).append(true).open(suffixed(database, ".served.lock"))?;
     building.lock()?;
     if let Some(found) = open_served(&path, database, reuse) {
         return Ok(found);

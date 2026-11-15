@@ -1,19 +1,15 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::time::Duration;
 
 use super::process::{Input, agent_event_checks, has_usage};
 use super::{Client, Flush};
 use crate::error::NorthResult;
 use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
-use crate::threads::ingest_lock;
+use crate::threads::{ingest_lock, snapshot};
 
 const READS: [&str; 11] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate", "opencode",
 ];
-
-/// How old a snapshot may be before an ingest carrying usage pulls it: each pull rebuilds the whole ledger image on the ledger host, and every host ingests usage each minute.
-const USAGE_SNAPSHOT_AGE: Duration = Duration::from_secs(300);
 
 fn unanswered(code: i32) -> &'static str {
     if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host unreachable" }
@@ -98,7 +94,7 @@ impl Client {
                 state = "timed out";
             } else if code != TRANSPORT_FAILED_STATUS {
                 if code == 0 && has_usage(&data)? {
-                    self.refresh_snapshot_later(dest, USAGE_SNAPSHOT_AGE);
+                    self.refresh_snapshot_later(dest, snapshot::SNAPSHOT_AGE);
                 }
                 return Ok(code);
             }
