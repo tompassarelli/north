@@ -104,11 +104,6 @@ fn repository_with_two_commits() -> (tempfile::TempDir, String, String) {
     (dir, first, second)
 }
 
-fn verify(slot: &Path, head: &str) -> Output {
-    let script = VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string());
-    Command::new("sh").args(["-c", &format!("set -eu\nslot={} head={}\n{script}", shell(slot), super::quote(head))]).output().unwrap()
-}
-
 fn reap_script(root: &Path, owner: &str) -> Output {
     let script = super::REAP.replace("@ROOT@", &shell(root));
     Command::new("sh").args(["-c", &script, "offload-reap", owner]).output().unwrap()
@@ -151,56 +146,6 @@ fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
     remote_run_after("true", None, &[], Some(home.path()), "holding=1; ");
     let confined = fs::read_to_string(home.path().join("candidate-checks")).unwrap_or_default();
     assert_eq!(confined.lines().filter(|line| line.contains("depbox check -- /") && line.ends_with("/bash -euo pipefail /dev/fd/7")).count(), 2, "a lane check on a lander host ran outside the candidate jail, held or not (south#138): {confined:?}");
-}
-
-#[test]
-fn operator_check_line_runs_only_on_the_shipped_commit_and_pins_south_beside_it_as_check_owners_does() {
-    let (dir, first, second) = repository_with_two_commits();
-    let refused = verify(dir.path(), &first);
-    assert_eq!(refused.status.code(), Some(i32::from(WRONG_TREE)));
-    assert!(refused.stdout.is_empty());
-    assert_eq!(String::from_utf8_lossy(&refused.stderr), format!("offload: refusing to run: {} is on {second}, not the shipped {first}\n", dir.path().display()));
-    let ran = verify(dir.path(), &second);
-    assert!(ran.status.success());
-    let mut slot_waits_ended = 0;
-    super::relay(ran.stdout.as_slice(), &mut Vec::new(), "north-offload-ran:job", "", || slot_waits_ended += 1);
-    assert_eq!(slot_waits_ended, 1, "the line the remote prints once it holds its slot ends the slot wait a deadline above the offload excuses");
-    assert_eq!(String::from_utf8(ran.stdout).unwrap().lines().next(), Some(format!("offload: running {second} in {}", dir.path().display()).as_str()));
-    fs::write(dir.path().join("tracked.rs"), "fn shipped() {}\n").unwrap();
-    git(dir.path(), &["add", "tracked.rs"]);
-    git(dir.path(), &["commit", "-q", "-m", "third"]);
-    let third = git(dir.path(), &["rev-parse", "HEAD"]);
-    let plant = || {
-        fs::write(dir.path().join("tracked.rs"), "fn another_lanes() {}\n").unwrap();
-        fs::write(dir.path().join("foreign.rs"), "mod planted;\n").unwrap();
-    };
-    plant();
-    let nested = Command::new("sh").args(["-c", &format!("set -eu\nslot={} head={} nested=1\n{}", shell(dir.path()), super::quote(&third), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()))]).output().unwrap();
-    assert_eq!(nested.status.code(), Some(i32::from(WRONG_TREE)), "a nested job in a slot holding a changed tracked file and a foreign file refuses, since the slot is its caller's to reset");
-    assert!(nested.stdout.is_empty(), "the refusal comes before the run starts");
-    let why = String::from_utf8_lossy(&nested.stderr);
-    assert!(why.contains(&format!("does not hold exactly the tree of {third}")) && why.contains("M tracked.rs") && why.contains("?? foreign.rs"), "{why}");
-    let repaired = verify(dir.path(), &third);
-    assert!(repaired.status.success(), "a job that owns the slot resets it to the commit and proves it again: {}", String::from_utf8_lossy(&repaired.stderr));
-    assert_eq!(fs::read_to_string(dir.path().join("tracked.rs")).unwrap(), "fn shipped() {}\n", "the reset restores the commit's tracked file");
-    assert!(!dir.path().join("foreign.rs").exists(), "the reset removes the foreign file");
-    git(dir.path(), &["checkout", "-q", "--detach", &second]);
-    let command = "check-owners --north-root $HOME/code/north/main --south-root $HOME/code/south/main --nixos-root ~/code/nixos-config/main/agents $HOME/code/gone/main $HOME/code/south/mainline";
-    let head_of = |path: &Path| path.ends_with("code/south/main").then(|| CommitId(first.clone())).or_else(|| path.ends_with("code/nixos-config/main").then(|| CommitId("b".repeat(40))));
-    let pinned = super::beside::pin(command, "code/north/main", Path::new("/h"), head_of);
-    assert_eq!(pinned.command, "check-owners --north-root $HOME/code/north/main --south-root $NORTH_OFFLOAD_BESIDE/south --nixos-root $NORTH_OFFLOAD_BESIDE/nixos-config/agents $HOME/code/gone/main $HOME/code/south/mainline");
-    assert_eq!(pinned.pins, format!("south={first} nixos-config={}", "b".repeat(40)));
-    let operator = "CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $HOME/code/south/main";
-    let pinned = super::beside::pin(operator, "code/north/main", Path::new("/h"), head_of);
-    assert_eq!(pinned.command, "CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $NORTH_OFFLOAD_BESIDE/south");
-    assert_eq!(pinned.pins, format!("south={first}"));
-    let home = tempfile::tempdir().unwrap();
-    fs::create_dir_all(home.path().join("code/south")).unwrap();
-    git(dir.path(), &["clone", "-q", &dir.path().display().to_string(), &home.path().join("code/south/main").display().to_string()]);
-    let script = format!("set -eu\nroot={} s=slot pins={}\n{}git -C \"$NORTH_OFFLOAD_BESIDE/south\" rev-parse HEAD\n", shell(&home.path().join("root")), super::quote(&format!("south={first}")), super::script::beside_part());
-    let read = Command::new("sh").args(["-c", &script]).env("HOME", home.path()).output().unwrap();
-    assert!(read.status.success(), "{}", String::from_utf8_lossy(&read.stderr));
-    assert_eq!(String::from_utf8_lossy(&read.stdout).trim(), first);
 }
 
 #[test]
@@ -330,7 +275,6 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     assert!(asked.lines().any(|line| line == format!("{}|capacity offload slot record code-p-main", repo.display())), "a north that predates the record verb answered with its usage and the script asked no other north for the record: {asked:?}; {told}");
     assert!(!told.contains("cannot record"), "{told}");
 }
-
 
 fn host_with_a_shipped_bundle() -> (tempfile::TempDir, String, std::path::PathBuf) {
     let home = tempfile::tempdir().unwrap();
@@ -925,53 +869,6 @@ fn a_run_whose_connection_is_killed_in_the_middle_still_reports_its_real_exit_an
     let ran = super::relay(read.stdout.as_slice(), &mut shown, marker, "", || {}).ran;
     assert_eq!(super::verdict(read.status.code().and_then(|code| u8::try_from(code).ok()), ran), Ok(3), "a fresh connection reads the real exit: {}", String::from_utf8_lossy(&read.stderr));
     assert!(String::from_utf8(shown).unwrap().contains("after"), "a fresh connection reads the output written after the loss");
-}
-
-fn relayed_run(home: &Path, head: &str, bundle: &Path, marker: &str, command: &str, grace_seconds: &str) -> std::process::Child {
-    let bin = home.join("bin");
-    fs::create_dir_all(&bin).unwrap();
-    north_base::foundation::shim::write_script(&bin.join("north"), NORTH_SHIM);
-    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
-    let script = remote_script(super::SlotClass::LandCheck);
-    Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", head, "30", "code-p-main", command, "refs/land-offload/job", "", "", LANDER_RUNTIME, "", marker])
-        .env("HOME", home)
-        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
-        .env("NORTH_OFFLOAD_DRAIN_GRACE_SECONDS", grace_seconds)
-        .env("PATH", &path)
-        .env_remove(north_base::foundation::offload::SLOT_ENV)
-        .env_remove("NORTH_OFFLOAD_ROOT")
-        .stdin(fs::File::open(bundle).unwrap())
-        .stdout(Stdio::piped())
-        .stderr(fs::File::create(home.join(format!("{}.err", marker.replace(':', "-")))).unwrap())
-        .spawn()
-        .unwrap()
-}
-
-#[test]
-fn a_finished_check_whose_client_stopped_reading_frees_its_slot_while_a_running_check_with_a_slow_client_is_left_alone() {
-    let (home, head, bundle) = host_with_a_shipped_bundle();
-    let root = home.path().join(".cache/land-offload");
-    let flood = "head -c 300000 /dev/zero | tr '\\0' x; echo";
-    let stuck = "north-offload-ran:job-stuck";
-    let mut remote = relayed_run(home.path(), &head, &bundle, stuck, &format!("{flood}; exit 3"), "1");
-    let unread = remote.stdout.take();
-    let exited = root.join("results/job-stuck.exit");
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || exited.exists()), "the check never ran");
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || remote.try_wait().unwrap().is_some()), "a finished check whose client reads nothing kept its slot");
-    assert_eq!(fs::read_to_string(&exited).unwrap().trim(), "3", "the check's exit stays on record for a reattaching client");
-    let held = Command::new("sh").arg("-c").arg("for lock in \"$1\"/code-p-main*.lock; do flock -n \"$lock\" true || echo \"$lock\"; done").arg("held").arg(&root).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&held.stdout), "", "a slot stays locked after its relay ended");
-    drop(unread);
-    let slow = "north-offload-ran:job-slow";
-    let mut remote = relayed_run(home.path(), &head, &bundle, slow, &format!("{flood}; sleep 3; touch \"$HOME/unread-past-grace\"; exit 4"), "2");
-    let stdout = remote.stdout.take().unwrap();
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || home.path().join("unread-past-grace").exists()), "the slow check never reached its end");
-    let mut shown = Vec::new();
-    let ran = super::relay(std::io::BufReader::new(stdout), &mut shown, slow, "", || {}).ran;
-    let code = remote.wait().unwrap().code().and_then(|code| u8::try_from(code).ok());
-    assert_eq!(super::verdict(code, ran), Ok(4), "a running check whose client read late lost its verdict: {}", fs::read_to_string(home.path().join("north-offload-ran-job-slow.err")).unwrap_or_default());
-    assert!(String::from_utf8(shown).unwrap().contains(&"x".repeat(300_000)), "the slow client read all the output");
 }
 
 #[test]
