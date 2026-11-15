@@ -463,7 +463,7 @@ fn a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_
     let stderr = String::from_utf8_lossy(&output.stderr);
     let lock = project.join(".git/worktrees/second/index.lock");
     assert!(!lock.exists(), "the hand-in left {} behind: {stderr}", lock.display());
-    assert!(!output.status.success() && stderr.contains("safe-push --to main"), "the hand-in for another lane was not refused with the road that lands it: {stderr}");
+    assert!(!output.status.success() && stderr.contains("north lane new"), "the hand-in for another lane was not refused with the road that lands it: {stderr}");
 }
 
 const SPOOLING_CHILD: &str = "NORTH_956_SPOOLING_CHILD";

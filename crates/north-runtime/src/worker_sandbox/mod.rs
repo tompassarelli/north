@@ -352,7 +352,7 @@ pub fn lane_only_safe_push_refusal() -> Option<String> {
 pub fn stranded_git_locks(checkout: &Path) -> Option<String> {
     std::env::var_os(MARK)?;
     let context = Context::from_env("");
-    (!removable::holds_git_locks(&context, checkout)).then(|| format!("{} is not this session's lane, and inside the worker sandbox git could create its lock files there but not remove them; hand that lane in with `safe-push --to main --wait` run from it", checkout.display()))
+    (!removable::holds_git_locks(&context, checkout)).then(|| format!("{} is not this session's lane, and inside the worker sandbox git could create its lock files there but not remove them; make a lane with `north lane new --issue OWNER/REPO#N` and hand in its paths", checkout.display()))
 }
 
 /// Asks the outside broker for the Done-when check of one box of one issue, in the words `task check --done-when --box TEXT OWNER/REPO#N`, which it runs outside this process's domain and whose verdict it alone writes (check_request.rs); the check's exit code.

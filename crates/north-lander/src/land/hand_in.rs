@@ -269,7 +269,7 @@ fn name(directory: &Path, request: &Request, road: &impl Road) -> Result<Named, 
     let targets: Vec<PathBuf> = request.files.iter().map(|file| normal(&directory.join(&file.path))).collect();
     let paths: Vec<PathBuf> = request.paths.iter().map(|path| normal(&directory.join(path))).chain(targets.iter().cloned()).collect();
     let Some(first) = paths.first() else { return Err("name the paths to hand in".to_owned()) };
-    let home = if targets.is_empty() { first.as_path() } else { directory };
+    let home = first.as_path();
     let root = checkout(home).ok_or_else(|| format!("{} is in no git checkout", home.display()))?;
     if let Some(outside) = paths.iter().find(|path| checkout(path).as_ref() != Some(&root)) {
         return Err(format!("{} is outside the lane {}", outside.display(), root.display()));

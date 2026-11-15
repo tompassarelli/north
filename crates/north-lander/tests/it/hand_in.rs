@@ -192,6 +192,13 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     let store = north_base::platform::finish_record::FinishRecords(world.path().join("verdicts").join("finished"));
     let recorded = store.read("proposer").unwrap_or_else(|| panic!("a failed finish call wrote no finish record outside the lane: {text}"));
     assert!(!recorded.passed && recorded.command == "echo the box is red; exit 3", "the finish record does not name the failed acceptance command: {recorded:?}");
+    let made = worktree(&north, "made");
+    let listed = world.path().join("files.json");
+    fs::write(&listed, serde_json::json!([{"path": made.join("made.txt"), "content": "the change a session made in its own lane\n"}]).to_string()).unwrap();
+    let from_elsewhere = queueing(&world, FINISH, FINISH_ARGUMENTS, &["--check", "echo the made lane is red; exit 3", "--message", "Add the made note (north#1602)", "--files", listed.to_str().unwrap()]).env("NORTH_FLEET_SESSION", "maker").env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts")).output().unwrap();
+    let text = report(&from_elsewhere);
+    assert!(text.contains("the made lane is red") && text.contains("NOT queued") && !text.contains("is outside the lane"), "a finish call with files in the lane the session made was bound to the directory it ran in (north#1602): {text}");
+    assert_eq!(fs::read_to_string(made.join("made.txt")).unwrap(), "the change a session made in its own lane\n", "{text}");
     let narrow = worktree(&north, "narrow");
     fs::write(narrow.join("red.txt"), "a change the named check does not read\n").unwrap();
     let refused = finishing(&world, "small", "true", "Add the red note (north#1233)", &narrow.join("red.txt")).env("NORTH_FLEET_SESSION_PROVED", "1").output().unwrap();
