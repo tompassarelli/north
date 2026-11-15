@@ -207,7 +207,12 @@ pub(in crate::cli) fn fleet_load() -> NorthResult<std::collections::BTreeMap<Str
 }
 
 pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    super::spooled_verbs::or_spool(fleet, words, launch_here)
+    super::spooled_verbs::or_spool(fleet, words, launch_seated)
+}
+
+fn launch_seated(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    let queued = std::env::var(super::tick::QUEUE_ENTRY).ok();
+    super::lead_seat::forwarded(fleet, words, queued.as_deref()).unwrap_or_else(|| launch_here(fleet, words))
 }
 
 fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {

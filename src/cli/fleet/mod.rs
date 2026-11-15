@@ -19,6 +19,7 @@ mod dispatch_tick;
 mod gated;
 mod held;
 mod launch;
+mod lead_seat;
 mod need;
 mod interactive;
 mod ledger;
