@@ -66,7 +66,9 @@ fn box_totals<'a>(sessions: &[&'a Spending]) -> BTreeMap<&'a str, (&'a str, Tota
     for session in sessions.iter().filter(|session| !session.lead) {
         let (workstream, totals) = boxes.entry(session.box_id.as_str()).or_insert((session.workstream.as_str(), Totals::default()));
         *workstream = (*workstream).min(session.workstream.as_str());
-        totals.spent += session.spent.unwrap_or(0.0);
+        if session.live {
+            totals.spent += session.spent.unwrap_or(0.0);
+        }
         totals.active_minutes += session.minutes;
         if let Some(expected) = session.expected() {
             totals.p50 = totals.p50.max(expected.p50.unwrap_or(expected.p90));

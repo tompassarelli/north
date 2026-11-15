@@ -17,8 +17,6 @@ const PRIOR_REPORTS: usize = 2;
 /// The closed-box window the ETA and budget are read from.
 pub const WINDOW: &str = "7d";
 pub const BUDGET_TIMES: f64 = 2.0;
-/// Guess: the clamp on the cell's p90 against the pooled constant; the replayed range of the drifted cells (0.73-1.46x) would settle it.
-const CELL_SCALE: (f64, f64) = (0.67, 1.5);
 const UNCALIBRATED: &str = "45 min (uncalibrated)";
 const READ_SPEND: &str = "`north fleet spend --self` prints your API-equivalent spend so far";
 const AT_THE_LINE: &str = "commit and land any change already passing its checks, then report `Split:` with the remaining parts as boxes; never stop with passing work unlanded";
@@ -229,11 +227,9 @@ impl Grounds {
 
     pub fn budget(&self, route: &Route) -> Option<String> {
         let (p50, p90, source) = match (&self.set_aside.budget, &self.budget_cell, &self.figures) {
-            (Some(constant), tuned, figures) => {
-                let own = tuned.as_ref().map(|tuned| tuned.value).or_else(|| figures.as_ref().map(|figures| figures.p90_usd));
-                let scale = own.map_or(1.0, |own| (own / constant.value).clamp(CELL_SCALE.0, CELL_SCALE.1));
-                let scaled = if (scale - 1.0).abs() < f64::EPSILON { String::new() } else { format!("; scaled {scale:.2}x to the cell's own p90") };
-                (figures.as_ref().map(|figures| figures.median_usd), constant.value * scale, format!("the p90 of every worker run, ledger 7d; {}{scaled}", constant.why))
+            (Some(constant), _, figures) => {
+                let figures = figures.as_ref().filter(|figures| figures.closed >= DRIFT_MIN_RUNS)?;
+                (Some(figures.median_usd), figures.p90_usd, format!("p50 and p90 of n={} closed boxes, {}; {}", figures.closed, self.cell(route), constant.why))
             }
             (None, Some(tuned), figures) => (figures.as_ref().map(|figures| figures.median_usd), tuned.value, format!("tune cell, {}", tuned.date)),
             (None, None, Some(figures)) => (Some(figures.median_usd), figures.p90_usd, format!("p50 and p90 of n={} closed boxes, {}", figures.closed, self.cell(route))),
