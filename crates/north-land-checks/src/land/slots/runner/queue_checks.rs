@@ -17,18 +17,20 @@ const TESTS_AFTER_LANDING: &str = "tests_after_landing";
 /// The line window the checks before queueing wait in per placement; a spent window starts over, so the hand-in waits for a slot until its command ends, such as a lead's 30-minute background cap (north#1508).
 const LINE_SECONDS: u64 = 180;
 
-/// The checks a lane runs alone before its ticket is written: its clippy (build and link) and the `@enqueue` land.check
-/// lines, which are scans. No test runs here (north#1508): a lane's test line runs after it lands, and the lander's alone check leaves it out too.
+/// The checks a lane runs alone before its ticket is written. With `tests_after_landing` on, only the `@enqueue` land.check
+/// lines that compile nothing, run on this host with the installed north (north#1247); its clippy and every line that
+/// builds run after it lands. Off, its clippy and every `@enqueue` line run on a build host. No test runs here (north#1508).
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = judged::config(root, base, head);
     let landing = config.after_set().commands(root, base, head)?;
-    let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
+    let after_landing = tests_after_landing();
+    let clippy = (!after_landing).then(|| clippy_first::listed(&landing, |command| !config.is_inferred(command))).flatten();
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
     let unread = !landing.iter().any(|command| verdict_key::reads_it(std::slice::from_ref(command)));
     let untested = if unread { config.commands(root, base, head)?.into_iter().filter(|command| !unit_reuse::runs_tests(command)).collect() } else { Vec::new() };
     let mut commands: Vec<String> = clippy.into_iter().collect();
     for command in queued_lines.iter().chain(&untested).map(|command| shared_build::built(command)) {
-        if !commands.contains(&command) {
+        if !(after_landing && shared_build::compiles(&command)) && !commands.contains(&command) {
             commands.push(command);
         }
     }
@@ -135,6 +137,7 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
     };
     let (command, host) = acceptance.unzip();
     let host = host.unwrap_or_default();
+    let (placed, environment) = placement(&config, north, command.is_none());
     if let Some(command) = command.filter(|command| !commands.iter().any(|listed| listed.trim() == *command)) {
         commands.push(command.to_owned());
     }
@@ -147,7 +150,7 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
     say(&format!("safe-push: running {} check(s) before queueing the lane: {}", commands.len(), commands.join("; ")));
     let outcome = tempfile::NamedTempFile::new().ok();
     let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), one_lane: true, queueing: true, runner_host: host.to_owned(), outcome: outcome.as_ref().map(|file| file.path().to_owned()), ..Arguments::default() };
-    let (status, passed) = match attempts(root, &arguments, (&config, north), &commands, (command, stop)) {
+    let (status, passed) = match attempts(root, &arguments, (&placed, &environment), &commands, (command, stop)) {
         Ok(ran) => ran,
         Err(text) => return Judged::unjudged(text),
     };
@@ -164,6 +167,13 @@ fn not_gating(outcome: &Path) -> Vec<String> {
     text.lines().filter_map(|line| line.strip_prefix("event\tland check\tnot gating\t")?.split_once(": ").map(|(command, _)| command.to_owned())).collect()
 }
 
+fn placement(config: &Config, north: &str, alone: bool) -> (Config, Environment) {
+    if alone && tests_after_landing() {
+        return (config.without_placement(), Environment::local(north.to_owned()));
+    }
+    (config.clone(), Environment::load(north.to_owned()))
+}
+
 type Listed = (Config, Vec<String>);
 
 fn listed(root: &Path, base: &str, head: &str) -> Result<Listed, String> {
@@ -172,14 +182,14 @@ fn listed(root: &Path, base: &str, head: &str) -> Result<Listed, String> {
 }
 
 /// The run's exit status and whether `watched` passed in it, running it again on another host when one reached no verdict, up to `ATTEMPTS` times, and again on another line whenever a slot line refuses it; why it cannot run when no build host answers.
-fn attempts(root: &Path, arguments: &Arguments, (config, north): (&Config, &str), commands: &[String], (watched, stop): (Option<&str>, &Stop)) -> Result<(i32, Option<bool>), String> {
+fn attempts(root: &Path, arguments: &Arguments, (config, environment): (&Config, &Environment), commands: &[String], (watched, stop): (Option<&str>, &Stop)) -> Result<(i32, Option<bool>), String> {
     let mut failed: Vec<String> = Vec::new();
     let (mut status, mut passed) = (NO_VERDICT_STATUS, None);
     let mut attempt = 1;
     let mut lines = Refusals::within(LINE_SECONDS);
     while attempt <= ATTEMPTS {
         let arguments = Arguments { line_within: Some(lines.left()), ..arguments.clone() };
-        let ran = block_on(run_added_avoiding(root.to_owned(), arguments, (config.clone(), Environment::load(north.to_owned())), commands.to_vec(), watched, &lines.avoiding(&failed), stop)).map_err(|error| error.to_string())?;
+        let ran = block_on(run_added_avoiding(root.to_owned(), arguments, (config.clone(), environment.clone()), commands.to_vec(), watched, &lines.avoiding(&failed), stop)).map_err(|error| error.to_string())?;
         (status, passed) = (ran.status, ran.accepted);
         if stop.stopped() {
             return Err(super::STOPPED.to_owned());
