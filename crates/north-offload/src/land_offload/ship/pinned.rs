@@ -7,6 +7,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
 const SKEWED_CURRENT: &str = "echo \"remote-current refuses: $*\" >&2\nexit 2\n";
+const CONFINED: &str = "if [ \"$1\" = --worker-sandbox ]; then shift 3; exec \"$@\"; fi\nif [ \"$1\" = depbox ]; then shift 3; exec \"$@\"; fi\n";
 const LANDER_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 10; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\necho \"lander $*\"\n";
 const TREE_READING_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 10; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\nhere=$(dirname \"$0\")\ncat \"$here/tree/harness/defaults.toml\" || exit 101\nexit 3\n";
 const LANDER_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -18,7 +19,7 @@ fn runtimes(home: &Path) -> PathBuf {
 fn place_runtime(home: &Path, sha: &str, north: &str, with_tree: bool) -> PathBuf {
     let runtime = runtimes(home).join(sha);
     fs::create_dir_all(&runtime).unwrap();
-    north_base::foundation::shim::write_script(&runtime.join("north"), north);
+    north_base::foundation::shim::write_script(&runtime.join("north"), &format!("{CONFINED}{north}"));
     if with_tree {
         let marker = runtime.join(layout::tree_marker());
         fs::create_dir_all(marker.parent().unwrap()).unwrap();
@@ -52,9 +53,10 @@ fn run_on(home: &Path, runtime: &str) -> Output {
 #[test]
 fn every_north_the_offloaded_command_and_its_wrapper_call_is_the_landers_runtime_not_the_build_hosts_newer_current() {
     let home = build_host(Some(true));
-    let skewed = run_on(home.path(), "");
-    assert_eq!(skewed.status.code(), Some(2), "without the pin the build host's current is what runs");
-    assert!(String::from_utf8_lossy(&skewed.stderr).contains("remote-current refuses: capacity host run"));
+    let unpinned = run_on(home.path(), "");
+    assert_eq!(unpinned.status.code(), Some(i32::from(super::TRANSPORT_FAILED)), "without the pin the lane's code is refused, not run by the build host's current: {}", String::from_utf8_lossy(&unpinned.stderr));
+    assert!(String::from_utf8_lossy(&unpinned.stderr).contains("refusing to run the lane's code unjailed"));
+    assert!(!String::from_utf8_lossy(&unpinned.stderr).contains("remote-current"));
     let pinned = run_on(home.path(), LANDER_SHA);
     assert!(pinned.status.success(), "{}", String::from_utf8_lossy(&pinned.stderr));
     assert_eq!(String::from_utf8_lossy(&pinned.stdout), "lander check\n");

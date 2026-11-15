@@ -34,11 +34,25 @@ esac
 exit 64
 "#;
 
+const LANDER_RUNTIME: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn lander_runtime(home: &Path) {
+    let runtime = home.join(".local/state/north/runtimes").join(LANDER_RUNTIME);
+    let marker = runtime.join(north_runtime_follow::layout::tree_marker());
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    fs::write(marker, "").unwrap();
+    north_base::foundation::shim::write_script(&runtime.join("north"), NORTH_SHIM);
+}
+
 fn remote_run_flake(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>) -> String {
     remote_run(command, flake, caller, home).0
 }
 
 fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>) -> (String, String) {
+    remote_run_after(command, flake, caller, home, "")
+}
+
+fn remote_run_after(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>, prelude: &str) -> (String, String) {
     let slot = tempfile::tempdir().unwrap();
     let bin = tempfile::tempdir().unwrap();
     if let Some(text) = flake {
@@ -49,8 +63,9 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
     north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let fresh_home = tempfile::tempdir().unwrap();
+    lander_runtime(home.unwrap_or(fresh_home.path()));
     let output = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\nproved() {{ :; }}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
+        .args(["-c", &format!("set -eu\nslot={} command={} runtime={LANDER_RUNTIME} limit=10 base=b head=h carried={}\n{prelude}proved() {{ :; }}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
         .env("PATH", path)
         .env_remove("SAFE_PUSH_LAND_BASE")
         .env_remove("SAFE_PUSH_LAND_HEAD")
@@ -131,6 +146,11 @@ fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-check --timeout-seconds 10"), "{stderr}");
     let (_, stderr) = remote_run("true", None, &[], None);
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-offload --timeout-seconds 10"), "{stderr}");
+    let home = tempfile::tempdir().unwrap();
+    remote_run("true", None, &[], Some(home.path()));
+    remote_run_after("true", None, &[], Some(home.path()), "holding=1; ");
+    let confined = fs::read_to_string(home.path().join("candidate-checks")).unwrap_or_default();
+    assert_eq!(confined.lines().filter(|line| line.contains("depbox check -- /") && line.ends_with("/bash -euo pipefail /dev/fd/7")).count(), 2, "a lane check on a lander host ran outside the candidate jail, held or not (south#138): {confined:?}");
 }
 
 #[test]
@@ -283,6 +303,7 @@ fn host_with_a_shipped_bundle() -> (tempfile::TempDir, String, std::path::PathBu
     let bundle = home.path().join("job.bundle");
     git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), "refs/land-offload/job"]);
     git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
+    lander_runtime(home.path());
     (home, head, bundle)
 }
 
@@ -315,7 +336,7 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
             let release = home.path().join("release");
             let command = format!("echo start-{label} >>{log}; while [ ! -e {release} ]; do sleep 0.02; done; echo end-{label} >>{log}", log = log.display(), release = release.display());
             let child = Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", ""])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", LANDER_RUNTIME])
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
                 .env("PATH", &path)
@@ -373,7 +394,7 @@ pub(crate) fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
             let gate = if job.hold { format!("while [ ! -e {}/release-{} ]; do sleep 0.02; done", home.path().display(), job.label) } else { ":".to_owned() };
             let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", label = job.label, log = log.display());
             let child = Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, job.owner, "", job.red_fix, "", "", "", "", "", job.urgent])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, job.owner, LANDER_RUNTIME, job.red_fix, "", "", "", "", "", job.urgent])
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
                 .env("PATH", &path)
@@ -448,7 +469,7 @@ fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let output = Command::new("sh")
-        .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", ""])
+        .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", LANDER_RUNTIME])
         .env("HOME", home.path())
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
@@ -471,7 +492,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let seen = home.path().join("seen");
     let script = remote_script(super::SlotClass::LandCheck);
     let job = |command: String, lander: &str| {
-        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "", "", "", lander], &[])
+        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", LANDER_RUNTIME, "", "", "", lander], &[])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -509,7 +530,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
         rustix::fs::flock(lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
     }
     let stray_seen = home.path().join("stray-seen");
-    let mut stray = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, stray_seen.display()), "refs/land-offload/job", "SAFE_PUSH_LANDING='after'", "land-check", "", "", "", "", ""], &[])
+    let mut stray = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, stray_seen.display()), "refs/land-offload/job", "SAFE_PUSH_LANDING='after'", "land-check", LANDER_RUNTIME, "", "", "", ""], &[])
         .env("HOME", home.path())
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
@@ -565,7 +586,7 @@ fn a_lander_job_takes_its_reserved_slot_with_no_waited_line_while_another_job_te
     let seen = home.path().join("lander-seen");
     let command = format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, seen.display());
     let script = remote_script(super::SlotClass::LandCheck);
-    let lander = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "", "", "", "1"], &[])
+    let lander = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", "1"], &[])
         .env("HOME", home.path())
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", format!("{}:{path}", clock.path().display()))
@@ -593,7 +614,8 @@ const PROVED: &str = "0123456789abcdef0123456789abcdef01234567";
 
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
     let slot = tempfile::tempdir().unwrap();
-    let script = format!("set -eu\nslot={} command={} limit=10 ran={} proof=secret proved_tree={PROVED}\nproved() {{ :; }}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
+    lander_runtime(slot.path());
+    let script = format!("set -eu\nslot={} command={} limit=10 ran={} runtime={LANDER_RUNTIME} proof=secret proved_tree={PROVED}\nproved() {{ :; }}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
     let bin = tempfile::tempdir().unwrap();
     north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
@@ -642,10 +664,10 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let script = remote_script(super::SlotClass::LandCheck);
     let inner = home.path().join("inner.sh");
     fs::write(&inner, &script).unwrap();
-    let nested = |head: &str, ran: &Path, then: &str| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}{then}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
+    let nested = |head: &str, ran: &Path, then: &str| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}{then}' refs/land-offload/job '' '' {LANDER_RUNTIME} '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
     let job = |command: &str, cap: &str, log: &str| {
         let mut outer = Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", ""])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", LANDER_RUNTIME])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -676,7 +698,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let lingering = home.path().join("lingering-ran");
     let ended = home.path().join("lingering-ended");
     let said = home.path().join("lingering.err");
-    let linger = format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}; sleep 30; : >{ended}' refs/land-offload/job '' '' '' '' north-offload-ran:linger <{bundle} >/dev/null 2>{said} & until [ -e {ran} ]; do sleep 0.05; done", inner = inner.display(), ran = lingering.display(), ended = ended.display(), said = said.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
+    let linger = format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}; sleep 30; : >{ended}' refs/land-offload/job '' '' {LANDER_RUNTIME} '' north-offload-ran:linger <{bundle} >/dev/null 2>{said} & until [ -e {ran} ]; do sleep 0.05; done", inner = inner.display(), ran = lingering.display(), ended = ended.display(), said = said.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
     let (passed, err) = job(&linger, "", "caller");
     assert!(passed && north_base::platform::wait::until(std::time::Duration::from_secs(10), || lingering.exists()), "the caller did not start its nested job: {err} {}", fs::read_to_string(&said).unwrap_or_default());
     let free = || fs::File::open(home.path().join(".cache/land-offload/code-p-main.nested")).is_ok_and(|busy| rustix::fs::flock(&busy, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_ok());
@@ -690,7 +712,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     assert_eq!(fs::read_to_string(&taker).unwrap(), slot("code-p-main"), "the next job takes the slot the ended nested job left");
     let slot_env = north_base::foundation::offload::SLOT_ENV;
     let on_host = |limit: &str, header: &[u8], lander_slot: &str| {
-        super::on_host("", &script, &["code/p/main", "", &head, limit, "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", lander_slot, &header.len().to_string()], &[])
+        super::on_host("", &script, &["code/p/main", "", &head, limit, "code-p-main", "", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", lander_slot, &header.len().to_string()], &[])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -752,7 +774,7 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
     north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
-    let runtime = "0123456789abcdef0123456789abcdef01234567";
+    let runtime = "fedcba9876543210fedcba9876543210fedcba98";
     let job = || {
         Command::new("sh")
             .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", &carried_from(&[("SAFE_PUSH_LANDING", "after")]), "", runtime])
@@ -778,7 +800,7 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
     let wrapped = fs::read_to_string(home.path().join("depbox-checks")).unwrap_or_default();
     assert!(wrapped.contains("bash -euo pipefail"), "a land check run in a slot skipped north depbox check, so the bun it runs lost the variables and scratch its test set (north#1556): {wrapped:?}");
     let confined = fs::read_to_string(home.path().join("candidate-checks")).unwrap_or_default();
-    assert!(confined.contains("depbox check -- bash -euo pipefail"), "a candidate's land check run in a slot ran outside the candidate jail (south#138): {confined:?}");
+    assert!(confined.contains("depbox check -- /") && confined.contains("/bash -euo pipefail /dev/fd/7"), "a candidate's land check run in a slot ran outside the candidate jail (south#138): {confined:?}");
 }
 
 #[test]
@@ -794,7 +816,7 @@ fn a_lane_check_waits_while_the_hosts_admission_refuses_and_a_lander_job_queued_
         let gate = if hold { format!("while [ ! -e {} ]; do sleep 0.02; done", release.display()) } else { ":".to_owned() };
         let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", log = log.display());
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LANDING='1'", "", "", "", "", "", lander])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LANDING='1'", "", LANDER_RUNTIME, "", "", "", lander])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -836,7 +858,7 @@ fn a_run_whose_connection_is_killed_in_the_middle_still_reports_its_real_exit_an
     let script = remote_script(super::SlotClass::LandCheck);
     let command = "echo before; sleep 2; echo after; exit 3";
     let mut remote = Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "", marker])
+        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", LANDER_RUNTIME, "", marker])
         .env("HOME", home.path())
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
@@ -871,7 +893,7 @@ fn relayed_run(home: &Path, head: &str, bundle: &Path, marker: &str, command: &s
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "", marker])
+        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", head, "30", "code-p-main", command, "refs/land-offload/job", "", "", LANDER_RUNTIME, "", marker])
         .env("HOME", home)
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("NORTH_OFFLOAD_DRAIN_GRACE_SECONDS", grace_seconds)
@@ -950,11 +972,12 @@ fn a_slot_target_past_its_cap_is_trimmed_and_kept_warm_instead_of_removed() {
     let trims = home.path().join("trims");
     let trimmer = format!("if [ \"$1 $2 $3\" = 'capacity offload trim-target' ]; then echo \"$4 $5\" >>{}; rm -rf \"$4/debug/incremental\"; exit 0; fi\n", shell(&trims));
     north_base::foundation::shim::write_script(&bin.path().join("north"), &format!("{trimmer}{NORTH_SHIM}"));
+    north_base::foundation::shim::write_script(&home.path().join(".local/state/north/runtimes").join(LANDER_RUNTIME).join("north"), &format!("{trimmer}{NORTH_SHIM}"));
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let job = |command: &str| {
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", ""])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", LANDER_RUNTIME])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -988,7 +1011,7 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret", false, &[], fs::metadata(&bundle_path).unwrap().len());
     let script = remote_script(super::SlotClass::LandCheck);
     let spilled = header.len().to_string();
-    let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
+    let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", "", &spilled], &[])
         .env("HOME", home.path())
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
@@ -1025,7 +1048,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
             git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), &job_ref]);
             git(&repo, &["update-ref", "-d", &job_ref]);
             Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, &job_ref, "SAFE_PUSH_LANDING='1'", "land-check"])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, &job_ref, "SAFE_PUSH_LANDING='1'", "land-check", LANDER_RUNTIME])
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "30")
                 .env("PATH", &path)
@@ -1052,9 +1075,10 @@ fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
     let bin = tempfile::tempdir().unwrap();
     north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let home = tempfile::tempdir().unwrap();
+    lander_runtime(home.path());
     let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, outputs: &[], class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
     let generated = super::generated::paths(&land);
-    let script = format!("set -eu\nslot={} head={} command={} limit=10 generated={}\n{}{}", shell(slot), super::quote(head), super::quote(command), super::quote(&generated), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()), run_part());
+    let script = format!("set -eu\nslot={} head={} command={} limit=10 generated={} runtime={LANDER_RUNTIME}\n{}{}", shell(slot), super::quote(head), super::quote(command), super::quote(&generated), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()), run_part());
     Command::new("sh")
         .args(["-c", &script])
         .env("PATH", format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap()))
@@ -1110,7 +1134,7 @@ fn a_worker_build_passes_a_land_check_the_host_cannot_lease_yet_which_waits_out_
         let gate = if hold { format!("while [ ! -e {} ]; do sleep 0.02; done", release.display()) } else { ":".to_owned() };
         let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", log = log.display());
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", carried, owner, "", ""])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", carried, owner, LANDER_RUNTIME])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -1147,7 +1171,7 @@ fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slo
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let job = |command: &str| {
-        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "", "", "", ""], &[])
+        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", ""], &[])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -1200,7 +1224,7 @@ fn a_closed_host_takes_no_check_and_refuses_its_queue_at_once() {
     let script = remote_script(super::SlotClass::LandCheck);
     let job = |label: &str| {
         Command::new("sh")
-            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", "", "", "", "", "", "", ""])
+            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", ""])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -1240,7 +1264,7 @@ fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the
     let script = remote_script(super::SlotClass::LandCheck);
     let job = |carried: &str| {
         Command::new("sh")
-            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", carried, "land-check", "", "", "", "", "", ""])
+            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", ":", "refs/land-offload/job", carried, "land-check", LANDER_RUNTIME, "", "", "", "", ""])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
@@ -1293,7 +1317,7 @@ const SAME_HOST_PATH: &str = "NORTH_TEST_SAME_HOST_PATH";
 
 fn same_host_job(home: &Path, head: &str, bundle: &Path, path: &str) -> Output {
     let script = remote_script(super::SlotClass::LandCheck);
-    super::on_host("", &script, &["code/p/main", "", head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "", "", "", ""], &[])
+    super::on_host("", &script, &["code/p/main", "", head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", ""], &[])
         .env("HOME", home)
         .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", path)
@@ -1371,7 +1395,7 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
         fs::write(&header_path, header).unwrap();
         let mut client = Command::new("setsid").args(["sh", "-c", "cat \"$1\" \"$2\"; exec sleep 600", "client"]).arg(&header_path).arg(&bundle).stdout(Stdio::piped()).spawn().unwrap();
         let marker = format!("north-offload-ran:job-{label}");
-        let words: [&str; 15] = ["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", &marker, "", "", &spilled];
+        let words: [&str; 15] = ["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", &marker, "", "", &spilled];
         let mut job = match through {
             Some(connection) => {
                 let mut job = Command::new(connection);
@@ -1448,7 +1472,7 @@ fn an_offload_header_word_that_would_run_a_command_is_refused_without_running_it
     let planted = |name: &str| home.path().join(name);
     let ship = |header: Vec<u8>| {
         let spilled = header.len().to_string();
-        let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
+        let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", "", &spilled], &[])
             .env("HOME", home.path())
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)

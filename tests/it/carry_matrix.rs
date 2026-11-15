@@ -43,12 +43,51 @@ struct Matrix {
     home: PathBuf,
     project: PathBuf,
     toolchain: PathBuf,
+    remote_cargo: PathBuf,
     base: String,
     head: String,
 }
 
 const FLAKE: (&str, &str) = ("flake.nix", "{ outputs = _: { devShells = { }; }; }\n");
 const IDENTITY: &str = "Carry matrix <carry@example.invalid> 1700000000 +0000";
+
+const LANDER_RUNTIME: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// Installs the north binary as a lander runtime of `home`, so the offload run runs from one and ships it to the build host, which refuses a lane's code without one.
+fn install_lander_runtime(home: &Path) {
+    let runtime = lander_runtime(home);
+    fs::create_dir_all(&runtime).unwrap();
+    for program in north_base::platform::store_refs::RUNTIME_PROGRAMS {
+        fs::copy(crate::support::bin_exe!("CARGO_BIN_EXE_north"), runtime.join(program)).unwrap();
+    }
+    let tree = runtime.join(north_base::platform::harness::TREE);
+    fs::create_dir_all(&tree).unwrap();
+    symlink(crate::support::manifest_dir().join("harness"), tree.join("harness")).unwrap();
+}
+
+fn lander_runtime(home: &Path) -> PathBuf {
+    home.join(".local/state/north/runtimes").join(LANDER_RUNTIME)
+}
+
+/// Lays out the tools of a host's home as production has them (the shims in `.local/bin`, the toolchain beside the nix profile), since a jailed run sees the home only through those; returns the toolchain directory.
+fn install_tools(home: &Path) -> PathBuf {
+    let (bin, toolchain) = (home.join(".local/bin"), home.join(".local/state/nix/profiles/toolchain/bin"));
+    for directory in [&bin, &toolchain] {
+        fs::create_dir_all(directory).unwrap();
+    }
+    let outer = std::env::var_os("PATH").unwrap();
+    for tool in TOOLS {
+        if let Some(found) = std::env::split_paths(&outer).map(|directory| directory.join(tool)).find(|path| path.is_file()) {
+            symlink(found, bin.join(tool)).unwrap();
+        }
+    }
+    symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
+    shim::copy_executable(crate::support::manifest_dir().join("bin/cargo"), bin.join("cargo"));
+    shim::write_script(&bin.join("nix"), &FAKE_NIX.replace("@TOOLCHAIN@", &toolchain.display().to_string()));
+    shim::write_script(&bin.join("ssh"), FAKE_SSH);
+    shim::write_script(&toolchain.join("cargo"), "echo \"$0\"\n");
+    toolchain
+}
 
 fn hex(id: &[u8; 20]) -> String {
     id.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -137,27 +176,21 @@ impl Matrix {
     fn new() -> Self {
         let host = Host::new("carry-matrix-", &[("systemd-run", &scope_systemd_run("\"$@\"")), ("systemctl", SCOPE_SYSTEMCTL)]);
         let home = host.path("home");
-        let (bin, toolchain, project) = (home.join(".local/bin"), home.join(".local/state/nix/profiles/toolchain/bin"), home.join("code/proj/main"));
-        for directory in [&bin, &toolchain, &project, &home.join(".local/state/scopes")] {
+        let project = home.join("code/proj/main");
+        for directory in [&project, &home.join(".local/state/scopes")] {
             fs::create_dir_all(directory).unwrap();
         }
-        let outer = std::env::var_os("PATH").unwrap();
-        for tool in TOOLS {
-            if let Some(found) = std::env::split_paths(&outer).map(|directory| directory.join(tool)).find(|path| path.is_file()) {
-                symlink(found, bin.join(tool)).unwrap();
-            }
-        }
-        symlink(crate::support::bin_exe!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
-        shim::copy_executable(crate::support::manifest_dir().join("bin/cargo"), bin.join("cargo"));
-        shim::write_script(&bin.join("nix"), &FAKE_NIX.replace("@TOOLCHAIN@", &toolchain.display().to_string()));
-        shim::write_script(&bin.join("ssh"), FAKE_SSH);
-        shim::write_script(&toolchain.join("cargo"), "echo \"$0\"\n");
+        let toolchain = install_tools(&home);
+        install_lander_runtime(&home);
+        let remote_home = host.path("remotes/gex45");
+        let remote_toolchain = install_tools(&remote_home);
+        install_lander_runtime(&remote_home);
         fs::write(host.path("orchestration.toml"), "[hosts.lane-host]\nreaches = [\"gex45\"]\n[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
         let [base, head] = <[String; 2]>::try_from(repository(&project, &[("Base", &[FLAKE]), ("Lane", &[("change", "lane\n"), FLAKE])], None)).unwrap();
         let remote = host.path("remotes/gex45/code/proj/main");
         fs::create_dir_all(&remote).unwrap();
         assert_eq!(repository(&remote, &[("Base", &[FLAKE])], Some(&project)), std::slice::from_ref(&base));
-        Matrix { host, home, project, toolchain, base, head }
+        Matrix { host, home, project, toolchain, remote_cargo: remote_toolchain.join("cargo"), base, head }
     }
 
     fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
@@ -199,7 +232,7 @@ impl Matrix {
             "capacity exec --dev-shell" => self.north(&["capacity", "exec", "--dev-shell", self.project.to_str().unwrap(), "--"], probe),
             "offload run" => {
                 let line = probe.iter().map(|word| format!("'{}'", word.replace('\'', "'\\''"))).collect::<Vec<_>>().join(" ");
-                self.command(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["capacity", "offload", "run", "--host", "gex45", "--base", &self.base, "--head", &self.head, "--timeout", "30", "--", &line]).env("SAFE_PUSH_LANDING", "1").output().unwrap()
+                self.command(lander_runtime(&self.home).join("north")).args(["capacity", "offload", "run", "--host", "gex45", "--base", &self.base, "--head", &self.head, "--timeout", "30", "--", &line]).env("SAFE_PUSH_LANDING", "1").output().unwrap()
             }
             "land-shell --dev" => self.sandboxed("land-shell", probe),
             "depbox run" => self.sandboxed("depbox", probe),
@@ -219,7 +252,9 @@ fn carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_e
     let matrix = Matrix::new();
     let cargo = matrix.toolchain.join("cargo").display().to_string();
     let probes: [(&[&str], Option<&String>); 4] = [(&["cargo"], Some(&cargo)), (&["sh", "-c", "exec \"$(command -v cargo)\""], Some(&cargo)), (&["sh", "-c", "printenv SAFE_PUSH_LAND_BASE"], Some(&matrix.base)), (&[MISSING, "--version"], None)];
+    let remote = matrix.remote_cargo.display().to_string();
     let check = |entry: &str, probe: &[&str], expected: Option<&String>| -> Option<String> {
+        let expected = expected.map(|expected| if entry == "offload run" && *expected == cargo { &remote } else { expected });
         let output = matrix.run(entry, probe);
         match expected {
             Some(expected) => {

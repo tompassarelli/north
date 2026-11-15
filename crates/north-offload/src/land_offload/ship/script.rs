@@ -469,9 +469,9 @@ leased() {
 }
 checked() {
   if ! confined_here; then
-    if [ -n "${runtime:-}" ] && [ "$lease_owner" = land-check ] && [ -z "${holding:-}" ]; then leased "$runtime_dir/north" --worker-sandbox --candidate -- "$runtime_dir/north" depbox check -- bash -euo pipefail -c "$(cat "$script")"; return; fi
-    if [ -n "${SAFE_PUSH_LAND_HEAD:-}" ] && [ -n "${runtime:-}" ]; then leased "$runtime_dir/north" depbox check -- bash -euo pipefail "$script"; return; fi
-    leased bash -euo pipefail "$script"; return
+    [ -n "${runtime:-}" ] || { echo "offload: refusing to run the lane's code unjailed: this host has no lander runtime to confine it in" >&2; return @TRANSPORT_FAILED@; }
+    jail_bash=$(command -v bash) && jail_bash=$(readlink -f "$jail_bash") || { echo "offload: refusing to run the lane's code: no bash on this host to run it in the jail" >&2; return @TRANSPORT_FAILED@; }
+    leased "$runtime_dir/north" --worker-sandbox --candidate -- "$runtime_dir/north" depbox check -- "$jail_bash" -euo pipefail /dev/fd/7 7<"$script"; return
   fi
   printf '%s\n' "$fill_text" >"$script_directory/fill.sh"
   leased sh -c '. "$0" && confine "$@"' "$script_directory/fill.sh" bash -euo pipefail "$script"

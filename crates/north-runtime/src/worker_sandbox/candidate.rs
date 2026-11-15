@@ -19,6 +19,8 @@ const READ_STATE: [&str; 5] = [
 ];
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
 const LIVE: &str = ".local/state/north/current";
+/// The lease records a held check's depbox reads through `capacity deadline`, under the runtime directory the jail hides.
+const LEASES: &str = "agent-capacity-v1/leases";
 /// The pinned checkouts of other projects an offloaded check reads beside its own (north-offload ship/beside.rs), which its check lines name instead of `~/code/PROJECT/main`.
 const BESIDE: &str = "NORTH_OFFLOAD_BESIDE";
 
@@ -50,6 +52,10 @@ impl Candidate {
             if real != read {
                 words.bind("--ro-bind", &real, &real);
             }
+        }
+        let leases = self.runtime.join(LEASES);
+        if leases.is_dir() {
+            words.bind("--ro-bind", &leases, &leases);
         }
         let live = self.home.join(LIVE);
         if let Ok(target) = std::fs::read_link(&live) {
