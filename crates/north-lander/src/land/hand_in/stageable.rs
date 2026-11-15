@@ -15,3 +15,15 @@ fn tracked(root: &Path, relative: &str) -> bool {
     let known = |arguments: &[&str]| git(root, &[&["--literal-pathspecs"][..], arguments, &["--", relative]].concat()).is_ok_and(|names| !names.is_empty());
     known(&["ls-files", "--cached"]) || known(&["ls-tree", "-r", "--name-only", "HEAD"])
 }
+
+pub(super) fn stage(root: &Path, paths: &[&str]) -> Result<(), String> {
+    let present: Vec<&str> = paths.iter().copied().filter(|path| root.join(path).symlink_metadata().is_ok() || tracked_in_index(root, path)).collect();
+    if present.is_empty() {
+        return Ok(());
+    }
+    git(root, &[&["--literal-pathspecs", "add", "--all", "--"][..], &present].concat()).map(drop)
+}
+
+fn tracked_in_index(root: &Path, relative: &str) -> bool {
+    git(root, &["--literal-pathspecs", "ls-files", "--cached", "--", relative]).is_ok_and(|names| !names.is_empty())
+}

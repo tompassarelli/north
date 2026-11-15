@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use self::stageable::{in_lane, stageable};
+use self::stageable::{in_lane, stage, stageable};
 use super::enqueue::{Facts, default_branch, fetch_base, git};
 use crate::land::slots::runner;
 use north_base::platform::finish_record::{FinishRecords, Finished};
@@ -350,7 +350,7 @@ fn commit(named: &Named) -> Result<(), String> {
     if paths.is_empty() && named.committed {
         return Ok(());
     }
-    literal(root, &[&["add", "--all", "--"][..], &paths].concat())?;
+    stage(root, &paths)?;
     if literal(root, &[&["diff", "--cached", "--name-only", "HEAD", "--"][..], &paths].concat())?.is_empty() {
         return if named.committed { Ok(()) } else { Err(format!("no changes in {}", paths.join(" "))) };
     }

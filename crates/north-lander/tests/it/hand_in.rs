@@ -349,6 +349,20 @@ fn a_hand_in_that_names_a_deleted_path_lands_its_deletion() {
     assert_eq!((git(&lane, &["diff", "--cached", "--name-only"]), git(&lane, &["ls-files", "--others"])), (String::new(), "a.txt".to_owned()), "the unnamed file was staged");
 }
 
+#[test]
+fn a_hand_in_that_deletes_a_tracked_file_lands_its_deletion() {
+    let (world, north) = scanned_world(JUDGE_PASSES);
+    let lane = worktree(&north, "staged-removal");
+    git(&lane, &["rm", "-q", "README"]);
+
+    let (output, journal) = decided(&world, &north, verb(&world, "Remove the readme (north#1379)", &[&lane.join("README")]));
+    let text = report(&output);
+    let landed = git(&north.origin, &["rev-parse", "main"]);
+    assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
+    assert!(text.contains(&format!("Done: landed {landed} on main")), "{text}\n{journal}");
+    assert_eq!(git(&north.origin, &["diff-tree", "--no-commit-id", "--name-status", "-r", "main"]), "D\tREADME", "{text}");
+}
+
 fn handing(world: &World, message: &str, path: &Path) -> Child {
     queueing(world, "hand_in::a_handed_in_lane_keeps_its_message_and_live_fix_trailer", VERB_ARGUMENTS, &["--message", message, "--", path.to_str().unwrap()]).spawn().unwrap()
 }
