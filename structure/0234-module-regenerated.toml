@@ -1,0 +1,5 @@
+[[module]]
+name = "regenerated"
+paths = ["crates/north-shared-config/src/regenerated.rs"]
+responsibility = "The files the landing candidate regenerates from harness/merge-sets.toml, which a review accept's patch id leaves out."
+may_use = []

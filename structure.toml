@@ -657,7 +657,7 @@ may_use = ["strategy_types", "foundation", "platform.host", "crate-roots"]
 name = "platform.records"
 paths = ["crates/north-base/src/platform/land_queue.rs", "crates/north-base/src/platform/finish_record.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/land_notice.rs", "crates/north-base/src/platform/decision_log.rs", "crates/north-base/src/platform/reader_stamp.rs", "crates/north-base/src/platform/disk_ledger.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/south_land_limits.rs", "crates/north-base/src/dispatch_pause.rs"]
 responsibility = "The state records hosts share under ~/.local/state and south: the land queue and notices, decision logs, reader stamps, the disk ledger, admission roots and the dispatch pause."
-may_use = ["strategy_types", "foundation", "platform.harness", "platform.host", "platform.process", "platform.git"]
+may_use = ["strategy_types", "foundation", "platform.harness", "platform.host", "platform.process", "platform.git", "regenerated"]
 
 [[module]]
 name = "platform"
@@ -1391,3 +1391,8 @@ paths = ["crates/north-offload/src/check_offload.rs"]
 responsibility = "Where a check command that compiles runs: on a build host through the offload when this host is not one."
 may_use = ["foundation", "platform", "platform.host", "platform.harness"]
 
+[[module]]
+name = "regenerated"
+paths = ["crates/north-shared-config/src/regenerated.rs"]
+responsibility = "The files the landing candidate regenerates from harness/merge-sets.toml, which a review accept's patch id leaves out."
+may_use = []

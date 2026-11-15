@@ -34,9 +34,9 @@ fn is_session(word: &str) -> bool {
 /// The `git diff` a patch id is read from, before its two commits: the stored bytes of every file, never what a configured external diff or textconv filter makes of them.
 pub const PATCH_DIFF: [&str; 5] = ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--binary"];
 
-/// `git patch-id --stable` of the change from `from` to `to` in `directory`.
+/// `git patch-id --stable` of the change from `from` to `to` in `directory`, leaving out the files the landing candidate regenerates (north_shared_config::regenerated).
 pub fn patch_id(directory: &Path, from: &str, to: &str) -> Result<String, String> {
-    patch_id_of(&git::stdout(directory, &[&PATCH_DIFF[..], &[from, to]].concat(), |output| format!("git diff {from} {to}: {}", String::from_utf8_lossy(&output.stderr).trim()))?, from, to)
+    patch_id_of(&git::stdout(directory, &[&PATCH_DIFF[..], &[from, to], &north_shared_config::regenerated::left_out(directory, from, to).iter().map(String::as_str).collect::<Vec<_>>()].concat(), |output| format!("git diff {from} {to}: {}", String::from_utf8_lossy(&output.stderr).trim()))?, from, to)
 }
 
 /// `git patch-id --stable` of `diff`, the [`PATCH_DIFF`] of `from`..`to`.

@@ -44,6 +44,13 @@ fn a_withdrawn_accept_no_longer_counts() {
     assert_eq!(check(&repo, &lane, &test, &accepts, &[]), Ok(()));
     assert_eq!(accepts.withdraw(&patch_id(&repo, &lane, &test).unwrap(), "reviewer-b"), Ok(true));
     assert!(check(&repo, &lane, &test, &accepts, &[]).is_err(), "a withdrawn accept still landed a one-accept change");
+
+    let rules = commit(&repo, &[("harness/merge-sets.toml", "[[set]]\npath = \"src/cli/reference.txt\"\nkind = \"regenerate\"\ncommand = \"north docs reference-index\"\n\n[[set]]\npath = \"Cargo.lock\"\nkind = \"regenerate\"\ncommand = \"cargo update --workspace --offline\"\n")], "rules");
+    let edited = commit(&repo, &[("crates/north-lander/src/land.rs", "c\n")], "edit");
+    let regenerated = commit(&repo, &[("src/cli/reference.txt", "regenerated\n")], "the lander's regenerated index");
+    assert_eq!(patch_id(&repo, &rules, &regenerated), patch_id(&repo, &rules, &edited), "a regenerated line the lander rewrites voided the lane's accepts (5985b7d80e)");
+    let locked = commit(&repo, &[("Cargo.lock", "planted\n")], "a hand edit cargo update keeps");
+    assert_ne!(patch_id(&repo, &rules, &locked), patch_id(&repo, &rules, &regenerated), "a hand edit of a file its generator does not wholly rewrite kept the lane's accepts");
 }
 
 fn commit(repo: &Path, files: &[(&str, &str)], message: &str) -> String {
