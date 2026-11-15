@@ -74,6 +74,8 @@ fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accep
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
     let lists = lists_at(directory, listed_at)?;
     let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {listed_at} lists no trust_boundary_paths, so no change can be told to cross one"))?;
+    let unreviewed = reverts_unreviewed(directory, &fork, head, accepts, finished);
+    let crossing: Vec<String> = crossing.into_iter().filter(|_| !unreviewed).collect();
     if crossing.is_empty() {
         return Ok(());
     }
@@ -82,6 +84,26 @@ fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accep
         return Ok(());
     }
     Err(format!("the lane changes {} of trust_boundary_paths and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
+}
+
+/// Whether the lane `fork..head` is an exact revert of commits that each landed unreviewed across a trust-boundary path, so the revert removes only content no reviewer read and needs no accept of its own.
+fn reverts_unreviewed(directory: &Path, fork: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> bool {
+    let gate = gate_commit(directory);
+    patch_id(directory, fork, head).ok().and_then(|patch| reverted(directory, fork, head, &patch)).is_some_and(|commits| commits.iter().all(|commit| unreviewed_landing(directory, gate.as_deref(), commit, accepts, finished)))
+}
+
+/// The commit that first gave `harness/defaults.toml` its `trust_boundary_paths` list, from which the review gate reads trust boundaries.
+fn gate_commit(directory: &Path) -> Option<String> {
+    git::text(directory, &["log", "--reverse", "--format=%H", "-S[trust_boundary_paths]", "--", DEFAULTS])?.lines().next().map(str::to_owned)
+}
+
+/// Whether `commit` landed after `gate`, crossed a trust-boundary path at its own landing, and holds no reviewer accept of its patch.
+fn unreviewed_landing(directory: &Path, gate: Option<&str>, commit: &str, accepts: &Accepts, finished: &[Finished]) -> bool {
+    let parent = format!("{commit}^");
+    let crossed = changed(directory, &parent, commit).zip(lists_at(directory, &parent).ok()).and_then(|(files, lists)| trust_boundary::crossing(&lists, &files)).is_some_and(|crossing| !crossing.is_empty());
+    let after_gate = gate.is_some_and(|gate| git::text(directory, &["merge-base", "--is-ancestor", gate, commit]).is_some());
+    let unaccepted = reviewers(directory, &parent, commit, accepts, finished).is_ok_and(|(_, accepted)| accepted.is_empty());
+    [crossed, after_gate, unaccepted].into_iter().all(std::convert::identity)
 }
 
 /// The test functions the lane `fork..head` removes from each Rust file it changes, by name: those its base defines and its head does not, whether it deletes or renames them.
