@@ -172,14 +172,14 @@ fn prune(env: &Env, roots: &[Root]) {
 
 #[derive(Parser)]
 #[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
-struct Options {
+pub(crate) struct Options {
     #[arg(long)]
-    dry_run: bool,
+    pub(crate) dry_run: bool,
     #[arg(long, value_name = "SIZE", allow_hyphen_values = true)]
-    max_freed: Option<String>,
+    pub(crate) max_freed: Option<String>,
 }
 
-fn parse(arguments: &[String]) -> Result<Options, String> {
+pub(crate) fn parse(arguments: &[String]) -> Result<Options, String> {
     north_foundation::foundation::arguments::parse_allowing_inline_values(arguments)
 }
 
@@ -218,7 +218,3 @@ fn usage() -> u8 {
     eprintln!("{USAGE}");
     2
 }
-
-#[cfg(test)]
-#[path = "arguments_tests.rs"]
-mod tests;

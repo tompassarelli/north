@@ -2,6 +2,7 @@
 mod lock;
 
 use crate::nix_gc::{Env, Host, live_shells, missing_rustup, offline_args, rustup_references};
+use clap::Parser;
 use std::fs;
 const HASH: usize = 32;
 const USAGE: &str = "usage: north check nix [--lock FILE [--allow FILE]]";
@@ -34,22 +35,26 @@ fn fail(message: &str) -> u8 {
     2
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+pub(crate) struct Options {
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    pub(crate) lock: Option<String>,
+    #[arg(long, value_name = "FILE", allow_hyphen_values = true)]
+    pub(crate) allow: Option<String>,
+}
+
+pub(crate) fn parse(arguments: &[String]) -> Result<Options, String> {
+    north_foundation::foundation::arguments::parse(arguments)
+}
+
 pub fn run(arguments: &[String], env: &Env, host: &dyn Host) -> u8 {
-    let mut lock_file = None;
-    let mut allow = None;
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        match (word.as_str(), words.next()) {
-            ("--lock", Some(file)) => lock_file = Some(file.as_str()),
-            ("--allow", Some(file)) => allow = Some(file.as_str()),
-            _ => {
-                eprintln!("{USAGE}");
-                return 2;
-            }
-        }
-    }
-    match lock_file {
-        Some(file) => lock_command(file, allow),
+    let Ok(Options { lock, allow }) = parse(arguments) else {
+        eprintln!("{USAGE}");
+        return 2;
+    };
+    match lock {
+        Some(file) => lock_command(&file, allow.as_deref()),
         None => print_probe(env, host),
     }
 }

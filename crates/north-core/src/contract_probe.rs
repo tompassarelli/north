@@ -4,6 +4,7 @@ use std::io::Read;
 use std::process::Stdio;
 use std::time::Duration;
 
+use clap::Parser;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{ChildStdin, ChildStdout, Command};
 use tokio::time::{Instant, timeout_at};
@@ -35,7 +36,7 @@ const FIRST_MESSAGE: &str = "Reply with exactly the word OK and nothing else.";
 // Claude Code refuses a standalone foreground `sleep`, so the long-running task must be some other command.
 const SECOND_MESSAGE: &str = "Run exactly this bash command and nothing else: tail -f /dev/null";
 
-const USAGE: &str = "Usage: north contract-probe --validate FIXTURE.jsonl | --runtime PATH";
+pub(crate) const USAGE: &str = "Usage: north contract-probe --validate FIXTURE.jsonl | --runtime PATH";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ControlKind {
@@ -169,6 +170,23 @@ fn check_interrupted_turn(frames: &[StreamFrame], expect: &Expectation, violatio
     }
 }
 
+#[derive(Parser)]
+#[command(
+    no_binary_name = true,
+    disable_help_flag = true,
+    group(clap::ArgGroup::new("mode").required(true).args(["validate", "runtime"]))
+)]
+pub(crate) struct Options {
+    #[arg(long, value_name = "FIXTURE.jsonl", allow_hyphen_values = true)]
+    pub(crate) validate: Option<String>,
+    #[arg(long, value_name = "PATH", allow_hyphen_values = true)]
+    pub(crate) runtime: Option<String>,
+}
+
+pub(crate) fn options(arguments: &[String]) -> NorthResult<Options> {
+    north_foundation::foundation::arguments::parse(arguments).map_err(|_| NorthError::Usage(USAGE.into()))
+}
+
 pub async fn run(arguments: &[String], invocation: impl FnOnce() -> NorthResult<Invocation>) -> NorthResult<u8> {
     let report = |outcome: Result<(), Vec<String>>| match outcome {
         Ok(()) => {
@@ -182,13 +200,13 @@ pub async fn run(arguments: &[String], invocation: impl FnOnce() -> NorthResult<
             1
         }
     };
-    match arguments {
-        [mode, fixture] if mode == "--validate" => {
+    match options(arguments)? {
+        Options { validate: Some(fixture), runtime: None } => {
             let frames = decode_capture(&fs::read_to_string(fixture)?)?;
             Ok(report(validate(&frames, &Expectation::for_fixture(&frames))))
         }
-        [mode, path] if mode == "--runtime" => {
-            let (frames, expect) = probe_runtime(std::slice::from_ref(path), RUNTIME_DEADLINE, &invocation()?).await?;
+        Options { validate: None, runtime: Some(path) } => {
+            let (frames, expect) = probe_runtime(std::slice::from_ref(&path), RUNTIME_DEADLINE, &invocation()?).await?;
             Ok(report(validate(&frames, &expect)))
         }
         _ => Err(NorthError::Usage(USAGE.into())),
