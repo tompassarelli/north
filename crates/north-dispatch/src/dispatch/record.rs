@@ -15,6 +15,8 @@ const RETRIES: usize = 2;
 const FAILED_HOLD_S: f64 = 15.0 * 60.0;
 pub const FAILURE_WINDOW_S: f64 = 10.0 * 60.0;
 const FAILURES: usize = 3;
+const STDERR_LINES: usize = 8;
+const STDERR_CHARS: usize = 900;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Record {
@@ -77,6 +79,20 @@ pub fn stderr_path(name: &str) -> PathBuf {
     directory().join("launch-stderr").join(format!("{name}.log"))
 }
 
+fn stderr_head(name: &str) -> String {
+    let text = std::fs::read_to_string(stderr_path(name)).unwrap_or_default();
+    let head: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).take(STDERR_LINES).collect();
+    if head.is_empty() {
+        return "none recorded".to_owned();
+    }
+    let mut joined = head.join(" | ");
+    if let Some((cut, _)) = joined.char_indices().nth(STDERR_CHARS) {
+        joined.truncate(cut);
+        joined.push_str("...");
+    }
+    joined
+}
+
 #[derive(Debug, PartialEq)]
 pub struct FailurePage {
     pub cause: String,
@@ -106,7 +122,7 @@ pub fn failure_pages(records: &[Record], at: f64) -> Vec<FailurePage> {
         .map(|mut records| {
             records.sort_by(|a, b| a.at.total_cmp(&b.at));
             let first = records[0];
-            let stderr = if first.cloud { "none (cloud launch)".to_owned() } else { stderr_path(&first.name).display().to_string() };
+            let stderr = if first.cloud { "none (cloud launch)".to_owned() } else { stderr_head(&first.name) };
             FailurePage { cause: first.detail.clone(), count: records.len(), stderr }
         })
         .collect()
