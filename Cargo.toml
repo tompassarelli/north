@@ -253,3 +253,8 @@ test = "it"
 name = "worker_sandbox::a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_lock_north_1172"
 reason = "the fixture home is under CARGO_TARGET_TMPDIR, which the generated environment sets to /tmp, inside the worker sandbox's writable scratch; listed until the fix is measured"
 test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "fleet_launch::a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is"
+reason = "chains revive, show, kill, send and tick waits of up to 20 s and 60 s each, which on a slowed hosted runner pass the 120 s case limit (hosted run 43723570346 failed it) while it passes on a build host (north#1632)"
+test = "it"
