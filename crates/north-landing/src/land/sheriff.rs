@@ -396,7 +396,7 @@ impl Probes<'_> {
             let run = Command::new(super::after::follow::program())
                 .args(["capacity", "offload", "run", "--host", &host, "--base", commit, "--head", commit, "--timeout", PROBE_SECONDS, "--", &command])
                 .current_dir(&self.lander.repo)
-                .env(north_foundation::foundation::offload::OWNER_ENV, &self.lander.offload_owner)
+                .env(north_foundation::foundation::offload::OWNER_ENV, north_foundation::foundation::offload::yielding_owner(&self.lander.offload_owner))
                 .stdin(std::process::Stdio::null())
                 .output()
                 .ok()?;

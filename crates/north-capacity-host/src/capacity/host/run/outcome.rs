@@ -155,7 +155,7 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
     let mut cpu = None;
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
-            let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
+            let measurement = measure_scope(root, &lease, scope_cgroup(request.scope_class(), &unit));
             let usual = Usual::of(request.forecast.as_ref(), timeout_seconds);
             let overrun = Overrun::watch(env(north_fleet_store::runtime::SESSION_ENV), subject, usual);
             let code = supervise(child, &unit, terminations, overrun).await;

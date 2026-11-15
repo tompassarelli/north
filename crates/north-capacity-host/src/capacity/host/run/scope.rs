@@ -45,13 +45,13 @@ pub(crate) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
     if let (Some(runtime), Some(bus)) = (env("XDG_RUNTIME_DIR"), env("DBUS_SESSION_BUS_ADDRESS")) {
         arguments.extend([format!("--setenv=XDG_RUNTIME_DIR={runtime}"), format!("--setenv=DBUS_SESSION_BUS_ADDRESS={bus}")]);
     }
-    arguments.extend([format!("--unit={unit}"), format!("--slice={}", lease_slice(request.admitted_class()))]);
+    arguments.extend([format!("--unit={unit}"), format!("--slice={}", lease_slice(request.scope_class()))]);
     let scope = admitted.get("scope").cloned().unwrap_or(Value::Null);
     // A quota-throttled game client stalls for the rest of each period.
     if let Some(cpus) = field(&scope, "cpus").filter(|cpus| cpus.is_finite() && *cpus > 0.0 && request.name != "native") {
         arguments.push(format!("--property=CPUQuota={}%", show(cpus * 100.0)));
     }
-    if request.landing {
+    if request.weighted() {
         arguments.push(format!("--property=CPUWeight={}", crate::capacity::admission::default_mib("land_check_cpu_weight") as u32));
     }
     if request.name != "native" {

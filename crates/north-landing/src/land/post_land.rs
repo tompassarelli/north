@@ -192,6 +192,11 @@ impl Run {
         self.named(format!("post-land-{}-again", short(head)), false)
     }
 
+    /// The run as its culprit search reruns it: under the yielding offload owner, so its probes take only cores sessions and hand-in checks leave idle.
+    fn yielding(self) -> Self {
+        Self { offload_owner: north_foundation::foundation::offload::yielding_owner(&self.offload_owner), ..self }
+    }
+
     fn named(&self, name: String, adoptable: bool) -> Self {
         let beside = |path: &Path, file: String| path.with_file_name(file);
         Self {
@@ -305,6 +310,7 @@ fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
 pub fn search(wake: &Arc<Wake>, search: Search) -> Task<Found> {
     Task::spawn(wake, move || {
         let Search { landed, run, failing } = search;
+        let run = run.yielding();
         let started = telemetry::epoch();
         let (failing, named) = apart(failing, &run.outcome, &landed.lanes);
         for &at in &named {

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 use north_foundation::foundation::check_log;
-use north_foundation::foundation::offload::OWNER_ENV;
+use north_foundation::foundation::offload::{self, OWNER_ENV};
 use north_base::lifecycle::Store;
 
 use super::{ALARMED, CLEARED, Cancel, EPISODE, Checked, Landed, Run, check, deadline, failing, ledger_path, record, steps};
@@ -36,7 +36,7 @@ pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String],
         outcome: logs.join(format!("{name}.outcome")),
         ledger: PathBuf::new(),
         store: north_base::lifecycle::Store::host_path().unwrap_or_default(),
-        offload_owner: lander.offload_owner.clone(),
+        offload_owner: offload::yielding_owner(&lander.offload_owner),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, tree),
         host: Some(host.to_owned()),
@@ -132,7 +132,7 @@ pub(super) fn offload_rerun(landed: &Landed, run: &Run, command: &str) -> String
     let ran = Command::new(follow::program())
         .args(["capacity", "offload", "run", "--host", &host, "--base", &landed.head, "--head", &landed.head, "--timeout", &timeout, "--", command])
         .current_dir(&landed.repo)
-        .env(OWNER_ENV, &run.offload_owner)
+        .env(OWNER_ENV, offload::yielding_owner(&run.offload_owner))
         .stdin(Stdio::null())
         .output();
     match ran {

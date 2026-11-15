@@ -9,6 +9,19 @@ pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const BESIDE_ENV: &str = "NORTH_OFFLOAD_BESIDE";
 /// The ending the lander adds to its offload owner for its record-only Buck2 run after a landing. Admission never gives a run with that owner a slot from the lander reserve, so the job never stands beside the revert run in a lander slot.
 pub const AFTER_LANDING_OWNER: &str = "-buck2-after-landing";
+/// The ending the lander adds to its offload owner for its reruns and culprit searches, which verify nothing a landing waits for: the build host runs such a run in the idle-weighted yielding slice, so sessions and hand-in checks take the cores first, and dispatch counts that slice's cores as idle.
+pub const YIELDING_OWNER: &str = "-yielding";
+
+/// The offload owner of a rerun or culprit search the lander runs under `owner`.
+pub fn yielding_owner(owner: &str) -> String {
+    if yields(owner) { owner.to_owned() } else { format!("{owner}{YIELDING_OWNER}") }
+}
+
+/// Whether a run with this offload owner yields its cores to sessions and hand-in checks.
+pub fn yields(owner: &str) -> bool {
+    owner.ends_with(YIELDING_OWNER)
+}
+
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub const URGENT_ENV: &str = "NORTH_OFFLOAD_URGENT";

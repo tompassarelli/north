@@ -36,17 +36,35 @@ pub fn batch_slice() -> String {
     format!("agent-batch{}.slice", subslice())
 }
 
+/// The class of a landing run's scope in the yielding slice; admission still charges and places it as critical.
+pub const YIELDING_CLASS: &str = "yielding";
+
+/// Inside the batch slice and idle-weighted there, so the lander's reruns and culprit searches run on cores sessions, hand-in checks and worker builds leave idle.
+pub fn yielding_slice() -> String {
+    format!("agent-batch{}-yielding.slice", subslice())
+}
+
+/// The yielding slice's cgroup directory below a user's systemd manager, which dispatch reads on each build host.
+pub fn yielding_cgroup() -> String {
+    slice_path(&yielding_slice())
+}
+
 pub fn elastic_class(class: &str) -> bool {
     matches!(class, "heavy" | "moderate")
 }
 
 pub fn slice_class(lease: &serde_json::Value) -> &str {
-    if lease.get("landing").and_then(serde_json::Value::as_bool) == Some(true) { "critical" } else { lease.get("class").and_then(serde_json::Value::as_str).unwrap_or_default() }
+    let landing = lease.get("landing").and_then(serde_json::Value::as_bool) == Some(true);
+    if landing && lease.get("yielding").and_then(serde_json::Value::as_bool) == Some(true) {
+        return YIELDING_CLASS;
+    }
+    if landing { "critical" } else { lease.get("class").and_then(serde_json::Value::as_str).unwrap_or_default() }
 }
 
 pub fn lease_slice(class: &str) -> String {
     match class {
         "native" => native_slice(),
+        YIELDING_CLASS => yielding_slice(),
         class if elastic_class(class) => batch_slice(),
         _ => aggregate_slice(),
     }

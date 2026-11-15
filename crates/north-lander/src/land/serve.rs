@@ -266,7 +266,8 @@ fn has_own_lander(checkout: &Path) -> bool {
 }
 
 fn reap_offloads(lander: &Lander) {
-    let mut owners = vec![lander.offload_owner.clone()];
+    let yielding = north_foundation::foundation::offload::yielding_owner;
+    let mut owners = vec![lander.offload_owner.clone(), yielding(&lander.offload_owner), yielding(&post_land::after_owner(&lander.offload_owner))];
     if post_land::adoptable(&lander.queue).is_empty() {
         owners.push(post_land::after_owner(&lander.offload_owner));
     }

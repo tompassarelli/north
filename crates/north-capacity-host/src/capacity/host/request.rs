@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use super::json::{Obj, field, num, round2, text};
+use super::machine::YIELDING_CLASS;
 use super::policy::{Resources, batch_class, clamp_to_grantable, declared_memory_ceiling, grantable_maximum, running_cpu_commitment, running_memory_charge, scope_cpu_quota};
 use super::state::read_usage;
 
@@ -26,6 +27,8 @@ pub struct Request {
     pub alone: bool,
     pub latency: bool,
     pub landing: bool,
+    /// A landing run the lander marked as a rerun or culprit search: admitted as landing work, run in the yielding slice.
+    pub yielding: bool,
     pub canary: bool,
     pub priority: Option<&'static str>,
     pub forecast: Option<Value>,
@@ -43,6 +46,16 @@ impl Request {
     /// Landing checks are admitted as critical work.
     pub fn admitted_class(&self) -> &str {
         if self.landing { "critical" } else { &self.name }
+    }
+
+    /// Whether the run's scope takes the land check CPU weight: a landing run that does not yield.
+    pub fn weighted(&self) -> bool {
+        self.landing && !self.yielding
+    }
+
+    /// The class whose slice the run's scope goes in: a yielding landing run goes in the yielding slice, every other run in its admitted class's.
+    pub fn scope_class(&self) -> &str {
+        if self.landing && self.yielding { YIELDING_CLASS } else { self.admitted_class() }
     }
 }
 

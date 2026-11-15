@@ -31,6 +31,7 @@ mod handover_tests;
 mod offering_tests;
 mod json;
 mod machine;
+pub use machine::yielding_cgroup;
 pub(super) use machine::host_cores;
 #[cfg(test)]
 mod landing_tests;
@@ -449,6 +450,7 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
         request.latency = true;
     }
     request.landing = landing_run(operation, owner, &request.name, machine::env("SAFE_PUSH_LAND_HEAD").as_deref(), machine::env("SAFE_PUSH_LANDING").as_deref());
+    request.yielding = request.landing && machine::env(north_foundation::foundation::offload::OWNER_ENV).is_some_and(|owner| north_foundation::foundation::offload::yields(&owner));
     let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok();
     request.canary = request.landing && canary_lease(machine::env(north_foundation::foundation::offload::RED_FIX_ENV).as_deref(), cgroup.as_deref());
     request.lander = request.landing && !request.canary && lander_lease(owner, machine::env(north_foundation::foundation::offload::OWNER_ENV).as_deref(), cgroup.as_deref());

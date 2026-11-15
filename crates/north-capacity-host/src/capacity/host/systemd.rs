@@ -1,6 +1,6 @@
 use std::process::{Command, Output, Stdio};
 
-use super::machine::{aggregate_slice, batch_slice, env, native_slice, read_text, slice_path, uid, user_manager_cgroup};
+use super::machine::{aggregate_slice, batch_slice, env, native_slice, read_text, slice_path, uid, user_manager_cgroup, yielding_slice};
 use crate::capacity::admission::default_mib;
 use crate::capacity::cpus::aggregate_cpus;
 
@@ -75,7 +75,7 @@ pub(super) fn desktop_weights(profile: &str) -> [(&'static str, u32); 3] {
     [(DESKTOP_SLICE, app), (SESSION_SLICE, session), (AGENT_SLICE, weight("slice_weight_agent"))]
 }
 
-/// Caps the aggregate slice for the profile and weights it at the land check weight, makes the batch slice idle-weighted with no quota, weights the native slice above both and sets the desktop, session and agent slice weights for the profile.
+/// Caps the aggregate slice for the profile and weights it at the land check weight, makes the batch slice and the yielding slice inside it idle-weighted with no quota, weights the native slice above both and sets the desktop, session and agent slice weights for the profile.
 pub fn apply_profile(profile: &str, cores: f64, slice_cpus: Option<f64>) -> bool {
     let quota = format!("CPUQuota={}%", super::json::show(aggregate_cpus(profile, cores, slice_cpus) * 100.0));
     let weight = format!("CPUWeight={NATIVE_CPU_WEIGHT}");
@@ -87,7 +87,7 @@ pub fn apply_profile(profile: &str, cores: f64, slice_cpus: Option<f64>) -> bool
         }
         cap_writes();
     }
-    set_slice(&aggregate_slice(), &[&quota, &format!("CPUWeight={}", default_mib("land_check_cpu_weight") as u32)]) && set_slice(&batch_slice(), &BATCH_PROPERTIES) && set_slice(&native_slice(), &[&weight, &io])
+    set_slice(&aggregate_slice(), &[&quota, &format!("CPUWeight={}", default_mib("land_check_cpu_weight") as u32)]) && set_slice(&batch_slice(), &BATCH_PROPERTIES) && set_slice(&yielding_slice(), &BATCH_PROPERTIES) && set_slice(&native_slice(), &[&weight, &io])
 }
 
 /// The disk gives the io.weight above no effect (no scheduler, io.cost off), so the agent and control slices are held to a write rate on the home filesystem instead: a build or checkout writeback burst of gigabytes a second otherwise fills the device and stalls the desktop on it.
