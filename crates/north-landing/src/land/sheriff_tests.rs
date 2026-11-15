@@ -26,7 +26,7 @@ fn clippy() -> BTreeSet<Failure> {
 /// `find` over a bench whose every run lands on one host, and whose run elsewhere lands on another that answers alike.
 fn find_here(request: &Request, tip: &str, lanes: &[Lane], reverted: &BTreeSet<String>, mut at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>, mut probe: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>) -> Finding {
     let host = |on: On| (if matches!(on, On::Besides(_)) { "cpx62" } else { "gex45" }).to_owned();
-    find(request, tip, lanes, reverted, None, |lane, on| at(lane).map(|failures| Probed { host: host(on), failures }), |lane, on| probe(lane).map(|failures| Probed { host: host(on), failures }))
+    find(request, tip, Landings { lanes, earlier: &[] }, reverted, None, |lane, on| at(lane).map(|failures| Probed { host: host(on), failures }), |lane, on| probe(lane).map(|failures| Probed { host: host(on), failures }))
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
     let red = |_: &Lane| Some(x());
     assert_eq!(find_here(&request(), "head", &lanes, &BTreeSet::new(), red, green), Finding::Revert { lane: "older".into(), cases: x().into_iter().collect() });
     assert_eq!(find_here(&request(), "head", &lanes, &BTreeSet::from(["older".to_owned()]), red, green), Finding::Environment { cases: x().into_iter().collect() });
-    let walked_back = |message: &str| find(&request(), "head", &lanes, &BTreeSet::from(["older".to_owned()]), Some(&lane("early", message)), |_, on| Some(Probed { host: (if matches!(on, On::Besides(_)) { "cpx62" } else { "gex45" }).into(), failures: x() }), |lane, _| Some(Probed { host: "gex45".into(), failures: if lane.commit == "early" { BTreeSet::new() } else { x() } }));
+    let walked_back = |message: &str| find(&request(), "head", Landings { lanes: &lanes, earlier: &[] }, &BTreeSet::from(["older".to_owned()]), Some(&lane("early", message)), |_, on| Some(Probed { host: (if matches!(on, On::Besides(_)) { "cpx62" } else { "gex45" }).into(), failures: x() }), |lane, _| Some(Probed { host: "gex45".into(), failures: if lane.commit == "early" { BTreeSet::new() } else { x() } }));
     assert_eq!(walked_back("Break x"), Finding::Revert { lane: "early".into(), cases: x().into_iter().collect() }, "a main broken before its green parent reverts the walked-back landing once main without it passes twice");
     assert_eq!(walked_back("Revert \"Add x\""), Finding::Environment { cases: x().into_iter().collect() }, "a walked-back revert is never reverted");
     let mut told = Vec::new();
@@ -106,12 +106,35 @@ fn a_check_that_fails_only_on_one_host_is_that_hosts_fault_and_reverts_nothing()
         let missing_drv = host == "cpx62b";
         Some(Probed { host: host.to_owned(), failures: if missing_drv { BTreeSet::from([Failure::Step(NIX_CHECK.into())]) } else { BTreeSet::new() } })
     };
-    let finding = find(&request, "9b38429b23", &lanes, &BTreeSet::new(), None, bench, bench);
+    let finding = find(&request, "9b38429b23", Landings { lanes: &lanes, earlier: &[] }, &BTreeSet::new(), None, bench, bench);
     assert_eq!(finding, Finding::HostFault { host: "cpx62b".into(), cases: vec![Failure::Step(NIX_CHECK.into())], elsewhere: Some("cpx62".into()) });
     let probed = ran.borrow().clone();
     ran.borrow_mut().clear();
     assert_eq!(probed.last().map(String::as_str), Some("cpx62"), "the tip reruns on another host before anything is judged");
     assert!(probed[..probed.len() - 1].iter().all(|host| host == "cpx62b"), "every probe before that runs on the host the first ran on: {probed:?}");
-    let unanswered = find(&request, "9b38429b23", &lanes, &BTreeSet::new(), None, |lane: &Lane, on: On| (!matches!(on, On::Besides(_))).then(|| bench(lane, on)).flatten(), bench);
+    let unanswered = find(&request, "9b38429b23", Landings { lanes: &lanes, earlier: &[] }, &BTreeSet::new(), None, |lane: &Lane, on: On| (!matches!(on, On::Besides(_))).then(|| bench(lane, on)).flatten(), bench);
     assert!(matches!(unanswered, Finding::HostFault { elsewhere: None, .. }), "no other host reaching a verdict reverts nothing: {unanswered:?}");
+}
+
+#[test]
+fn sheriff_blames_the_first_red_landing() {
+    let lanes = [lane("head", "Add c"), lane("l2", "Add b"), lane("l1", "Add a")];
+    let earlier = [lane("parent", "Add z"), lane("break", "Break x"), lane("good", "Add y"), lane("older", "Add w")];
+    let broken = ["head", "l2", "l1", "parent", "break"];
+    let ran = std::cell::RefCell::new(Vec::<String>::new());
+    let bench = |flips: &'static str| {
+        let ran = &ran;
+        move |lane: &Lane, _: On| {
+            ran.borrow_mut().push(lane.commit.clone());
+            let times = ran.borrow().iter().filter(|commit| **commit == lane.commit).count();
+            let red = broken.contains(&lane.commit.as_str()) && !(lane.commit == flips && times > 1);
+            Some(Probed { host: "gex45".into(), failures: if red { x() } else { BTreeSet::new() } })
+        }
+    };
+    let without = |_: &Lane, _: On| -> Option<Probed> { panic!("the first red landing is found by running the check at landings, not at the tip without one") };
+    let landings = Landings { lanes: &lanes, earlier: &earlier };
+    assert_eq!(find(&request(), "head", landings, &BTreeSet::new(), None, bench(""), without), Finding::Revert { lane: "break".into(), cases: x().into_iter().collect() }, "a break older than the green parent is blamed on its own landing, not on the landings after it");
+    let probed = ran.take();
+    assert!(probed.iter().filter(|commit| **commit == "break").count() == 2 && probed.iter().filter(|commit| **commit == "good").count() == 2, "the landing is red twice at itself and green twice at its parent: {probed:?}");
+    assert_eq!(find(&request(), "head", landings, &BTreeSet::new(), None, bench("break"), without), Finding::Flaky { lane: "break".into(), cases: x().into_iter().collect() }, "a check that passes and fails on the same commit blames no landing");
 }

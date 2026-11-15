@@ -22,6 +22,7 @@ pub use request::{REQUESTS, Request, file, green_ancestor, parse, request_messag
 
 const PROBE_SECONDS: &str = "1800";
 const WORKTREE: &str = "lander-sheriff";
+const WALK_BACK: usize = 16;
 const WALK_BACK_GATE: &str = "blame-walk-back";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +54,13 @@ pub enum On<'a> {
     Any,
     Host(&'a str),
     Besides(&'a str),
+}
+
+/// The landings since the green parent and the parent with the landings before it, each newest first.
+#[derive(Clone, Copy)]
+pub struct Landings<'a> {
+    pub lanes: &'a [Lane],
+    pub earlier: &'a [Lane],
 }
 
 pub fn is_revert(message: &str) -> bool {
@@ -153,21 +161,90 @@ fn confirmed(case: &mut SheriffCase, failing: &BTreeSet<Failure>, index: usize, 
     })
 }
 
-/// The sheriff's finding for a red main. Every probe after the first runs on the host the first ran on, so a revert
-/// always rests on the failing checks failing at the tip and passing without the lane on that one host; checks that
-/// fail there whatever lane is removed rerun at the tip on another host, and pass there as that host's fault. When no lane
-/// since the green parent is to blame, `walked_back`, the earlier landing the after-landing search found red where its parent
-/// passes, is confirmed the same way before it is reverted.
+fn red_at(case: &mut SheriffCase, failing: &BTreeSet<Failure>, chain: &[&Lane], index: usize, at: &mut Rerun) -> Option<bool> {
+    steps::sheriff(case, &SheriffStep::Probe(index as u64));
+    let Some(found) = at(chain[index]) else {
+        steps::sheriff(case, &SheriffStep::Unprobed(index as u64));
+        return None;
+    };
+    case.probes.push((index as u64, labels(&found)));
+    Some(!found.is_disjoint(failing))
+}
+
+/// The first landing red on the failing checks where its parent passes: the checks run at the green parent and, while it
+/// is red, at landings ever further before it, then bisect between the newest pass and the tip, and the landing is
+/// confirmed red again at itself and green again at its parent. A commit that passes and fails is flaky and blames no
+/// landing; None when no landing in the chain passes or one is a revert, so the search without each lane decides.
+fn first_red(case: &mut SheriffCase, failing: &BTreeSet<Failure>, chain: &[&Lane], since: usize, reverted: &BTreeSet<String>, at: &mut Rerun) -> Option<Finding> {
+    let (mut red, mut next) = (0, since);
+    let mut green = loop {
+        if next >= chain.len() {
+            return None;
+        }
+        if !red_at(case, failing, chain, next, at)? {
+            break next;
+        }
+        red = next;
+        next = (next + next + 1 - since).min(chain.len() - 1).max(next + 1);
+    };
+    while green - red > 1 {
+        let middle = red + (green - red) / 2;
+        if red_at(case, failing, chain, middle, at)? {
+            red = middle;
+        } else {
+            green = middle;
+        }
+    }
+    steps::sheriff(case, &SheriffStep::Culprit(red as u64));
+    let lane = chain[red];
+    if is_revert(&lane.message) || reverted.contains(&lane.commit) {
+        return None;
+    }
+    let cases: Vec<Failure> = failing.iter().cloned().collect();
+    let flaky = |case: &SheriffCase, commit: &str| {
+        steps::sheriff(case, &SheriffStep::Flaky);
+        Finding::Flaky { lane: commit.to_owned(), cases: cases.clone() }
+    };
+    steps::sheriff(case, &SheriffStep::Confirm(green as u64));
+    let Some(parent) = at(chain[green]) else {
+        steps::sheriff(case, &SheriffStep::NoVerdict);
+        return Some(Finding::NoVerdict(format!("rerunning {} at {} reached no verdict", names(&cases), short(&chain[green].commit))));
+    };
+    case.confirmations.push((green as u64, Some(labels(&parent))));
+    if !parent.is_disjoint(failing) {
+        return Some(flaky(case, &chain[green].commit));
+    }
+    steps::sheriff(case, &SheriffStep::Recheck);
+    let Some(again) = at(lane) else {
+        steps::sheriff(case, &SheriffStep::NoVerdict);
+        return Some(Finding::NoVerdict(format!("rerunning {} at {} reached no verdict", names(&cases), short(&lane.commit))));
+    };
+    case.probes.push((red as u64, labels(&again)));
+    let held: Vec<Failure> = failing.intersection(&again).cloned().collect();
+    if held.is_empty() {
+        return Some(flaky(case, &lane.commit));
+    }
+    steps::sheriff(case, &SheriffStep::Revert(red as u64));
+    Some(Finding::Revert { lane: lane.commit.clone(), cases: held })
+}
+
+/// The sheriff's finding for a red main. Every probe after the first runs on the host the first ran on. The failing checks
+/// run at `earlier`, the green parent and the landings before it newest first, until one passes, and the first landing red
+/// where its parent passes is reverted. When none passes, a revert rests on the failing checks failing at the tip and
+/// passing without the lane on that one host; checks that fail there whatever lane is removed rerun at the tip on another
+/// host, and pass there as that host's fault. When no lane since the green parent is to blame, `walked_back`, the earlier
+/// landing the after-landing search found red where its parent passes, is confirmed the same way before it is reverted.
 pub fn find(
     request: &Request,
     tip: &str,
-    lanes: &[Lane],
+    Landings { lanes, earlier }: Landings,
     reverted: &BTreeSet<String>,
     walked_back: Option<&Lane>,
     mut at: impl FnMut(&Lane, On) -> Option<Probed>,
     mut probe: impl FnMut(&Lane, On) -> Option<Probed>,
 ) -> Finding {
-    let mut case = SheriffCase { head: request.head.clone(), tip: tip.to_owned(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new(), confirmations: Vec::new(), host: String::new() };
+    let chain: Vec<&Lane> = lanes.iter().chain(earlier).collect();
+    let mut case = SheriffCase { head: request.head.clone(), tip: tip.to_owned(), failing: labels(&request.failing), lanes: chain.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new(), confirmations: Vec::new(), host: String::new() };
     let no_verdict = |case: &SheriffCase, reason: String| {
         steps::sheriff(case, &SheriffStep::NoVerdict);
         Finding::NoVerdict(reason)
@@ -192,6 +269,9 @@ pub fn find(
     }
     let mut at_host = |lane: &Lane| at(lane, On::Host(&host)).map(|probed| probed.failures);
     let mut probe_host = |lane: &Lane| probe(lane, On::Host(&host)).map(|probed| probed.failures);
+    if let Some(finding) = first_red(&mut case, &failing, &chain, lanes.len(), reverted, &mut at_host) {
+        return finding;
+    }
     if let Some(finding) = on_one_host(&mut case, &failing, lanes, reverted, &mut at_host, &mut probe_host) {
         return finding;
     }
@@ -201,17 +281,22 @@ pub fn find(
         return finding;
     }
     steps::sheriff(&case, &SheriffStep::Elsewhere);
-    match at(newest, On::Besides(&host)).filter(|other| other.host != host) {
-        Some(other) if other.failures.is_disjoint(&failing) => {
-            steps::sheriff(&case, &SheriffStep::HostFault);
+    let other = at(newest, On::Besides(&host));
+    elsewhere(&case, host, cases, &failing, other)
+}
+
+fn elsewhere(case: &SheriffCase, host: String, cases: Vec<Failure>, failing: &BTreeSet<Failure>, other: Option<Probed>) -> Finding {
+    match other.filter(|other| other.host != host) {
+        Some(other) if other.failures.is_disjoint(failing) => {
+            steps::sheriff(case, &SheriffStep::HostFault);
             Finding::HostFault { host, cases, elsewhere: Some(other.host) }
         }
         Some(_) => {
-            steps::sheriff(&case, &SheriffStep::Environment);
+            steps::sheriff(case, &SheriffStep::Environment);
             Finding::Environment { cases }
         }
         None => {
-            steps::sheriff(&case, &SheriffStep::HostFault);
+            steps::sheriff(case, &SheriffStep::HostFault);
             Finding::HostFault { host, cases, elsewhere: None }
         }
     }
@@ -236,7 +321,16 @@ fn reverted(lander: &Lander) -> BTreeSet<String> {
 
 fn lanes(worktree: &Path, parent: &str, tip: &str) -> Result<Vec<Lane>, String> {
     let log = git(worktree, &["log", "--first-parent", "-z", "--format=%H%n%B", &format!("{parent}..{tip}")])?;
-    Ok(log.split('\0').filter_map(|entry| entry.trim_start().split_once('\n')).map(|(commit, message)| Lane { commit: commit.to_owned(), message: message.trim().to_owned() }).collect())
+    Ok(parse_log(&log))
+}
+
+fn landings_back(worktree: &Path, parent: &str) -> Result<Vec<Lane>, String> {
+    let log = git(worktree, &["log", "--first-parent", "-z", "--format=%H%n%B", &format!("--max-count={WALK_BACK}"), parent])?;
+    Ok(parse_log(&log))
+}
+
+fn parse_log(log: &str) -> Vec<Lane> {
+    log.split('\0').filter_map(|entry| entry.trim_start().split_once('\n')).map(|(commit, message)| Lane { commit: commit.to_owned(), message: message.trim().to_owned() }).collect()
 }
 
 pub fn without(worktree: &Path, head: &str, lane: &str) -> Result<bool, String> {
@@ -419,20 +513,21 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
         return Ok(verdict);
     }
     let lanes = lanes(worktree, &request.parent, &main)?;
+    let earlier = landings_back(worktree, &request.parent)?;
     let probes = Probes { lander, worktree, request: &request, tip: &main };
     let walked_back = walked_back(worktree, &request);
-    match find(&request, &main, &lanes, &reverted(lander), walked_back.as_ref(), |lane, on| probes.at(lane, on), |lane, on| probes.without(lane, on)) {
+    match find(&request, &main, Landings { lanes: &lanes, earlier: &earlier }, &reverted(lander), walked_back.as_ref(), |lane, on| probes.at(lane, on), |lane, on| probes.without(lane, on)) {
         Finding::NoVerdict(reason) => Ok(format!("no verdict: {reason}; nothing is reverted")),
         Finding::Fixed { cases } => Ok(format!("fixed: {} pass at the tip {}; nothing is reverted", names(&cases), short(&main))),
         Finding::Environment { cases } => Ok(main_breakage(&request, &main, &cases, super::after::send)),
         Finding::HostFault { host, cases, elsewhere } => Ok(host_fault(&request, &main, &host, &cases, elsewhere.as_deref())),
         Finding::Revert { lane, cases } => revert(lander, worktree, &request, &main, &lane, &cases),
         Finding::Flaky { lane, cases } => {
-            let text = format!("north land: sheriff: {} failed at the tip {} and passed on main without {}, but did not fail twice at the tip and pass twice without it in back-to-back reruns, so they are flaky, not that lane's failure; nothing is reverted; file the flaky test on its owner; log: {}", names(&cases), short(&main), short(&lane), request.log);
+            let text = format!("north land: sheriff: {} passed and failed on the same commit in back-to-back reruns while the sheriff tested {} against main {}, so they are flaky tests, not a landing's failure; nothing is reverted; file each flaky test on its owner; log: {}", names(&cases), short(&lane), short(&main), request.log);
             if !super::after::send("coordinator", &text) {
                 println!("{text}");
             }
-            Ok(format!("flaky: {} flipped between runs at the tip {}; nothing is reverted", names(&cases), short(&main)))
+            Ok(format!("flaky: {} passed and failed on {}; nothing is reverted", names(&cases), short(&lane)))
         }
     }
 }
