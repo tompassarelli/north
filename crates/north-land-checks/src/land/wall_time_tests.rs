@@ -103,8 +103,8 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let budgets = found_sub_second(budgeted);
     assert!(budgets.is_empty(), "a test hands the code under test a sub-second wall-clock budget, so it passes or fails on host load; decide by events through an injected clock or raise the budget:\n{}", budgets.join("\n"));
     let reaper = "crates/north-fleet-supervisor/src/fleet/reaper_tests.rs";
-    let recorded = sub_second_budgets(reaper, OLD_REAPER_BUDGET);
+    let recorded = found_sub_second(&[(reaper.to_string(), OLD_REAPER_BUDGET.to_string())]);
     assert_eq!(recorded.len(), 1, "the recorded line, which failed a loaded batch on 2026-11-11, is reported: {recorded:?}");
     assert!(recorded[0].contains("Duration::from_millis(300)"), "{recorded:?}");
-    assert!(sub_second_budgets(reaper, REAPER_BUDGET_ON_A_CLOCK).is_empty(), "a budget passed beside a borrowed injected clock is spared");
+    assert!(found_sub_second(&[(reaper.to_string(), REAPER_BUDGET_ON_A_CLOCK.to_string())]).is_empty(), "a budget passed beside a borrowed injected clock is spared");
 }
