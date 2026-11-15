@@ -3,7 +3,7 @@ use north_calibration::threads::catalog::CATALOG;
 use super::{Grants, Jobs, Plan, Refusal};
 
 const POOL: &str = "pool";
-const FLEET_ROW_PEERED: [&str; 6] = ["put", "exchange", "register", "wait", "settle", "retire"];
+const FLEET_ROW_PEERED: [&str; 7] = ["put", "exchange", "register", "wait", "settle", "retire", "addressed"];
 const FOLLOW_STEPS: [&str; 4] = ["follow", "follow-release", "follow-started", "follow-alert"];
 const GH_STATUSES: [&str; 2] = ["failed", "requeued"];
 const INCIDENT_FLAGS: [&str; 8] = ["--key", "--class", "--noticed-by", "--repo", "--subject", "--started-at", "--detected-at", "--detail"];

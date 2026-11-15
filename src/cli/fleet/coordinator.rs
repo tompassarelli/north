@@ -5,8 +5,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Surface;
 use crate::fleet::registry::{Fleet, backlog_line};
 use crate::fleet::runtime::{COORDINATOR, now_ms};
-use crate::fleet::store::{Addressee, Store};
-use crate::threads::client;
+use crate::fleet::store::Addressee;
 use crate::tui;
 
 use super::interactive;
@@ -74,7 +73,7 @@ fn launch(fleet: &Fleet, surface: Surface) -> NorthResult<()> {
         OPENING.to_owned()
     } else {
         let addressees = earlier.iter().map(|record| fleet.addressee(record, 0).map(|owed| Addressee { stopped: false, ..owed })).collect::<NorthResult<Vec<_>>>()?;
-        let rows = Store::open(&client::ledger_path()?)?.addressed_to(&addressees)?;
+        let rows = super::ledger::addressed(&addressees)?;
         let mut names: Vec<String> = earlier.iter().map(|record| record.name.clone()).collect();
         names.sort();
         for name in &names {

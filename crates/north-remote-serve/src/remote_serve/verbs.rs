@@ -9,7 +9,7 @@ const THREADS_UNBLOCK: &str = "unblock";
 const THREADS_INCIDENT: &str = "incident";
 const INCIDENT_RECORD: &str = "record";
 const NORTH_ONLY_THREADS: [&str; 2] = ["ingest", "snapshot-pages"];
-const FLEET_ROW: [&str; 6] = ["put", "wait", "exchange", "settle", "register", "retire"];
+const FLEET_ROW: [&str; 7] = ["put", "wait", "exchange", "settle", "register", "retire", "addressed"];
 const OPERATOR_THREADS: [&str; 3] = ["queue", "job-run", "ingest"];
 const REVIEW_FETCH: &str = "runtime review-fetch";
 

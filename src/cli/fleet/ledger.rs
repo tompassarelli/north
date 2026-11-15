@@ -3,7 +3,7 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::jobs::JobLeases;
 use crate::fleet::model::Machine;
-use crate::fleet::store::{Claim, Exchange, Exchanged, LedgerHost, Registered, Registrar, Registration, SessionRow, Store, WaitKey};
+use crate::fleet::store::{Addressee, Claim, FleetRow, Exchange, Exchanged, LedgerHost, Registered, Registrar, Registration, SessionRow, Store, WaitKey};
 use crate::threads::client;
 use crate::platform::orchestration;
 
@@ -12,6 +12,7 @@ const SETTLED: &[&str] = &["north", "fleet", "row", "settle"];
 const REGISTER: &[&str] = &["north", "fleet", "row", "register"];
 const LEASED: &[&str] = &["north", "fleet", "row", "leased"];
 const RETIRE: &[&str] = &["north", "fleet", "row", "retire"];
+const ADDRESSED: &[&str] = &["north", "fleet", "row", "addressed"];
 
 pub(super) struct Ledger;
 
@@ -62,6 +63,13 @@ impl Registrar for LedgerRegistrar {
             Some(answer) => Ok(serde_json::from_slice(&answer)?),
             None => placed_store()?.retire_unplaced(None),
         }
+    }
+}
+
+pub(super) fn addressed(addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
+    match client::ask_ledger_host(ADDRESSED, &serde_json::to_vec(addressees)?)? {
+        Some(answer) => Ok(serde_json::from_slice(&answer)?),
+        None => Store::open(&client::ledger_path()?)?.addressed_to(addressees),
     }
 }
 

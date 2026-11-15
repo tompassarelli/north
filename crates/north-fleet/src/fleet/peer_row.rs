@@ -105,9 +105,13 @@ pub fn admit_exchange(exchange: Exchange, peer: &str, ledger: &[SessionRow], own
     let rows = admit_all(&exchange.rows, peer, ledger, owner)?;
     let sessions: Vec<SessionRow> = exchange.sessions.into_iter().filter(|session| ledger.iter().all(|held| held.name != session.name || held.host == peer)).map(|session| stamped(session, ledger, now_ms)).collect();
     let seen: Vec<SessionRow> = ledger.iter().cloned().chain(sessions.iter().filter(|session| ledger.iter().all(|held| held.name != session.name)).cloned()).collect();
-    let addressees = exchange.addressees.into_iter().filter(|addressee| on_peer(&seen, peer, &addressee.name).is_ok()).map(|addressee| floored(addressee, &seen, now_ms)).collect();
+    let addressees = admit_addressees(exchange.addressees, peer, &seen, now_ms);
     let gates = exchange.gates.into_iter().filter(|gate| gate.host == peer && on_peer(ledger, peer, &gate.request.session).is_ok()).collect();
     Ok(Exchange { host: exchange.host, rows, sessions, addressees, gates, outranks: Vec::new() })
+}
+
+pub fn admit_addressees(addressees: Vec<Addressee>, peer: &str, ledger: &[SessionRow], now_ms: u64) -> Vec<Addressee> {
+    addressees.into_iter().filter(|addressee| on_peer(ledger, peer, &addressee.name).is_ok()).map(|addressee| floored(addressee, ledger, now_ms)).collect()
 }
 
 pub fn seen_by(exchanged: Exchanged, peer: &str) -> Exchanged {

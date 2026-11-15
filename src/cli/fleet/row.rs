@@ -4,13 +4,13 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::peer_row;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
-use crate::fleet::store::{Exchange, Exchanged, FleetRow, LedgerHost, Registered, Registration, SessionRow, Store, WaitKey, WaitRequest};
+use crate::fleet::store::{Addressee, Exchange, Exchanged, FleetRow, LedgerHost, Registered, Registration, SessionRow, Store, WaitKey, WaitRequest};
 use crate::threads::client;
 
 use super::ledger::placed_store;
 use super::spool;
 
-const USAGE: &str = "Usage: north fleet row put [--peer HOST] < ROW_JSON_OR_ARRAY | north fleet row exchange [--peer HOST] < EXCHANGE_JSON | north fleet row register [--peer HOST] < REGISTRATION_JSON | north fleet row wait [--peer HOST] < WAIT_JSON | north fleet row settle [--peer HOST] < WAIT_KEYS_JSON | north fleet row retire [--peer HOST] | north fleet row leased SESSION";
+const USAGE: &str = "Usage: north fleet row put [--peer HOST] < ROW_JSON_OR_ARRAY | north fleet row exchange [--peer HOST] < EXCHANGE_JSON | north fleet row register [--peer HOST] < REGISTRATION_JSON | north fleet row wait [--peer HOST] < WAIT_JSON | north fleet row settle [--peer HOST] < WAIT_KEYS_JSON | north fleet row retire [--peer HOST] | north fleet row addressed [--peer HOST] < ADDRESSEES_JSON | north fleet row leased SESSION";
 const FORWARDED_PUT: &[&str] = &["north", "fleet", "row", "put"];
 const FORWARDED_WAIT: &[&str] = &["north", "fleet", "row", "wait"];
 const REMOTE_PEER: &str = "NORTH_REMOTE_PEER";
@@ -31,6 +31,7 @@ pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> 
         "wait" => wait(peer),
         "settle" => settle(peer),
         "retire" => retire(),
+        "addressed" => addressed(peer),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }
@@ -124,6 +125,21 @@ fn settle(peer: Option<&str>) -> NorthResult<()> {
 fn retire() -> NorthResult<()> {
     println!("{}", serde_json::to_string(&placed_store()?.retire_unplaced(None)?)?);
     Ok(())
+}
+
+fn addressed(peer: Option<&str>) -> NorthResult<()> {
+    let store = Store::open(&client::ledger_path()?)?;
+    let addressees = admitted_addressees(&stdin()?, peer, || store.sessions())?;
+    println!("{}", serde_json::to_string(&store.addressed_to(&addressees)?)?);
+    Ok(())
+}
+
+pub(in crate::cli) fn admitted_addressees(input: &[u8], peer: Option<&str>, sessions: impl FnOnce() -> NorthResult<Vec<SessionRow>>) -> NorthResult<Vec<Addressee>> {
+    let addressees: Vec<Addressee> = serde_json::from_slice(input)?;
+    Ok(match peer {
+        Some(peer) => peer_row::admit_addressees(addressees, peer, &sessions()?, now_ms()),
+        None => addressees,
+    })
 }
 
 fn leased(session: &str) -> NorthResult<()> {
