@@ -99,11 +99,11 @@ fn review(job: &Job) -> Result<String, String> {
         return Ok(format!("{} reported Done with no commit ahead of origin/main ({kind:?}); forgot it", job.name));
     }
     if let Some(failed) = mechanical_failure(&lane, &job.oracle)? {
+        sampling::append(&directory, &verdict(Kind::Bounced, Some(failed.class.to_owned())))?;
         if !retired {
             let told = format!("A mechanical check refused your commit {sha} before any review: {} ({}). Fix it in the lane and report Done again.", failed.why, failed.class);
-            north(&["fleet", "send", &job.name, &told])?;
+            north(&["fleet", "send", "--from", super::super::super::effects::SENDER, &job.name, &told])?;
         }
-        sampling::append(&directory, &verdict(Kind::Bounced, Some(failed.class.to_owned())))?;
         return Ok(format!("{} bounced to {}: {}; no reviewer launched", job.item, job.name, failed.class));
     }
     let locked = !oracle_files(&lane, &git(&lane, &["merge-base", "origin/main", "HEAD"])?, &job.oracle).is_empty();
@@ -130,7 +130,6 @@ fn launch_reviewer(job: &Job, lane: &Worktree, sha: &str) -> Result<String, Stri
     let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane.path, sha, effort);
     let cwd = lane.checkout_cwd();
     let mut words = vec!["fleet", "launch", "--provider", "claude", "--model", "sonnet", "--effort", effort, "--role", "worker", "--name", &reviewer, "--task", &job.item, "--cwd", &cwd];
-    words.extend(job.box_text.as_deref().map(|text| ["--box", text]).into_iter().flatten());
     words.extend(["--tier-reason", "north#1020: Sonnet reviews DeepSeek commits by sampling"]);
     if lane.machine.is_none() {
         words.extend(["--local", "the DeepSeek lane is on this host"]);

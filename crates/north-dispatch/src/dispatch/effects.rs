@@ -21,7 +21,7 @@ const LAUNCH_WAIT: Duration = Duration::from_secs(180);
 const PREDICT_WAIT: Duration = Duration::from_secs(30);
 const REPEAT_ALERT_S: f64 = 6.0 * 3600.0;
 const BOXLESS_EVERY_S: f64 = 24.0 * 3600.0;
-const SENDER: &str = "service:north-dispatch";
+pub(crate) const SENDER: &str = "service:north-dispatch";
 pub const REVIVED: &str = "revived.json";
 
 /// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back, with the box
