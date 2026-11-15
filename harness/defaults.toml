@@ -1991,7 +1991,7 @@ fallback = "a missing or malformed list starts no review call and says so"
 consumers = ["crates/north-runtime/src/worker_sandbox/review_call_request.rs"]
 
 [review_request_sessions]
-value = ["commit-reviewer", "second-reviewer"]
+value = ["commit-reviewer"]
 allowed = { min_len = 1 }
 unit = "fleet session names a hand-in sends the review request to, each once per patch id, when the land scan review-accept or safe-push-keys refuses its lane before queueing for missing accepts; a session that already accepted the patch is left out"
 source = "north#1544, coordinator order 2026-11-15: the coordinator relayed ten such refusals to the reviewers by hand, and three lanes sat unreviewed for half an hour each while the reviewers' queues were two deep with medians of 3 and 8 minutes"
