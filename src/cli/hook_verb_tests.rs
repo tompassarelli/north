@@ -54,4 +54,38 @@ fn the_recorded_load_trace_is_counted_as_its_fixture_says() {
             lines.push(result(&format!("c{at}")));
         }
     }
+    {
+        let call = |id: &str, name: &str, input: Value| json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": id, "name": name, "input": input}]}}).to_string();
+        let mut lines = vec![prompt("why is the land queue stuck?")];
+        for at in 0..15 {
+            lines.push(bash(&format!("r{at}"), &format!("uptime # {at}")));
+            lines.push(result(&format!("r{at}")));
+            if at == 10 {
+                lines.push(call("l", "ListAgents", json!({})));
+            }
+        }
+        let judge = |name: &str, input: Value| {
+            let hook = json!({"hook_event_name": "PreToolUse", "tool_name": name, "tool_use_id": "next", "tool_input": input});
+            crate::guard::coordinator_role::streak_verdict(&super::read_streak(&lines.join("\n"), &hook, |_, _| false), 15)
+        };
+        for (name, input) in [
+            ("Bash", json!({"command": "uptime"})),
+            ("Read", json!({"file_path": "/tmp/land.log"})),
+            ("Grep", json!({"pattern": "error", "path": "/tmp"})),
+            ("Glob", json!({"pattern": "/tmp/*.log"})),
+            ("WebFetch", json!({"url": "https://example.com", "prompt": "status"})),
+            ("WebSearch", json!({"query": "land queue"})),
+        ] {
+            assert!(matches!(judge(name, input), Verdict::Deny(reason) if reason.contains("16 read-only calls")), "{name} past the streak runs");
+        }
+        for (name, input) in [
+            ("ListAgents", json!({})),
+            ("Monitor", json!({"command": "tail -f /tmp/x"})),
+            ("TaskStop", json!({"task_id": "b1"})),
+            ("SendMessage", json!({"to": "w", "message": "go"})),
+            ("Agent", json!({"subagent_type": "Explore", "prompt": "look"})),
+        ] {
+            assert_eq!(judge(name, input), Verdict::Allow, "{name} is refused past the streak");
+        }
+    }
 }

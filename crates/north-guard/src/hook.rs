@@ -143,7 +143,13 @@ const PRE_EDIT: &[Guard] = &[
     Guard("north-hook", crate::guard::nix_activity::evaluate, Host),
 ];
 
-const PRE_READ: &[Guard] = &[Guard("", crate::guard::file_read_reach::decide, Host)];
+const PRE_READ: &[Guard] = &[
+    Guard("", crate::guard::file_read_reach::decide, Host),
+    Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere),
+    Guard("north-hook", crate::guard::coordinator_role::evaluate_reads, Anywhere),
+];
+
+const PRE_OTHER: &[Guard] = &[Guard("north-hook", crate::guard::coordinator_role::evaluate_reads, Anywhere)];
 
 const PRE_AGENT: &[Guard] = &[
     Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere),
@@ -207,6 +213,7 @@ const HOOKS: &[Hook] = &[
     Hook { name: "pre-timer", event: "PreToolUse", guards: PRE_TIMER, answers: Answer::Tool { event: "PreToolUse", tools: &["ScheduleWakeup", "CronCreate"] } },
     Hook { name: "pre-message", event: "PreToolUse", guards: PRE_MESSAGE, answers: Answer::Tool { event: "PreToolUse", tools: &[crate::guard::subagent_message::MESSAGE_TOOL] } },
     Hook { name: "pre-ask", event: "PreToolUse", guards: PRE_ASK, answers: Answer::Tool { event: "PreToolUse", tools: &[crate::guard::question_box::QUESTION_TOOL] } },
+    Hook { name: "pre-other", event: "PreToolUse", guards: PRE_OTHER, answers: Answer::Tool { event: "PreToolUse", tools: &["WebFetch", "WebSearch"] } },
     Hook { name: "spawn-capacity", event: "PreToolUse", guards: SPAWN_CAPACITY, answers: Answer::Never },
     Hook { name: "", event: "PreToolUse", guards: NATIVE_SPAWN, answers: Answer::Suffix("spawn_agent") },
     Hook { name: "post-tool", event: "PostToolUse", guards: POST_TOOL, answers: Answer::Event("PostToolUse") },
@@ -409,7 +416,7 @@ fn first_prompt(input: &HookInput) -> bool {
     std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
-const USAGE: &str = "Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]";
+const USAGE: &str = "Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|pre-read|pre-other|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]";
 
 pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Result<Vec<Evidence>, String> {
     let hook = match arguments {

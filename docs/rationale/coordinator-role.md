@@ -32,7 +32,7 @@ rule list over the tool name and the command text (the same classifier box P2 ma
 the order the rules try them:
 
 - delegate: `Agent`, `north fleet launch|revive`, `north fleet dispatch`, `threads queue follow`, `north cloud launch`
-- child message: `SendMessage`, `ListAgents`, `north fleet send|ask`
+- child message: `SendMessage`, `north fleet send|ask` (a no-op `ListAgents` is monitoring, so it neither counts nor resets a streak)
 - Tom-facing: `north gate`, `date '+%I:%M %p'` (clock times for Tom)
 - briefing: `north work brief`, a brief file or heredoc starting `Item:`
 - monitoring scripts: `Monitor`, `TaskStop`, `ScheduleWakeup`, `CronCreate`, shell loops and sleeps, `nohup`/`setsid`, writing a `.sh` or `.ts` helper

@@ -14,7 +14,7 @@ pub fn spends_no_look(tool: &str, input: &Value) -> bool {
 
 pub fn harness_load(home: &str, config: Option<&str>, tool: &str, text: &str) -> bool {
     match tool {
-        "Skill" => true,
+        "Skill" | "ToolSearch" => true,
         "Read" => {
             let path = normpath(&join(home, &expanduser(text, home)));
             let profiles = format!("{home}/.local/state/north/profiles/");

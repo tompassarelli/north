@@ -83,8 +83,8 @@ pub fn classify(tool: &str, input: &Value, verbs: &VerbKinds) -> Kind {
     let text = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or_default();
     match tool {
         "Agent" | "Task" => Kind::Delegate,
-        "SendMessage" | "ListAgents" => Kind::ChildMessage,
-        "Monitor" | "TaskStop" | "ScheduleWakeup" | "CronCreate" | "CronDelete" | "CronList" => Kind::Monitoring,
+        "SendMessage" => Kind::ChildMessage,
+        "Monitor" | "TaskStop" | "ListAgents" | "ScheduleWakeup" | "CronCreate" | "CronDelete" | "CronList" => Kind::Monitoring,
         "Write" if text("content").trim_start().starts_with("Item:") => Kind::Brief,
         "Write" if is_helper_script(text("file_path")) => Kind::Monitoring,
         "Edit" | "Write" | "NotebookEdit" | "MultiEdit" => Kind::Landing,

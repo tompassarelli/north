@@ -41,6 +41,7 @@ fn provider_events_select_matching_guard_list() {
             "pre-timer",
         ),
         ("PreToolUse", vec!["SendMessage"], "pre-message", "pre-message"),
+        ("PreToolUse", vec!["WebFetch", "WebSearch"], "pre-other", "pre-other"),
         (
             "PostToolUse",
             vec!["Bash", "functions.exec_command"],
@@ -111,7 +112,7 @@ fn provider_events_select_matching_guard_list() {
         assert!(output.is_empty());
     }
     assert_eq!(Hook::named("pre-read").map(|hook| hook.name), Some("pre-read"));
-    assert!(hook("pre-read").guards().iter().all(|guard| guard.0.is_empty()), "no unit name switches the reading guard off");
+    assert!(hook("pre-read").guards()[0].0.is_empty(), "no unit name switches the reading guard off");
     let reached = |tool: &str, tool_input: Value| crate::guard::file_read_reach::reached(&HookInput::parse(json!({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}).to_string().as_bytes()).unwrap());
     assert_eq!(reached("Read", json!({"file_path": "/a/b"})), ["/a/b"]);
     assert_eq!(reached("NotebookRead", json!({"notebook_path": "/a/n.ipynb"})), ["/a/n.ipynb"]);

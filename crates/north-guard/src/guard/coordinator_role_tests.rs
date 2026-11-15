@@ -96,6 +96,7 @@ fn a_coordinator_over_its_read_budget_is_refused_and_its_turn_continues() {
     let load = |tool: &str, text: &str| harness_load("/home/tom", Some("/home/tom/.local/state/north/profiles/claude-d"), tool, text);
     for (tool, text) in [
         ("Skill", ""),
+        ("ToolSearch", "select:Monitor"),
         ("Read", "/home/tom/.local/state/north/profiles/claude-d/skills/workers/references/briefs.md"),
         ("Read", "~/.claude/skills/workers/SKILL.md"),
         ("Bash", "north work brief new --category bug-known-cause --item north#1106"),
