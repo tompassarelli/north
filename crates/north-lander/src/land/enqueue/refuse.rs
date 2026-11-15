@@ -16,7 +16,8 @@ use crate::landing::{merge_set, stale_revert};
 pub(super) fn refused_finish(session: Option<&str>, root: &Path, (base, head): (&str, &str), refusal: QueueRefusal) -> String {
     let tree = |commit: &str| git(root, &["rev-parse", "--verify", "--quiet", &format!("{commit}^{{tree}}")]).ok();
     let records = FinishRecords::here();
-    let vouched = session.filter(|_| matches!(refusal, QueueRefusal::Failed(_))).and_then(|session| records.read(session)).filter(|finished| finished.passed && tree(&finished.head).is_some_and(|checked| Some(checked) == tree(head)));
+    let own = std::env::var(north_base::platform::session_scope::SESSION).ok();
+    let vouched = session.or(own.as_deref()).filter(|_| matches!(refusal, QueueRefusal::Failed(_))).and_then(|session| records.read(session)).filter(|finished| finished.passed && tree(&finished.head).is_some_and(|checked| Some(checked) == tree(head)));
     if let Some(finished) = vouched
         && let Err(error) = records.record(&Finished { passed: false, ..finished })
     {

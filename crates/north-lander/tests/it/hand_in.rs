@@ -201,7 +201,7 @@ fn a_finish_call_queues_only_after_its_check_passes_and_returns_the_ticket_befor
     assert_eq!(fs::read_to_string(made.join("made.txt")).unwrap(), "the change a session made in its own lane\n", "{text}");
     let narrow = worktree(&north, "narrow");
     fs::write(narrow.join("red.txt"), "a change the named check does not read\n").unwrap();
-    let refused = finishing(&world, "small", "true", "Add the red note (north#1233)", &narrow.join("red.txt")).env("NORTH_FLEET_SESSION_PROVED", "1").output().unwrap();
+    let refused = finishing(&world, "small", "true", "Add the red note (north#1233)", &narrow.join("red.txt")).output().unwrap();
     let text = report(&refused);
     assert_eq!(refused.status.code(), Some(1), "{text}");
     assert!(queue::pending(&north.queue).unwrap().is_empty(), "a lane one of the repository's checks before queueing failed was queued: {text}");
