@@ -90,7 +90,7 @@ impl Home {
     fn outer(&self, directory: &Path) -> Command {
         let home = self.path();
         let mut outer = Command::new("bwrap");
-        outer.args(["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/dev/shm"]);
+        outer.args(["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-pid", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/dev/shm"]);
         let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
         if runtime.is_dir() {
             outer.arg("--tmpfs").arg(runtime);
