@@ -8,13 +8,19 @@ pub mod task;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use north_coverage::run_selected::repository;
+use north_graph::{Graph, default_path};
 use serde_json::{Value, json};
+
+use crate::facts::Facts;
 
 use base::Tree;
 use boxes::Named;
 use plan::Plan;
+
+const GRAPH_PATIENCE: Duration = Duration::from_secs(5);
 
 const USAGE: &str = "usage: north graph split [--repo DIR] [--record FILE] [--plan FILE | --prompt FILE] [--model MODEL] [--effort EFFORT] --base SHA (--task FILE | -)
        north graph split --check ID --parts N [--repo DIR] [--record FILE]";
@@ -108,6 +114,15 @@ fn git(root: &Path, arguments: &[&str]) -> Option<String> {
     output.status.success().then(|| String::from_utf8(output.stdout).ok()).flatten()
 }
 
+pub fn graph() -> Result<Graph, String> {
+    let db = default_path();
+    Graph::open_read_only(&db, GRAPH_PATIENCE).map_err(|why| format!("cannot open the change graph {}: {why}", db.display()))
+}
+
+pub fn facts_of<'g>(graph: &'g Graph, root: &Path) -> Result<Facts<'g>, String> {
+    Facts::read(graph, &repository(root))
+}
+
 fn public(root: &Path, planner: &Planner) -> Result<(), String> {
     let origin = git(root, &["remote", "get-url", "origin"]).ok_or("the repository has no origin, so its visibility is unknown")?;
     let repository = origin.trim().trim_end_matches('/').trim_end_matches(".git").rsplit(['/', ':']).next().unwrap_or_default().to_owned();
@@ -147,7 +162,7 @@ struct Attempts {
     plan: Value,
 }
 
-fn attempt(answer: &str, tree: &Tree, attempts: &mut Attempts) -> Option<parts::Split> {
+fn attempt(answer: &str, tree: &Tree<'_, '_>, attempts: &mut Attempts) -> Option<parts::Split> {
     let outcome = Plan::parse(answer).map_err(|why| parts::Refusal(vec![why])).and_then(|(plan, value)| {
         attempts.plan = value;
         parts::split(&plan, tree)
@@ -160,7 +175,9 @@ fn split(options: &Options, planner: &Planner) -> Result<u8, String> {
     let (Some(base), Some(source)) = (&options.base, &options.task) else { return Err(USAGE.to_owned()) };
     let root = options.repo.clone().unwrap_or_else(|| PathBuf::from("."));
     let task = read_task(source)?;
-    let tree = Tree::read(&root, base)?;
+    let graph = graph()?;
+    let facts = facts_of(&graph, &root)?;
+    let tree = Tree::read(&root, base, &facts)?;
     let id = id(&task, &tree.commit);
     if let Some(file) = &options.prompt {
         std::fs::write(file, prompt::first(&task, &tree.map())).map_err(|why| format!("{}: {why}", file.display()))?;

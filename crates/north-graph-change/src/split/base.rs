@@ -5,7 +5,7 @@ use std::process::Command;
 use toml_edit::{DocumentMut, Item};
 
 use super::plan::Symbol;
-use crate::workspace;
+use crate::facts::Facts;
 
 const MERGE_SETS: &str = "harness/merge-sets.toml";
 const ATTRIBUTES: &str = ".gitattributes";
@@ -21,51 +21,39 @@ pub trait Base {
     fn referring(&self, symbol: &Symbol, defining: &BTreeSet<String>) -> BTreeSet<String>;
 }
 
-pub struct Tree {
+pub struct Tree<'f, 'g> {
     root: PathBuf,
     pub commit: String,
+    facts: &'f Facts<'g>,
     paths: BTreeSet<String>,
     sets: BTreeSet<String>,
-    crates: Vec<(String, String)>,
-    depends: BTreeMap<String, BTreeSet<String>>,
 }
 
-impl Tree {
-    pub fn read(root: &Path, base: &str) -> Result<Self, String> {
+impl<'f, 'g> Tree<'f, 'g> {
+    pub fn read(root: &Path, base: &str, facts: &'f Facts<'g>) -> Result<Self, String> {
         let commit = git(root, &["rev-parse", "--verify", &format!("{base}^{{commit}}")]).ok_or_else(|| format!("{base} is not a commit of {}", root.display()))?.trim().to_owned();
+        match facts.crates_commit.as_deref() {
+            Some(indexed) if indexed == commit => {}
+            Some(indexed) => return Err(format!("the change graph's crate facts belong to {indexed}, not to the task's base {commit}, so the split cannot read the base's crates")),
+            None => return Err("the change graph holds no crate facts, so the split cannot read the base's crates".to_owned()),
+        }
         let listed = git(root, &["ls-tree", "-r", "--name-only", &commit]).ok_or("cannot list the base tree")?;
         let paths: BTreeSet<String> = listed.lines().map(str::to_owned).collect();
         let show = |path: &str| git(root, &["show", &format!("{commit}:{path}")]);
-        let manifest: DocumentMut = show("Cargo.toml").ok_or("the graph indexes Cargo workspaces, and the base has no Cargo.toml")?.parse().map_err(|why| format!("Cargo.toml: {why}"))?;
-        let mut crates = Vec::new();
-        let name_of = |manifest: &DocumentMut| manifest.get("package").and_then(|package| package.get("name")).and_then(Item::as_str).map(str::to_owned);
-        if let Some(name) = name_of(&manifest) {
-            crates.push((String::new(), name));
-        }
-        let members = manifest.get("workspace").and_then(|workspace| workspace.get("members")).and_then(Item::as_array).into_iter().flatten().filter_map(|member| member.as_str());
-        for dir in members.map(|dir| dir.trim_end_matches('/')) {
-            let member: Option<DocumentMut> = show(&format!("{dir}/Cargo.toml")).and_then(|text| text.parse().ok());
-            if let Some(name) = member.as_ref().and_then(name_of) {
-                crates.push((dir.to_owned(), name));
-            }
-        }
-        let local: BTreeSet<&str> = crates.iter().map(|(_, name)| name.as_str()).collect();
-        let mut depends: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for package in show("Cargo.lock").map(|lock| workspace::packages(&lock)).transpose()?.unwrap_or_default().iter().filter(|package| !package.source && local.contains(package.name.as_str())) {
-            depends.entry(package.name.clone()).or_default().extend(package.dependencies.iter().filter(|name| local.contains(name.as_str())).cloned());
-        }
         let mut sets = BTreeSet::new();
         if let Some(listed) = show(MERGE_SETS).and_then(|text| text.parse::<DocumentMut>().ok()) {
             sets.extend(listed.get("set").and_then(Item::as_array_of_tables).into_iter().flatten().filter_map(|set| set.get("path").and_then(Item::as_str)).map(str::to_owned));
         }
         sets.extend(show(ATTRIBUTES).unwrap_or_default().lines().filter(|line| line.split_whitespace().any(|word| word == "merge=set")).filter_map(|line| line.split_whitespace().next()).map(str::to_owned));
-        Ok(Self { root: root.to_owned(), commit, paths, sets, crates, depends })
+        Ok(Self { root: root.to_owned(), commit, facts, paths, sets })
     }
 
     pub fn map(&self) -> String {
         let mut out = String::from("Crates (name, root: workspace crates it depends on):\n");
-        for (root, name) in &self.crates {
-            let depends: Vec<&str> = self.depends.get(name).into_iter().flatten().map(String::as_str).collect();
+        let mut crates: Vec<(&str, &str)> = self.facts.crates().collect();
+        crates.sort();
+        for (root, name) in crates {
+            let depends: Vec<String> = self.facts.depends_on(name).into_iter().collect();
             out.push_str(&format!("{name}, {}: {}\n", if root.is_empty() { "." } else { root }, depends.join(" ")));
         }
         out.push_str("\nFiles by directory:\n");
@@ -112,7 +100,7 @@ impl Tree {
     }
 }
 
-impl Base for Tree {
+impl Base for Tree<'_, '_> {
     fn tracked(&self, path: &str) -> bool {
         self.paths.contains(path)
     }
@@ -122,23 +110,15 @@ impl Base for Tree {
     }
 
     fn crate_of(&self, path: &str) -> Option<&str> {
-        self.crates.iter().filter(|(root, _)| root.is_empty() || path.strip_prefix(root.as_str()).is_some_and(|rest| rest.starts_with('/'))).max_by_key(|(root, _)| root.len()).map(|(_, name)| name.as_str())
+        self.facts.crate_of(path)
     }
 
     fn manifest_of(&self, name: &str) -> Option<String> {
-        self.crates.iter().find(|(_, held)| held == name).map(|(root, _)| if root.is_empty() { "Cargo.toml".to_owned() } else { format!("{root}/Cargo.toml") })
+        self.facts.root_of(name).map(|root| if root.is_empty() { "Cargo.toml".to_owned() } else { format!("{root}/Cargo.toml") })
     }
 
     fn sees(&self, user: &str, owner: &str) -> bool {
-        let mut seen = BTreeSet::from([user]);
-        let mut queue = vec![user];
-        while let Some(name) = queue.pop() {
-            if name == owner {
-                return true;
-            }
-            queue.extend(self.depends.get(name).into_iter().flatten().map(String::as_str).filter(|next| seen.insert(next)));
-        }
-        false
+        self.facts.dependencies(user).contains(owner)
     }
 
     fn defining(&self, symbol: &Symbol) -> BTreeSet<String> {

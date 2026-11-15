@@ -212,6 +212,18 @@ impl<'g> Facts<'g> {
         (file == "Cargo.toml" || file == "build.rs").then(|| self.crates.iter().find(|(root, _)| root == directory).map(|(_, name)| name.as_str())).flatten()
     }
 
+    pub fn crates(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.crates.iter().map(|(root, name)| (root.as_str(), name.as_str()))
+    }
+
+    pub fn root_of(&self, name: &str) -> Option<&str> {
+        self.crates.iter().find(|(_, held)| held == name).map(|(root, _)| root.as_str())
+    }
+
+    pub fn depends_on(&self, name: &str) -> BTreeSet<String> {
+        self.depends.get(name).cloned().unwrap_or_default()
+    }
+
     pub fn dependencies(&self, name: &str) -> BTreeSet<String> {
         closure(name, |crate_name| self.depends.get(crate_name).into_iter().flatten().cloned().collect())
     }

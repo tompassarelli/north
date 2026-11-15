@@ -8,7 +8,7 @@ use super::base::{Base, Tree};
 use super::boxes::{self, Named};
 use super::parts::{self, Refusal, Split};
 use super::plan::Plan;
-use super::{ATTEMPTS, EFFORT, MODEL, Planner, Question, Tokens, prompt};
+use super::{ATTEMPTS, EFFORT, MODEL, Planner, Question, Tokens, facts_of, graph, prompt};
 
 const USAGE: &str = "usage: north work split TASKFILE --task ID --out PLAN [--root REPO]";
 const STRUCTURE: &str = "structure.toml";
@@ -103,7 +103,7 @@ fn spec_files(directory: &Path) -> Vec<(String, String)> {
     found
 }
 
-fn named_paths(text: &str, spec: &[(String, String)], tree: &Tree) -> Vec<String> {
+fn named_paths(text: &str, spec: &[(String, String)], tree: &Tree<'_, '_>) -> Vec<String> {
     let words = text.split(|c: char| c.is_whitespace() || "`'\"(),;".contains(c)).map(|word| word.trim_end_matches(['.', ':']).to_owned()).filter(|word| word.contains('/'));
     let mut paths = BTreeSet::new();
     for path in words.chain(spec.iter().map(|(path, _)| path.clone())) {
@@ -159,7 +159,7 @@ pub fn overlaps(plan: &Plan, base: &dyn Base) -> Result<(), Refusal> {
     if refused.is_empty() { Ok(()) } else { Err(Refusal(refused)) }
 }
 
-fn attempt(answer: &str, tree: &Tree) -> Result<Split, String> {
+fn attempt(answer: &str, tree: &Tree<'_, '_>) -> Result<Split, String> {
     let (plan, _) = Plan::parse(answer)?;
     overlaps(&plan, tree).and_then(|()| parts::split(&plan, tree)).map_err(|refusal| refusal.line())
 }
@@ -188,7 +188,9 @@ fn rendered(split: &Split, task: &str, named: &Named) -> String {
 
 fn split(options: &Options, planner: &Planner, pack: Pack) -> Result<u8, String> {
     let task = read_task(&options.taskfile, &options.id)?;
-    let tree = Tree::read(&options.root, &task.base)?;
+    let graph = graph()?;
+    let facts = facts_of(&graph, &options.root)?;
+    let tree = Tree::read(&options.root, &task.base, &facts)?;
     let head = git(&options.root, &["rev-parse", "HEAD"]).unwrap_or_default();
     if head.trim() != tree.commit {
         return Err(format!("{} is checked out at {}, not at the task's base {}, and the context pack reads the checkout", options.root.display(), head.trim(), tree.commit));
