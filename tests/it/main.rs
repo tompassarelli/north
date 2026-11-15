@@ -29,3 +29,4 @@ mod threads_resume;
 mod capacity_agent_compile;
 mod cargo_config;
 mod agent_text_reads;
+mod mutant_worker_lane;

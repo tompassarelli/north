@@ -9,9 +9,7 @@ use time::{Duration, OffsetDateTime};
 use crate::env::{Env, Stop, git_bytes, git_text, repo_name};
 use crate::matrix::{self, Matrix};
 use crate::sites;
-use crate::trees::{self, Plan};
-
-const EVERY_TEST: &str = "*";
+use crate::trees::{self, Plan, EVERY_TEST};
 
 pub trait Issues {
     fn body(&self, repo: &str, number: u64) -> Result<String, String>;

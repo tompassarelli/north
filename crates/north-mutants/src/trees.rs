@@ -8,6 +8,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use crate::env::{Config, Env, Lease, Stop, git, git_text};
 
 pub const RESULTS: &str = ".mutant-results";
+pub const EVERY_TEST: &str = "*";
 const TAIL_LINES: usize = 40;
 
 pub type Results = BTreeMap<String, bool>;
@@ -41,7 +42,7 @@ pub fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Result<Ou
     let Plan { head, mutants, tests, config, repo, timeout_seconds, trees_per_lease } = plan;
     let top = PathBuf::from(git_text(cwd, None, &["rev-parse", "--show-toplevel"])?);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_nanos()).unwrap_or_default();
-    let dir = RunDir(env.cache_home.join("north/mutant").join(repo).join(format!("{}-{nanos}", std::process::id())));
+    let dir = RunDir(top.join("target/mutant").join(repo).join(format!("{}-{nanos}", std::process::id())));
     fs::create_dir_all(&dir.0)?;
     let index = dir.0.join("index");
     let change = dir.0.join("change");

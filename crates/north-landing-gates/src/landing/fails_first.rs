@@ -228,12 +228,12 @@ fn on_base(
     place: &dyn Fn(&Path) -> Result<Option<String>, Stop>,
     out: &mut dyn Write,
 ) -> Result<Base, Stop> {
-    let Some(config) = north_mutants::verify::config(cwd, base)? else {
-        return Err(Stop::Fail(format!("{base}:.safe-push sets no mutant.run test runner")));
+    let Some(config) = north_mutants::verify::config(cwd, "HEAD")? else {
+        return Err(Stop::Fail("HEAD:.safe-push sets no mutant.run test runner".to_owned()));
     };
     let top = PathBuf::from(git_text(cwd, None, &["rev-parse", "--show-toplevel"])?);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_nanos()).unwrap_or_default();
-    let dir = RunDir(env.cache_home.join("north/fails-first").join(format!("{}-{nanos}", std::process::id())));
+    let dir = RunDir(top.join("target/fails-first").join(format!("{}-{nanos}", std::process::id())));
     fs::create_dir_all(&dir.0)?;
     let tree = dir.0.join("base");
     trees::checkout(&top, &dir.0.join("index"), base, None, &tree)?;
