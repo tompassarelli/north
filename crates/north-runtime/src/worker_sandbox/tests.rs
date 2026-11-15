@@ -20,6 +20,8 @@ mod offload_request;
 mod record_request;
 #[path = "withdraw_request_tests.rs"]
 mod withdraw_request;
+#[path = "landed_request_tests.rs"]
+mod landed_request;
 #[path = "sockets_tests.rs"]
 mod sockets;
 

@@ -10,6 +10,7 @@ const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) .
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
         [task, verb, ..] if task == "task" && (verb == "comment" || verb == "check" && arguments.iter().any(|word| word == "--done-when")) && let Some(code) = north_runtime::worker_sandbox::reenter_lane_only(arguments) => return ExitCode::from(code),
+        [task, verb, _, _] if task == "task" && verb == "landed" && let Some(code) = north_runtime::worker_sandbox::reenter_outside(arguments) => return ExitCode::from(code),
         [task, verb, rest @ ..] if task == "task" && verb == "check" && rest.iter().any(|word| word == "--done-when") && let Some(code) = sandboxed_check(rest) => return code,
         [task, verb, reference, flag, body] if task == "task" && verb == "comment" && flag == "--body" => comment(reference, body),
         [ledger, verb, rest @ ..] if ledger == "ledger" && let Some(run) = super::tools::ledger_runner(verb) => return ExitCode::from(run(rest)),
