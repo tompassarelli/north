@@ -13,6 +13,7 @@ mod main_runs;
 pub mod trip;
 pub mod trip_command;
 mod growth;
+mod head_north;
 pub mod lifecycle;
 mod health;
 mod history;
@@ -50,7 +51,7 @@ use north_runtime_records::failure;
 use std::path::Path;
 
 const USAGE: &str = "usage: north runtime update [--sha SHA [--ordered]] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime build SHA | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime order --reason REASON [--commit REV] [--except HOST]... | north runtime order-here canary|go-live SHA | north runtime hold COMMIT [--host HOST] [--until LANE] --why TEXT | north runtime accept [--withdraw] COMMIT | north runtime hold --lift COMMIT --why TEXT | north runtime mirror | north runtime checkouts | north runtime lag --processes|--json | north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR] | north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR] | north runtime follow --repo-dir DIR | north runtime agents|claude|agy|pi|opencode [VERSION] | north runtime probe services | north runtime probe list HOST | north runtime walk | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
-covers [--head REV] [--from REV] [--code PATH,...] | north runtime tree-build
+covers [--head REV] [--from REV] [--code PATH,...] | north runtime tree-build | north runtime head-north ROOT [--code PATH] [--no-build] [--build] [ARG...]
 
 update [--sha SHA [--ordered]]  bring this host's current runtime to the pinned runtime (or SHA, which moves no host back from a newer runtime unless --ordered says an order chose it): on the host that settles the fleet, origin/main is promoted at six fixed slots a day (one every runtime_promotion_slot_sec from 00:00 UTC: the newest head whose runtime is ready, built once ten minutes before the slot, when commits since the pin change a runtime input) or at once for a landing whose commit carries a `Live-fix: REASON` trailer, which takes the next slot's place (one promotion at a time, a landing between slots waits for its slot, and the coordinator is paged once when a promotion that fell due is not live 5 min later; a sha rolled back after its canary failed stays quarantined); every other host runs only what the settling host ships it after the runtime walked the spine there; pull it from a peer, reuse the live binaries when no Rust build input changed, else build it on the build host it reaches with the most free cores and take its binaries, or build it here under a runtime capacity lease when no build host answers, saying so; swap back when health fails, and for 10 min after a swap roll back when session hosts died with nobody asking and stayed down (not ones their host parked at idle, ones restarted within a minute, nor `vn-*` scratch hosts) or land refusals ran faster than over the hour before, or launches failed more often for a cause the hour before never saw, and in a window a rollback opened only report it once (only current moves, so running session hosts keep their runtime); an agents sync failure keeps the code, alerts the coordinator and retries each tick
 settle                 on the host that settles the fleet: update here, run the core-loop probes here and ship the live runtime to the hosts behind it only when it passed them, probe every host, run the core-loop probes (a sandboxed worker shell held to the sandbox's rules and, where sessions reach the hub host, one reaching it through `north capacity offload`, both served by a broker the judged runtime starts, the hub fetching a repository, each lander minting its push credential, with a host with no running lander or a repository no running lander serves reported once as not applicable, `depbox run -- true` in a scratch checkout carrying a worker command's removal roots, so depbox execs the judged north inside its sandbox, one `--test` worker per provider the host can launch answering, with a provider it cannot launch, and every provider on a host placement starts no fleet session on, reported once as not applicable) on each host per promoted runtime and roll a host back, alarming the coordinator with the failing probe, when one fails, and judge the newest landing the pinned runtime holds once by landing_live_deadline_sec after its promotion
@@ -79,14 +80,15 @@ lag --processes        list each long-lived north process on this host (landers,
 lag --json             print an array with one object per long-lived north process on every declared host: host, process, runtime and `seconds` older than the runtime the settling host pinned (0 when it runs the pin or a runtime built on it; null for a host that did not answer); each fleet tick on the settling host samples the worst for the `ready-runtime-lag` bar, at most once a minute whatever the stable pin, and pages the coordinator once per session episode past 5 min and once per host service (broker, lander, watchdog, offload taker) each time it starts to lag past 5 min, by name
 covers [--head REV] [--from REV] [--code PATH,...]
                        print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor rust-toolchain.toml nor any package Cargo.lock held at the live runtime (a lock that only adds packages still covers), so a land check runs it instead of building north from the tree; with --from REV it compares with REV instead of the live runtime and prints nothing, so the lander can run the north built ahead for REV's tree (north#1247)
-tree-build             build north from the checkout it runs in, with Buck2 on a host set to buck2_tree_build = true for a tree whose Buck2 configuration and targets are its base's and Cargo otherwise or when Buck2 fails for a reason other than the tree, and print the binary's path; exit 1 when the tree does not build and 75 when the build failed for another reason; bin/head-north runs it when no built runtime covers the tree";
+tree-build             build north from the checkout it runs in, with Buck2 on a host set to buck2_tree_build = true for a tree whose Buck2 configuration and targets are its base's and Cargo otherwise or when Buck2 fails for a reason other than the tree, and print the binary's path; exit 1 when the tree does not build and 75 when the build failed for another reason; bin/head-north runs it when no built runtime covers the tree
+head-north ROOT [ARGS] run the north that covers the checkout ROOT with ARGS, which bin/head-north execs: the live runtime when it covers the code, else the north this host kept for the clean tree, else one built from the tree and kept under the cache confined runs share; exit 1 when the tree does not build or --no-build finds no covering runtime, 75 when no verdict could be reached";
 
 pub fn stage_on(host: &str, sha: &str, runtime: &Path) -> Result<(), String> {
     deploy::stage_runtime(host, sha, runtime).map_err(|failure| failure.message)
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    if arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
+    if arguments.first().is_none_or(|verb| verb != "head-north") && arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
         println!("{USAGE}");
         return 0;
     }
@@ -141,6 +143,7 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         (command, []) if command == "checkouts" => Some(checkouts::run()),
         (command, flags) if command == "lag" => lag::command(layout, flags),
         (command, flags) if command == "covers" => reuse::covers_command(layout, flags),
+        (command, [root, rest @ ..]) if command == "head-north" => Some(head_north::run(Path::new(root), rest)),
         (command, []) if command == "tree-build" => Some(tree_build::run()),
         (command, [verb, provider]) if command == "probe" && verb == "launch" => Some(canary::launch_probe(provider)),
         (command, [verb]) if command == "probe" && verb == "services" => Some(canary::services_probe(layout)),
