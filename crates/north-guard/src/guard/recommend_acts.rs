@@ -56,6 +56,7 @@ impl Issue {
 #[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Turn {
     pub id: String,
+    pub prompt: Option<String>,
     pub commands: Vec<String>,
     pub moved: Vec<Issue>,
     pub reply: Option<String>,
@@ -208,7 +209,7 @@ pub fn read_turn(path: &str) -> Option<Turn> {
 pub fn turn_in(lines: &[u8]) -> Option<Turn> {
     let entries: Vec<Value> = lines.split(|byte| *byte == b'\n').filter_map(|line| serde_json::from_slice(line).ok()).collect();
     let begin = entries.iter().rposition(starts_turn)?;
-    let mut turn = Turn { id: entries[begin]["uuid"].as_str().unwrap_or_default().to_owned(), ..Turn::default() };
+    let mut turn = Turn { id: entries[begin]["uuid"].as_str().unwrap_or_default().to_owned(), prompt: prompt_text(&entries[begin]["message"]["content"]), ..Turn::default() };
     let failed: Vec<&str> = entries[begin + 1..].iter().filter(|entry| entry["type"] == "user").filter_map(|entry| entry["message"]["content"].as_array()).flatten().filter(|block| block["type"] == "tool_result" && block["is_error"] == true).filter_map(|block| block["tool_use_id"].as_str()).collect();
     let results: HashMap<&str, String> = entries[begin + 1..].iter().filter(|entry| entry["type"] == "user").filter_map(|entry| entry["message"]["content"].as_array()).flatten().filter(|block| block["type"] == "tool_result").filter_map(|block| Some((block["tool_use_id"].as_str()?, result_text(&block["content"])))).collect();
     for entry in &entries[begin + 1..] {
@@ -243,6 +244,15 @@ fn starts_turn(entry: &Value) -> bool {
         Value::Array(blocks) => !blocks.iter().any(|block| block["type"] == "tool_result"),
         _ => false,
     }
+}
+
+fn prompt_text(content: &Value) -> Option<String> {
+    let text = match content {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks.iter().filter(|block| block["type"] == "text").filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join("\n\n"),
+        _ => return None,
+    };
+    (!text.trim().is_empty()).then_some(text)
 }
 
 fn result_text(content: &Value) -> String {

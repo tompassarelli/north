@@ -14,6 +14,7 @@ pattern = '''did (you|u) (answer|reply|respond)|you didn'?t answer|didn'?t answe
 paraphrase = "Tom said the reply did not answer his question."
 owner = "north#641"
 guard = "The coordinator's Stop hook refuses a final message when Tom's last prompt asked a question and the message's first line answers none of it (no yes, no, number, name or fact in reply to the question's words)."
+guarded_at = "2026-11-15T20:20:00Z"
 not_structural = "what a reply answers is in the session's messages, which no graph fact holds"
 
 [[class]]

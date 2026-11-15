@@ -21,7 +21,8 @@ fn state(test: &str) -> PathBuf {
 }
 
 #[test]
-fn a_recommendation_naming_an_ask_once_category_or_only_quoted_passes() {
+fn the_stop_hooks_refuse_an_unacted_recommendation_and_a_reply_that_ignores_a_question() {
+    super::unanswered_tests::unanswered_guard_cases();
     assert_eq!(decide(&stop("ask_once", "s1"), &state("ask-once")), Verdict::Allow);
     let turn = super::recommend_acts::Turn::default();
     assert!(super::recommend_acts::recommendation("I recommend minting the GitHub token for the mirror.", &turn).is_none(), "a token is an ask-once decision");

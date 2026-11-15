@@ -31,6 +31,7 @@ pub fn repeated(facts: &Facts, classes: &[Class]) -> Vec<Finding> {
     grouped
         .into_iter()
         .filter(|(_, seen)| seen.len() >= SEEN_MIN)
+        .filter(|(name, _)| classes.iter().find(|class| class.name == *name).is_none_or(|class| class.guarded_at.is_none()))
         .map(|(name, mut seen)| {
             seen.sort_by(f64::total_cmp);
             let class = classes.iter().find(|class| class.name == name);

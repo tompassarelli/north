@@ -178,6 +178,7 @@ const STOP: &[Guard] = &[
     Guard("north-hook", crate::guard::permission_offer::evaluate_handoff, Anywhere),
     Guard("north-hook", crate::guard::recommendation_grounding::evaluate, Anywhere),
     Guard("north-hook", crate::guard::recommend_acts::evaluate, Anywhere),
+    Guard("north-hook", crate::guard::unanswered::evaluate, Anywhere),
     Guard("", crate::guard::correction_capture::evaluate, Anywhere),
 ];
 

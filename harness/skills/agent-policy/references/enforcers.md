@@ -50,6 +50,7 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | The coordinator's diagnosis calls outside break-glass are refused with the brief to write (`north config coordinator role` lists them) | `north-hook` (coordinator-reach-guard) | Claude, Codex |
 | Tom's window starts with his decision queue (open for-Tom gates and defaults applied since the last look) when it is non-empty (advisory) | `north-hook` (gate-digest, `north gate digest`) | Claude |
 | A gate without a default and deadline is refused unless it names the ask-once category of its recommended option (`--ask-once`) | `north gate open` (`GateRequest::validate`) | Claude, Codex |
+| Tom's last prompt asked a question, so the final reply's first line answers it: a yes or no, a number to a question that asks for one, or a name or fact from the question's words; absent that, the Stop hook refuses the reply, at most twice per turn | `north-hook` (unanswered-guard) | Claude |
 | A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
 
 `prompt-grounding` delivers context rather than enforcing a rule; `north-hook`
