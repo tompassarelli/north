@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::{RunRecord, RunSink};
+use crate::router::pricing::TokenUse;
 
 mod books;
 mod briefs;
@@ -180,6 +181,17 @@ pub struct Task {
     pub last_check_sha: Option<String>,
 }
 
+/// One model call a session asked for: the account that answered it, its model and effort, its tokens and its start and end in milliseconds.
+pub struct Call<'a> {
+    pub session: &'a str,
+    pub account: &'a str,
+    pub model: &'a str,
+    pub effort: &'a str,
+    pub tokens: TokenUse,
+    pub started_ms: u64,
+    pub ended_ms: u64,
+}
+
 pub struct CheckRun<'a> {
     pub task_ref: &'a str,
     pub command: &'a str,
@@ -197,6 +209,18 @@ impl Ledger {
                 "INSERT INTO events(session, kind, payload, recorded_ms) VALUES(?1, 'native-solo', ?2, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
                 params![session, payload.to_string()],
             ).map(drop)
+        })
+    }
+
+    /// Records one model call a session asked for, charged to the account that answered it, as a run of that session.
+    pub fn record_call(&self, call: &Call) -> NorthResult<()> {
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO runs(session, provider, model, effort, account, started_ms, ended_ms, wall_ms, turns, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, exit)
+                 VALUES(?1, 'claude', ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, 'completed')",
+                params![call.session, call.model, call.effort, call.account, millis(call.started_ms), millis(call.ended_ms), millis(call.ended_ms.saturating_sub(call.started_ms)), call.tokens.input, call.tokens.output, call.tokens.cache_read, call.tokens.cache_write],
+            )
+            .map(drop)
         })
     }
 

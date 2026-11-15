@@ -207,13 +207,20 @@ fn citation_check(arguments: &[String]) -> u8 {
     crate::citation_check::run(arguments, defines)
 }
 
+/// Whether one more worker session may start on the subscription account `account` now, by the spend view pace admission reads.
+fn subscription_admitted(account: &str) -> Result<(), String> {
+    let fleet = super::fleet::open_fleet().map_err(|error| error.user_message())?;
+    let view = super::fleet::spend_now(&fleet, &fleet.roster())?;
+    view.admit(&format!("claude:{account}"), north_runtime::spend::Starter::Worker).map_err(|refusal| refusal.to_string())
+}
+
 const CHECK: &[(&str, Run)] = &[
     ("calls", call_check),
     ("citations", citation_check),
     ("concerns", concerns),
     ("harness", agent_config_check::run),
     ("privacy", |arguments| north_runtime::worker_sandbox::judge_client::command(arguments).unwrap_or_else(|| crate::privacy::run(arguments, &super::agents::claude_access()))),
-    ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access())),
+    ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
     ("experiments", crate::experiments::run),
     ("issue-boxes", issue_box_lint::run),
     ("machines", super::machines::run),

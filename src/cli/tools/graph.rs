@@ -12,8 +12,13 @@ pub(super) fn admits(repository: &str) -> bool {
 
 pub(super) fn ask(question: &Question) -> Result<Answer, String> {
     let Question { model, effort, system, input } = *question;
-    let access = crate::cli::agents::claude_access();
-    let measured = oneshot::ask_claude_measured(&Ask { model, effort, system, input }, PLANNING_LIMIT, &access, &mut |line| eprintln!("north graph split: {line}"))?;
+    let measured = match north_runtime::worker_sandbox::planner_client::ask(model, effort, system, PLANNING_LIMIT.as_secs(), input) {
+        Some(answer) => oneshot::measured_from_answer_json(&answer?)?,
+        None => {
+            let access = crate::cli::agents::claude_access();
+            oneshot::ask_claude_measured(&Ask { model, effort, system, input }, PLANNING_LIMIT, &access, &mut |line| eprintln!("north graph split: {line}"))?
+        }
+    };
     let tokens = Tokens { input: measured.input_tokens, output: measured.output_tokens, cache_read: measured.cache_read_tokens, cache_write: measured.cache_write_tokens };
     Ok(Answer { text: measured.text, tokens })
 }

@@ -182,17 +182,17 @@ fn remember_answered(dir: &Path) {
 
 /// Asks once on the subscription accounts, trying each profile in turn, the last one to answer first; an API key in the environment is unset and the api-key account is skipped, so the call can never bill by token.
 pub(crate) fn ask_claude(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Asked {
-    ask_claude_with(question, &[], limit, access, warn, &mut None)
+    ask_claude_with(question, &[], limit, access, warn, &mut None, None)
 }
 
 /// [`ask_claude`], and which account in the order tried answered, as `reserve-N` or `shared-N` with no account name, or `ambient` for the client's own login.
 pub(crate) fn ask_claude_answered(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> (Asked, Option<String>) {
     let mut answered = None;
-    let asked = ask_claude_with(question, &[], limit, access, warn, &mut answered);
+    let asked = ask_claude_with(question, &[], limit, access, warn, &mut answered, None);
     (asked, answered)
 }
 
-fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>) -> Asked {
+fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>, pinned: Option<&str>) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
     let accounts = crate::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
     let listed = match claude_accounts() {
@@ -202,21 +202,47 @@ fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &Run
     let shared: Vec<String> = listed.into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api.is_some())).collect();
     let reserve = crate::platform::orchestration::read().map(|policy| crate::spend::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
-    let subscription = answered_first(crate::spend::operational::order(&reserve, shared), &reserve, answered.as_deref().map(str::trim));
+    let subscription = match subscription_order(pinned, shared, &profiles, &reserve, answered.as_deref()) {
+        Ok(subscription) => subscription,
+        Err(why) => return Asked::Failed(why),
+    };
     let now_s = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    ask(&profiles, &mut Limited::read(&state(), now_s), &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, billing::settings_refusal) {
+    ask(&profiles, &mut Limited::read(&state(), now_s), &subscription, &mut |dir| match login_refusal(dir, pinned) {
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
         None => {
             let reply = claude_once(&account_words(dir, &accounts, access.invocation), question, extra, limit);
-            if reply.code == Some(0) && !reply.stdout.is_empty() {
+            if was_answered(&reply) {
                 *answered_by = Some(dir.map_or_else(|| "ambient".to_owned(), |dir| place(dir, &subscription, &reserve)));
-            }
-            if let Some(dir) = dir.filter(|_| reply.code == Some(0) && !reply.stdout.is_empty()) {
-                remember_answered(dir);
+                if let Some(dir) = dir {
+                    remember_answered(dir);
+                }
             }
             reply
         }
     }, warn)
+}
+
+fn was_answered(reply: &Reply) -> bool {
+    reply.code == Some(0) && !reply.stdout.is_empty()
+}
+
+fn subscription_order(pinned: Option<&str>, shared: Vec<String>, profiles: &Path, reserve: &[String], answered: Option<&str>) -> Result<Vec<String>, String> {
+    match pinned {
+        Some(label) if shared.iter().any(|held| held == label) && profiles.join(format!("claude-{label}")).is_dir() => Ok(vec![label.to_owned()]),
+        Some(label) => Err(format!("claude account {label} has no subscription profile here")),
+        None => Ok(answered_first(crate::spend::operational::order(reserve, shared), reserve, answered.map(str::trim))),
+    }
+}
+
+fn login_refusal(dir: Option<&Path>, pinned: Option<&str>) -> Option<String> {
+    match dir {
+        None => ambient_billing_refusal(),
+        Some(dir) => billing::settings_refusal(dir).or_else(|| pinned.and_then(|_| subscription_refusal(dir))),
+    }
+}
+
+fn subscription_refusal(dir: &Path) -> Option<String> {
+    billing::read_json(dir, ".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| format!("{} holds no claude.ai subscription login", dir.display()))
 }
 
 fn place(dir: &Path, order: &[String], reserve: &[String]) -> String {
@@ -235,7 +261,12 @@ pub struct Measured {
 }
 
 pub fn ask_claude_measured(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Result<Measured, String> {
-    let answer = match ask_claude_with(question, &["--output-format", "json"], limit, access, warn, &mut None) {
+    ask_claude_measured_on(question, limit, None, access, warn)
+}
+
+/// [`ask_claude_measured`], pinned to the one subscription account `account` when given: its profile alone is asked, with its login checked, and no other account or the ambient login is tried.
+pub fn ask_claude_measured_on(question: &Ask, limit: Duration, account: Option<&str>, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Result<Measured, String> {
+    let answer = match ask_claude_with(question, &["--output-format", "json"], limit, access, warn, &mut None, account) {
         Asked::Answer(answer) => answer,
         Asked::AtLimit => return Err("every claude subscription account is at its usage limit".to_owned()),
         Asked::Failed(reason) => return Err(reason),
@@ -244,4 +275,16 @@ pub fn ask_claude_measured(question: &Ask, limit: Duration, access: &RuntimeAcce
     let text = result.get("result").and_then(serde_json::Value::as_str).ok_or("claude's JSON result holds no result text")?.to_owned();
     let count = |key: &str| result.get("usage").and_then(|usage| usage.get(key)).and_then(serde_json::Value::as_u64).unwrap_or(0);
     Ok(Measured { text, input_tokens: count("input_tokens"), output_tokens: count("output_tokens"), cache_read_tokens: count("cache_read_input_tokens"), cache_write_tokens: count("cache_creation_input_tokens") })
+}
+
+/// The answer `north check oneshot --json` prints for `measured`: its text and its token counts.
+pub fn answer_json(measured: &Measured) -> String {
+    serde_json::json!({"text": measured.text, "tokens": {"input": measured.input_tokens, "output": measured.output_tokens, "cache_read": measured.cache_read_tokens, "cache_write": measured.cache_write_tokens}}).to_string()
+}
+
+pub fn measured_from_answer_json(answer: &str) -> Result<Measured, String> {
+    let value: serde_json::Value = serde_json::from_str(answer.trim()).map_err(|why| format!("the planning call printed no JSON answer: {why}"))?;
+    let text = value.get("text").and_then(serde_json::Value::as_str).ok_or("the planning call's answer holds no text")?.to_owned();
+    let count = |key: &str| value.get("tokens").and_then(|tokens| tokens.get(key)).and_then(serde_json::Value::as_u64).unwrap_or(0);
+    Ok(Measured { text, input_tokens: count("input"), output_tokens: count("output"), cache_read_tokens: count("cache_read"), cache_write_tokens: count("cache_write") })
 }

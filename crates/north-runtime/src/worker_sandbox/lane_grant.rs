@@ -1,8 +1,10 @@
 //! The verbs the outside broker runs with the host's GitHub credentials for a lane-only session (DeepSeek's harnesses, which hold no token: south#104), so it lands and reports without one (north#1056): `safe-push --to main` from its own lane, which enqueues that lane for the lander, and a comment on, or the Done-when checker's tick of a box of, its own task issue. The session is the fleet session whose scope the caller's cgroup names, never anything the request says; its lane is `PROJECT/worktrees/NAME` beside the `main` it was launched in (or the lane it was launched in), and its task the `--task` of its launch. A request's words choose only among those verbs; any other ref, repository, issue or option is refused. The command runs with the broker's own environment, never the client's, with git's hooks, fsmonitor and ssh command off whatever the repository's configuration says, and refuses a lane whose git configuration names a filter driver or `core.sshCommand`, and with GitHub reached through the gh shim as the Agent App under the session's name; its output reaches the client with every token-shaped word withheld, and no descriptor goes back but the client's own streams.
 
 use std::borrow::Cow;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::os::fd::OwnedFd;
 use std::sync::LazyLock;
 
 use north_base::lifecycle::{Liveness, Owner, Proc};
@@ -325,3 +327,26 @@ pub(super) fn relay(from: impl Read, mut to: impl Write) {
 #[cfg(test)]
 #[path = "lane_grant_tests.rs"]
 mod tests;
+
+pub(super) const STDIO: usize = 3;
+
+/// Tells the client on its standard error why its request is refused; the reason, for the broker's log.
+pub(super) fn refuse(streams: Vec<OwnedFd>, why: String) -> String {
+    if let Some(stderr) = streams.into_iter().nth(STDIO - 1) {
+        let _ = writeln!(File::from(stderr), "north worker-sandbox broker: refused: {why}");
+    }
+    why
+}
+
+/// The record of the fleet session the caller `peer` runs in, and the three standard streams of its request, for a request only a fleet session outside every lane-only scope may make; a refused caller is told why on its standard error.
+pub(super) fn fleet_session_streams(streams: Vec<OwnedFd>, peer: &Peer, host: &Host, what: &str) -> Result<(Value, [OwnedFd; STDIO]), String> {
+    if peer.cgroup().is_none_or(session_scope::lane_only_cgroup) {
+        return Err(refuse(streams, format!("{what} is run for a fleet session outside every lane-only scope, and this caller is not one")));
+    }
+    let (_, record) = match own_session(peer, host, &format!("{what} is run for a fleet session's own scope, and this caller runs in none")) {
+        Ok(found) => found,
+        Err(why) => return Err(refuse(streams, why)),
+    };
+    let streams = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
+    Ok((record, streams))
+}
