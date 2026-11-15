@@ -23,6 +23,13 @@ pub struct Accept {
 
 pub struct Accepts(pub PathBuf);
 
+/// The session names under which only the broker's review calls record an accept (north#1610); no fleet session is launched under them and no other path records one.
+pub const CALL_SESSIONS: [&str; 2] = ["review-call-a", "review-call-b"];
+
+pub fn reserved(session: &str) -> bool {
+    CALL_SESSIONS.contains(&session)
+}
+
 pub fn is_patch_id(word: &str) -> bool {
     matches!(word.len(), 40 | 64) && word.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
@@ -34,9 +41,15 @@ fn is_session(word: &str) -> bool {
 /// The `git diff` a patch id is read from, before its two commits: the stored bytes of every file, never what a configured external diff or textconv filter makes of them.
 pub const PATCH_DIFF: [&str; 5] = ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--binary"];
 
+/// The [`PATCH_DIFF`] of `from`..`to` in `directory` with the further `options`, leaving out the files the landing candidate regenerates (north_shared_config::regenerated).
+pub fn patch_diff(directory: &Path, from: &str, to: &str, options: &[&str]) -> Result<Vec<u8>, String> {
+    let left_out = north_shared_config::regenerated::left_out(directory, from, to);
+    git::stdout(directory, &[&PATCH_DIFF[..], options, &[from, to], &left_out.iter().map(String::as_str).collect::<Vec<_>>()].concat(), |output| format!("git diff {from} {to}: {}", String::from_utf8_lossy(&output.stderr).trim()))
+}
+
 /// `git patch-id --stable` of the change from `from` to `to` in `directory`, leaving out the files the landing candidate regenerates (north_shared_config::regenerated).
 pub fn patch_id(directory: &Path, from: &str, to: &str) -> Result<String, String> {
-    patch_id_of(&git::stdout(directory, &[&PATCH_DIFF[..], &[from, to], &north_shared_config::regenerated::left_out(directory, from, to).iter().map(String::as_str).collect::<Vec<_>>()].concat(), |output| format!("git diff {from} {to}: {}", String::from_utf8_lossy(&output.stderr).trim()))?, from, to)
+    patch_id_of(&patch_diff(directory, from, to, &[])?, from, to)
 }
 
 /// `git patch-id --stable` of `diff`, the [`PATCH_DIFF`] of `from`..`to`.
@@ -68,6 +81,21 @@ impl Accepts {
     }
 
     pub fn record(&self, accept: &Accept) -> Result<(), String> {
+        if reserved(&accept.session) {
+            return Err(format!("{} is a name only the broker's review call records an accept under", accept.session));
+        }
+        self.write(accept)
+    }
+
+    /// Records the accept of a review call, whose session is one of [`CALL_SESSIONS`].
+    pub fn record_call(&self, accept: &Accept) -> Result<(), String> {
+        if !reserved(&accept.session) {
+            return Err(format!("{} is no review call's name", accept.session));
+        }
+        self.write(accept)
+    }
+
+    fn write(&self, accept: &Accept) -> Result<(), String> {
         if !is_patch_id(&accept.patch_id) || !is_session(&accept.session) {
             return Err(format!("{:?} by {:?} is no accept of a patch id by a fleet session", accept.patch_id, accept.session));
         }

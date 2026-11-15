@@ -43,6 +43,9 @@ impl Fleet {
     }
 
     fn launch_as(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<SessionRecord> {
+        if north_base::platform::review_accept::reserved(&request.name) {
+            return Err(NorthError::Usage(format!("{} is a name only the broker's review call records accepts under, so no session is launched under it", request.name)));
+        }
         let session_dir = self.session_dir(&request.name)?;
         if claim == Claim::TakeOver {
             let _ = self.remove_queued(&request.name);

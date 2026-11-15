@@ -26,4 +26,8 @@ fn a_review_accept_request_carries_a_patch_id_alone_and_is_recorded_for_the_call
     let worker = Caller { session: "worker-c".to_owned(), coordinator: false, reviewer: false };
     assert!(accept.serve(&accepts, &worker, 5).is_err());
     assert_eq!(accepts.sessions(PATCH).unwrap().len(), 2, "a session the fleet did not launch as a reviewer records no accept");
+    assert!(accept.serve(&accepts, &caller("review-call-a"), 6).is_err(), "a reviewer session records no accept under a review call's name");
+    assert!(accepts.record_call(&Record { patch_id: PATCH.to_owned(), session: "reviewer-c".to_owned(), at: 7 }).is_err(), "the review call records under its own names alone");
+    accepts.record_call(&Record { patch_id: PATCH.to_owned(), session: "review-call-a".to_owned(), at: 8 }).unwrap();
+    assert_eq!(accepts.sessions(PATCH).unwrap().len(), 3);
 }
