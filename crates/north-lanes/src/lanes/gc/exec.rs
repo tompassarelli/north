@@ -18,7 +18,7 @@ pub(super) struct Ran {
 
 impl Ran {
     pub(super) fn last_err_line(&self) -> &str {
-        self.err.rsplit('\n').next().unwrap_or("")
+        self.err.trim_end().rsplit('\n').next().unwrap_or("")
     }
 }
 

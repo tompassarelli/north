@@ -85,7 +85,7 @@ impl Gc {
         }
         let listed = in_dir(main, &["north", "threads", "list"]);
         if !listed.ok || !listed.out.starts_with("item") {
-            return Err("NorthThread claims unavailable".into());
+            return Err(format!("NorthThread claims unavailable: {}", listed.last_err_line()));
         }
         let sessions = self.fleet_sessions()?;
         let alive = |holder: &str| {
@@ -121,7 +121,7 @@ impl Gc {
     }
 
     pub(super) fn local_archive_guard(&mut self, main: &Path, name: &str, issues: &[String], branch: &str, path: Option<&Path>) -> String {
-        self.archive_guard(main, name, issues, branch, path).unwrap_or_else(|_| "liveness unavailable".into())
+        self.archive_guard(main, name, issues, branch, path).unwrap_or_else(|why| format!("liveness unavailable: {why}"))
     }
 
     fn archive_guard(&mut self, main: &Path, name: &str, issues: &[String], branch: &str, path: Option<&Path>) -> Result<String, String> {
