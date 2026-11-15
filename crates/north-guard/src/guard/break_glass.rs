@@ -1,6 +1,7 @@
 use north_foundation::foundation::clock::Timestamp;
 use crate::guard::gh_cli::gh;
 use north_base::platform::{north_binary::north_binary, process};
+use north_fleet_store::landing_stall::{self, State};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
@@ -14,7 +15,7 @@ const PROBE_PROVIDER: &str = "claude";
 const PROBE_LIMIT: Duration = Duration::from_secs(300);
 const OWNER: &str = "tompassarelli";
 
-pub const USAGE: &str = "Usage: north fleet break-glass --issue REPO#N REASON... (lifts the coordinator's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero; REPO#N is the issue that tracks the cause)";
+pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard while `north ledger flow --stall-alarm` reports a landing stall, until the stall clears)";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Grant {
@@ -22,14 +23,23 @@ pub struct Grant {
     pub until_ms: u64,
     pub who: String,
     pub reason: String,
-    pub issue: String,
+    pub issue: Option<String>,
     pub evidence: String,
+    #[serde(default)]
+    pub landing: Option<Landing>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Landing {
+    pub repo: String,
+    pub opened_ms: u64,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Refusal {
     NoReason,
     WorkersCanLaunch(String),
+    NoIssue(String),
     Unrecorded(String),
     BoxNotOpened(String),
 }
@@ -39,6 +49,7 @@ impl Refusal {
         match self {
             Self::NoReason => format!("break glass needs a reason. {USAGE}"),
             Self::WorkersCanLaunch(measured) => format!("break glass refused: workers can launch ({measured}), so the coordinator's budgets stay; write the brief and staff a worker instead"),
+            Self::NoIssue(measured) => format!("break glass refused: {measured}, but no --issue REPO#N names the issue that tracks it, so nothing was lifted"),
             Self::Unrecorded(why) => format!("break glass refused: the ledger could not record it ({why}), so nothing was lifted"),
             Self::BoxNotOpened(why) => format!("break glass is lifted and recorded, but the box on the tracking issue was not opened ({why}); open it by hand"),
         }
@@ -50,6 +61,7 @@ pub trait World {
     fn who(&self) -> String;
     fn recent_launches(&self, count: usize) -> Vec<bool>;
     fn probe_exit(&self) -> Option<i32>;
+    fn landing_stalls(&self) -> State;
     fn grants(&self) -> Vec<Grant>;
     fn record(&self, grant: &Grant) -> Result<(), String>;
     fn open_box(&self, issue: &str, text: &str) -> Result<(), String>;
@@ -71,13 +83,28 @@ pub fn measured_stall(world: &impl World) -> Result<String, String> {
     }
 }
 
-pub fn invoke(world: &impl World, reason: &str, issue: &str) -> Result<Grant, Refusal> {
-    if reason.trim().is_empty() || issue.trim().is_empty() {
+pub fn invoke(world: &impl World, reason: &str, issue: Option<&str>) -> Result<Grant, Refusal> {
+    let reason = reason.trim();
+    if reason.is_empty() {
         return Err(Refusal::NoReason);
     }
-    let evidence = measured_stall(world).map_err(Refusal::WorkersCanLaunch)?;
     let now = world.now_ms();
-    let grant = Grant { at_ms: now, until_ms: now + minutes() * 60_000, who: world.who(), reason: reason.trim().to_owned(), issue: issue.to_owned(), evidence };
+    if let Some((repo, episode)) = world.landing_stalls().into_iter().next() {
+        let grant = Grant {
+            at_ms: now,
+            until_ms: now,
+            who: world.who(),
+            reason: reason.to_owned(),
+            issue: None,
+            evidence: format!("the lander stalled in {repo}"),
+            landing: Some(Landing { repo, opened_ms: episode.opened_ms }),
+        };
+        world.record(&grant).map_err(Refusal::Unrecorded)?;
+        return Ok(grant);
+    }
+    let evidence = measured_stall(world).map_err(Refusal::WorkersCanLaunch)?;
+    let issue = issue.map(str::trim).filter(|issue| !issue.is_empty()).ok_or_else(|| Refusal::NoIssue(evidence.clone()))?;
+    let grant = Grant { at_ms: now, until_ms: now + minutes() * 60_000, who: world.who(), reason: reason.to_owned(), issue: Some(issue.to_owned()), evidence, landing: None };
     world.record(&grant).map_err(Refusal::Unrecorded)?;
     match world.open_box(issue, &tracking_box(&grant)) {
         Ok(()) => Ok(grant),
@@ -87,6 +114,11 @@ pub fn invoke(world: &impl World, reason: &str, issue: &str) -> Result<Grant, Re
 
 pub fn active(grants: &[Grant], now_ms: u64) -> Option<&Grant> {
     grants.iter().filter(|grant| grant.at_ms <= now_ms && now_ms < grant.until_ms).max_by_key(|grant| grant.until_ms)
+}
+
+pub fn lifted(grants: &[Grant], stalls: &State, now_ms: u64) -> bool {
+    active(grants, now_ms).is_some()
+        || grants.iter().filter_map(|grant| grant.landing.as_ref()).any(|landing| stalls.get(&landing.repo).is_some_and(|episode| episode.opened_ms == landing.opened_ms))
 }
 
 pub fn tracking_box(grant: &Grant) -> String {
@@ -104,10 +136,16 @@ pub fn digest_section(grants: &[Grant], since_ms: u64, now_ms: u64) -> String {
     if used.is_empty() {
         return String::new();
     }
-    let mut text = format!("Break glass used since you last looked ({}): the coordinator's look budgets were lifted because workers could not start; each opened a box on the issue that tracks the cause.\n", used.len());
+    let mut text = format!("Break glass used since you last looked ({}): the coordinator's reach was lifted for a stall, its look budgets while workers could not start or its reach guard while the landing was stalled; each names what was measured and what tracks the cause.\n", used.len());
     for grant in used {
-        let state = if now_ms < grant.until_ms { format!("lifted until {}", clock(grant.until_ms)) } else { format!("expired at {}", clock(grant.until_ms)) };
-        text.push_str(&format!("- {} by {} ({state}): {}\n  Measured: {}\n  Cause tracked in: {}\n", clock(grant.at_ms), grant.who, one_line(&grant.reason), grant.evidence, grant.issue));
+        let (state, tracked) = match &grant.landing {
+            Some(landing) => ("lifted until the landing stall clears".to_owned(), format!("the landing-is-stalled issue of {}", landing.repo)),
+            None => {
+                let state = if now_ms < grant.until_ms { format!("lifted until {}", clock(grant.until_ms)) } else { format!("expired at {}", clock(grant.until_ms)) };
+                (state, grant.issue.clone().unwrap_or_default())
+            }
+        };
+        text.push_str(&format!("- {} by {} ({state}): {}\n  Measured: {}\n  Cause tracked in: {tracked}\n", clock(grant.at_ms), grant.who, one_line(&grant.reason), grant.evidence));
     }
     text
 }
@@ -141,6 +179,10 @@ impl Live {
     fn launches_file(&self) -> PathBuf {
         self.state.join("agents/dispatch/launches.jsonl")
     }
+
+    fn landing_file(&self) -> PathBuf {
+        landing_stall::path(&self.state.join("agents/flow"))
+    }
 }
 
 pub fn now_ms() -> u64 {
@@ -152,7 +194,8 @@ pub fn recorded() -> Vec<Grant> {
 }
 
 pub fn lifted_now() -> bool {
-    active(&recorded(), now_ms()).is_some()
+    let live = Live::here();
+    lifted(&live.grants(), &live.landing_stalls(), now_ms())
 }
 
 impl World for Live {
@@ -175,6 +218,10 @@ impl World for Live {
         command.args(["runtime", "probe", "launch", PROBE_PROVIDER]);
         let output = process::try_run_command_within(command, None, PROBE_LIMIT).ok()?;
         Some(output.map_or(-1, |output| output.status.code().unwrap_or(-1)))
+    }
+
+    fn landing_stalls(&self) -> State {
+        landing_stall::load(&self.landing_file())
     }
 
     fn grants(&self) -> Vec<Grant> {

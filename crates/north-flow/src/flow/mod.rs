@@ -92,7 +92,7 @@ fn announce(places: &Places, now: f64, options: &Options) {
 }
 
 fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
-    if let Err(error) = lander_alarm::alert(places, host, rows) {
+    if let Err(error) = lander_alarm::alert(places, host, rows, now) {
         println!("agents flow: lander stall alert error: {error}");
     }
     if stall_alert(places, host, rows, now).is_err() {

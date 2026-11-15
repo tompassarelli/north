@@ -40,6 +40,7 @@ pub mod wait;
 pub mod silent;
 pub mod watch;
 pub mod budget;
+pub mod landing_stall;
 pub mod fakes;
 pub mod run_recording;
 pub mod usage_sink;

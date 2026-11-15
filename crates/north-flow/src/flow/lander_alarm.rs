@@ -2,29 +2,17 @@
 //! origin/main stays unmoved past its limit, one urgent fleet message reaches the coordinator and the
 //! repository's "landing is stalled" issue opens; when the queue moves again one more message goes
 //! out and the issue closes.
-use std::collections::BTreeMap;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::host::{Host, Places, write_atomic};
 use super::lander::Reading;
 use north_base::platform::rolling_issue::{Gh, settle};
+use north_fleet::fleet::landing_stall::{self, Episode, State};
 
 pub const TITLE: &str = "landing is stalled";
-const FILE: &str = "lander-stalls.json";
 const FROM: &str = "service:north-ops-flow";
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-pub struct Episode {
-    pub slug: String,
-    pub text: String,
-    pub told: bool,
-    pub filed: bool,
-}
-
-pub type State = BTreeMap<String, Episode>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Step {
@@ -44,13 +32,24 @@ fn stalled_text(repo: &str, reading: &Reading) -> String {
     )
 }
 
+fn report(rows: &[Value]) {
+    for row in rows {
+        let Some(repo) = row["repo"].as_str() else { continue };
+        if let Ok(reading) = serde_json::from_value::<Reading>(row["lander"].clone())
+            && reading.stalled
+        {
+            println!("{}", stalled_text(repo, &reading));
+        }
+    }
+}
+
 fn body(text: &str, repo: &str) -> String {
     format!("{text}\n\n## Done when\n- [ ] (headless run) origin/main moves through the lander again. Done when: judged by the lander alarm `north ledger flow --repo {repo}` raises, which closes this issue once it reads the lander moving.\n")
 }
 
 /// The steps due this run: a new stall tells and files, an unfinished stall retries what failed,
 /// a cleared stall recovers. A row whose lander was not read leaves its episode as it was.
-pub fn plan(rows: &[Value], previous: &State) -> (State, Vec<Step>) {
+pub fn plan(rows: &[Value], previous: &State, now_ms: u64) -> (State, Vec<Step>) {
     let mut state = previous.clone();
     let mut steps = Vec::new();
     for row in rows {
@@ -63,7 +62,7 @@ pub fn plan(rows: &[Value], previous: &State) -> (State, Vec<Step>) {
             }
             continue;
         }
-        let episode = state.entry(repo.to_owned()).or_insert_with(|| Episode { slug: row["slug"].as_str().unwrap_or_default().into(), text: stalled_text(repo, &reading), ..Episode::default() });
+        let episode = state.entry(repo.to_owned()).or_insert_with(|| Episode { slug: row["slug"].as_str().unwrap_or_default().into(), text: stalled_text(repo, &reading), opened_ms: now_ms, ..Episode::default() });
         if !episode.told {
             steps.push(Step::Tell { repo: repo.into(), text: episode.text.clone() });
         }
@@ -74,10 +73,6 @@ pub fn plan(rows: &[Value], previous: &State) -> (State, Vec<Step>) {
     (state, steps)
 }
 
-fn load(path: &Path) -> State {
-    std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
-}
-
 fn save(path: &Path, state: &State) -> Result<(), String> {
     write_atomic(path, &(serde_json::to_string(state).map_err(|error| error.to_string())? + "\n")).map_err(|error| error.to_string())
 }
@@ -86,11 +81,12 @@ fn tell(host: &dyn Host, text: &str) -> bool {
     host.run(&["north", "fleet", "send", "--now", "--from", FROM, "coordinator", text], None, None).is_some()
 }
 
-pub fn alert(places: &Places, host: &dyn Host, rows: &[Value]) -> Result<(), String> {
+pub fn alert(places: &Places, host: &dyn Host, rows: &[Value], now: f64) -> Result<(), String> {
     let directory = places.flow();
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    let path = directory.join(FILE);
-    let (mut state, steps) = plan(rows, &load(&path));
+    let path = landing_stall::path(&directory);
+    report(rows);
+    let (mut state, steps) = plan(rows, &landing_stall::load(&path), (now * 1000.0) as u64);
     for step in steps {
         match step {
             Step::Tell { repo, text } => {
