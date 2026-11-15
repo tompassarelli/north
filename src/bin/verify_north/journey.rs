@@ -30,6 +30,7 @@ const SERVE_WAIT: Duration = Duration::from_secs(30);
 const SETTLE_WAIT: Duration = Duration::from_mins(2);
 const LEDGER_WAIT: Duration = Duration::from_mins(3);
 const QUERY_WAIT: Duration = Duration::from_secs(30);
+const LAND_WAIT: Duration = Duration::from_mins(2);
 const POLL: Duration = Duration::from_secs(1);
 const LANDER_LOCK: &str = "lander.lock";
 const BROKER_SOCKET_ENV: &str = "NORTH_OUTSIDE_BROKER";
@@ -107,6 +108,8 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
 }
 
 fn land(journey: &mut Journey) -> Result<String, String> {
+    let waited = journey.scratch()?;
+    exec::poll_until(LAND_WAIT, POLL, || waited.origin_main(QUERY_WAIT).is_ok_and(|head| head != waited.base));
     let served = journey.stop_lander();
     let scratch = journey.scratch()?;
     let landed = scratch.origin_main(QUERY_WAIT)?;
