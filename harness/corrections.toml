@@ -98,7 +98,8 @@ pattern = '''\d+x smarter|re-?worked to be|band-?aid'''
 paraphrase = "Tom asked for a deeper fix than the patch proposed."
 owner = "north#525"
 skill = "debugging"
-guard = "Dispatch refuses a restaff of a box whose last attempt failed at the same tier unless the brief names the assumption both attempts shared."
+guard = "Dispatch refuses a restaff of a box whose last attempt failed at the same tier unless the issue body names the assumption both attempts shared in an `Assumption:` line."
+guarded_at = "2026-11-15T20:09:34Z"
 not_structural = "the depth of a fix is a judgement over a patch, and restaff history is in the ledger, not graph facts"
 
 [[class]]

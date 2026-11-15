@@ -270,6 +270,9 @@ pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidenc
     known(&category)?;
     let attempts = history.xhigh_attempts(&issue.reference().to_string());
     let rung = climb.rung.climbed(attempts).unwrap_or(climb.rung);
+    if rung == climb.rung && facets::declared(issue, "Assumption").is_none() {
+        return Err(format!("refuses a restaff of {}: its last attempt failed at {} too, so name the assumption both attempts shared in an `Assumption:` line", climb.session, rung.name()));
+    }
     let why = if rung == climb.rung {
         format!("retries {}'s {} at {} before Opus max", climb.session, climb.why, rung.name())
     } else {
