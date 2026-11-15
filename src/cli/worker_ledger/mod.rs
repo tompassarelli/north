@@ -7,15 +7,42 @@ use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
+use clap::Parser;
+
 use crate::providers::claude::runs::landing::repositories;
 use crate::foundation::exit::TRANSPORT_FAILED_STATUS;
 
 const USAGE: &str = include_str!("usage.txt");
 
-struct Options {
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Flags {
+    #[arg(long, default_value = "")]
     session: String,
+    #[arg(long, default_value = "")]
     since: String,
+    #[arg(long)]
+    summary: bool,
+    #[arg(long, default_value = "category")]
+    by: String,
+    #[arg(long, default_value = "")]
+    recommend: String,
+    #[arg(long)]
     backfill: bool,
+    #[arg(long)]
+    emit: bool,
+    #[arg(long)]
+    eta_calibration: bool,
+    #[arg(long)]
+    landed_issues: Option<String>,
+    #[arg(long, default_value = "")]
+    day: String,
+}
+
+pub(super) struct Options {
+    pub(super) session: String,
+    pub(super) since: String,
+    pub(super) backfill: bool,
 }
 
 /// The ledger's run ids a recording run skips or rereads: every recorded id, and the settled ones with their end.
@@ -28,7 +55,8 @@ struct Ids {
     capacity: String,
 }
 
-enum Mode {
+#[derive(Debug, PartialEq)]
+pub(super) enum Mode {
     Record,
     Emit,
     Summary { by: String },
@@ -37,36 +65,18 @@ enum Mode {
     LandedIssues { account: String, day: String },
 }
 
-fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
-    let (mut session, mut since, mut by) = (String::new(), String::new(), "category".to_owned());
-    let (mut summary, mut backfill, mut facets, mut emit, mut eta) = (false, false, String::new(), false, false);
-    let (mut landed, mut day) = (None, String::new());
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--session" => session = words.next()?.clone(),
-            "--since" => since = words.next()?.clone(),
-            "--summary" => summary = true,
-            "--by" => by = words.next()?.clone(),
-            "--recommend" => facets = words.next()?.clone(),
-            "--backfill" => backfill = true,
-            "--emit" => emit = true,
-            "--eta-calibration" => eta = true,
-            "--landed-issues" => landed = Some(words.next()?.clone()),
-            "--day" => day = words.next()?.clone(),
-            _ => return None,
-        }
-    }
-    let mode = if let Some(account) = landed {
+pub(super) fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
+    let Flags { session, since, summary, by, recommend, backfill, emit, eta_calibration, landed_issues, day } = north_foundation::foundation::arguments::parse(arguments).ok()?;
+    let mode = if let Some(account) = landed_issues {
         Mode::LandedIssues { account, day }
     } else if emit {
         Mode::Emit
-    } else if eta {
+    } else if eta_calibration {
         Mode::EtaCalibration
     } else if summary {
         Mode::Summary { by }
-    } else if !facets.is_empty() {
-        Mode::Recommend { facets }
+    } else if !recommend.is_empty() {
+        Mode::Recommend { facets: recommend }
     } else {
         Mode::Record
     };

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+use clap::Parser;
 use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
@@ -12,22 +13,17 @@ use crate::platform::sqlite::{self, Access};
 const USAGE: &str = "usage: north ledger duplicate [--days N] [--json]";
 const DAY_S: i64 = 86_400;
 
-struct Options {
-    days: u32,
-    json: bool,
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+pub(super) struct Options {
+    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+    pub(super) days: u32,
+    #[arg(long)]
+    pub(super) json: bool,
 }
 
-fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { days: 1, json: false };
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--days" => options.days = words.next()?.parse().ok().filter(|days| *days > 0)?,
-            "--json" => options.json = true,
-            _ => return None,
-        }
-    }
-    Some(options)
+pub(super) fn parse(arguments: &[String]) -> Option<Options> {
+    north_foundation::foundation::arguments::parse(arguments).ok()
 }
 
 /// The duplicate starts of each day from `since` on, keyed by day: a worker run counts once for each day it

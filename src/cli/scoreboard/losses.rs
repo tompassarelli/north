@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
+use clap::Parser;
 use north_github_mirror::store::Mirror;
 use rusqlite::{Connection, params};
 
@@ -9,28 +10,32 @@ use crate::foundation::clock::Timestamp;
 use crate::threads::attribution::{Basis, Cause};
 
 const USAGE: &str = "usage: north dash losses [--since 24h] [--until DATE] [--repo north]";
-const DEFAULT_SINCE: i64 = 86_400;
 
-struct Request {
-    since_s: i64,
-    until: Option<i64>,
+pub(crate) struct Request {
+    pub(crate) since_s: i64,
+    pub(crate) until: Option<i64>,
+    pub(crate) repo: String,
+}
+
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Flags {
+    #[arg(long, default_value = "24h")]
+    since: String,
+    #[arg(long)]
+    until: Option<String>,
+    #[arg(long, default_value = "north")]
     repo: String,
 }
 
 impl Request {
-    fn parse(arguments: &[String]) -> Option<Self> {
-        let mut request = Self { since_s: DEFAULT_SINCE, until: None, repo: "north".to_owned() };
-        let mut words = arguments.iter();
-        while let Some(flag) = words.next() {
-            let value = words.next()?;
-            match flag.as_str() {
-                "--since" => request.since_s = span_seconds(value)?,
-                "--until" => request.until = Some(Timestamp::parse(value).ok()?.unix_seconds()),
-                "--repo" => request.repo = value.clone(),
-                _ => return None,
-            }
-        }
-        Some(request)
+    pub(crate) fn parse(arguments: &[String]) -> Option<Self> {
+        let Flags { since, until, repo } = north_foundation::foundation::arguments::parse(arguments).ok()?;
+        let until = match until {
+            Some(text) => Some(Timestamp::parse(&text).ok()?.unix_seconds()),
+            None => None,
+        };
+        Some(Self { since_s: span_seconds(&since)?, until, repo })
     }
 
     fn window(&self, now: i64) -> (i64, i64) {

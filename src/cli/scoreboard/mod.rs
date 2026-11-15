@@ -18,7 +18,7 @@ mod chain;
 pub(super) mod graded;
 mod landing;
 mod lanes;
-mod losses;
+pub(super) mod losses;
 mod product;
 pub(super) mod ready;
 mod tom;
