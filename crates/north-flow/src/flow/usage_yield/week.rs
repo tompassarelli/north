@@ -18,11 +18,27 @@ pub(super) struct Week {
 }
 
 impl Week {
-    /// The percent used by `at`: the highest readout at or before it, so a lower readout from another source never counts as a drop and a refill.
+    /// The window's readouts up to `at` as the peaks of the segments that a readout of 0 ended and the highest readout of the open segment, so a lower readout from another source never counts as a drop and a refill.
+    fn tally(&self, at: i64) -> Option<(f64, f64)> {
+        let mut ended = 0.0;
+        let mut open: Option<f64> = None;
+        for (_, used) in self.readings.iter().take_while(|(time, _)| *time <= at) {
+            open = Some(match open {
+                Some(most) if *used <= 0.0 && most > 0.0 => {
+                    ended += most;
+                    *used
+                }
+                Some(most) => most.max(*used),
+                None => *used,
+            });
+        }
+        open.map(|open| (ended, open))
+    }
+
+    /// The percent used by `at`: the peaks of the ended segments plus the open segment's peak.
     fn used_by(&self, at: i64) -> f64 {
-        let held = self.readings.iter().take_while(|(time, _)| *time <= at).map(|(_, used)| *used).fold(None, |most: Option<f64>, used| Some(most.map_or(used, |most| most.max(used))));
-        match (held, self.readings.first()) {
-            (Some(used), _) => used,
+        match (self.tally(at), self.readings.first()) {
+            (Some((ended, open)), _) => ended + open,
             (None, Some(_)) if at < self.resets - WEEK_S => 0.0,
             (None, Some((_, first))) => *first,
             (None, None) => 0.0,
@@ -34,9 +50,10 @@ impl Week {
         (self.used_by(end - 1) - self.used_by(start - 1)).max(0.0)
     }
 
-    /// The percent left when the window reset.
+    /// The percent left when the window reset: an early reset gave the window a fresh allowance, so only the open segment counts.
     pub fn unspent(&self) -> f64 {
-        (FULL - self.used_by(self.resets)).max(0.0)
+        let open = self.tally(self.resets).map_or_else(|| self.used_by(self.resets), |(_, open)| open);
+        (FULL - open).max(0.0)
     }
 }
 
@@ -52,4 +69,15 @@ pub(super) fn load(db: &Connection, since: i64) -> rusqlite::Result<Vec<Week>> {
         weeks.entry((account.unwrap_or_default(), resets)).or_insert_with(|| Week { resets, readings: Vec::new() }).readings.push((at, used));
     }
     Ok(weeks.into_values().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WEEK_S, Week};
+
+    #[test]
+    fn usage_yield_counts_spend_across_an_early_reset() {
+        let week = Week { resets: WEEK_S, readings: vec![(1_000, 0.0), (2_000, 10.0), (3_000, 20.0), (4_000, 0.0), (5_000, 5.0), (6_000, 15.0)] };
+        assert_eq!(week.spent(0, 10_000), 35.0);
+    }
 }
