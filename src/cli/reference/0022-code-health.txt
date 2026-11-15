@@ -1,1 +1,2 @@
   code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
+  code-health domains [--repo DIR] [--rev REV]  Exit 1 for each crate whose top-level modules span more unrelated domains than structure.toml [domains] allows, unless a [[domains.allow]] entry names it

@@ -4,6 +4,7 @@ mod change_cost;
 mod check;
 mod comments;
 mod cli;
+mod domains;
 #[cfg(test)]
 mod cli_tests;
 mod config;
@@ -43,6 +44,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some("habits") => habits_command(&arguments[1..]),
         Some("crate-lines") => crate_lines::run(&arguments[1..]),
         Some("layers") => layers::run(&arguments[1..]),
+        Some("domains") => domains::run(&arguments[1..]),
         Some("over-budget") => over_budget::run(&arguments[1..]),
         None => crate_lines::run(&[]),
         _ => cli::run(arguments),

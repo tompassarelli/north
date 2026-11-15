@@ -23,6 +23,7 @@ pub(super) const USAGE: &str = "usage: north code-health <command> [--repo DIR] 
   implicit-state           every implicit-state finding in REV's tree, counted by shape, and each stale allow
   crate-lines [BASE HEAD]  workspace crate line caps (the default with no command)
   layers BASE HEAD         module and crate DAG breaches between two commits
+  domains [--repo DIR] [--rev REV]  crates whose top-level modules span more unrelated domains than structure.toml [domains] allows
   build-time ...           see north code-health build-time --help";
 
 #[derive(Default)]

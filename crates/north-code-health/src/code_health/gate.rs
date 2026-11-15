@@ -165,6 +165,9 @@ pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_
     if changed.is_empty() {
         return Ok(GateResult { violations: v, warnings: Vec::new(), metrics: Vec::new(), warning: None });
     }
+    let structure = super::config::structure_of(&hs).unwrap_or_default();
+    let changed_paths: Vec<String> = changed.iter().map(|c| c.path.clone()).collect();
+    v.extend(super::domains::refusals(&mut hs, &structure, &changed_paths)?.iter().map(|(path, text)| Violation::new(super::domains::RULE, path, text.clone())));
     let head_files: Vec<SourceText> = super::report::texts(&mut hs, &changed.iter().map(|c| c.path.clone()).collect::<Vec<_>>())?;
     let based: Vec<&Change> = changed.iter().filter(|c| c.base.as_ref().is_some_and(|b| bs.has(b))).collect();
     let base_paths: Vec<String> = based.iter().filter_map(|c| c.base.clone()).collect();

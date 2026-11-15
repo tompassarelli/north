@@ -27,6 +27,7 @@ Commands:
   main-red RUN_ID                               Confirm a failed main CI run once, then ask the lander to revert its culprit (GH_REPO names the repository)
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
+  code-health domains [--repo DIR] [--rev REV]  Exit 1 for each crate whose top-level modules span more unrelated domains than structure.toml [domains] allows, unless a [[domains.allow]] entry names it
   code-health report [--repo DIR] [--config FILE] [--rev REV] [--json]  Report the full structure.toml debt
   code-health gate [--repo DIR] [--config FILE] [--rev REV] [--json]  Report the structure.toml debt new between two commits
   code-health check [--repo DIR] [--config FILE] [--rev REV] [--json]  Measure one dirty file against structure.toml

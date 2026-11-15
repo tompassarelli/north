@@ -9,8 +9,8 @@ static INLINE_MOD_TOKEN: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub(in crate::code_health) struct Crate {
-    name: String,
-    dir: String,
+    pub(in crate::code_health) name: String,
+    pub(in crate::code_health) dir: String,
 }
 
 impl Crate {
@@ -36,7 +36,7 @@ impl Crate {
         crates
     }
 
-    fn src(&self) -> String {
+    pub(in crate::code_health) fn src(&self) -> String {
         if self.dir.is_empty() { "src".into() } else { format!("{}/src", self.dir) }
     }
 }

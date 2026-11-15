@@ -1,0 +1,6 @@
+[domains]
+max_islands = 10
+
+[[domains.allow]]
+crate = "north-fleet"
+reason = "14 islands on main (2026-11-15), over the bound of 10; allowed until its split is filed under north#1435"
