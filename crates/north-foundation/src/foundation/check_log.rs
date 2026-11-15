@@ -76,7 +76,7 @@ pub fn failures(log: &str) -> BTreeSet<Failure> {
             }
         } else if let Some(command) = line.strip_prefix(STEP) {
             found.insert(Failure::Step(command.trim().to_owned()));
-        } else if let Some(name) = line.strip_prefix("FAIL [").and_then(|rest| rest.split_once(']')).filter(|(took, _)| took.trim().ends_with('s')).and_then(|(_, rest)| rest.split_whitespace().last()) {
+        } else if let Some(name) = line.strip_prefix("FAIL [").or_else(|| line.strip_prefix("TIMEOUT [")).and_then(|rest| rest.split_once(']')).filter(|(took, _)| took.trim().ends_with('s')).and_then(|(_, rest)| rest.split_whitespace().last()) {
             found.insert(Failure::Cargo(name.to_owned()));
         } else if let Some(text) = line.strip_prefix("FAIL ").or_else(|| line.strip_prefix("FAIL: ")) {
             found.insert(Failure::Line(text.trim().to_owned()));
