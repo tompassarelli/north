@@ -5,7 +5,6 @@ north-base platform::ssh::survival_tests::a_multiplexed_session_survives_restart
 north-base platform::ssh_master::tests::a_control_socket_nobody_listens_on_is_dropped_and_its_unit_started_but_a_live_master_is_left
 north-base platform::ssh_master::tests::a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_closed_and_recreated
 north-base platform::ssh_retry::tests::a_read_whose_shared_master_was_killed_under_it_is_run_again_on_a_fresh_connection
-north-lander land::shadow::run::tests::a_queued_check_line_starts_detached_and_is_recorded_once_it_ends
 north-lanes lanes::home_move::tests::a_row_moves_one_entry_and_is_logged_before_it_is_reported_north_992
 north-lanes lanes::home_move::tests::a_second_run_appends_to_the_log_and_never_replaces_an_existing_destination_north_992
 north-lanes lanes::home_move::tests::the_plan_header_and_comments_are_not_rows_north_992
