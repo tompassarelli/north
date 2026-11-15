@@ -125,7 +125,7 @@ fn a_removed_tool_needs_a_replacement_in_the_peer_or_a_removes_tool_trailer_and_
 
 fn test_integrity_fixture() -> (Fixture, String) {
     let fixture = Fixture::new();
-    write(&fixture.repo.join("retry.test.ts"), "");
+    write(&fixture.repo.join("retry.test.ts"), "expect(retry()).toBe(2)\n");
     fixture.git(&["add", "retry.test.ts"]);
     fixture.git(&["commit", "-qm", "existing retry test file"]);
     publish_main(&fixture);
@@ -134,7 +134,7 @@ fn test_integrity_fixture() -> (Fixture, String) {
 }
 
 #[test]
-fn a_mutation_marker_and_a_skipped_test_are_refused_unless_a_test_change_trailer_names_the_requirement() {
+fn a_mutation_marker_a_skipped_test_and_a_lost_assertion_are_refused_unless_a_test_change_trailer_names_the_requirement() {
     let (fixture, base) = test_integrity_fixture();
     let before = fixture.remote_state();
     write(&fixture.repo.join("product.py"), &format!("answer = 41  # {MUTANT_MARKER}\n"));
@@ -152,6 +152,26 @@ fn a_mutation_marker_and_a_skipped_test_are_refused_unless_a_test_change_trailer
         commit_with(&fixture, &messages);
         let ran = fixture.run(&["--dry-run"]);
         if trailer.is_some() { ran.expect(true, &[]) } else { ran.would_refuse("test integrity", &["adds a skip or focus"]) }
+    }
+    {
+        reset(&fixture, &base);
+        fixture.git(&["rm", "-q", "retry.test.ts"]);
+        commit_with(&fixture, &["delete the retry test"]);
+        fixture.run(&["--dry-run"]).expect(true, &[]);
+    }
+    for trailer in [None, Some("Test-change: the retry rule was removed")] {
+        reset(&fixture, &base);
+        write(&fixture.repo.join("retry.test.ts"), "retry()\n");
+        fixture.git(&["add", "retry.test.ts"]);
+        let mut messages = vec!["weaken the retry test"];
+        messages.extend(trailer);
+        commit_with(&fixture, &messages);
+        let ran = fixture.run(&["--dry-run"]);
+        if trailer.is_some() {
+            ran.expect(true, &[])
+        } else {
+            ran.would_refuse("test integrity", &["removes 1 assertion and adds 0", "expect(retry()).toBe(2)"])
+        }
     }
 }
 

@@ -24,6 +24,33 @@ static TREE_PATH: LazyLock<Regex> = LazyLock::new(|| {
 static TEST_CHANGE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^Test-change:[[:space:]]*[^[:space:]]").expect("trailer pattern")
 });
+static ASSERTION: LazyLock<BytesRegex> = LazyLock::new(|| {
+    BytesRegex::new(r"(^|[^[:alnum:]_])(debug_|prop_)?assert(_eq|_ne|_matches)?[!(]|(^|[^.[:alnum:]_])expect[[:space:]]*\(")
+        .expect("assertion pattern")
+});
+
+#[derive(Default)]
+struct Losses {
+    path: Vec<u8>,
+    removed: usize,
+    added: usize,
+    sample: Vec<u8>,
+}
+
+/// Refuses a file whose diff takes away more assertion lines than it adds, which is the reviewer finding of a test that asserts less than the one it replaced (north#1610): a lane that means it names the changed requirement in a `Test-change:` trailer.
+fn assertion_loss(out: &mut impl Write, losses: &Losses, declared: bool) -> bool {
+    if declared || losses.removed <= losses.added || losses.path.is_empty() {
+        return false;
+    }
+    let noun = if losses.removed == 1 { "assertion" } else { "assertions" };
+    let mut text = "safe-push: ✗ ".as_bytes().to_vec();
+    text.extend_from_slice(&losses.path);
+    text.extend_from_slice(format!(" removes {} {} and adds {}: ", losses.removed, noun, losses.added).as_bytes());
+    text.extend_from_slice(&losses.sample);
+    text.extend_from_slice(" — keep what the test asserted, or name the changed requirement in a Test-change: trailer.\n".as_bytes());
+    let _ = out.write_all(&text);
+    true
+}
 
 fn declared(directory: &Path, base: &str, path: &str, key: &str) -> Option<String> {
     let json = git::bytes(directory, &["show", &format!("{base}:{path}")])?;
@@ -115,6 +142,7 @@ fn judge(
     let (mut header, mut vendored, mut bad) = (false, false, false);
     let mut path: &[u8] = b"";
     let mut new_line = None;
+    let mut losses = Losses::default();
     let mut guest = GuestFiles {
         directory,
         head,
@@ -122,12 +150,17 @@ fn judge(
     };
     for line in diff.split(|byte| *byte == b'\n') {
         if line.starts_with(b"diff --git ") {
+            bad |= assertion_loss(out, &losses, skip_allowed);
+            losses = Losses::default();
             header = true;
             new_line = None;
             continue;
         }
         if header && line.starts_with(b"+++ ") {
             path = line.get(6..).unwrap_or_default();
+            if line.starts_with(b"+++ b/") {
+                losses.path = path.to_vec();
+            }
             header = false;
             vendored = in_vendored(path, trees);
             continue;
@@ -146,6 +179,9 @@ fn judge(
             Some(b'+') => {
                 new_line = Some(number + 1);
                 let added = line.get(1..).unwrap_or_default();
+                if ASSERTION.is_match(added) {
+                    losses.added += 1;
+                }
                 if MUTANT_MARKER.is_match(line) {
                     refusal(
                         out,
@@ -185,9 +221,19 @@ fn judge(
                 }
             }
             Some(b' ') => new_line = Some(number + 1),
+            Some(b'-') => {
+                let removed = line.get(1..).unwrap_or_default();
+                if ASSERTION.is_match(removed) {
+                    losses.removed += 1;
+                    if losses.sample.is_empty() {
+                        losses.sample = removed.to_vec();
+                    }
+                }
+            }
             _ => {}
         }
     }
+    bad |= assertion_loss(out, &losses, skip_allowed);
     bad
 }
 
