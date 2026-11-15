@@ -26,6 +26,9 @@ fn root() -> &'static Path {
 }
 
 fn found_in(path: &str, text: &str, pattern: &Regex) -> Vec<String> {
+    if !pattern.is_match(text) {
+        return Vec::new();
+    }
     let quoted = |line: &str, at: usize| line[..at].contains('"');
     text.lines().enumerate().filter_map(|(number, line)| pattern.find(line).filter(|hit| !quoted(line, hit.start())).map(|hit| format!("{path}:{} {}", number + 1, hit.as_str()))).collect()
 }
@@ -66,18 +69,14 @@ fn test_text(path: &str) -> String {
     if TEST_PATH.is_match(path) { text } else { inline_test_modules(&text) }
 }
 
-fn found_in_tests(paths: &[String], pattern: &Regex) -> Vec<String> {
-    paths.iter().flat_map(|path| found_in(path, &test_text(path), pattern)).collect()
+fn found_in_tests<'a>(tests: impl IntoIterator<Item = &'a (String, String)>, pattern: &Regex) -> Vec<String> {
+    tests.into_iter().flat_map(|(path, text)| found_in(path, text, pattern)).collect()
 }
 
-fn sub_second_budgets(path: &str, text: &str) -> Vec<String> {
-    let clock = Regex::new(INJECTED_CLOCK).unwrap();
-    let unclocked: String = text.lines().map(|line| if clock.is_match(line) { "" } else { line }).collect::<Vec<_>>().join("\n");
-    found_in(path, &unclocked, &Regex::new(SUB_SECOND_BUDGET).unwrap())
-}
-
-fn found_sub_second(paths: &[String]) -> Vec<String> {
-    paths.iter().flat_map(|path| sub_second_budgets(path, &test_text(path))).collect()
+fn found_sub_second<'a>(tests: impl IntoIterator<Item = &'a (String, String)>) -> Vec<String> {
+    let (clock, budget) = (Regex::new(INJECTED_CLOCK).unwrap(), Regex::new(SUB_SECOND_BUDGET).unwrap());
+    let unclocked = |text: &str| text.lines().map(|line| if clock.is_match(line) { "" } else { line }).collect::<Vec<_>>().join("\n");
+    tests.into_iter().filter(|(_, text)| budget.is_match(text)).flat_map(|(path, text)| found_in(path, &unclocked(text), &budget)).collect()
 }
 
 fn duration_threshold() -> Regex {
@@ -89,15 +88,15 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let rust = rust_files();
     assert!(rust.len() > 100, "listed {} Rust files", rust.len());
     let test_code = Regex::new(TEST_CODE).unwrap();
-    let tests: Vec<String> = rust.iter().filter(|path| !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE).cloned().collect();
-    let inline = tests.iter().filter(|path| !test_code.is_match(path) && !test_text(path).trim().is_empty()).count();
+    let tests: Vec<(String, String)> = rust.iter().filter(|path| !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE).map(|path| (path.clone(), test_text(path))).collect();
+    let inline = tests.iter().filter(|(path, text)| !test_code.is_match(path) && !text.trim().is_empty()).count();
     assert!(inline > 20, "only {inline} files with an inline test module were scanned");
     let timed_tests = found_in_tests(&tests, &Regex::new(TEST_TIMING).unwrap());
     assert!(timed_tests.is_empty(), "test code reads the wall clock or the host's load; wait on the event through north_base::platform::wait or inject the clock:\n{}", timed_tests.join("\n"));
-    let judged: Vec<String> = tests.iter().filter(|path| path.as_str() != REAL_BUDGETS.0).cloned().collect();
-    let thresholds = found_in_tests(&judged, &duration_threshold());
+    let judged = tests.iter().filter(|(path, _)| path.as_str() != REAL_BUDGETS.0);
+    let thresholds = found_in_tests(judged, &duration_threshold());
     assert!(thresholds.is_empty(), "a test compares a measured duration to a threshold, so it passes or fails on host load; decide by events through an injected clock or sampler:\n{}", thresholds.join("\n"));
-    let budgeted: Vec<String> = tests.iter().filter(|path| !SUB_SECOND_BUDGET_TESTS.iter().any(|(allowed, _)| path.as_str() == *allowed)).cloned().collect();
-    let budgets = found_sub_second(&budgeted);
+    let budgeted = tests.iter().filter(|(path, _)| !SUB_SECOND_BUDGET_TESTS.iter().any(|(allowed, _)| path.as_str() == *allowed));
+    let budgets = found_sub_second(budgeted);
     assert!(budgets.is_empty(), "a test hands the code under test a sub-second wall-clock budget, so it passes or fails on host load; decide by events through an injected clock or raise the budget:\n{}", budgets.join("\n"));
 }
