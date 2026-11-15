@@ -1,0 +1,3 @@
+# libfaketime shifts CLOCK_MONOTONIC and stat mtimes but not utimensat unless told, which hangs timed waits and double-shifts set_modified
+[target.x86_64-unknown-linux-gnu]
+runner = ["env", "FAKE_UTIME=1", "FAKETIME_DONT_FAKE_MONOTONIC=1", "faketime", "--disable-shm", "+400 days"]
