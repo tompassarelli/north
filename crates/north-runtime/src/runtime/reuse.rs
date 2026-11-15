@@ -1,3 +1,4 @@
+use clap::Parser;
 use north_runtime_records::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS, install};
 use crate::platform::process;
@@ -15,17 +16,21 @@ const TOOLCHAIN: &str = "rust-toolchain.toml";
 const LOCK: &str = "Cargo.lock";
 const LOCKED: [&str; 4] = ["name", "version", "source", "checksum"];
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct CoverFlags {
+    #[arg(long, allow_hyphen_values = true, default_value = "HEAD")]
+    head: String,
+    #[arg(long, allow_hyphen_values = true)]
+    from: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    code: Vec<String>,
+}
+
 pub(super) fn covers_command(layout: &Layout, flags: &[String]) -> Option<Result<(), Failure>> {
-    let (mut head, mut from, mut code) = ("HEAD", None, Vec::new());
-    let mut rest = flags.iter();
-    while let Some(flag) = rest.next() {
-        match (flag.as_str(), rest.next()) {
-            ("--head", Some(value)) => head = value.as_str(),
-            ("--from", Some(value)) => from = Some(value.as_str()),
-            ("--code", Some(value)) => code.extend(value.split(',').filter(|path| !path.is_empty()).map(str::to_owned)),
-            _ => return None,
-        }
-    }
+    let CoverFlags { head, from, code } = CoverFlags::try_parse_from(flags).ok()?;
+    let code: Vec<String> = code.iter().flat_map(|value| value.split(',')).filter(|path| !path.is_empty()).map(str::to_owned).collect();
+    let (head, from) = (head.as_str(), from.as_deref());
     let checkout = Path::new(".");
     Some(match from {
         Some(from) if code_unchanged(checkout, from, head, &code) => Ok(()),

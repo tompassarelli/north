@@ -24,6 +24,7 @@ north-landing = { path = "../north-landing" }
 regex.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
+clap.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
