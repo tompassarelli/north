@@ -144,6 +144,7 @@ pub struct Watch {
     /// The queue whose journaled runs this watch holds, empty until it resumes or follows one.
     queue: PathBuf,
     handed_off_looked: Option<Instant>,
+    draining: bool,
 }
 
 impl Drop for Watch {
@@ -259,6 +260,14 @@ impl Watch {
         self.running.push(Running { batch, run, host, cancel });
     }
 
+    pub fn drain(&mut self) {
+        self.draining = true;
+    }
+
+    pub fn runs_in_flight(&self) -> usize {
+        self.running.len() + self.searching.len() + self.waiting.len() + self.buck2.len()
+    }
+
     pub fn journaled(&self) -> usize {
         self.running.len() + self.searching.len() + self.waiting.len() + self.pending.batches.len()
     }
@@ -343,7 +352,7 @@ impl Watch {
     }
 
     fn start_next(&mut self, lander: &Lander) {
-        if self.pending.batches.is_empty() {
+        if self.pending.batches.is_empty() || self.draining {
             return;
         }
         let limit = after_runs(lander);

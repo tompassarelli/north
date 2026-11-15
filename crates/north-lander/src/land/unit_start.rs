@@ -30,6 +30,10 @@ fn cannot_start(start: &Start) -> bool {
     start.restarts >= FAILED_STARTS && start.result != "success" && matches!(start.state.as_str(), "activating" | "failed")
 }
 
+fn timed_out(unit: &str, restarts: u32, cause: &str) -> String {
+    format!("north land: {unit} was stopped {restarts} times by its stop timeout while an after-landing run or a round was in flight, and systemd killed it; it restarts on its own, so this is a stop that timed out during a run, not a failure to start: {cause}")
+}
+
 fn message(unit: &str, restarts: u32, cause: &str) -> String {
     format!("north land: {unit} has failed to start {restarts} times and is not serving its queue, so nothing lands there: {cause}")
 }
@@ -75,7 +79,8 @@ pub fn page(home: &Path, units: &[String]) {
         };
         let start = parse(&text);
         let Some(began) = episode(home, unit, cannot_start(&start), SystemTime::now()) else { continue };
-        let (key, text) = (format!("lander-unit-start:{unit}:{began}"), message(unit, start.restarts, &cause(unit)));
+        let (key, cause) = (format!("lander-unit-start:{unit}:{began}"), cause(unit));
+        let text = if start.result == "timeout" { timed_out(unit, start.restarts, &cause) } else { message(unit, start.restarts, &cause) };
         let told = [COORDINATOR, OWNER].map(|session| send_condition(session, &key, false, &text));
         if told.contains(&false) {
             println!("north land: the page about {unit} failing to start reached only part of its targets");

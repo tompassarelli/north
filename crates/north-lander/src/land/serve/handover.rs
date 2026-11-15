@@ -3,9 +3,7 @@ use std::time::Duration;
 use super::{Lander, Watch};
 use crate::land::heartbeat::Step;
 
-/// The longest the lander waits for a landing already on its way to main after
-/// the runtime changed. A check or a build in flight is not waited for: the
-/// restarted lander reruns it on the new runtime.
+/// The longest the lander waits for a landing already on its way to main after the runtime changed; an after-landing run, a culprit search and a Buck2 run in flight are waited for until they end, each by its own limit.
 pub(super) const BOUND: Duration = Duration::from_secs(30);
 
 pub(super) fn landing(step: Step) -> bool {

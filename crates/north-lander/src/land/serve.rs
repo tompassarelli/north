@@ -174,7 +174,10 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
             shown_map = Some(note);
         }
         if retire.load(Ordering::Relaxed) {
-            return handover::hand_over(lander, &watch);
+            if watch.runs_in_flight() == 0 {
+                return handover::hand_over(lander, &watch);
+            }
+            watch.drain();
         }
         let round = Serve::new(lander).round(&mut watch);
         lander.heartbeat.enter(Step::Watchdog);
@@ -316,14 +319,12 @@ fn serve_forever(options: &Options) -> u8 {
         if let Some(next) = runtime.replaced() {
             retire.store(true, Ordering::Relaxed);
             handover::announce(&next);
-            let landing: Vec<PathBuf> = running.iter().filter(|(_, serving)| handover::landing(serving.lander.heartbeat.current().0)).map(|(repo, _)| repo.clone()).collect();
             let deadline = Instant::now() + handover::BOUND;
-            loop {
-                let now = Instant::now();
-                if now >= deadline || !landing.iter().any(|repo| running.get(repo).is_some_and(|serving| !serving.handle.is_finished())) {
+            while let Some(held) = running.values().find(|serving| !serving.handle.is_finished()) {
+                if Instant::now() >= deadline && handover::landing(held.lander.heartbeat.current().0) {
                     break;
                 }
-                std::thread::sleep(TICK.min(deadline - now));
+                std::thread::sleep(TICK);
             }
             return 0;
         }
