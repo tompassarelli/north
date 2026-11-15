@@ -228,16 +228,27 @@ pub fn runtime_since() -> Option<u64> {
     changed.duration_since(std::time::UNIX_EPOCH).ok().map(|since| since.as_secs())
 }
 
-/// The entries a fill of `kind` retires, those of the kind whose fingerprint is not `fingerprint` and those of any kind started before the runtime went live at `runtime_since`, and how many spares it starts: up to [`PER_KIND`] of the kind and [`PER_HOST`] in all, and none while the host is under the memory floor: a spare waits idle, so a loaded host still keeps them. Spares of other kinds left from an earlier runtime held the host's whole room, so fills after each promotion started none (north#1531).
-pub fn wanted(pool: &Pool, kind: &str, fingerprint: &str, runtime_since: Option<u64>) -> (Vec<String>, usize) {
+/// The entries a fill of `kind` retires, those of the kind whose fingerprint is not `fingerprint` and those of any kind started before the runtime went live at `runtime_since`, and how many spares it starts: up to [`PER_KIND`] of the kind and [`PER_HOST`] in all, and none while the host is under the memory floor: a spare waits idle, so a loaded host still keeps them. Spares of other kinds left from an earlier runtime held the host's whole room, so fills after each promotion started none (north#1531). With `make_room`, the fill a launch of `kind` starts also retires the oldest spares of other kinds until its kind has room: the refresh after each promotion gave the host's whole room to the first two kinds it filled, so every other kind's launch found no spare (north#1531).
+pub fn wanted(pool: &Pool, kind: &str, fingerprint: &str, runtime_since: Option<u64>, make_room: bool) -> (Vec<String>, usize) {
     let of_kind = |entry: &String| entry.starts_with(&format!("{kind}-"));
     let current = |entry: &&String| entry.starts_with(&format!("{kind}-{fingerprint}-"));
     let outdated = |at: u64| runtime_since.is_some_and(|since| at < since);
-    let stale: Vec<String> = pool.entries.iter().zip(&pool.started_s).filter(|(entry, at)| (of_kind(entry) && !current(entry)) || outdated(**at)).map(|(entry, _)| entry.clone()).collect();
-    let held = pool.entries.len() - stale.len();
+    let mut stale: Vec<String> = pool.entries.iter().zip(&pool.started_s).filter(|(entry, at)| (of_kind(entry) && !current(entry)) || outdated(**at)).map(|(entry, _)| entry.clone()).collect();
+    let wanted = PER_KIND.saturating_sub(pool.entries.iter().filter(current).count());
     let busy = pool.memory_kb < MEMORY_FLOOR_KB;
-    let room = PER_KIND.saturating_sub(pool.entries.iter().filter(current).count()).min(PER_HOST.saturating_sub(held));
+    if make_room && !busy {
+        let short = wanted.saturating_sub(PER_HOST.saturating_sub(pool.entries.len() - stale.len()));
+        stale.extend(oldest_of_other_kinds(pool, kind, &stale, short));
+    }
+    let room = wanted.min(PER_HOST.saturating_sub(pool.entries.len() - stale.len()));
     (stale, if busy { 0 } else { room })
+}
+
+/// The `count` oldest spares in `pool` of kinds other than `kind` that `stale` does not already retire.
+fn oldest_of_other_kinds(pool: &Pool, kind: &str, stale: &[String], count: usize) -> Vec<String> {
+    let mut others: Vec<(&String, u64)> = pool.entries.iter().zip(pool.started_s.iter().copied()).filter(|(entry, _)| !entry.starts_with(&format!("{kind}-")) && !stale.contains(entry)).collect();
+    others.sort_by_key(|(_, at)| *at);
+    others.into_iter().take(count).map(|(entry, _)| entry.clone()).collect()
 }
 
 /// Stops the spares `entries` name; each one's stop removes its entry, held directory and spool.

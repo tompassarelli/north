@@ -353,7 +353,10 @@ async fn a_spare_whose_directory_was_removed_is_retired_by_the_next_survey_and_i
     fs::create_dir_all(&kept).unwrap();
     assert_eq!(pooled(&place), Vec::<String>::new(), "a directory made again under the same name is not the worktree the spare started in");
     let quiet = spares::Pool { memory_kb: u64::MAX, ..spares::survey(&place).unwrap() };
-    assert_eq!(spares::wanted(&quiet, "kind", "fp", None).1, spares::PER_KIND, "the retired spares' slots are free");
+    assert_eq!(spares::wanted(&quiet, "kind", "fp", None, false).1, spares::PER_KIND, "the retired spares' slots are free");
+    let full = spares::Pool { memory_kb: u64::MAX, entries: (0..spares::PER_HOST).map(|n| format!("other{}-fp-spare-{n}", n % 2)).collect(), started_s: (0..spares::PER_HOST as u64).collect() };
+    assert_eq!(spares::wanted(&full, "kind", "fp", None, false), (vec![], 0), "a refresh retires no other kind's spares");
+    assert_eq!(spares::wanted(&full, "kind", "fp", None, true), (full.entries[..spares::PER_KIND].to_vec(), spares::PER_KIND), "a launch's fill retires the oldest spares of other kinds to make room for its own (north#1531)");
     let held = home.join(".local/state/north/held");
     north_base::platform::wait::until_async(WAIT, || holding(&held).is_empty()).await;
     assert_eq!(holding(&held), Vec::<String>::new(), "retiring leaves no process of the spare behind");

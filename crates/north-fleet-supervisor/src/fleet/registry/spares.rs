@@ -59,17 +59,21 @@ impl Fleet {
 
     /// `north spare-fill NAME`: keeps spares for launches like the worker `name` on its build host.
     pub fn fill_spares(&self, name: &str) -> NorthResult<String> {
+        self.fill_named(name, true)
+    }
+
+    fn fill_named(&self, name: &str, make_room: bool) -> NorthResult<String> {
         let record = self.record(name)?;
-        self.fill_for(&LaunchRequest::relaunching(&record), record.effort)
+        self.fill_for(&LaunchRequest::relaunching(&record), record.effort, make_room)
     }
 
     /// `north spare-fill --host HOST -- LAUNCH-WORDS`: keeps spares for the launch `request` before the first launch like it, at the effort that launch would take.
     pub fn fill_spares_ahead(&self, request: &LaunchRequest) -> NorthResult<String> {
         let runtime = self.runtimes.get(&request.provider)?;
-        self.fill_for(request, efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort, &request.name)?)
+        self.fill_for(request, efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort, &request.name)?, true)
     }
 
-    /// `north spare-fill --refresh`: refills, under this runtime, the spares of each kind of worker launched on a build host within [`REFRESH_WINDOW_MS`], from its latest launch. A spare's fingerprint carries the runtime, so each promotion orphaned the whole pool and the next launch of every kind started cold (north#1531).
+    /// `north spare-fill --refresh`: refills, under this runtime, the spares of each kind of worker launched on a build host within [`REFRESH_WINDOW_MS`], from its latest launch, the most recently launched kind first and retiring no other kind's spares, so the host's room goes to the kinds launched last. A spare's fingerprint carries the runtime, so each promotion orphaned the whole pool and the next launch of every kind started cold (north#1531).
     pub fn refresh_spares(&self) -> NorthResult<String> {
         let since = crate::fleet::runtime::now_ms().saturating_sub(REFRESH_WINDOW_MS);
         let mut latest: BTreeMap<String, SessionRecord> = BTreeMap::new();
@@ -81,11 +85,13 @@ impl Fleet {
                 latest.insert(key, record);
             }
         }
-        Ok(latest.values().map(|record| self.fill_spares(&record.name).unwrap_or_else(|error| format!("{}: {}", record.name, error.user_message()))).collect::<Vec<_>>().join("\n"))
+        let mut latest: Vec<SessionRecord> = latest.into_values().collect();
+        latest.sort_by_key(|record| std::cmp::Reverse(record.created_ms));
+        Ok(latest.iter().map(|record| self.fill_named(&record.name, false).unwrap_or_else(|error| format!("{}: {}", record.name, error.user_message()))).collect::<Vec<_>>().join("\n"))
     }
 
     /// Keeps spares for launches like the worker `request` at `effort` on its build host, retiring those whose policy text, settings or runtime are no longer current.
-    fn fill_for(&self, request: &LaunchRequest, effort: Option<Effort>) -> NorthResult<String> {
+    fn fill_for(&self, request: &LaunchRequest, effort: Option<Effort>, make_room: bool) -> NorthResult<String> {
         let machine = request.machine.clone().filter(|_| request.role() == Role::Worker).ok_or_else(|| NorthError::Usage(format!("{} is not a worker on a build host, so no spare serves launches like it", request.name)))?;
         let runtime = self.runtimes.get(&request.provider)?;
         let template = spares::template(request.clone(), spares::spare_name()?);
@@ -103,7 +109,7 @@ impl Fleet {
         let pool = spares::survey(&place).ok_or_else(|| NorthError::State(format!("{} did not answer the spare survey", machine.name)))?;
         let kind = spares::kind(&account.recorded_label(), template.model.as_deref(), effort.map(Effort::label), template.window(), &template.cwd);
         let fingerprint = spares::fingerprint(&self.worker_spec(&template, &account, runtime.as_ref(), effort, &new_uuid()?)?, spares::current_runtime().as_deref());
-        let (stale, start) = spares::wanted(&pool, &kind, &fingerprint, spares::runtime_since());
+        let (stale, start) = spares::wanted(&pool, &kind, &fingerprint, spares::runtime_since(), make_room);
         spares::retire(&place, &stale);
         for retired in &stale {
             let _ = std::fs::remove_file(self.spares_hint(&machine, retired.split('-').nth(1).unwrap_or_default()));
