@@ -65,7 +65,7 @@ impl World for Live {
         let dir = self.var("NORTH_FLEET_DIR").map(PathBuf::from).or_else(|| self.var("HOME").map(|home| PathBuf::from(home).join(".local/state/north/fleet")))?;
         let record: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(COORDINATOR).join("session.json")).ok()?).ok()?;
         let coordinator = match record["role"].as_str() {
-            Some(role) => role == COORDINATOR,
+            Some(role) => north_shared_config::roles::is_coordinator_role(role),
             None => record["parent"].is_null() && record["task_ref"].is_null(),
         };
         let text = |key: &str| record[key].as_str().map(str::to_owned);
@@ -152,7 +152,7 @@ pub fn is_coordinator(world: &impl World, input: &HookInput) -> bool {
         return false;
     }
     if let Some(role) = world.var(ROLE_ENV) {
-        return role == COORDINATOR;
+        return north_shared_config::roles::is_coordinator_role(&role);
     }
     if world.var(SESSION_ENV).is_some() {
         return false;

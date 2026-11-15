@@ -48,7 +48,7 @@ pub fn proved_session_here() -> Option<String> {
 
 /// Whether a session whose launcher gave it `role` runs in the worker domain: every launched role, worker, lead and reviewer, with a task or without one, whose launches, revives, holds and forgets go through its spool to the host's fleet tick (fleet/registry/lead_grant.rs). The exemptions are the coordinator seat and an adopted human window, which no launcher gave a role (north#1485).
 pub fn confined_role(role: Option<&str>) -> bool {
-    role.is_some_and(|role| role != COORDINATOR_ROLE)
+    role.is_some_and(|role| !north_shared_config::roles::is_coordinator_role(role))
 }
 
 /// Whether this process belongs to a fleet session its launcher confined ([`confined_role`]).

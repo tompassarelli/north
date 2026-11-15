@@ -16,6 +16,7 @@ north-github-mirror = { path = "../north-github-mirror" }
 north-graph-ground = { path = "../north-graph-ground" }
 north-graph-loops = { path = "../north-graph-loops" }
 north-base = { path = "../north-base" }
+north-shared-config = { path = "../north-shared-config" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }
 north-pacing = { path = "../north-pacing" }

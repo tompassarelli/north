@@ -75,6 +75,7 @@ impl Surface {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
+    #[serde(alias = "proxy")]
     Coordinator,
     Lead,
     Worker,

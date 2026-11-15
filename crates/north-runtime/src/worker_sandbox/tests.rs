@@ -883,6 +883,7 @@ fn a_lead_with_no_task_is_confined_like_a_tasked_one() {
     assert!(confined_role(Some("worker")), "a worker is confined whether or not it holds a task");
     assert!(confined_role(Some("reviewer")), "a reviewer is confined whether or not it holds a task");
     assert!(!confined_role(Some(COORDINATOR_ROLE)), "the coordinator seat drives windows and units");
+    assert!(!confined_role(Some("proxy")), "the seat's pre-rename role name still drives windows and units");
     assert!(!confined_role(None), "an adopted human window carries no launcher role");
 }
 

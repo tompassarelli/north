@@ -12,6 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use north_trusted_mirror::Mirror;
 
 pub mod regenerated;
+pub mod roles;
 
 /// The longest a host may run on shared configuration after its last successful fetch of south's origin/main.
 pub const BOUND_SECONDS: u64 = 60 * 60;

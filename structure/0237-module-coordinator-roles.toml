@@ -1,0 +1,5 @@
+[[module]]
+name = "coordinator_roles"
+paths = ["crates/north-shared-config/src/roles.rs"]
+responsibility = "Which launcher role names the coordinator seat, including the name it carried before the rename, so confinement and guards read one predicate."
+may_use = []

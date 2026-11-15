@@ -30,7 +30,7 @@ pub fn assign(directory: &Path, issue: &str, held: bool) -> io::Result<()> {
 
 pub fn coordinator(record: &Value) -> bool {
     match record["role"].as_str() {
-        Some(role) => role == COORDINATOR_ROLE,
+        Some(role) => north_shared_config::roles::is_coordinator_role(role),
         None => record["name"].as_str() == Some(COORDINATOR_ROLE) && record["parent"].is_null() && record["task_ref"].is_null(),
     }
 }
