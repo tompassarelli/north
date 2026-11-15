@@ -33,6 +33,10 @@ fn fill_ahead(fleet: &Fleet, host: &str, words: &[String]) -> NorthResult<String
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     let mut request = super::launch::launch_parts(&fleet.providers(), &words, std::env::var(SESSION_ENV).ok(), false)?.request;
     request.machine = Some(machine);
+    if request.account.is_empty() {
+        let placed = super::placement::placed(fleet, &request, &request.prompt, &[], &super::placement::Overrides::default(), false, false)?.map_err(NorthError::from)?;
+        request.account = placed.account.unwrap_or(request.account);
+    }
     fleet.fill_spares_ahead(&request)
 }
 
