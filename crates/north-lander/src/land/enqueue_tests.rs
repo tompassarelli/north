@@ -517,15 +517,15 @@ fn a_hand_in_whose_head_is_already_on_main_is_refused_before_the_queue_naming_it
     assert!(refused.starts_with("nothing to land:") && refused.contains("content.txt, new.txt"), "on 2026-11-12 a hand-in from a lane at an old main commit with its change uncommitted was answered landed with main's head: {refused}");
 }
 
-fn placed_marker(root: &Path, _base: &str, _head: &str, _north: &str, _stop: &Stop) -> Result<(), QueueRefusal> {
+fn placed_marker(root: &Path, _base: &str, _head: &str, _north: &str, _stop: &Stop) -> Result<Vec<String>, QueueRefusal> {
     fs::write(root.parent().unwrap().join("placed"), "").unwrap();
-    Ok(())
+    Ok(Vec::new())
 }
 
-fn placed_until_stopped(root: &Path, _base: &str, _head: &str, _north: &str, stop: &Stop) -> Result<(), QueueRefusal> {
+fn placed_until_stopped(root: &Path, _base: &str, _head: &str, _north: &str, stop: &Stop) -> Result<Vec<String>, QueueRefusal> {
     north_base::platform::wait::until(std::time::Duration::from_secs(3600), || stop.stopped());
     fs::write(root.parent().unwrap().join("stopped"), stop.stopped().to_string()).unwrap();
-    if stop.stopped() { Err(QueueRefusal::Unjudged(STOPPED.to_owned())) } else { Ok(()) }
+    if stop.stopped() { Err(QueueRefusal::Unjudged(STOPPED.to_owned())) } else { Ok(Vec::new()) }
 }
 
 fn static_gates_judge_the_lane_before_its_checks_take_a_build_host_slot_and_a_privacy_refusal_stops_the_checks_already_placed() {
@@ -578,7 +578,7 @@ fn static_gates_judge_the_lane_before_its_checks_take_a_build_host_slot_and_a_pr
     assert!(marks.join("stopped").exists(), "the stopped land check was not signalled");
 }
 
-fn slot_source_stops_the_wait(_root: &Path, _base: &str, _head: &str, _north: &str, stop: &Stop) -> Result<(), QueueRefusal> {
+fn slot_source_stops_the_wait(_root: &Path, _base: &str, _head: &str, _north: &str, stop: &Stop) -> Result<Vec<String>, QueueRefusal> {
     stop.stop();
     Err(QueueRefusal::Unjudged(STOPPED.to_owned()))
 }

@@ -94,7 +94,7 @@ impl Serve<'_> {
         if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }
-        let (fresh, stale) = alone::split(&tickets);
+        let (fresh, stale) = alone::split(&tickets, alone::main_red(&tickets));
         if fresh.is_empty() && (stale.is_empty() || watch.alone.is_some()) {
             return Ok(Flow::Done(pass.progress_or(Round::Idle)));
         }

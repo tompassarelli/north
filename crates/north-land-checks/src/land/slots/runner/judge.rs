@@ -127,6 +127,12 @@ impl Shared {
                 say(&format!("safe-push: land check {command} {BASE_FAILS} {tree}, but this lane adds {} failure(s) the base lacks: {shown}", added.len()));
                 None
             }
+            Attribution::Touches(files) if self.arguments.queueing => {
+                say(&format!("safe-push: land check {command} {BASE_FAILS} {tree}, and this lane changes its own files ({}); the run before queueing accepts it, since main fails it too; log: {log}", files.join(", ")));
+                self.outcome.record(&["event", "land check", "not gating", &format!("{command}: fails the same way on base tree {tree} and changes its own files; log: {log}")]);
+                let _ = fs::remove_file(&ran.log);
+                Some(0)
+            }
             Attribution::Touches(files) => {
                 say(&format!("safe-push: land check {command} {BASE_FAILS} {tree}, but this lane changes its own files ({}), so the failure counts as the lane's", files.join(", ")));
                 None

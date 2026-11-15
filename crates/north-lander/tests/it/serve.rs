@@ -154,6 +154,7 @@ impl Repository {
             gated_from: None,
             hand_in: None,
             queued_micros: Some(micros),
+            failed_on_main: Vec::new(),
             tests_after_landing: false,
         };
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();

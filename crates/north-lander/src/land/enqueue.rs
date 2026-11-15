@@ -286,7 +286,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let seen = Seen { visibility: facts.repository().visibility.clone(), held: None };
         let asked_micros = micros();
         let settled = AtomicBool::new(false);
-        let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent)) = std::thread::scope(|inner| {
+        let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent), failed_on_main) = std::thread::scope(|inner| {
             let judge = inner.spawn(|| {
                 let asked = timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination, seen, &|| !settled.load(Ordering::Acquire)).map(|(gate, ran)| (gate, ran, micros())));
                 if asked.is_err() && gates_first {
@@ -308,20 +308,20 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
                     }
                 };
                 let marks = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
-                checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
+                let failed_on_main = checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
                 if let Some(secrets) = secrets {
                     secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
                 }
-                Ok::<_, String>((gated_from, marks))
+                Ok::<_, String>((gated_from, marks, failed_on_main))
             })();
             if rest.is_err() && gates_first {
                 stop.stop();
             }
             settled.store(true, Ordering::Release);
             let asked = judge.join().map_err(|_| "the private-kind ask panicked".to_owned());
-            let (gated_from, marks) = static_first::settled(rest, asked.as_ref().ok().and_then(|asked| asked.as_ref().err()))?;
+            let (gated_from, marks, failed_on_main) = static_first::settled(rest, asked.as_ref().ok().and_then(|asked| asked.as_ref().err()))?;
             let (gate, ran, answered) = asked??;
-            Ok::<_, String>(((gate, ran, answered), gated_from, marks))
+            Ok::<_, String>(((gate, ran, answered), gated_from, marks, failed_on_main))
         })?;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran, check: environment.session.and_then(|session| super::after::leaf::passed(&FinishRecords::here(), session, &root, &head)) };
         let queued_micros = micros();
@@ -339,6 +339,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             red_fix,
             keep_lane,
             urgent,
+            failed_on_main,
             lander_fix,
             published: published(&root, &branch, &destination),
             gated_from,

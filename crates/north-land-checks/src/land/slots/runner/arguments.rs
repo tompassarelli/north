@@ -44,6 +44,7 @@ pub(super) struct Arguments {
     pub(super) batch: Batch,
     pub(super) accept: Option<String>,
     pub(super) joins: bool,
+    pub(super) queueing: bool,
 }
 
 pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {

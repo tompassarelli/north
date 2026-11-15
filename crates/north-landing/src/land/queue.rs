@@ -63,6 +63,8 @@ pub struct Ticket {
     pub urgent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub urgent_at: Option<u128>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed_on_main: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lander_fix: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

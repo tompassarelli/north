@@ -8,7 +8,7 @@ use super::{Environment, Timings, checkout, default_branch, fetch_base, git, lan
 use crate::land::scans::outgoing::denylist::Denylist;
 use crate::land::slots::runner::{self, QueueRefusal, STOPPED, Stop};
 
-pub type QueueChecks = fn(&Path, &str, &str, &str, &Stop) -> Result<(), QueueRefusal>;
+pub type QueueChecks = fn(&Path, &str, &str, &str, &Stop) -> Result<Vec<String>, QueueRefusal>;
 
 pub(super) fn enabled() -> bool {
     document(DEFAULTS)["static_gates_first"]["value"].as_str() != Some("off")

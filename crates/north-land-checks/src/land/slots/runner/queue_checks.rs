@@ -56,11 +56,12 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str, north: &str) -> 
 }
 
 pub fn judge_queue_checks(root: &Path, base: &str, head: &str, north: &str) -> Result<(), QueueRefusal> {
-    judge_queue_checks_until(root, base, head, north, &Stop::new())
+    judge_queue_checks_until(root, base, head, north, &Stop::new()).map(drop)
 }
 
-pub fn judge_queue_checks_until(root: &Path, base: &str, head: &str, north: &str, stop: &Stop) -> Result<(), QueueRefusal> {
-    judge(root, (base, head), None, (north, stop)).run
+pub fn judge_queue_checks_until(root: &Path, base: &str, head: &str, north: &str, stop: &Stop) -> Result<Vec<String>, QueueRefusal> {
+    let judged = judge(root, (base, head), None, (north, stop));
+    judged.run.map(|()| judged.failed_on_main)
 }
 
 /// What became of a finish call's acceptance command in a run before queueing (north#1036): it passed, its own run
@@ -80,11 +81,13 @@ pub struct Judged {
     pub run: Result<(), QueueRefusal>,
     pub accepted: Accepted,
     pub output: String,
+    /// The checks the lane fails with main failing them too, which the run accepts (north#1631).
+    pub failed_on_main: Vec<String>,
 }
 
 impl Judged {
     fn unjudged(text: String) -> Self {
-        Self { run: Err(QueueRefusal::Unjudged(text)), accepted: Accepted::Unjudged, output: String::new() }
+        Self { run: Err(QueueRefusal::Unjudged(text)), accepted: Accepted::Unjudged, output: String::new(), failed_on_main: Vec::new() }
     }
 
     /// Whether the finish call passes: its acceptance command passed and no check before queueing failed (north#1233).
@@ -136,14 +139,14 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
         commands.push(command.to_owned());
     }
     if commands.is_empty() {
-        return Judged { run: Ok(()), accepted: Accepted::Unjudged, output: String::new() };
+        return Judged { run: Ok(()), accepted: Accepted::Unjudged, output: String::new(), failed_on_main: Vec::new() };
     }
     if !host.is_empty() && (!config.workflow.is_empty() || commands.iter().any(|command| config.local_reason(command).is_some())) {
         return Judged::unjudged(format!("a check before queueing would run on this host rather than on {host}, so the run does not start"));
     }
     say(&format!("safe-push: running {} check(s) before queueing the lane: {}", commands.len(), commands.join("; ")));
     let outcome = tempfile::NamedTempFile::new().ok();
-    let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), one_lane: true, runner_host: host.to_owned(), outcome: outcome.as_ref().map(|file| file.path().to_owned()), ..Arguments::default() };
+    let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), one_lane: true, queueing: true, runner_host: host.to_owned(), outcome: outcome.as_ref().map(|file| file.path().to_owned()), ..Arguments::default() };
     let (status, passed) = match attempts(root, &arguments, (&config, north), &commands, (command, stop)) {
         Ok(ran) => ran,
         Err(text) => return Judged::unjudged(text),
@@ -151,7 +154,14 @@ fn judge(root: &Path, (base, head): (&str, &str), acceptance: Option<(&str, &str
     let (own, others) = command.zip(outcome.as_ref()).map(|(command, outcome)| failed_output(outcome.path(), command)).unwrap_or_default();
     let failing = outcome.as_ref().and_then(|outcome| failing_step(outcome.path(), status));
     let run = if status == 0 { Ok(()) } else { Err(refusal(status, (root, base, head), failing)) };
-    Judged { accepted: accepted(&run, passed, own.is_some()), output: own.unwrap_or(others), run }
+    let failed_on_main = outcome.as_ref().map(|outcome| not_gating(outcome.path())).unwrap_or_default();
+    Judged { accepted: accepted(&run, passed, own.is_some()), output: own.unwrap_or(others), run, failed_on_main }
+}
+
+/// The checks the run accepted because main fails them the same way, as the run's outcome names them.
+fn not_gating(outcome: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(outcome).unwrap_or_default();
+    text.lines().filter_map(|line| line.strip_prefix("event\tland check\tnot gating\t")?.split_once(": ").map(|(command, _)| command.to_owned())).collect()
 }
 
 type Listed = (Config, Vec<String>);

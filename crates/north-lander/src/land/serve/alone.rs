@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::micros;
+use crate::land::after_landing_lifecycle::{self as lifecycle, Main, RedMain};
 use crate::land::alone_flight::{self, Check};
 use crate::land::bisect;
 use crate::land::checks::Verdict;
@@ -9,11 +10,26 @@ use crate::land::queue::{self, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::telemetry::Stages;
 use crate::land::watch::Watch;
+use north_base::platform::push_ledger::repository;
 
 type Lanes = Vec<(PathBuf, Ticket)>;
 
-pub(super) fn split(tickets: &[(PathBuf, Ticket)]) -> (Lanes, Lanes) {
-    tickets.iter().cloned().partition(|(_, ticket)| ticket.red_fix.is_some() || ticket.passed_alone_on().is_some())
+/// Splits the queue into lanes that join a batch without an alone round and lanes that need one. While main is red, an urgent
+/// lane that fails no check main also fails joins the next batch at once; its tests run after it lands (north#1631).
+pub(super) fn split(tickets: &[(PathBuf, Ticket)], main_red: bool) -> (Lanes, Lanes) {
+    tickets.iter().cloned().partition(|(_, ticket)| ticket.red_fix.is_some() || ticket.passed_alone_on().is_some() || (main_red && ticket.urgent.is_some() && ticket.failed_on_main.is_empty()))
+}
+
+pub(super) fn main_red(tickets: &[(PathBuf, Ticket)]) -> bool {
+    let Some((_, ticket)) = tickets.first() else { return false };
+    let store = match lifecycle::host() {
+        Ok(store) => store,
+        Err(error) => {
+            println!("{error}");
+            return false;
+        }
+    };
+    matches!(lifecycle::current::<RedMain>(&store, &repository(&ticket.origin)).map(|record| record.state), Some(Main::Opened | Main::Red))
 }
 
 pub(super) fn start(lander: &Lander, watch: &mut Watch, (path, ticket): (&PathBuf, &Ticket), candidate: &str, base: &str, worktree: &Path) -> Result<bool, String> {
