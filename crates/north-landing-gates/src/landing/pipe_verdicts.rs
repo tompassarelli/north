@@ -34,10 +34,22 @@ pub struct Refused {
 /// Every outcome under the state directory `state`, oldest first.
 pub fn gather(state: &Path) -> Vec<Outcome> {
     let mut outcomes: Vec<Outcome> = fs::read_to_string(state.join(REFUSALS)).unwrap_or_default().lines().filter_map(hand_in).collect();
-    let queues = fs::read_dir(state.join(LAND_QUEUES)).into_iter().flatten().flatten();
-    outcomes.extend(queues.flat_map(|queue| fs::read_to_string(queue.path().join(LANDER_LEDGER)).unwrap_or_default().lines().filter_map(after_landing).collect::<Vec<_>>()));
+    outcomes.extend(ledger_rows(state).iter().filter_map(|row| after_landing(row)));
     outcomes.sort_by(|earlier, later| earlier.at.total_cmp(&later.at));
     outcomes
+}
+
+fn ledger_rows(state: &Path) -> Vec<String> {
+    let queues = fs::read_dir(state.join(LAND_QUEUES)).into_iter().flatten().flatten();
+    queues.flat_map(|queue| fs::read_to_string(queue.path().join(LANDER_LEDGER)).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>()).collect()
+}
+
+/// Whether a lander's after-landing run on a build host read commit `sha` green.
+pub fn green_after_landing(state: &Path, sha: &str) -> bool {
+    ledger_rows(state).iter().any(|row| {
+        let columns: Vec<&str> = row.split('\t').collect();
+        columns.get(3) == Some(&"green") && columns.get(2).is_some_and(|landed| !sha.is_empty() && (landed.starts_with(sha) || sha.starts_with(landed)))
+    })
 }
 
 pub fn hand_in(line: &str) -> Option<Outcome> {

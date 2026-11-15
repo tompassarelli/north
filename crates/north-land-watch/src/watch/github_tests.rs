@@ -27,4 +27,14 @@ fn a_main_run_that_failed_only_in_its_environment_steps_warns_and_does_not_page_
     std::fs::write(records.path().join("buck2-after-landing/e619fbd6fa.unjudged"), "run\t43637764867\nwhy\tits cases and targets only timed out, none failed\n").unwrap();
     let timings = crate::landing::check_timings::Timings::at(records.path().to_owned());
     assert!(timings.buck2_unjudged("e619fbd6fa", 43637764867) && !timings.buck2_unjudged("e619fbd6fa", 1) && !timings.buck2_unjudged("other", 43637764867));
+    let state = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(state.path().join("north/land-queue/q")).unwrap();
+    std::fs::write(state.path().join("north/land-queue/q/lander-post-land.tsv"), "1794000000\tnorth\t577e63c682e6aaaa\tgreen\tpassed\n").unwrap();
+    let hosted = |sha: &str| Run { name: "Cargo".into(), head_branch: "main".into(), event: "push".into(), status: "completed".into(), conclusion: Some("failure".into()), head_sha: sha.into(), ..Run::default() };
+    let alerts = |sha: &str| {
+        let context = WatchContext { now: NOW, state: state.path().to_owned(), repos: vec![RepoFacts { name: "north".into(), runs: vec![hosted(sha)], ..RepoFacts::default() }], ..WatchContext::default() };
+        red_main(&context, &context.repos[0])
+    };
+    assert_eq!((alerts("577e63c682e6aaaa")[0].severity, alerts("577e63c682e6aaaa").len()), (Severity::Warn, 1));
+    assert_eq!(alerts("0123456789ab")[0].severity, Severity::Page);
 }
