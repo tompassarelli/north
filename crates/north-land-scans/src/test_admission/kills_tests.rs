@@ -61,6 +61,25 @@ fn a_probe_judges_the_mutant_kill_on_its_merged_tree_only_when_two_of_its_lanes_
 }
 
 #[test]
+fn the_crossing_count_names_only_the_lane_that_changes_it() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    lane(repo, ".safe-push", "[mutant]\n\tsource = \":(glob)crates/*/src/**/*.rs\"\n");
+    let main = lane(repo, "crates/a/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    let first = lane(repo, "crates/b/src/lib.rs", "pub fn g() -> u8 { 2 }\n");
+    let tested = lane(repo, "crates/a/src/lib.rs", "pub fn f() -> u8 { 3 }\n#[test]\nfn a_test_guards_f() {\n    assert_eq!(f(), 3);\n}\n");
+    let last = lane(repo, "crates/c/src/lib.rs", "pub fn h() -> u8 { 4 }\n");
+    let tips = [first.as_str(), &tested, &last].join(" ");
+    let named: Vec<&str> = [(&main, &first), (&first, &tested), (&tested, &last)]
+        .into_iter()
+        .filter(|(base, head)| judge_each(repo, &format!("{base}..{head}"), &tips, false, |_, _| 1, &mut Vec::new()) == Some(1))
+        .map(|(_, head)| head.as_str())
+        .collect();
+    assert_eq!(named, [tested.as_str()], "on 2026-11-14 the after-landing scan of each lane of the batch landed on 94c5a502df read the whole batch's tips, so the last lane's run judged an earlier lane's test and the lander reverted both (north#1423)");
+}
+
+#[test]
 fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     a_probe_judges_the_mutant_kill_on_its_merged_tree_only_when_two_of_its_lanes_touch_the_same_file();
     let root = tempfile::tempdir().unwrap();
