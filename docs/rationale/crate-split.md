@@ -374,6 +374,13 @@ them here, because the cargo shim runs the build and the tests in their own capa
 | 24 | `land_offload::ship::tests::offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order` (north-offload unit tests) | 0.7 |
 | 25 | `land_offload::ship::tests::a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slot_and_refuses_a_live_daemon_or_an_output_it_cannot_remove` (north-offload unit tests) | 0.6 |
 
+After, for the two north-dispatch rows (box 7b), measured 2026-11-15 at 6938351410 the same way, three runs of each:
+
+- Row 1, the dispatch order test (10.7): deleted by the batch B5 cull (aa2f493f4a, north#1583), so 0.
+- Row 4, the dispatch tier test (4.7): its assertions are unchanged since f4c9c9a4a, and it now finishes in 0.28, 0.36
+  and 0.62 s of wall on one test thread, so under 0.7 CPU-s. The lease figures, 2.49, 2.48 and 4.01 against 2.32, 3.31
+  and 3.28 for the run that filters out every test, cannot resolve it any finer. No code change was needed.
+
 ## Next cuts
 
 Planned 2026-11-05 at ec20479a5 (north#259 box 4). That base already has box 1 (no module outside `ops` names
