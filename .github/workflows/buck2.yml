@@ -32,9 +32,7 @@ jobs:
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         env:
           TMPDIR: /tmp/cases
-        run: |
-          test_path=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v capacity-gate-shims | paste -sd: -)
-          buck2 test -c "north.test_path=$test_path:/usr/local/bin:/usr/bin:/bin" //...
+        run: buck2 test -c "north.test_path=$PATH:/usr/local/bin:/usr/bin:/bin" //...
       - name: Build north for the harness tests
         shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         run: buck2 build //:north --out target/debug/north

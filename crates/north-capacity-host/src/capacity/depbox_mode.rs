@@ -21,11 +21,3 @@ impl Mode {
         }
     }
 }
-
-pub fn in_sandbox(marker: &str, pid_depth: usize) -> bool {
-    !marker.is_empty() && pid_depth > 1
-}
-
-pub fn pid_namespace_depth() -> usize {
-    std::fs::read_to_string("/proc/self/status").ok().and_then(|status| status.lines().find_map(|line| line.strip_prefix("NSpid:").map(|pids| pids.split_whitespace().count()))).unwrap_or(0)
-}

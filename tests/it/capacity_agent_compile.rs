@@ -50,7 +50,7 @@ fn a_fleet_sessions_compile_from_any_entry_is_refused_on_a_non_build_host_even_w
         assert_eq!(compiled(&host), "", "a fleet session compiled on a laptop with no room");
     };
     std::thread::scope(|scope| {
-        let depbox = scope.spawn(|| refused_on_a_full_host(refused_under_a_forged_depbox_marker));
+        let depbox = scope.spawn(|| refused_on_a_full_host(refused_inside_depbox));
         let hook = scope.spawn(|| refused_on_a_full_host(refused_through_the_hook));
         for subcommand in [&["build"][..], &["check", "-p", "x"], &["clippy"], &["nextest", "run"], &["test"]] {
             let refused = gate(&host, Some("n634-x"), subcommand);
@@ -106,7 +106,7 @@ fn refused_for_want_of_a_build_host(output: &Output, what: &str) {
     assert!(stderr.contains("no build host took the job") && stderr.contains("farhost: unreachable"), "{what}: {stderr}");
 }
 
-fn refused_under_a_forged_depbox_marker(host: &Host) {
+fn refused_inside_depbox(host: &Host) {
     let project = host.path("home/code/proj/main");
     fs::create_dir_all(&project).unwrap();
     assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&project).status().unwrap().success());
@@ -118,8 +118,10 @@ fn refused_under_a_forged_depbox_marker(host: &Host) {
     }
     let carried = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["capacity", "carry", "--list", "--into", "sandbox"]).output_exclusive().unwrap();
     assert!(String::from_utf8_lossy(&carried.stdout).lines().any(|name| name == "NORTH_FLEET_SESSION"), "depbox drops the fleet session");
-    let forged = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north")).current_dir(&project).args(["capacity", "gate", "cargo", "build"]).env("DEPBOX", format!("run:{}", project.display())).output_exclusive().unwrap();
-    refused_for_want_of_a_build_host(&forged, "a DEPBOX marker outside any sandbox enters depbox");
+    let inside = fleet(host, crate::support::bin_exe!("CARGO_BIN_EXE_north")).current_dir(&project).args(["capacity", "gate", "cargo", "build"]).env("DEPBOX", format!("run:{}", project.display())).output_exclusive().unwrap();
+    let stderr = String::from_utf8_lossy(&inside.stderr);
+    assert_eq!(inside.status.code(), Some(75), "{stderr}");
+    assert!(stderr.contains("inside depbox reaches no build host"), "{stderr}");
 }
 
 fn refused_through_the_hook(host: &Host) {

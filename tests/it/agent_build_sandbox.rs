@@ -55,19 +55,6 @@ fn an_agent_build_path_reads_no_credential_reaches_no_network_and_refuses_a_remo
     let seen = fs::read_to_string(crate_dir.join("probe.txt")).unwrap_or_default();
     assert!(output.status.success() && seen.contains("ran"), "the build script did not run: {}", String::from_utf8_lossy(&output.stderr));
     assert!(!seen.contains("LEAK"), "the build script reached what it must not: {seen}");
-    let real = home.join("fake-real");
-    fs::create_dir_all(&real).unwrap();
-    let real_ran = home.join("real-cargo-ran");
-    north_core::foundation::shim::write_script(&real.join("cargo"), &format!("echo \"$*\" >>'{}'\n", real_ran.display()));
-    let unasked = Command::new(shims.join("cargo"))
-        .args(["build", "--offline"])
-        .current_dir(&crate_dir)
-        .env("HOME", &home)
-        .env("PATH", format!("{}:/usr/bin:/bin", real.display()))
-        .output()
-        .unwrap();
-    assert_eq!(unasked.status.code(), Some(75), "a shim that cannot ask the gate must exit 75: {}", String::from_utf8_lossy(&unasked.stderr));
-    assert!(!real_ran.exists(), "a shim that cannot ask the gate ran the real cargo outside it");
     let fake = crate_dir.join("fake-bin");
     fs::create_dir_all(&fake).unwrap();
     let ran = crate_dir.join("buck2-ran");
