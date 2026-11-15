@@ -11,10 +11,10 @@ use crate::notes::Notes;
 use super::super::{Journey, Plan};
 use super::hand_in;
 
-const UNSETTLED: &str = r#"{"status":"working","conversation":"c","entries":[{"kind":"user","text":"the brief"}]}"#;
+const WITHOUT_TOOLS: &str = r#"{"status":"idle","conversation":"c","entries":[{"kind":"user","text":"the brief"},{"kind":"tool","text":"Bash printf x > worker.txt"},{"kind":"assistant","text":"I have no hand-in tool"}]}"#;
+const INIT: &str = r#"{"type":"system","subtype":"init","session_id":"c","mcp_servers":[{"name":"north","status":"failed"}]}"#;
 
 struct Virtual {
-    start: Instant,
     at: Cell<Instant>,
 }
 
@@ -29,19 +29,21 @@ impl Clock for Virtual {
 }
 
 #[test]
-fn a_hand_in_step_that_never_settles_fails_in_under_120_s_naming_the_step() {
+fn an_order_from_a_confined_seat_fails_the_spine_probe_naming_the_north_tool_server_its_worker_lost() {
     let root = tempfile::tempdir().unwrap();
-    let program = root.path().join("north");
-    fs::write(&program, format!("#!/bin/sh\nprintf '%s\\n' '{UNSETTLED}'\n")).unwrap();
+    let program = root.path().join("fake-north");
+    fs::write(&program, format!("#!/bin/sh\nprintf '%s\\n' '{WITHOUT_TOOLS}'\n")).unwrap();
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
     let state = root.path().to_path_buf();
+    let session = state.join("north/fleet/vn-0");
+    let host = state.join("host/g1");
+    fs::create_dir_all(&session).unwrap();
+    fs::create_dir_all(&host).unwrap();
+    fs::write(session.join("session.json"), format!(r#"{{"host_dir":{:?}}}"#, host.parent().unwrap())).unwrap();
+    fs::write(host.join("stream.jsonl"), format!("{INIT}\n")).unwrap();
     let north = North::new(program, state.clone(), state.clone(), None);
-    let start = Wall.now();
-    let clock = Rc::new(Virtual { start, at: Cell::new(start) });
-    let mut journey = Journey { north, notes: Notes::new(None), plan: Plan { stamp: 0, claude_account: None, state }, session: "vn-0".to_owned(), scratch: None, lander: None, broker: None, landed: None, clock: clock.clone() };
+    let clock = Rc::new(Virtual { at: Cell::new(Wall.now()) });
+    let mut journey = Journey { north, notes: Notes::new(None), plan: Plan { stamp: 0, claude_account: None, state }, session: "vn-0".to_owned(), scratch: None, lander: None, broker: None, landed: None, clock };
     let failure = hand_in(&mut journey).unwrap_err();
-    assert!(failure.starts_with("the hand-in step stopped inside its 110 s deadline"), "{failure}");
-    assert!(failure.contains("vn-0 did not settle within 110 s; status working"), "{failure}");
-    let waited = clock.at.get() - clock.start;
-    assert!(waited < Duration::from_secs(120), "the step waited {waited:?} before it failed");
+    assert!(failure.contains("did not call the mcp__north__hand-in tool, since its tool server north did not start"), "{failure}");
 }

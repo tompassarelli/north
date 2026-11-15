@@ -68,6 +68,11 @@ pub(in crate::runtime) fn order_handed_over(layout: &Layout) {
     }
 }
 
+/// Whether a `north runtime order` holds its mark here, so `north runtime order-here` runs only as that order's own step.
+pub(in crate::runtime) fn order_running(layout: &Layout) -> Result<bool, Failure> {
+    Ok(named_lock(layout, ORDER_LOCK, FlockOperation::NonBlockingLockShared)?.is_none())
+}
+
 pub(in crate::runtime) fn order_waiting(layout: &Layout) -> Result<File, Failure> {
     promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime order")
 }

@@ -1,4 +1,8 @@
+use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
+
+use serde_json::Value;
 
 use super::super::scratch;
 use super::super::transcript::{Transcript, shorten};
@@ -13,9 +17,10 @@ pub(super) fn hand_in(journey: &mut Journey) -> Result<String, String> {
 fn checked(journey: &Journey, deadline: Instant) -> Result<String, String> {
     journey.settled_report(HAND_IN_DEADLINE, |_| true)?;
     let transcript = journey.north.transcript_within(&journey.session, left(journey, deadline)?)?;
+    let call = called(&transcript, || failed_tool_servers(&journey.plan.state, &journey.session))?;
     let scratch = journey.scratch()?;
     let landed = scratch.origin_main(left(journey, deadline)?)?;
-    returned(&transcript, &landed)?;
+    returned(&transcript, call, &landed)?;
     if landed == scratch.base {
         return Err(format!("the {HAND_IN_TOOL} call returned before origin main moved, so it did not wait for its landing"));
     }
@@ -31,17 +36,34 @@ fn left(journey: &Journey, deadline: Instant) -> Result<Duration, String> {
     Ok(left)
 }
 
-fn returned(transcript: &Transcript, landed: &str) -> Result<(), String> {
-    let Some(call) = transcript.entries.iter().position(|entry| entry.kind == "tool" && entry.text.starts_with(HAND_IN_TOOL)) else {
-        let calls: Vec<&str> = transcript.entries.iter().filter(|entry| entry.kind == "tool").map(|entry| entry.text.as_str()).collect();
-        return Err(format!("the worker did not call the {HAND_IN_TOOL} tool; its tool calls were {:?}", shorten(&calls.join(" | "))));
+fn called(transcript: &Transcript, lost: impl FnOnce() -> Vec<String>) -> Result<usize, String> {
+    if let Some(call) = transcript.entries.iter().position(|entry| entry.kind == "tool" && entry.text.starts_with(HAND_IN_TOOL)) {
+        return Ok(call);
+    }
+    let calls: Vec<&str> = transcript.entries.iter().filter(|entry| entry.kind == "tool").map(|entry| entry.text.as_str()).collect();
+    let why = match (lost().first(), transcript.report()) {
+        (Some(server), _) => format!(", since its tool server {server} did not start"),
+        (None, Some(report)) => format!(", and its report says {:?}", shorten(&report)),
+        (None, None) => String::new(),
     };
+    Err(format!("the worker did not call the {HAND_IN_TOOL} tool{why}; its tool calls were {:?}", shorten(&calls.join(" | "))))
+}
+
+fn returned(transcript: &Transcript, call: usize, landed: &str) -> Result<(), String> {
     let verdict = format!("Done: landed {landed} on main");
     match transcript.entries[call + 1..].iter().find(|entry| entry.kind == "result") {
         Some(result) if result.text.lines().last() == Some(verdict.as_str()) => Ok(()),
         Some(result) => Err(format!("the {HAND_IN_TOOL} call returned {:?}, which does not end in `{verdict}`", result.text.lines().last().unwrap_or_default())),
         None => Err(format!("the session records no result of the {HAND_IN_TOOL} call")),
     }
+}
+
+fn failed_tool_servers(state: &Path, session: &str) -> Vec<String> {
+    let record = fs::read_to_string(state.join("north/fleet").join(session).join("session.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let Some(host_dir) = record.as_ref().and_then(|record| record["host_dir"].as_str()) else { return Vec::new() };
+    let stream = fs::read_to_string(Path::new(host_dir).join("g1/stream.jsonl")).unwrap_or_default();
+    let frames = stream.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|frame| frame["type"] == "system" && frame["subtype"] == "init");
+    frames.flat_map(|frame| frame["mcp_servers"].as_array().cloned().unwrap_or_default()).filter(|server| server["status"] == "failed").filter_map(|server| server["name"].as_str().map(str::to_owned)).collect()
 }
 
 #[cfg(test)]

@@ -11,6 +11,8 @@ use super::update;
 use north_offload::land_offload;
 
 mod hold;
+mod seat;
+pub(super) use seat::here;
 
 const USAGE: &str = "usage: north runtime order --reason REASON [--commit REV] [--except HOST]...  promote REV (default origin/main's head), a commit already on origin/main, to this host and every deploy host at once: each host builds or fetches that runtime, runs its canary probes against it before it is live, goes live only on a pass and rewrites its stable pin, and one row per host in runtime-pins.jsonl names the commit, who ordered it, the reason and the canary verdict; a host whose canary fails keeps its runtime and the probe that failed is named; every host, this one included, is moved to the commit even back from a newer runtime, and a host that stays on another runtime is named, recorded as not live and fails the order; --except HOST (repeatable) leaves a deploy host out: it is shipped nothing, runs no canary, gets one left-out row in runtime-pins.jsonl, and status names it held until an order includes it again; this host, a name that is no deploy host and an order that would leave no deploy host are refused; run it as the coordinator's step on the host that settles the fleet, since it stops north-stable-hold.service for the run and starts it again";
 const PIN: &str = "channel/stable";
@@ -48,6 +50,7 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     if !land_offload::settles_fleet_here() {
         return Err(failed(64, format!("this host does not settle the fleet; run it on the host that does\n{USAGE}")));
     }
+    seat::reachable()?;
     let store = update::trusted_store()?;
     let sha = resolve(&store, commit.as_deref())?;
     let name = crate::platform::host::name();
@@ -261,11 +264,11 @@ impl Host for Here<'_> {
     }
 
     fn canary(&self, sha: &str) -> Result<(), String> {
-        canary::preflight(self.layout, self.name(), sha, self.live().as_deref(), &canary::Live { layout: self.layout, host: &self.shell })
+        seat::run(self.layout, seat::CANARY, sha)
     }
 
     fn go_live(&self, sha: &str) -> Result<(), Failure> {
-        update::go_live_ordered(self.layout, sha)
+        seat::run(self.layout, seat::GO_LIVE, sha).map_err(|why| failed(1, why))
     }
 
     fn live(&self) -> Option<String> {

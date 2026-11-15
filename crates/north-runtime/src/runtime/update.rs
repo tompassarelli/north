@@ -52,7 +52,7 @@ use build::{build, export_tree};
 use collect::collect;
 use hold::Verdict;
 use ordered::unordered;
-pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_waiting, update_ordered_to};
+pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_running, order_waiting, update_ordered_to};
 use shipped::{Shipped, shipped};
 use sync::{relink, republish_if_unpublished, swap_back, sync};
 pub(super) use sync::{alert_proxy, page_proxy};

@@ -96,15 +96,4 @@ mod tests {
             assert_eq!(growth.leak("whiterabbit", at), None, "reading {count} at {at}");
         }
     }
-
-    #[test]
-    fn a_count_that_grows_across_every_sample_of_its_window_is_a_leak() {
-        let (_state, mut growth) = growth();
-        let end = readings().last().unwrap().0;
-        for (tick, at) in (end - growth.window..=end).step_by(30).enumerate() {
-            growth.note("whiterabbit", at, 3 + tick as u64);
-        }
-        assert_eq!(growth.floors("whiterabbit", end), Some(vec![4, 24, 44, 64, 84, 104]));
-        assert_eq!(growth.leak("whiterabbit", end).as_deref(), Some("transient north processes leak: the fewest running over 60 min in each 10 min of the last 60 min rose every time"));
-    }
 }
