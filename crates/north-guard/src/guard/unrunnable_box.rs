@@ -1,8 +1,8 @@
-//! The unrunnable-box gate (north#872): an issue created or edited with a new unticked box that names no backticked `Done when:` command
-//! can only be ticked by its own worker. `north gh-session` judges the body each fleet `gh issue create` or `gh issue edit` sends when gh
+//! The unrunnable-box gate (north#872): an issue edited with a new unticked box that names no backticked `Done when:` command
+//! can only be ticked by its own worker; a created issue is never refused for it, and the intake pass adds the command (north#1632). `north gh-session` judges the body each fleet `gh issue create` or `gh issue edit` sends when gh
 //! runs (`gh_screen`), so the gate holds for every model provider and for a body file the command wrote, which a shell hook reading the
 //! command text missed (north#1041). While harness/gates.toml has it in shadow, each such box is logged to
-//! `$XDG_STATE_HOME/north/gates/unrunnable-box.jsonl`; once it enforces, the gh call is refused.
+//! `$XDG_STATE_HOME/north/gates/unrunnable-box.jsonl`; once it enforces, an edit that adds such a box is refused.
 use regex::Regex;
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -49,7 +49,7 @@ impl Log for Live {
     }
 }
 
-/// Logs each new unrunnable box of `body` in `repo` while the gate is in shadow, and refuses the gh call naming them once it enforces.
+/// Logs each new unrunnable box of `body` in `repo` while the gate is in shadow, and refuses an edit naming them once it enforces.
 pub fn judge(repo: &str, filings: &[Filing], body: &str, log: &mut impl Log) -> Result<(), String> {
     if !repo.to_lowercase().starts_with(OWNER) {
         return Ok(());
@@ -60,11 +60,14 @@ pub fn judge(repo: &str, filings: &[Filing], body: &str, log: &mut impl Log) -> 
     let mut refused = Vec::new();
     for filing in filings {
         let held: BTreeSet<String> = filing.held.unwrap_or_default().lines().filter_map(|line| UNTICKED.captures(line)).map(|found| identity(&found[1])).collect();
+        let refuses = filing.issue.is_some();
         for text in unrunnable(body).into_iter().filter(|text| !held.contains(&identity(text))) {
             if !enforcing {
-                log.record(serde_json::json!({"gate": GATE, "at": at, "would_refuse": true, "verb": if filing.issue.is_some() { "edit" } else { "create" }, "repo": repo, "issue": filing.issue, "session": session, "box": text}));
+                log.record(serde_json::json!({"gate": GATE, "at": at, "would_refuse": refuses, "verb": if refuses { "edit" } else { "create" }, "repo": repo, "issue": filing.issue, "session": session, "box": text}));
             }
-            refused.push(text);
+            if refuses {
+                refused.push(text);
+            }
         }
     }
     if enforcing && !refused.is_empty() {
@@ -91,7 +94,7 @@ fn identity(text: &str) -> String {
 }
 
 /// The text of each unticked box of `body` naming no backticked `Done when:` command and not saying it waits on `Needs:` or a date.
-fn unrunnable(body: &str) -> Vec<String> {
+pub(super) fn unrunnable(body: &str) -> Vec<String> {
     body.lines()
         .filter_map(|line| UNTICKED.captures(line).map(|found| found[1].trim().to_owned()))
         .filter(|text| !RUNNABLE.is_match(text) && !EXEMPT.is_match(text))

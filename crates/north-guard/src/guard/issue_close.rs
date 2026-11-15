@@ -1,5 +1,5 @@
 use super::gh_write::{self, GhWrite};
-use super::issue_labels::gh;
+use super::gh_cli::gh;
 use crate::hook_input::{HookInput, Verdict};
 use crate::platform::{box_oracles, issue_scope};
 

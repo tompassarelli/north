@@ -1,5 +1,7 @@
+use super::gh_cli::gh;
 use super::gh_write::{self, GhWrite};
-use super::issue_labels::gh;
+use super::issue_intake::intake_brief;
+use super::unrunnable_box::unrunnable;
 use crate::hook_input::{HookInput, Verdict};
 use regex::{Captures, Regex};
 use std::collections::BTreeSet;
@@ -24,10 +26,10 @@ static CLASS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t>*-]*\**
 static FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][\w -]*:").unwrap());
 static MARKER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>*-]*(?:\[[ xX]\][ \t]*)?").unwrap());
 static PARENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Parent:[ \t*_]*((?:[\w.-]+/)?[\w.-]*)#(\d+)").unwrap());
-static RUNNABLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Done when:[ \t*_]*[^\n]*`[^`\n]+`").unwrap());
 const CHILD_LIMIT: &str = "worker_children_per_session";
 const BRIEF_LINES: usize = 64;
 const BUG_CATEGORIES: [&str; 2] = ["bug-known-cause", "debugging-unknown-cause"];
+const TYPE_LABELS: [&str; 3] = ["bug", "enhancement", "documentation"];
 const CATEGORY_LABELS: [(&str, &str); 3] = [("enhancement", "feature"), ("bug", "debugging-unknown-cause"), ("documentation", "docs-policy")];
 const ROOT_LABEL: &str = "roadmap";
 
@@ -155,6 +157,10 @@ pub(super) trait Filed {
     /// Whether the worker's brief makes the issue it files its own item (`Item: new ... issue, file it first`), so one
     /// naming what it blocks stays with it too.
     fn files_its_item(&mut self) -> bool;
+    /// Starts the Haiku pass that adds the parts the filing left out, which `gaps` names.
+    fn intake(&mut self, new: &Ref, gaps: &[String]) -> Result<String, String>;
+    /// Whether this session may launch a session: a worker may not, since the sandbox refuses its launches.
+    fn may_launch(&mut self) -> bool;
 }
 
 impl Filed for Live {
@@ -194,6 +200,25 @@ impl Filed for Live {
     fn files_its_item(&mut self) -> bool {
         self.worker_brief().is_some_and(|brief| FILE_IT_FIRST.is_match(&brief))
     }
+
+    fn may_launch(&mut self) -> bool {
+        let role = std::env::var(crate::fleet::runtime::ROLE_ENV).unwrap_or_default();
+        role == crate::fleet::runtime::PROXY || role == "lead"
+    }
+
+    fn intake(&mut self, new: &Ref, gaps: &[String]) -> Result<String, String> {
+        let north = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"));
+        let name = format!("intake-{}-{}", new.0.rsplit('/').next().unwrap_or_default(), new.1);
+        let task = format!("{}#{}", new.0, new.1);
+        let ran = std::process::Command::new(north)
+            .args(["fleet", "launch", "--provider", "claude", "--model", "haiku", "--role", "worker", "--name", &name, "--task", &task, "--no-wait"])
+            .arg(intake_brief(&new.0, new.1, gaps))
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|error| error.to_string())?;
+        let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().to_owned();
+        if ran.status.success() { Ok(said(&ran.stdout)) } else { Err(said(&ran.stderr)) }
+    }
 }
 
 pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
@@ -232,6 +257,17 @@ pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
         notes.push(match world.claim(&new, &worker) {
             Ok(said) => format!("{said}: an issue a fleet worker files is claimed for it, so north fleet dispatch does not staff it again."),
             Err(why) => format!("Could not claim {}#{} for you ({why}); hold it with `north fleet hold {}#{}` before north fleet dispatch staffs it again.", new.0, new.1, new.0, new.1),
+        });
+    }
+    let gaps = missing(write, &body);
+    if !gaps.is_empty() && new.0.to_lowercase().starts_with(OWNER) {
+        notes.push(if !world.may_launch() {
+            format!("{}#{} is left with {} for your lead: a worker may not launch the Haiku pass, so report these gaps to your parent.", new.0, new.1, gaps.join("; "))
+        } else {
+            match world.intake(&new, &gaps) {
+                Ok(said) => format!("{said}: a Haiku pass adds what the filing left out ({}) to {}#{}.", gaps.join("; "), new.0, new.1),
+                Err(why) => format!("Could not start the Haiku pass for {}#{} ({why}); add {} to it by hand.", new.0, new.1, gaps.join("; ")),
+            }
         });
     }
     if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join(" ")) }
@@ -315,10 +351,9 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
         }
     }
     if let Some(parent) = PARENT.captures(&body) {
-        reasons.extend(child_refusals(write, &body, &(qualified(&parent, &repo), parent[2].to_owned()), &repo, world));
+        reasons.extend(child_refusals(&(qualified(&parent, &repo), parent[2].to_owned()), &repo, world));
         return (!reasons.is_empty()).then(|| reasons.join("\n"));
     }
-    reasons.extend(shape(write, &body));
     if let Some(brief) = world.worker_brief()
         && !BLOCKS.is_match(&body)
         && !DEFECT.is_match(&body)
@@ -336,15 +371,11 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
     (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
-fn child_refusals(write: &GhWrite, body: &str, parent: &(String, String), repo: &str, world: &mut impl World) -> Vec<String> {
+fn child_refusals(parent: &(String, String), repo: &str, world: &mut impl World) -> Vec<String> {
     let mut reasons = Vec::new();
     if !parent.0.eq_ignore_ascii_case(repo) {
         reasons.push(format!("No. The parent {}#{} is in another repository than the child; a child lives beside its parent.", parent.0, parent.1));
     }
-    if !RUNNABLE.is_match(body) {
-        reasons.push("No. A child issue needs a runnable `Done when: `COMMAND`` line: the command that closes it when it passes.".to_owned());
-    }
-    reasons.extend(shape(write, body).into_iter().filter(|reason| reason != NO_BOX));
     if world.worker_brief().is_some() {
         let parent_key = key(&parent.0, &parent.1);
         let mut held = world.claimed().iter().map(|item| claim_key(item)).collect::<Vec<String>>();
@@ -363,7 +394,8 @@ fn child_refusals(write: &GhWrite, body: &str, parent: &(String, String), repo: 
     reasons
 }
 
-const NO_BOX: &str = "No. The body has no `- [ ]` box, and north fleet dispatch staffs only issues with an unticked box. Write each check as a `- [ ]` line under a `## Done when` heading, one per guarantee, each naming the command or observation that proves it.";
+const NO_BOX: &str = "no `- [ ]` box, and north fleet dispatch staffs only issues with an unticked box: each check is a `- [ ]` line under a `## Done when` heading, one per guarantee, naming the command or observation that proves it";
+const NO_RUNNABLE: &str = "a box that names no backticked command, so no checker can tick it: end the box with `Done when:` and the command in backticks, whose exit 0 shows the box done";
 const UNFOUNDED: &str = "No. A worker files an issue only for what it cannot finish in its lane: a blocker, with a `Blocks: repo#N` body line naming the issue it blocks, or a measured defect, with a `Defect:` body line giving the command you ran and what it showed. A finding you can fix in 20 minutes is fixed in this lane and lands with it. An idea or a possible follow-up goes under `Ideas:` in your final report, not into a new issue. The issue for the item you were launched on passes when its body carries your brief's Done when.";
 const OPAQUE: &str = " This body is built from a shell variable or a pipe the guard cannot read, so give it literally, in a heredoc or with --body-file PATH.";
 
@@ -413,8 +445,10 @@ fn similar(title: &str, other: &str) -> bool {
 }
 
 
-const NO_CATEGORY: &str = "No. The body has no `Category:` line and no label names one (`category:NAME`, enhancement, bug or documentation), and north fleet dispatch places no box without a category. Add a `Category:` line before the first blank line, such as `Category: tooling`.";
-const NO_CLASS: &str = "No. A bug category (bug-known-cause, debugging-unknown-cause, or the bug label) needs a `Class:` line, and north fleet dispatch places no such box without one. Add `Class:` before the first blank line naming the class of failure, and write a Done when that covers every instance of it.";
+const NO_CATEGORY: &str = "no `Category:` line and no label names one (`category:NAME`, enhancement, bug or documentation), and north fleet dispatch places no box without a category: a `Category:` line before the first blank line, such as `Category: tooling`";
+const NO_CLASS: &str = "a bug category (bug-known-cause, debugging-unknown-cause, or the bug label) with no `Class:` line, and north fleet dispatch places no such box without one: a `Class:` line before the first blank line naming the class of failure";
+const NO_TYPE: &str = "no type label (bug, enhancement or documentation)";
+const NO_PRIORITY: &str = "no `priority:*` label";
 
 /// The category dispatch would place the issue under: its `Category:` line, else a category label.
 fn category(body: &str, labels: &[String]) -> Option<String> {
@@ -425,22 +459,30 @@ fn category(body: &str, labels: &[String]) -> Option<String> {
     named.or_else(labelled)
 }
 
-/// Why dispatch could not staff the new issue: no box, no category, or a bug category with no `Class:` line. A roadmap root is finished by its children, so it needs none.
-fn shape(write: &GhWrite, body: &str) -> Vec<String> {
+/// What a new issue lacks for north fleet dispatch to staff it, which the Haiku pass completes after filing: a type label, a priority label, a box, a category, a `Class:` line for a bug category, and a backticked command on each box. A roadmap root is finished by its children, so it needs none.
+fn missing(write: &GhWrite, body: &str) -> Vec<String> {
     if write.labels.iter().any(|label| label == ROOT_LABEL) {
         return Vec::new();
     }
-    let mut reasons = Vec::new();
+    let mut gaps = Vec::new();
+    if !write.labels.iter().any(|label| TYPE_LABELS.contains(&label.as_str())) {
+        gaps.push(NO_TYPE.to_owned());
+    }
+    if !write.labels.iter().any(|label| label.starts_with("priority:")) {
+        gaps.push(NO_PRIORITY.to_owned());
+    }
     if !BOX.is_match(body) {
-        reasons.push(NO_BOX.to_owned());
+        gaps.push(NO_BOX.to_owned());
+    } else if !write.opaque && !unrunnable(body).is_empty() {
+        gaps.push(NO_RUNNABLE.to_owned());
     }
     match category(body, &write.labels) {
-        None => reasons.push(NO_CATEGORY.to_owned()),
-        Some(category) if let Err(why) = crate::router::brief::known_category(&category) => reasons.push(format!("No. {why}, and north fleet dispatch places no box under another word.")),
-        Some(category) if BUG_CATEGORIES.contains(&category.as_str()) && !CLASS.is_match(body) => reasons.push(NO_CLASS.to_owned()),
+        None => gaps.push(NO_CATEGORY.to_owned()),
+        Some(category) if let Err(why) = crate::router::brief::known_category(&category) => gaps.push(why),
+        Some(category) if BUG_CATEGORIES.contains(&category.as_str()) && !CLASS.is_match(body) => gaps.push(NO_CLASS.to_owned()),
         Some(_) => {}
     }
-    reasons
+    gaps
 }
 
 #[cfg(test)]

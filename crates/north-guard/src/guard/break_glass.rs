@@ -1,5 +1,5 @@
 use crate::foundation::clock::Timestamp;
-use crate::guard::issue_labels::gh;
+use crate::guard::gh_cli::gh;
 use crate::platform::{north_binary::north_binary, process};
 use serde::{Deserialize, Serialize};
 use std::io::Write;

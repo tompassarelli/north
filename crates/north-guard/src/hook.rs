@@ -124,7 +124,6 @@ impl HookKind {
                 Guard("north-hook", crate::guard::masked_pipeline::decide, Anywhere),
                 Guard("north-hook", crate::guard::node_modules_write::decide, Host),
                 Guard("north-hook", crate::guard::native_evidence::evaluate, Host),
-                Guard("north-hook", crate::guard::issue_labels::evaluate, Anywhere),
                 Guard("north-hook", crate::guard::issue_filing::evaluate, Anywhere),
                 Guard("north-hook", crate::guard::issue_close::close, Anywhere),
                 Guard("north-hook", crate::guard::issue_shrink::evaluate, Anywhere),
