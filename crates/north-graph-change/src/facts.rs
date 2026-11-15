@@ -36,6 +36,7 @@ pub struct Facts<'g> {
     crates: Vec<(String, String)>,
     depends: BTreeMap<String, BTreeSet<String>>,
     pub coverage_commit: Option<String>,
+    pub crates_commit: Option<String>,
     pub reads_recorded: bool,
 }
 
@@ -62,7 +63,7 @@ fn crate_name(node: &str) -> Option<&str> {
 
 impl<'g> Facts<'g> {
     pub fn read(graph: &'g Graph, repository: &str) -> Result<Self, String> {
-        let mut facts = Self { graph, tests: BTreeMap::new(), unrecorded: OnceCell::new(), crates: Vec::new(), depends: BTreeMap::new(), coverage_commit: None, reads_recorded: false };
+        let mut facts = Self { graph, tests: BTreeMap::new(), unrecorded: OnceCell::new(), crates: Vec::new(), depends: BTreeMap::new(), coverage_commit: None, crates_commit: None, reads_recorded: false };
         let mut binaries = facts.pairs("in-binary")?;
         binaries.extend(facts.pairs("recorded-in")?);
         for (node, binary) in binaries {
@@ -83,6 +84,7 @@ impl<'g> Facts<'g> {
                 facts.depends.entry(name.to_owned()).or_default().insert(dependency.to_owned());
             }
         }
+        facts.crates_commit = facts.objects(&format!("crates:{repository}"), "crates-commit")?.into_iter().next();
         facts.coverage_commit = facts.objects(&format!("coverage:{repository}"), "commit")?.into_iter().next();
         facts.reads_recorded = !facts.objects(&format!("reads:{repository}"), "reads-commit")?.is_empty();
         Ok(facts)
@@ -190,6 +192,10 @@ impl<'g> Facts<'g> {
 
     pub fn knows_crates(&self) -> bool {
         !self.crates.is_empty()
+    }
+
+    pub fn knows_crate(&self, name: &str) -> bool {
+        self.crates.iter().any(|(_, known)| known == name)
     }
 
     pub fn crate_of(&self, path: &str) -> Option<&str> {

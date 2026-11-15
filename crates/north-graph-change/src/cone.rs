@@ -133,7 +133,7 @@ pub fn of(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<Cone,
     let unknown = unknown(facts, change, &cone.added);
     cone.added.extend(unknown.iter().cloned());
     cone.unknown = unknown;
-    match walk(facts, change, stale) {
+    match crate_mismatch(facts, change).map_or_else(|| walk(facts, change, stale), Err) {
         Ok((tests, bare)) => {
             cone.tests = tests;
             cone.added.extend(bare.into_iter().map(|name| Added { package: String::new(), name }));
@@ -144,6 +144,14 @@ pub fn of(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<Cone,
         cone.always = facts.unrecorded()?.difference(&cone.tests).cloned().collect();
     }
     Ok(cone)
+}
+
+fn crate_mismatch(facts: &Facts, change: &Change) -> Option<String> {
+    change.files.iter().filter(|changed| changed.path.ends_with(".rs") && !change.apart.contains(&changed.path)).find_map(|changed| {
+        let package = change.placed.get(&changed.path)?;
+        let behind = !facts.knows_crate(package) || facts.crate_of(&changed.path).is_some_and(|known| known != package);
+        behind.then(|| format!("{} is in crate {package}, which the graph's crate facts at {} do not place it in: the graph is behind the lane base", changed.path, facts.crates_commit.as_deref().unwrap_or("(none)")))
+    })
 }
 
 fn unknown(facts: &Facts, change: &Change, added: &[Added]) -> Vec<Added> {
@@ -228,7 +236,7 @@ fn walk(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<(BTreeS
             walk.rust(&source, None)?;
         }
     }
-    let own: BTreeSet<String> = change.files.iter().filter(|changed| changed.path.ends_with(".rs") && !change.apart.contains(&changed.path)).filter_map(|changed| facts.crate_of(&changed.path)).map(str::to_owned).collect();
+    let own: BTreeSet<String> = change.files.iter().filter(|changed| changed.path.ends_with(".rs") && !change.apart.contains(&changed.path)).filter_map(|changed| change.placed.get(&changed.path).map(String::as_str).or_else(|| facts.crate_of(&changed.path))).map(str::to_owned).collect();
     walk.tests.extend(facts.tests_of(&own));
     let packages: BTreeSet<String> = walk.fallback.iter().flat_map(|name| facts.dependents(name)).collect();
     walk.tests.extend(facts.tests_of(&packages));

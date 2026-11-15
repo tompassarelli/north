@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use north_coverage::hunks::{self, Hunks};
@@ -52,6 +52,7 @@ pub struct Change {
     pub present: Vec<AddedTest>,
     pub workspace: Workspace,
     pub apart: BTreeSet<String>,
+    pub placed: BTreeMap<String, String>,
 }
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -79,8 +80,9 @@ impl Change {
         let paths: Vec<&str> = files.iter().map(|changed| changed.path.as_str()).collect();
         let workspace = Workspace::read(&paths, |revision, path| git(root, &["show", &format!("{revision}:{path}")]), base, head);
         let apart = north_base::build_inputs::separate_workspace::read(root, head, &paths);
+        let placed = files.iter().filter(|changed| changed.path.ends_with(".rs")).filter_map(|changed| placement(root, head, &changed.path).map(|(package, _)| (changed.path.clone(), package))).collect();
         let present = if text.is_empty() { Vec::new() } else { present(root, head)? };
-        Ok(Self { files, hunks: hunks::parse(&text), added: added.collect(), present, workspace, apart })
+        Ok(Self { files, hunks: hunks::parse(&text), added: added.collect(), present, workspace, apart, placed })
     }
 
     pub fn touches(&self, path: &str) -> bool {
