@@ -56,6 +56,7 @@ mod views;
 mod run_ingest;
 mod usage_ingest;
 mod waits;
+mod merge_bases;
 
 pub(super) use router::fleet_load;
 pub(super) use proxy::run as proxy;

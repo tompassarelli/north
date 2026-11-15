@@ -21,10 +21,6 @@ fn the_role_files_frontmatter_is_read_and_a_body_line_is_not() {
     assert_eq!(fields("---\nname: proxy\nmodel: fable\neffort: high\n---\nBody.\n"), pair(Some("fable"), Some("high")));
     assert_eq!(fields("---\nname: proxy\nmodel:  fable \n---\nBody.\n"), pair(Some("fable"), None), "a missing effort stays absent");
     assert_eq!(fields("No frontmatter at all.\nmodel: fable\n"), pair(None, None), "only the frontmatter counts");
-}
-
-#[test]
-fn the_shipped_role_file_names_the_fable_high_the_box_moves_the_proxy_to() {
     assert_eq!(
         fields(include_str!("../../../harness/claude/agents/proxy.md")),
         pair(Some("fable"), Some("high")),

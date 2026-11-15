@@ -133,7 +133,12 @@ impl WaitProbes for Probes {
                 }),
             },
             ProbeJob { name: "probes.settle.resume", own: None, run: Box::new(|fleet| said(resume::resume(&fleet, &super::held::read(i64::try_from(now_ms() / 1000).unwrap_or_default()), &Revival(&fleet)))) },
-            ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
+            ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| {
+                let remembered = super::merge_bases::MergeBases::here();
+                let reaped = reaper::reap(&fleet, &remembered, now_ms(), true);
+                remembered.keep();
+                said(reaped.lines())
+            }) },
             ProbeJob { name: "probes.settle.strays", own: None, run: Box::new(|fleet| said(crate::fleet::strays::stop_strays(&fleet, now_ms()))) },
         ];
         let reports = vec![
@@ -161,7 +166,9 @@ pub(super) fn reap(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["--dry-run"] => false,
         _ => return Err(NorthError::Usage("Usage: north fleet reap [--dry-run]".into())),
     };
-    let reaped = reaper::reap_after(fleet, &reaper::Here, reaper::stale_after(), now_ms(), apply);
+    let remembered = super::merge_bases::MergeBases::here();
+    let reaped = reaper::reap_after(fleet, &remembered, reaper::stale_after(), now_ms(), apply);
+    remembered.keep();
     for kept in &reaped.kept {
         println!("kept {}: {}", kept.name, kept.why);
     }
