@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::sync::Mutex;
 
+use north_base::test_inputs::git::git_in;
+
 use crate::error::NorthResult;
 use crate::fleet::detached::Detached;
 use crate::fleet::books::{Books, Landing, SessionSpend};
@@ -246,12 +248,6 @@ fn a_hook_spawned_run_under_the_session_scope_wakes_no_session() {
     assert!(waits.of("proxy").is_empty(), "the unregistered pid wait is dropped without a message");
 }
 
-fn git(dir: &Path, arguments: &[&str]) -> String {
-    let output = std::process::Command::new("git").arg("-C").arg(dir).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
-
 fn escalations(finished: Option<bool>, lane_record: bool, route: Option<&str>, checkout: bool) -> (Vec<String>, Vec<String>) {
     escalations_of(finished, lane_record, route, checkout, false)
 }
@@ -262,15 +258,15 @@ fn escalations_of(finished: Option<bool>, lane_record: bool, route: Option<&str>
     for dir in [&host, &main, &plain] {
         std::fs::create_dir_all(dir).unwrap();
     }
-    git(&main, &["init", "-q", "-b", "main"]);
-    git(&main, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"]);
-    git(&main, &["worktree", "add", "-q", "-b", "lane", root.path().join("lane").to_str().unwrap()]);
-    git(&main, &["config", "branch.lane.north-issue", "north#1"]);
+    git_in(&main, &["init", "-q", "-b", "main"]);
+    git_in(&main, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    git_in(&main, &["worktree", "add", "-q", "-b", "lane", root.path().join("lane").to_str().unwrap()]);
+    git_in(&main, &["config", "branch.lane.north-issue", "north#1"]);
     let attempt = serde_json::json!({"check": "cargo test -p north-fleet", "output": "test parses_dates ... FAILED", "diff": "+fn parse() {}"}).to_string();
     let forged = root.path().join("forged.json");
     std::fs::write(&forged, &attempt).unwrap();
     if lane_record {
-        std::fs::write(git(&root.path().join("lane"), &["rev-parse", "--path-format=absolute", "--git-path", "north-attempt.json"]), &attempt).unwrap();
+        std::fs::write(git_in(&root.path().join("lane"), &["rev-parse", "--path-format=absolute", "--git-path", "north-attempt.json"]), &attempt).unwrap();
     }
     let verdicts = root.path().join("verdicts");
     if let Some(passed) = finished {

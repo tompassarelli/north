@@ -1,21 +1,15 @@
-use std::process::Command;
+use north_base::test_inputs::git::git_in;
 
 use super::*;
-
-fn git(cwd: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).current_dir(cwd).output().unwrap();
-    assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
 
 #[test]
 fn a_runtime_wait_settles_when_the_live_runtime_contains_the_commit() {
     let repo = tempfile::tempdir().unwrap();
-    git(repo.path(), &["init", "-q", "-b", "main"]);
-    git(repo.path(), &["commit", "-q", "--allow-empty", "-m", "base"]);
-    let base = git(repo.path(), &["rev-parse", "HEAD"]);
-    git(repo.path(), &["commit", "-q", "--allow-empty", "-m", "fix"]);
-    let fix = git(repo.path(), &["rev-parse", "HEAD"]);
+    git_in(repo.path(), &["init", "-q", "-b", "main"]);
+    git_in(repo.path(), &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let base = git_in(repo.path(), &["rev-parse", "HEAD"]);
+    git_in(repo.path(), &["commit", "-q", "--allow-empty", "-m", "fix"]);
+    let fix = git_in(repo.path(), &["rev-parse", "HEAD"]);
     let runtimes = tempfile::tempdir().unwrap();
     let live = |sha: &str| {
         let runtime = runtimes.path().join("runtimes").join(sha);
