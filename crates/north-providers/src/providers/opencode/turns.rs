@@ -14,6 +14,7 @@ use super::relay::Relay;
 use super::route::Route;
 
 pub const PHASE_FRAME: &str = "north_turn";
+const HELD_UNIT_PREFIX: &str = "north-fleet-";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Phase {
@@ -297,8 +298,22 @@ impl Host {
 
 pub fn run(harness: &'static dyn Harness, arguments: &[String]) -> NorthResult<u8> {
     let host = Host::parse(harness, arguments)?;
+    enter_lane_only_scope(&host)?;
     let served = serve(&host, BufReader::new(std::io::stdin()), &mut std::io::stdout());
     host.release_scratch();
     served?;
     Ok(0)
+}
+
+/// Moves this host into a lane-only scope named for its session beneath the held service another host placed it in, the mark the outside broker reads a lane-only caller by and a held service's own name lacks, so every shell command its turn asks the broker for joins that scope and its brokered calls come from this session's own (north#1632); does nothing outside a held service, as in the lane-only scope a launch on this host starts.
+fn enter_lane_only_scope(host: &Host) -> NorthResult<()> {
+    use north_base::platform::session_scope;
+    let cgroup = std::fs::read_to_string("/proc/self/cgroup")?;
+    let Some(path) = cgroup.lines().find_map(|line| line.strip_prefix("0::")) else { return Ok(()) };
+    if session_scope::lane_only_cgroup(path) || !path.rsplit('/').next().is_some_and(|leaf| leaf.starts_with(HELD_UNIT_PREFIX) && leaf.ends_with(".service")) {
+        return Ok(());
+    }
+    let scope = std::path::Path::new("/sys/fs/cgroup").join(path.trim_start_matches('/')).join(session_scope::session_unit(host.harness.provider(), &host.session));
+    let entered = std::fs::create_dir(&scope).or_else(|error| if error.kind() == std::io::ErrorKind::AlreadyExists { Ok(()) } else { Err(error) }).and_then(|()| std::fs::write(scope.join("cgroup.procs"), "0"));
+    entered.map_err(|error| NorthError::State(format!("cannot enter the lane-only scope {} ({error}), so the session does not start outside it", scope.display())))
 }

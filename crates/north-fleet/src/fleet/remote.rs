@@ -36,6 +36,8 @@ use super::ssh::SSH_WAIT;
 pub(super) const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 pub(super) const UNREGISTERED: Duration = Duration::from_secs(10 * 60);
 const ABSENT: i32 = 3;
+/// The property that hands a held unit's cgroup subtree to its own processes, so a lane-only session's host makes the lane-only scope its CLI runs in beneath it (north#1632).
+const DELEGATED: &str = "Delegate=yes";
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
 pub fn placed(spec: HostSpec, record: &SessionRecord, trace: &Path) -> NorthResult<HostSpec> {
@@ -211,7 +213,7 @@ pub(super) fn held_under(spec: HostSpec, conversation: Option<&str>, machine: &M
     let unit = unit(&spec.key);
     let dir = held.join(&unit).to_string_lossy().into_owned();
     let nonce = new_uuid()?;
-    let launch = launch_script(&spec, &held, &Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation }, UNREGISTERED, &[]);
+    let launch = launch_script(&spec, &held, &Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation }, UNREGISTERED, &[DELEGATED.to_owned()]);
     linked(spec, machine, home, Held { unit, dir, nonce, launch }, session, trace)
 }
 

@@ -441,7 +441,7 @@ pub(super) fn brokered(north: &Path, arguments: Vec<String>, peer: &Peer) -> Com
 
 /// Runs a verb `lane_grant` grants a lane-only session in its own lane, with the broker's environment and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; a refusal is told to the client and logged.
 fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream, peer: &Peer, host: &Host) -> Result<u8, String> {
-    let granted = lane_grant::session(peer, &host.fleet).and_then(|session| {
+    let granted = lane_grant::session(peer, host).and_then(|session| {
         let arguments = lane_grant::grant(&session, &request.arguments, &request.directory)?;
         let variables = lane_grant::environment(&session, host.environment.iter().cloned(), &host.home)?;
         Ok((session, arguments, variables))

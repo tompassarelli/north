@@ -66,13 +66,13 @@ pub(super) fn granted(arguments: &[String], peer: &Peer) -> bool {
 }
 
 /// The fleet session whose scope the caller `peer` runs in names, when it is a lane-only one.
-pub(super) fn session(peer: &Peer, fleet: &Path) -> Result<Session, String> {
+pub(super) fn session(peer: &Peer, host: &Host) -> Result<Session, String> {
     let unit = peer.cgroup().unwrap_or_default()
         .lines()
         .flat_map(|line| line.split('/'))
         .find(|leaf| leaf.starts_with(LANE_ONLY_UNIT_PREFIX) && leaf.ends_with(".scope"))
         .ok_or("only a lane-only session asks the broker to land or write its issue; any other session holds its own token")?;
-    let (directory, record) = recorded(unit, fleet)?;
+    let (directory, record) = placed(peer, host).unwrap_or_else(|| recorded(unit, &host.fleet))?;
     let field = |key: &str| record[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
     let name = field("name").ok_or_else(|| format!("{} names no session", directory.display()))?;
     let task = field("task_ref").ok_or_else(|| format!("{name} was launched with no --task, so it has no issue of its own"))?;
@@ -108,22 +108,29 @@ pub(super) fn recorded(unit: &str, fleet: &Path) -> Result<(PathBuf, Value), Str
     Ok((directory, record))
 }
 
-/// The directory and record of the fleet session the caller `peer` runs in, or `absent` when it runs in none: a session scope this host's fleet started, else a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs). The caller chooses neither its unit nor what the launcher wrote, and a placed lane-only session is refused, since its held unit carries no lane-only mark to grant it by (north#1054); a caller in neither is the adopted window whose process it is or descends from.
+/// The directory and record of the fleet session the caller `peer` runs in, or `absent` when it runs in none: a held service another host placed a session's CLI in here, whose session is the placed record of the conversation that host bound the unit to in the unit's own directory (remote.rs), else a session scope this host's fleet started. The caller chooses neither its unit nor what the launcher wrote; a caller in neither is the adopted window whose process it is or descends from.
 pub(super) fn own_session(peer: &Peer, host: &Host, absent: &str) -> Result<(PathBuf, Value), String> {
-    let cgroup = peer.cgroup().unwrap_or_default();
-    let leaves = || cgroup.lines().flat_map(|line| line.split('/'));
-    if let Some(unit) = leaves().find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")) {
+    if let Some(placed) = placed(peer, host) {
+        return placed;
+    }
+    if let Some(unit) = peer.cgroup().unwrap_or_default().lines().flat_map(|line| line.split('/')).find(|leaf| leaf.starts_with(SESSION_UNIT_PREFIX) && leaf.ends_with(".scope")) {
         return recorded(unit, &host.fleet);
     }
-    let Some((unit, conversation)) = leaves().filter(|leaf| leaf.ends_with(".service")).find_map(|unit| Some((unit, bound_conversation(&host.home.join(session_host_files::HELD).join(unit))?))) else {
-        return adopted_window(peer.pids(), &host.fleet).ok_or_else(|| absent.to_owned());
-    };
+    adopted_window(peer.pids(), &host.fleet).ok_or_else(|| absent.to_owned())
+}
+
+/// The placed record of the session whose held service the caller `peer` runs in, `None` when it runs in no held service bound to a conversation. A lane-only session's host runs its CLI in a lane-only scope beneath its held service (`session_scope::enter_lane_only_beneath_held`), the mark every lane-only rule of the broker reads, so a caller of such a session outside that scope is refused (north#1054, north#1632).
+fn placed(peer: &Peer, host: &Host) -> Option<Result<(PathBuf, Value), String>> {
+    let cgroup = peer.cgroup().unwrap_or_default();
+    let (unit, conversation) = cgroup.lines().flat_map(|line| line.split('/')).filter(|leaf| leaf.ends_with(".service")).find_map(|unit| Some((unit, bound_conversation(&host.home.join(session_host_files::HELD).join(unit))?)))?;
     let directory = host.fleet.join(session_host_files::PLACED).join(&conversation);
-    let record = read_record(&directory).ok_or_else(|| format!("{unit} runs the conversation {conversation}, and no record of it was placed here"))?;
-    if session_scope::session_unit(record["provider"].as_str().unwrap_or_default(), "").starts_with(LANE_ONLY_UNIT_PREFIX) {
-        return Err(format!("{} is a lane-only session placed here by another host, and its held unit carries no lane-only mark to grant it by", record["name"].as_str().unwrap_or(unit)));
+    let Some(record) = read_record(&directory) else {
+        return Some(Err(format!("{unit} runs the conversation {conversation}, and no record of it was placed here")));
+    };
+    if session_scope::session_unit(record["provider"].as_str().unwrap_or_default(), "").starts_with(LANE_ONLY_UNIT_PREFIX) && !session_scope::lane_only_cgroup(cgroup) {
+        return Some(Err(format!("{} is a lane-only session placed here by another host, and this caller runs outside the lane-only scope beneath its held unit", record["name"].as_str().unwrap_or(unit))));
     }
-    Ok((directory, record))
+    Some(Ok((directory, record)))
 }
 
 /// The directory and record of the adopted session whose window process is one of `pids`, the caller or an ancestor of it, and still the process it recorded at adoption, with the same start time; a shell run in that window descends from it.
