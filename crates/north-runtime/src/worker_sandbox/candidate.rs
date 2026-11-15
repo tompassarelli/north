@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use north_capacity_host::capacity::depbox;
-use crate::runtime::layout;
+use north_runtime_follow::layout;
 use crate::runtime::update::pull_held;
 
 use super::removable::git_dirs;
