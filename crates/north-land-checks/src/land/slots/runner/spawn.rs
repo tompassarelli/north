@@ -20,7 +20,6 @@ use super::{ACTIONS_CLASS, CANCELLED_STATUS, KILLED_STATUS, OFFLOAD_GRACE, REAP,
 use super::log::{new_log, Sink, tee};
 use super::steps;
 use super::lane_scope;
-use super::check_north;
 
 const STORE_SYNC: std::time::Duration = std::time::Duration::from_secs(90);
 const CANDIDATE: [&str; 3] = ["--worker-sandbox", "--candidate", "--"];
@@ -271,7 +270,7 @@ impl Shared {
             say(&format!("safe-push: offloading to {host}{suffix}"));
             under_capacity(capacity, shell_deadline(&environment.north, timeout + OFFLOAD_GRACE, &offload))
         } else {
-            let observed = check_north::own(&environment.north, command, self.wrapped(&unit_reuse::quote(&environment.north), command));
+            let observed = self.wrapped(&unit_reuse::quote(&environment.north), command);
             let confined = std::env::var_os(SERVING_ENV).is_some_and(|serving| serving == "1") && !self.machine_bound_after_landing(command);
             let local = if confined { confined_step(&environment.north, observed) } else { local_step(&environment.north, observed) };
             let capacity = if leased { "" } else { environment.capacity.as_str() };
