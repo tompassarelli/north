@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use clap::Parser;
 use serde_json::Value;
 
 use regex::Regex;
@@ -212,17 +213,18 @@ fn audit_repo(repo: &Repo, workers: &HashMap<(String, String), String>, now: i64
     Ok(Audited { rows, tags: classify_tags(&tags, &released) })
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct AuditFlags {
+    #[arg(long, allow_hyphen_values = true)]
+    repo: Vec<String>,
+    #[arg(long)]
+    alert: bool,
+}
+
 fn parse(arguments: &[String]) -> Option<(Vec<String>, bool)> {
-    let (mut repos, mut alert) = (Vec::new(), false);
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--repo" => repos.push(words.next()?.clone()),
-            "--alert" => alert = true,
-            _ => return None,
-        }
-    }
-    Some((repos, alert))
+    let flags = AuditFlags::try_parse_from(arguments).ok()?;
+    Some((flags.repo, flags.alert))
 }
 
 fn gc_state(home: &Path) -> (Vec<(&'static str, String)>, Option<i64>) {

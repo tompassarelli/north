@@ -1876,6 +1876,7 @@ dependencies = [
 name = "north-lanes"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "north-base",
  "north-git-locks",
  "north-github-mirror",
