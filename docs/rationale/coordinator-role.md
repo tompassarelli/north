@@ -454,8 +454,8 @@ come early because they remove the most coordinator calls per minute of work.
 
 Each box lands through `north land enqueue` (or safe-push in South and Firn), adds the
 features entry the features-index check requires for any verb it adds, and is done only when
-its sha is an ancestor of the repository's `origin/main`. Prose in `docs/harness.md` and the workers
-skill waits for D1, so 19 boxes do not all edit two hot files. Boxes whose Needs have landed run in
+its sha is an ancestor of the repository's `origin/main`. Prose in `docs/briefing.md`, `docs/landing.md` and the workers
+skill waits for D1, so 19 boxes do not all edit the same hot files. Boxes whose Needs have landed run in
 parallel. Repository is north unless named; "laptop" marks a box gex45 cannot land, because it has no
 push access to South and the Firn timers are host configuration.
 
@@ -596,9 +596,9 @@ push access to South and the Firn timers are host configuration.
     min. Needs: M1. Done when: `systemctl --user list-timers` on the ledger host lists the
     `north ops check` and `north ops coordinator` timers, and the threads database holds a `north ops coordinator`
     row written by the timer.
-19. **D1 the docs.** docs-policy, cross-module, docs, none; 30 min. Files: `docs/harness.md`,
+19. **D1 the docs.** docs-policy, cross-module, docs, none; 30 min. Files: `docs/briefing.md`, `docs/landing.md`,
     `harness/skills/workers/SKILL.md`, `harness/skills/workers/references/cloud.md`. Needs: R3, G2, L3.
-    Done when: `rg -n 'north coordinator|Box:|Next:' docs/harness.md harness/skills/workers/SKILL.md`
+    Done when: `rg -n 'north coordinator|Box:|Next:' docs/briefing.md harness/skills/workers/SKILL.md`
     finds the coordinator's entry point, the trailers and the report line.
 
 Order by payback: W1, P2, A1 and B1 start at once; R1 and L1 as soon as the lanes they collide with
