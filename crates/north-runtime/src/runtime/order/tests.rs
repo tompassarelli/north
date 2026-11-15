@@ -632,8 +632,9 @@ fn an_order_from_a_confined_seat_runs_this_hosts_canary_in_a_unit_of_the_user_ma
     let command = super::seat::one_shot(&layout, super::seat::CANARY, NEW).unwrap();
     let args: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
     let runtime = layout.runtime(OLD).canonicalize().unwrap().display().to_string();
+    let firn = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share/firn/bin");
     assert_eq!(command.get_program(), "systemd-run");
     assert!(args.iter().any(|arg| arg == "--user") && args.iter().any(|arg| arg == "--slice=control.slice") && !args.iter().any(|arg| arg == "--scope"), "{args:?}");
-    assert!(args.contains(&format!("--setenv=PATH={runtime}:{runtime}/tree/bin:{}", super::seat::SYSTEM_BINS.join(":"))), "{args:?}");
+    assert!(args.contains(&format!("--setenv=PATH={runtime}:{runtime}/tree/bin:{}:{}", super::seat::SYSTEM_BINS.join(":"), firn.display())), "{args:?}");
     assert_eq!(args[args.len() - 5..], [format!("{runtime}/north"), "runtime".to_owned(), "order-here".to_owned(), "canary".to_owned(), NEW.to_owned()]);
 }

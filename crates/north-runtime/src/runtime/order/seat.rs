@@ -34,7 +34,8 @@ pub(super) fn reachable() -> Result<(), Failure> {
 /// The canary's broker lays mount namespaces, which a caller's Landlock domain refuses (north#1578), so the order runs this host's canary and swap in a unit of the user manager rather than in its own process tree; only the live runtime's own north under the runtimes store runs there, with a fixed PATH.
 pub(super) fn one_shot(layout: &Layout, verb: &str, sha: &str) -> Result<Command, String> {
     let runtime = live_runtime(layout)?;
-    let path = std::iter::once(runtime.clone()).chain([runtime.join("tree/bin")]).chain(SYSTEM_BINS.map(PathBuf::from));
+    let firn = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share/firn/bin");
+    let path = std::iter::once(runtime.clone()).chain([runtime.join("tree/bin")]).chain(SYSTEM_BINS.map(PathBuf::from)).chain([firn]);
     let path = std::env::join_paths(path).map_err(|error| error.to_string())?;
     let mut command = Command::new(SYSTEMD_RUN);
     command.args(ONE_SHOT).arg(format!("--setenv=PATH={}", path.to_string_lossy())).arg("--").arg(runtime.join("north")).args(["runtime", "order-here", verb, sha]).stdin(Stdio::null());
