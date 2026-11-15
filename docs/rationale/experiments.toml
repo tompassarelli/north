@@ -985,3 +985,17 @@ min_n = 0
 after = ["2026-11-15", "2026-11-29"]
 review = "2026-12-01"
 owner = "tompassarelli/north#1572"
+
+[[experiment]]
+id = "north-agent-policy"
+change = "the agent catalog, the agent policy contract and the agent config check move out of north-core into the new crate north-agent-policy (north#1487)"
+landed = "a7d50adda"
+crates = ["north-agent-policy"]
+metric = "none"
+measure = "git log on origin/main over the 28 days after this move: commits that fold north-agent-policy back into another crate or move one of its three modules elsewhere; keep the crate when there are none, and record the count on north#1487"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-15", "2026-12-13"]
+review = "2026-12-15"
+owner = "tompassarelli/north#1487"

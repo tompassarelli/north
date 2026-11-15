@@ -27,6 +27,7 @@ rust_binary(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -123,6 +124,7 @@ north_rust_test(
         "//:tree",
     ],
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -216,6 +218,7 @@ rust_binary(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -312,6 +315,7 @@ north_rust_test(
         "//:tree",
     ],
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -405,6 +409,7 @@ rust_binary(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -501,6 +506,7 @@ north_rust_test(
         "//:tree",
     ],
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -594,6 +600,7 @@ rust_binary(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -690,6 +697,7 @@ north_rust_test(
         "//:tree",
     ],
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -813,6 +821,7 @@ north_rust_test(
         "fleet_launch::a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is",
     ],
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -905,6 +914,7 @@ rust_binary(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//crates/north-agent-policy:north-agent-policy",
         "//crates/north-base:north-base",
         "//crates/north-broker:north-broker",
         "//crates/north-buck:north-buck",
@@ -996,6 +1006,7 @@ north_tree(
     name = "tree",
     parts = [
         ":files",
+        "//crates/north-agent-policy:files",
         "//crates/north-agent-starts:files",
         "//crates/north-base:files",
         "//crates/north-broker:files",

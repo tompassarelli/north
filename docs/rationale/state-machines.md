@@ -146,7 +146,7 @@ fixes in each machine's code from history.
     forgotten, so the two-tries hold never fires. Shapes: status-string (`WORKING`, `HOLDING`), mtime-read.
 15. **Policy publication** (57: 19 x 3; every host held four hours on 2026-11-07). `agents-sync-unpublished`
     presence and mtime (`crates/north-runtime/src/runtime/update/sync.rs:34-148`, cause parsed from log lines),
-    `gen-*` directories and the `current` link (`crates/north-core/src/catalog/generation.rs:28-77`); a failed
+    `gen-*` directories and the `current` link (`crates/north-agent-policy/src/catalog/generation.rs:28-77`); a failed
     profile projection still publishes and then reports "not published" (`catalog/sync_gate.rs:17-46`).
     Shapes: presence-flag, link-read.
 16. **API organization exhaustion** (57: 19 x 3). A file `api-exhausted/ORG` per host keeps the provider's refusal
@@ -173,7 +173,7 @@ fixes in each machine's code from history.
     (`crates/north-threads/src/threads/runs/record.rs:126-146,367`,
     `crates/north-providers/src/providers/claude/runs/row.rs:143-156`). Shapes: status-string.
 22. **Hook activation and retirement** (22: 11 x 2). A missing `current` link counts as a first sync and turns every
-    permission on (`crates/north-core/src/agent_catalog.rs:169`); two readers of `activation.json`, one skipping the
+    permission on (`crates/north-agent-policy/src/agent_catalog.rs:169`); two readers of `activation.json`, one skipping the
     environment override (`crates/north-guard/src/guard/desktop_action.rs:33`). Shapes: presence-flag.
 23. **Registered waits and parks** (20: 10 x 2). One notion in two stores, `.waits/SESSION.json` and `fleet_waits`,
     plus `.all-out` (`crates/north-fleet/src/fleet/{waits.rs,store/waits.rs,handover.rs,registry/kept.rs}`); Parked

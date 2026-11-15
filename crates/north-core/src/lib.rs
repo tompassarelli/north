@@ -3,9 +3,6 @@ pub use north_fleet_supervisor::fleet;
 pub use north_pace::{credit, router, usage};
 pub use north_threads::threads;
 
-pub mod agent_catalog;
-pub mod agent_config_check;
-pub mod agent_policy_contract;
 pub mod contract_probe;
 pub mod doctor_nix;
 pub mod grounding;

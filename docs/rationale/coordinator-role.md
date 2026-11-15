@@ -504,7 +504,7 @@ push access to South and the Firn timers are host configuration.
    ticket landed, a `Done:` report and `Next:` none or an issue, and kept for a bare `Next:` text, a
    `Split:` or a second unlanded ticket.
 8. **A1 the role file and the `agent:NAME` placement.** docs-policy, cross-module, rust, local-test;
-   30 min. Files: `harness/claude/agents/coordinator.md`, `crates/north-core/src/agent_config_check/rules.rs`.
+   30 min. Files: `harness/claude/agents/coordinator.md`, `crates/north-agent-policy/src/agent_config_check/rules.rs`.
    Needs: nothing. Done when: `cargo test -p north-core agent_config_check` passes a case where an
    `agent:coordinator` rule whose text is absent from `coordinator.md` is refused and one where it is present
    passes, and `coordinator.md`'s tools carry `Agent(Explore, Plan)`.

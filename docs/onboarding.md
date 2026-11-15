@@ -92,7 +92,7 @@ instead, so every north command and every scheduled job share one commit.
    in [bin/](../bin/) are toolchain shims and a few helpers. The runtime installer links `safe-push`
    and the other commands to the north binary under `~/.local/share/north/bin`
    ([harness/policy-owners.toml](../harness/policy-owners.toml),
-   [crates/north-core/src/agent_policy_contract/wiring.rs](../crates/north-core/src/agent_policy_contract/wiring.rs)).
+   [crates/north-agent-policy/src/agent_policy_contract/wiring.rs](../crates/north-agent-policy/src/agent_policy_contract/wiring.rs)).
 3. **Promote a runtime.** `north runtime update` builds `origin/main`, installs the binary and the
    commit's own tree under `~/.local/state/north/runtimes/<sha>/`, points
    `~/.local/state/north/current` at it, runs `north runtime health`, and then runs
@@ -111,7 +111,7 @@ instead, so every north command and every scheduled job share one commit.
    gives the order, the fallbacks and the schedule.
 5. **Publish policy.** `north config agents sync` fast-forwards the operator repository and north main
    checkouts, runs the policy gate in
-   [crates/north-core/src/agent_config_check/](../crates/north-core/src/agent_config_check/)
+   [crates/north-agent-policy/src/agent_config_check/](../crates/north-agent-policy/src/agent_config_check/)
    (`north check harness policy-gate session`), builds a new activation generation under
    `~/.local/state/north/agents/` from the operator repository's `catalog-config.json`, and links each
    allowed skill into `~/.claude/skills` and `~/.codex/skills`. It reads north's skills, scripts and

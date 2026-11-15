@@ -20,7 +20,7 @@ The default is the checkout `~/code/south/main`, with its operator directory `ag
 
 - 13 environment variables and 3 flags (`--operator`, `--south-root`, `--south`) each move one reader or one group of readers: `AGENTS_OPERATOR_DIR`, `AGENTS_ORCHESTRATION`, `AGENT_POLICY_BOOTSTRAP`, `SAFE_PUSH_SOUTH`, `SAFE_PUSH_DENYLIST`, `NORTH_PRIVATE_KINDS`, `NORTH_PUBLIC_DENYLIST`, `SOUTH_SECRETS`, `NORTH_SOUTH_ROOT`, `NORTH_REPO_ROOTS`, `INCIDENT_RETRO_SOUTH`, `WATCH_TOML` and `WATCH_SOUTH`. `AGENTS_FROZEN_TOPICS` and `NORTH_GROUNDING_SOUTH` had no caller and are gone.
 - Three readers have no override at all: the infra manifest (`src/cli/infra/manifest.rs:72`), host facts (`crates/north-runtime/src/runtime/host_facts.rs:112`) and the revision in the verdict key (`crates/north-landing-gates/src/landing/base_relative.rs:42`).
-- The repository's name is also its identity. It is matched as a string to route its landing (`crates/north-safe-push/src/landing/south_ledger.rs:41`), to resolve catalog owners (`crates/north-core/src/agent_config_check/gate.rs:105`, `crates/north-core/src/catalog/paths.rs:26`), to keep it from the free model route (`harness/opencode.toml:6`) and to accept the remote that host facts are pushed to (`crates/north-core/src/catalog/live_refs_transport.rs:47`).
+- The repository's name is also its identity. It is matched as a string to route its landing (`crates/north-safe-push/src/landing/south_ledger.rs:41`), to resolve catalog owners (`crates/north-agent-policy/src/agent_config_check/gate.rs:105`, `crates/north-agent-policy/src/catalog/paths.rs:26`), to keep it from the free model route (`harness/opencode.toml:6`) and to accept the remote that host facts are pushed to (`crates/north-agent-policy/src/catalog/live_refs_transport.rs:47`).
 
 The name stays: "south" is the role's name in north's vocabulary ([docs/operator-repository.md](../operator-repository.md)), not a fact about the owner, and a newcomer's operator repository takes the same name and place by default.
 
@@ -38,26 +38,26 @@ A file that holds two classes has two rows. Line numbers are at commit `c013d612
 | # | Path under the operator repository | Read at | Class |
 |---|---|---|---|
 | 1 | `agents/orchestration.toml` | resolved in `crates/north-shared-config/src/lib.rs:54` and `crates/north-base/src/platform/orchestration.rs:9`; 59 non-test source files reach it | schema |
-| 2 | `agents/costs.toml` | `crates/north-pace/src/router/choose.rs:28`, `crates/north-pace/src/usage/mod.rs:59`, `crates/north-pacing/src/pacing/placement/credit.rs:45`, `crates/north-flow/src/agents/status/mod.rs:136`, `crates/north-core/src/agent_config_check/accounts.rs:55`, `crates/north-threads/src/threads/outside.rs:54` | schema |
+| 2 | `agents/costs.toml` | `crates/north-pace/src/router/choose.rs:28`, `crates/north-pace/src/usage/mod.rs:59`, `crates/north-pacing/src/pacing/placement/credit.rs:45`, `crates/north-flow/src/agents/status/mod.rs:136`, `crates/north-agent-policy/src/agent_config_check/accounts.rs:55`, `crates/north-threads/src/threads/outside.rs:54` | schema |
 | 3 | `agents/claude-accounts.toml` | `crates/north-pace/src/credit.rs:49`, `:233` | schema |
 | 4 | `agents/credentials.toml` | `crates/north-credentials/src/credentials/declared.rs:8`, `crates/north-broker/src/credentials.rs:51` | schema |
 | 5 | `agents/frozen-topics.toml` | `crates/north-base/src/platform/frozen_topics.rs:35` | schema |
-| 6 | `agents/operating-point.toml` | `crates/north-core/src/agent_config_check/gate.rs:266`, `crates/north-convo/src/policy_replay/point.rs:184`, `crates/north-timers/src/timers/skill_prune.rs:131` | schema |
+| 6 | `agents/operating-point.toml` | `crates/north-agent-policy/src/agent_config_check/gate.rs:266`, `crates/north-convo/src/policy_replay/point.rs:184`, `crates/north-timers/src/timers/skill_prune.rs:131` | schema |
 | 7 | `agents/watch.toml` | `crates/north-flow/src/detectors/gather/sources.rs:16`, `crates/north-flow/src/detectors/gather/skills.rs:16`, `crates/north-timers/src/timers/watch_review/system.rs:15` | schema |
-| 8 | `agents/rules.toml` | `crates/north-core/src/agent_config_check/rules.rs:178`, `crates/north-core/src/grounding/sources/policy.rs:419` | schema |
-| 9 | `agents/incidents.jsonl` | `crates/north-core/src/agent_config_check/rules.rs:184` | schema |
-| 10 | `agents/catalog-config.json`: activation, baselines, provider support, registrations of units the operator owns | `crates/north-core/src/catalog/paths.rs:16`, `crates/north-core/src/agent_policy_contract.rs:109`, `crates/north-core/src/agent_config_check/gate.rs:285`, `crates/north-core/src/catalog/registration_checks.rs:206`, `crates/north-timers/src/timers/skill_prune.rs:116` | schema |
-| 11 | `agents/catalog-config.json`: registrations of units north owns | the readers of row 10, resolved against north's structure registry in `crates/north-core/src/catalog/owner_modules.rs:17` | generic method |
-| 12 | `agents/routines/*.md` (frontmatter) | `crates/north-flow/src/agents/routines/mod.rs:42`, `crates/north-timers/src/job_watch/mod.rs:28`, `crates/north-core/src/agent_config_check/mod.rs:305` | schema |
-| 13 | `agents/replay/` (cases and sweeps) | `crates/north-core/src/agent_config_check/gate.rs:164`, `:193` | schema |
+| 8 | `agents/rules.toml` | `crates/north-agent-policy/src/agent_config_check/rules.rs:178`, `crates/north-core/src/grounding/sources/policy.rs:419` | schema |
+| 9 | `agents/incidents.jsonl` | `crates/north-agent-policy/src/agent_config_check/rules.rs:184` | schema |
+| 10 | `agents/catalog-config.json`: activation, baselines, provider support, registrations of units the operator owns | `crates/north-agent-policy/src/catalog/paths.rs:16`, `crates/north-agent-policy/src/agent_policy_contract.rs:109`, `crates/north-agent-policy/src/agent_config_check/gate.rs:285`, `crates/north-agent-policy/src/catalog/registration_checks.rs:206`, `crates/north-timers/src/timers/skill_prune.rs:116` | schema |
+| 11 | `agents/catalog-config.json`: registrations of units north owns | the readers of row 10, resolved against north's structure registry in `crates/north-agent-policy/src/catalog/owner_modules.rs:17` | generic method |
+| 12 | `agents/routines/*.md` (frontmatter) | `crates/north-flow/src/agents/routines/mod.rs:42`, `crates/north-timers/src/job_watch/mod.rs:28`, `crates/north-agent-policy/src/agent_config_check/mod.rs:305` | schema |
+| 13 | `agents/replay/` (cases and sweeps) | `crates/north-agent-policy/src/agent_config_check/gate.rs:164`, `:193` | schema |
 | 14 | `privacy/public-denylist.toml` | `crates/north-landing-gates/src/landing/denylist_mirror.rs:12`, `crates/north-guard/src/guard/public_text.rs:10`, `crates/north-land-scans/src/outgoing/denylist.rs:113` | schema |
 | 15 | `privacy/private-kinds.toml` | `crates/north-land-scans/src/privacy_judge/kinds.rs:8` | schema |
 | 16 | `infra/manifest.toml` | `src/cli/infra/manifest.rs:11` | schema |
-| 17 | `agents/AGENTS.md` (the operator's global rules) | `crates/north-core/src/agent_config_check/gate.rs:265`, `crates/north-core/src/agent_config_check/rules.rs:177`, `crates/north-core/src/agent_policy_contract.rs:113`, `crates/north-convo/src/policy_replay/sweep.rs:141`, `harness/mayday/tier0.list:5` | private value |
-| 18 | `agents/skills/` (skills the operator owns) | each registration's owner path, `crates/north-core/src/catalog/paths.rs:58` | private value |
+| 17 | `agents/AGENTS.md` (the operator's global rules) | `crates/north-agent-policy/src/agent_config_check/gate.rs:265`, `crates/north-agent-policy/src/agent_config_check/rules.rs:177`, `crates/north-agent-policy/src/agent_policy_contract.rs:113`, `crates/north-convo/src/policy_replay/sweep.rs:141`, `harness/mayday/tier0.list:5` | private value |
+| 18 | `agents/skills/` (skills the operator owns) | each registration's owner path, `crates/north-agent-policy/src/catalog/paths.rs:58` | private value |
 | 19 | `agents/decisions/` | named as the place a durable record goes, `crates/north-guard/src/guard/handoff_record.rs:7`; read only through row 20 | private value |
 | 20 | every tracked file under `agents/`, as text | the prompt-grounding corpus, `crates/north-core/src/grounding/sources/policy.rs:472` | private value |
-| 21 | the whole checkout, as text | the vocabulary check, `crates/north-core/src/agent_config_check/mod.rs:258` | private value |
+| 21 | the whole checkout, as text | the vocabulary check, `crates/north-agent-policy/src/agent_config_check/mod.rs:258` | private value |
 | 22 | `hosts/` | searched for uses of north's commands, `crates/north-landing-gates/src/landing/bin_references.rs:154` | private value |
 | 23 | `modules/` | the same search | private value |
 | 24 | `bin/` | the same search | private value |
@@ -89,7 +89,7 @@ Three kinds hold method a newcomer would value and cannot be classed from paths 
 ### What the inventory shows beyond the table
 
 - A newcomer with no operator checkout lands unscanned: the deny-list and the judge warn and pass (`crates/north-land-scans/src/outgoing/denylist.rs:185`, `:205`). A template that writes starter lists protects them from the first landing.
-- `agents sync` refreshes three checkouts in order, the operator's, north's and the machine-configuration repository's, and publishes nothing when one cannot be fetched (`crates/north-core/src/catalog/sync_gate.rs:44` to `:47`, `:160`). A newcomer does not have the third, and a repository made a minute ago has no origin to fetch.
+- `agents sync` refreshes three checkouts in order, the operator's, north's and the machine-configuration repository's, and publishes nothing when one cannot be fetched (`crates/north-agent-policy/src/catalog/sync_gate.rs:44` to `:47`, `:160`). A newcomer does not have the third, and a repository made a minute ago has no origin to fetch.
 - The catalog's `$schema` names `north:agent-catalog/catalog-config.schema.json`, and north holds that schema at `harness/agent-catalog/catalog-config.schema.json` (its `$id` is the same name); init now also names every guard unit the guard code asks for, which the owner check requires.
 - North already holds synthetic copies of two of the 15 schema files as test fixtures (`harness/lib/fixtures/orchestration.toml`, `harness/lib/fixtures/costs.toml`), so init starts from shapes the tests already exercise.
 - North's own skills and docs point into the operator repository 31 times at 14 distinct places, and [docs/onboarding.md](../onboarding.md) is the install page. Those belong to the docs boxes and the privacy sweep of north#1281.

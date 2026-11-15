@@ -66,12 +66,12 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | goal-scores.jsonl | crates/north-flow/src/agents/goal/score.rs | src/cli/views/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | crates/north-pace/src/usage/settings.rs services | read | |
 | costs/*.json | crates/north-pace/src/usage/refresh/digitalocean.rs | crates/north-pace/src/usage/settings.rs service lines | read | |
-| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-timers/src/timers/skill_prune.rs | read | |
+| S:operating-point.toml | north policy-replay promote | crates/north-agent-policy/src/agent_config_check/gate.rs; crates/north-timers/src/timers/skill_prune.rs | read | |
 | injected context per session (startup, SKILL bodies, skill references, grounding, other hook context; grounding precision and notification-triggered injections), derived from Claude transcripts | Claude Code transcripts under the north profiles' `projects` directories | crates/north-convo/src/context_audit/scan.rs audit_file; `north config context audit` measures the skill and hook slimming program | read | |
-| S:incidents.jsonl | north incident-mine (crates/north-convo/src/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
+| S:incidents.jsonl | north incident-mine (crates/north-convo/src/incident_mine) | crates/north-agent-policy/src/agent_config_check/rules.rs | read | |
 | incidents (class, noticed_by, started_at, detected_at, fixed_at, guard, recurred_after_guard) | north ledger incident record from the lander (crates/north-landing/src/land/incidents.rs, every verdict but landed and every held candidate) and north land withdraw | crates/north-threads/src/threads/incidents/report.rs, printed by north ledger flow per 7 days and north ledger incident report | read | |
 | incident_guards (class, guard, landed_at, issue) | north ledger incident guard | crates/north-threads/src/threads/incidents/mod.rs insert marks a later row of the class recurred_after_guard | read | |
-| replay sweep-*.jsonl | north policy-replay sweep (crates/north-convo/src/policy_replay/sweep.rs) | crates/north-core/src/agent_config_check/gate.rs | read | |
+| replay sweep-*.jsonl | north policy-replay sweep (crates/north-convo/src/policy_replay/sweep.rs) | crates/north-agent-policy/src/agent_config_check/gate.rs | read | |
 | harness/model-catalog.toml | hand | crates/north-pace/src/usage/settings.rs CATALOG; crates/north-providers/src/providers/codex/runs/usage.rs run_usage; crates/north-providers/src/providers/claude/runs/telemetry.rs Prices | read | |
 The definitions of the activity columns, attempt chains, rework and unjudged runs, with the dated measurements behind them, are in [learned routing and goal ETA measurements](rationale/learned-routing-and-goal-eta.md#signal-definitions-and-measurements-moved-from-the-feedback-loop).
 

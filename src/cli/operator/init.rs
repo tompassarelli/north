@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use north_core::agent_catalog::initial_catalog;
+use north_agent_policy::agent_catalog::initial_catalog;
 
 use crate::error::{NorthError, NorthResult};
 use crate::platform::harness;

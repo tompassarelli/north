@@ -225,13 +225,13 @@ commits in order under one moderate lease; user+sys core-seconds / wall seconds;
 
 Category: performance. Spec: measured. Scope: single-module. Surface: harness. Verify: local-test. Files:
 `harness/scripts/check-owners.sh` (new, glue under 20 lines), `.safe-push`. Rule: take the sha `current` names under
-`~/.local/state/north/runtimes/`; if `git diff --quiet SHA "$SAFE_PUSH_LAND_HEAD" -- crates/north-core/src/catalog
-crates/north-core/src/agent_catalog.rs crates/north-base Cargo.lock` holds, run that binary, else `cargo run`.
+`~/.local/state/north/runtimes/`; if `git diff --quiet SHA "$SAFE_PUSH_LAND_HEAD" -- crates/north-agent-policy/src/catalog
+crates/north-agent-policy/src/agent_catalog.rs crates/north-base Cargo.lock` holds, run that binary, else `cargo run`.
 
 Done when:
 - In a lane whose diff touches only `docs/`, the script with base and head set exits 0 in under 10 s and prints no
   `Compiling`.
-- In a lane touching `crates/north-core/src/catalog/registration_checks.rs`, its output shows `Finished` or
+- In a lane touching `crates/north-agent-policy/src/catalog/registration_checks.rs`, its output shows `Finished` or
   `Compiling north`.
 - `rg -c 'check-owners.sh' .safe-push` prints 2 (the check and its `machine-bound` line).
 

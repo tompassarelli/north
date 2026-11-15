@@ -103,7 +103,7 @@ path = "examples/operator/"
 kind = "regenerate"
 command = "north config operator init --sync examples/operator"
 sources = ["structure/", "structure.toml"]
-generator = ["src/cli/operator/", "crates/north-core/src/catalog/", "crates/north-core/src/agent_catalog.rs"]
+generator = ["src/cli/operator/", "crates/north-agent-policy/src/catalog/", "crates/north-agent-policy/src/agent_catalog.rs"]
 check = "config operator init --check"
 
 [[set]]

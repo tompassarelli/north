@@ -490,7 +490,7 @@ may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration",
 name = "north-core"
 layer = 6
 paths = ["crates/north-core/src/**"]
-may_use = ["north-claude-stream", "north-fleet-supervisor", "north-git-locks", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads", "north-registries", "north-build-system"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads", "north-registries", "north-build-system"]
 
 [[crate_dag.crate]]
 name = "north-flow"
@@ -811,9 +811,9 @@ may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.landing",
 
 [[module]]
 name = "catalog"
-paths = ["crates/north-core/src/catalog/**", "crates/north-core/src/agent_catalog.rs", "crates/north-core/src/agent_policy_contract.rs", "crates/north-core/src/agent_policy_contract/**", "crates/north-core/src/agent_config_check/**"]
+paths = ["crates/north-agent-policy/src/catalog/**", "crates/north-agent-policy/src/agent_catalog.rs", "crates/north-agent-policy/src/agent_policy_contract.rs", "crates/north-agent-policy/src/agent_policy_contract/**", "crates/north-agent-policy/src/agent_config_check/**"]
 responsibility = "Agent catalog, activation generations, projection port and policy checks; agent_config_check reads south agents/ policy files from the checkout, not the fetched snapshot, because it gates publishing that checkout."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks", "platform.store"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks", "platform.store", "usage", "platform", "platform.git", "platform.github", "platform.harness", "platform.host", "platform.process"]
 
 [[module]]
 name = "coordinator"
@@ -1409,3 +1409,8 @@ name = "coordinator_roles"
 paths = ["crates/north-shared-config/src/roles.rs"]
 responsibility = "Which launcher role names the coordinator seat, including the name it carried before the rename, so confinement and guards read one predicate."
 may_use = []
+[[crate_dag.crate]]
+name = "north-agent-policy"
+layer = 3
+paths = ["crates/north-agent-policy/src/**"]
+may_use = ["north-base", "north-git-locks", "north-pace"]

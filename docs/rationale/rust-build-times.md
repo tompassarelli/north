@@ -208,7 +208,7 @@ leaf `test --no-run` returns to about the Cranelift row above, against a 30-minu
 Measured on gex45 at origin/main 8a8f2296b with Cranelift and `-Zthreads=8`, 10:58-11:41 AM (laptop time) on
 2026-11-05, in one worktree target under `north capacity host run --class heavy` (6 CPUs), `RUSTC_WRAPPER`
 as the dev shell sets it (sccache). Each sample appends `const _: u64 = K;` to
-`crates/north-core/src/agent_catalog.rs` after an unmeasured warm build in the same mode, then times a
+`crates/north-agent-policy/src/agent_catalog.rs` after an unmeasured warm build in the same mode, then times a
 workspace `cargo test --locked --offline --no-run` with bash `time`; the two modes alternate order each
 round. "Off" is `CARGO_BUILD_INCREMENTAL=false`, "on" is the repository's `[build] incremental = true`.
 Host load was 6.5 to 21 on 20 threads. Seconds; CPU is user plus system:

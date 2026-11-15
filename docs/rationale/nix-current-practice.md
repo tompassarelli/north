@@ -157,7 +157,7 @@ trust).
 - firn `flake.nix:219-226` and `427-434` import `nixpkgs-unstable` and `nixpkgs-master` as overlays. Common and
   current; each import costs evaluation time and `master` is unreviewed by Hydra.
 - `--no-update-lock-file` (north `bin/depbox:50`) and `--no-write-lock-file`
-  (`crates/north-core/src/agent_config_check/codex.rs:195`) keep agents from rewriting locks. Current.
+  (`crates/north-agent-policy/src/agent_config_check/codex.rs:195`) keep agents from rewriting locks. Current.
 
 ### Pure evaluation, channels and NIX_PATH
 

@@ -19,7 +19,7 @@ The issue measured 282,548 lines, so main has grown 8,017 since; its box, at mos
 Cleanup cannot pay for that bar, and the plan must say so before it writes a box that cannot land.
 
 - No Rust source file is unreachable. Every file is declared from a `lib.rs`, `main.rs`, test or example root,
-  including the odd mounts: `crates/north-core/src/agent_catalog.rs` mounts the whole `crates/north-core/src/catalog/`
+  including the odd mounts: `crates/north-agent-policy/src/agent_catalog.rs` mounts the whole `crates/north-agent-policy/src/catalog/`
   directory with `#[path = "catalog/..."]`, `crates/north-lander/src/land/mod.rs` mounts
   `crates/north-lander/src/land/commands.rs` with `include!`, and `crates/north-calibration/src/lib.rs`
   declares `threads` inline so its `crates/north-calibration/src/threads/calibration/` directory is live.

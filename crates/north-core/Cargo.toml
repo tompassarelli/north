@@ -14,10 +14,8 @@ north-threads = { path = "../north-threads", features = ["test-support"] }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-graph = { path = "../north-graph" }
 north-graph-ground = { path = "../north-graph-ground" }
-north-git-locks = { path = "../north-git-locks" }
 north-graph-loops = { path = "../north-graph-loops" }
 clap.workspace = true
-fancy-regex.workspace = true
 regex.workspace = true
 rustix.workspace = true
 serde.workspace = true
@@ -29,7 +27,6 @@ toml_edit.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-rusqlite.workspace = true
 north-fleet-supervisor = { path = "../north-fleet-supervisor", features = ["test-support"] }
 
 [lints]
