@@ -9,7 +9,7 @@ use super::disk_budget::{DiskBudget, Share};
 
 const GIB: u64 = 1 << 30;
 const CAP_BYTES: u64 = 10 * GIB;
-const IDLE: Duration = Duration::from_secs(20 * 60);
+pub const IDLE: Duration = Duration::from_secs(20 * 60);
 const BUILD_LOCK: &str = ".cargo-lock";
 const PROFILES:[&str; 2] = ["debug", "release"];
 const LIBRARY_EXTENSIONS: [&str; 5] = ["rlib", "rmeta", "d", "so", "a"];
@@ -99,10 +99,6 @@ pub fn sweep_store(cache: &Path, now: SystemTime, cap: impl FnOnce(u64) -> u64) 
     Ok(trimmed)
 }
 
-pub fn sweep_checkout(target: &Path, now: SystemTime, cap: u64) -> io::Result<u64> {
-    sweep(target, cap, IDLE, now)
-}
-
 pub fn sweep_cache(cache: &Path, now: SystemTime, cap: u64) -> io::Result<Vec<(PathBuf, u64)>> {
     let mut trimmed = Vec::new();
     for target in shared_targets(cache) {
@@ -146,7 +142,7 @@ fn profile_size(target: &Path) -> io::Result<u64> {
     Ok(size)
 }
 
-fn sweep(target: &Path, cap: u64, idle: Duration, now: SystemTime) -> io::Result<u64> {
+pub fn sweep(target: &Path, cap: u64, idle: Duration, now: SystemTime) -> io::Result<u64> {
     let mut size = profile_size(target)?;
     let mut freed = 0;
     if size <= cap {

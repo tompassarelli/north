@@ -49,7 +49,7 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
         }
         let main = inputs.code.join(MAIN_BUILT_CONTAINER).join("main");
         for target in rebuildable(&main) {
-            let freed = shared_target::sweep_checkout(&target, inputs.now, shared_target::cap_bytes(&inputs.disk_budget))?;
+            let freed = shared_target::sweep(&target, shared_target::cap_bytes(&inputs.disk_budget), shared_target::IDLE, inputs.now)?;
             if freed > 0 {
                 removals.push(Removal { path: target, reason: "main checkout cargo target over its cap: idle incremental state, test binaries, libraries and profiles".to_owned(), bytes: freed });
             }
