@@ -402,7 +402,7 @@ impl Shared {
             Ok(ran) => ran,
             Err(status) => return status,
         };
-        let cpu = before.zip(children_cpu_seconds()).filter(|_| measured).map(|(before, after)| after - before);
+        let cpu = if measured { before.zip(children_cpu_seconds()).map(|(before, after)| after - before) } else { check_log::leased_cpu(&ran.marks) };
         steps::add_all(steps::split(ran.started_at, ran.ended_at, &ran.marks));
         steps::ran(&command, ran.started_at, ran.ended_at);
         steps::waited(&ran.marks);

@@ -78,6 +78,10 @@ pub fn line_wait(marks: &[Mark]) -> f64 {
     marks.iter().map(|mark| waited_in_line(&mark.line).or_else(|| is_reserved(&mark.line).then(|| queued_seconds(&mark.line)).flatten()).unwrap_or_default()).sum()
 }
 
+pub fn leased_cpu(marks: &[Mark]) -> Option<f64> {
+    marks.iter().filter(|mark| is_released(&mark.line)).filter_map(|mark| serde_json::from_str::<serde_json::Value>(mark.line.trim()).ok()?.get("cpuSeconds")?.as_f64()).reduce(|total, cpu| total + cpu)
+}
+
 pub fn is_offload_running(line: &str) -> bool {
     line.trim().starts_with(OFFLOAD_RUNNING)
 }

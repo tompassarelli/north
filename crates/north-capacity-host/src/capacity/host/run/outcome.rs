@@ -152,6 +152,7 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
     let subject = request.subject.as_deref().unwrap_or(command);
     let launched = now_ms() / 1000.0;
     let mut start = subject_start::Start::default();
+    let mut cpu = None;
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
@@ -162,7 +163,9 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
             let exit = Exit::judge(code, &witness);
             let exit_code = exit.code();
             let usage = measurement.finish();
-            let entry = usage_entry(owner, request, subject, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);
+            let child_cpu = children_cpu_seconds() - child_cpu_before;
+            cpu = Some(round2(usage.cpu_seconds.max(child_cpu)));
+            let entry = usage_entry(owner, request, subject, admitted, exit_code, &usage, child_cpu);
             let memory_high = admitted.get("scope").and_then(|scope| field(scope, "memoryMiB"));
             let entry = model_fields(entry, owner, request, subject, &usage, cache, memory_high);
             record(&entry, &usage, subject, request, &lease);
@@ -185,7 +188,7 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
     if scope_live(&lease) {
         eprintln!("machine-capacity: lease cleanup failed: scope still live; retained lease {lease}");
     } else {
-        print_to(&started(change_lease(root, &lease, owner, None, true), &start), true);
+        print_to(&started(change_lease(root, &lease, owner, None, true).put_some("cpuSeconds", cpu.map(num)), &start), true);
     }
     exit_code
 }
