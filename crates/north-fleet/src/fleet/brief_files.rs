@@ -134,6 +134,11 @@ fn blobs(batch: &[u8]) -> Vec<(String, &[u8])> {
 }
 
 pub(super) fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option<Vec<u8>> {
+    run_within(machine, cwd, script, SSH_WAIT)
+}
+
+/// [`run`] bounded by `limit`, for a reader that must not hold a launch's first prompt past its budget (north#1531).
+pub(super) fn run_within(machine: Option<&Machine>, cwd: &Path, script: &str, limit: std::time::Duration) -> Option<Vec<u8>> {
     let script = format!("cd {} && {script}", quote(&cwd.to_string_lossy()));
     let command = match machine {
         None => {
@@ -142,7 +147,7 @@ pub(super) fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option
             sh
         }
         Some(machine) => {
-            if let Some((code, out)) = super::hops::timed("brief read over a held channel", || north_ssh_spare::run_bytes(machine.session_login(), &format!("sh -c {}", quote(&script)), SSH_WAIT)) {
+            if let Some((code, out)) = super::hops::timed("brief read over a held channel", || north_ssh_spare::run_bytes(machine.session_login(), &format!("sh -c {}", quote(&script)), limit)) {
                 return (code == 0).then_some(out);
             }
             let mut ssh = Command::new(super::runtime::binary("ssh"));
@@ -150,6 +155,6 @@ pub(super) fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option
             ssh
         }
     };
-    let output = super::hops::timed(if machine.is_some() { "brief read over a fresh ssh" } else { "brief read here" }, || try_run_command_within(command, None, SSH_WAIT)).ok().flatten()?;
+    let output = super::hops::timed(if machine.is_some() { "brief read over a fresh ssh" } else { "brief read here" }, || try_run_command_within(command, None, limit)).ok().flatten()?;
     output.status.success().then_some(output.stdout)
 }
