@@ -7,7 +7,7 @@ use super::candidate;
 use super::checks::{self, Launch, Started, Verdict};
 use super::lander::Lander;
 use super::outlive;
-use super::queue::{self, Ticket};
+use super::queue::Ticket;
 
 const RECORD: &str = "alone-flight.json";
 const WORKTREE: &str = "lander-alone";
@@ -69,7 +69,7 @@ pub fn start(lander: &Lander, check: Check<'_>) -> Result<Flight, Verdict> {
         log: check.log,
         group: started.id().cast_signed(),
     };
-    let written = serde_json::to_string(&record).map_err(|error| error.to_string()).and_then(|text| queue::write_atomic(&record_path(&lander.queue), &text).map_err(|error| error.to_string()));
+    let written = serde_json::to_string(&record).map_err(|error| error.to_string()).and_then(|text| crate::atomic_write::write_atomic(&record_path(&lander.queue), &text).map_err(|error| error.to_string()));
     if let Err(error) = written {
         println!("north land: could not record the alone check of {}, so a lander restart reruns it: {error}", record.branch);
     }

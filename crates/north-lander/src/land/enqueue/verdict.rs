@@ -154,7 +154,7 @@ impl Hand<'_> {
         }
         let outbox = waiting.here.join(queue::OUTBOX);
         let _ = fs::remove_file(outbox.join(queue::ANSWERS).join(waiting.name));
-        match queue::write_atomic(&outbox.join(queue::ASKS).join(waiting.name), &format!("{}\n", ticket.head)) {
+        match north_landing::atomic_write::write_atomic(&outbox.join(queue::ASKS).join(waiting.name), &format!("{}\n", ticket.head)) {
             Ok(()) => Some(Ask { at: Instant::now(), told: false }),
             Err(error) => {
                 let _ = writeln!(out, "safe-push: cannot ask the lander, since this host's outbox {} refuses the ask: {error}", outbox.display());

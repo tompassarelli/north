@@ -601,7 +601,7 @@ pub fn patrol(lander: &Lander) -> Result<(), String> {
         let record = records(lander).join(queue::slug(head));
         let verdict = answer(lander, &worktree, name, tip)?;
         println!("north land: sheriff: main red at {}: {verdict}", short(head));
-        queue::write_atomic(&record, &format!("{verdict}\n")).map_err(|error| format!("cannot write {}: {error}", record.display()))?;
+        crate::atomic_write::write_atomic(&record, &format!("{verdict}\n")).map_err(|error| format!("cannot write {}: {error}", record.display()))?;
         let _ = Command::new("git").arg("-C").arg(&lander.repo).args(["push", "-q", "--no-verify", "origin", "--delete", name]).env("SAFE_PUSH_ACTIVE", "1").output();
     }
     match pipe_break::patrol(lander, &worktree) {

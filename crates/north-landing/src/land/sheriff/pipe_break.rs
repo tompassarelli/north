@@ -277,7 +277,7 @@ pub fn patrol(lander: &Lander, worktree: &Path) -> Result<Option<String>, String
     if judged.starts_with(&format!("unconfirmed {main}")) {
         return Ok(None);
     }
-    let write = |text: String| queue::write_atomic(&record, &text).map_err(|error| format!("cannot write {}: {error}", record.display()));
+    let write = |text: String| crate::atomic_write::write_atomic(&record, &text).map_err(|error| format!("cannot write {}: {error}", record.display()));
     let evidence = stop.evidence(&live, now);
     let author = lane_ticket(lander, &format!("{}^", live.commit), &live.commit, &live.commit);
     let session = author.as_ref().and_then(|author| author.session.as_deref());

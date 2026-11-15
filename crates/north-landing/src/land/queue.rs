@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use north_base::land_ticket::{self, Phase};
 
 use super::reservation::{self, Decided};
+use crate::atomic_write::write_atomic;
 use north_base::land_ticket::Records;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -144,15 +144,6 @@ pub const BUNDLE: &str = "bundle";
 
 pub fn bundle(ticket: &Path) -> PathBuf {
     ticket.with_extension(BUNDLE)
-}
-
-pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
-    let parent = path.parent().ok_or_else(|| io::Error::other(format!("{} has no parent", path.display())))?;
-    fs::create_dir_all(parent)?;
-    static WRITES: AtomicU64 = AtomicU64::new(0);
-    let temporary = parent.join(format!(".{}.{}.{}.tmp", path.file_name().unwrap_or_default().to_string_lossy(), std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
-    fs::write(&temporary, text)?;
-    fs::rename(temporary, path)
 }
 
 pub fn write(path: &Path, ticket: &Ticket) -> io::Result<()> {

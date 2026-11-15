@@ -14,7 +14,6 @@ use super::super::candidate::git;
 use super::super::lander::Lander;
 use super::super::candidate::change_worktrees_alone;
 use super::super::outlive;
-use super::super::queue;
 use super::super::telemetry::epoch;
 use super::super::wake::Task;
 
@@ -50,7 +49,7 @@ pub(super) fn wrapped(run: &Run, argv: Vec<OsString>) -> Vec<OsString> {
 
 pub(super) fn remember(run: &Run, landed: &Landed, group: u32) {
     let record = Record { group: group.cast_signed(), started: epoch(), deadline: run.deadline.as_secs(), base: landed.base.clone(), head: landed.head.clone(), heads: landed.heads.clone(), host: run.host.clone() };
-    let written = serde_json::to_string(&record).map_err(|error| error.to_string()).and_then(|text| queue::write_atomic(&record_path(run), &text).map_err(|error| error.to_string()));
+    let written = serde_json::to_string(&record).map_err(|error| error.to_string()).and_then(|text| crate::atomic_write::write_atomic(&record_path(run), &text).map_err(|error| error.to_string()));
     if let Err(error) = written {
         println!("north land: could not record the runner of the after-landing run of {}, so a lander restart reruns it: {error}", landed.head);
     }

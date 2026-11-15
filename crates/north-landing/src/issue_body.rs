@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::issue_box_lint;
-use crate::land::after::tick as landing;
-use crate::land::queue;
+use crate::box_tick as landing;
+use crate::atomic_write;
 use crate::platform::process;
 
 pub const DIRECTORY: &str = "issue-bodies";
@@ -364,7 +364,7 @@ pub fn submit(queue_directory: &Path, issue: &Issue, edit: &Edit) -> io::Result<
     }
     let micros = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros());
     let path = directory.join(format!("{micros}{suffix}"));
-    queue::write_atomic(&path, &text)?;
+    atomic_write::write_atomic(&path, &text)?;
     Ok(path)
 }
 

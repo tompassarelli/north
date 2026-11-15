@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::candidate::{self, git};
-use super::{after, queue, replay, sheriff};
+use super::{after, replay, sheriff};
 
 pub const TRAILER: &str = "Replay-change:";
 const KINDS: [&str; 8] = ["landed", "failed", "conflict", "undecided", "deferred", "transient", "red-main", "error"];
@@ -282,7 +282,7 @@ fn revert(runtimes: &Runtimes, divergence: &Divergence, commit: &str, found: &st
     let head = sheriff::queue_revert_in(source, queue_dir, &worktree, &branch)?;
     let done = format!("revert {commit} {head} queued as {branch}");
     fs::create_dir_all(record.parent().unwrap_or(queue_dir)).map_err(|error| error.to_string())?;
-    queue::write_atomic(&record, &format!("{done}\n")).map_err(|error| format!("cannot write {}: {error}", record.display()))?;
+    north_landing::atomic_write::write_atomic(&record, &format!("{done}\n")).map_err(|error| format!("cannot write {}: {error}", record.display()))?;
     Ok(done)
 }
 

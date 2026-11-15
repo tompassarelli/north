@@ -175,7 +175,7 @@ pub fn rounds(queue: &Path) -> Vec<Observation> {
 fn save_rounds(queue: &Path, rounds: &[Observation]) -> Result<(), String> {
     let path = queue.join(ROUNDS);
     let text = serde_json::to_string_pretty(rounds).map_err(|error| error.to_string())? + "\n";
-    queue::write_atomic(&path, &text).map_err(|error| format!("cannot write {}: {error}", path.display()))
+    north_landing::atomic_write::write_atomic(&path, &text).map_err(|error| format!("cannot write {}: {error}", path.display()))
 }
 
 pub fn observe(queue: &Path, observation: Observation, checking: bool) -> Result<bool, String> {
@@ -390,7 +390,7 @@ fn page(root: &Path, violations: &[Violation], now: u64, hands: &dyn Hands) -> V
         }
     }
     if let Ok(text) = serde_json::to_string_pretty(&paged)
-        && let Err(error) = queue::write_atomic(&path, &(text + "\n"))
+        && let Err(error) = north_landing::atomic_write::write_atomic(&path, &(text + "\n"))
     {
         eprintln!("north land watchdog: cannot record pages in {}: {error}", path.display());
     }
