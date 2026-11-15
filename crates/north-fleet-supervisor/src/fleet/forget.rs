@@ -52,6 +52,11 @@ pub fn queued_lanes(queues: &Path, name: &str, cwd: Option<&Path>) -> Vec<Queued
     lanes
 }
 
+/// The lane the waiting ticket at `ticket` queued.
+pub fn ticket_root(ticket: &Path) -> Option<PathBuf> {
+    serde_json::from_str::<Ticket>(&fs::read_to_string(ticket).ok()?).ok().map(|ticket| ticket.root)
+}
+
 /// Points the waiting ticket at `ticket` to `session`, so the lander's verdict reaches the lane's new owner.
 pub fn reassign(ticket: &Path, session: &str) -> NorthResult<()> {
     let mut text: serde_json::Value = serde_json::from_str(&fs::read_to_string(ticket)?)?;

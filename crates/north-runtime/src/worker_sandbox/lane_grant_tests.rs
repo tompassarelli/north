@@ -365,3 +365,23 @@ fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
     restarted.wait().unwrap();
     assert_eq!((found, resolved["name"].as_str()), (directory, Some("proxy")));
 }
+
+#[test]
+fn a_lane_grant_covers_a_second_project_lane_and_a_handed_over_lane_but_not_an_unbound_one() {
+    let fixture = Fixture::new();
+    let main = fixture.host.home.join("code/north/main");
+    let directory = fixture.host.fleet.join(NAME);
+    let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-session-live-1352.scope\n";
+    let admitted = |lane: &Path, created_ms: u64| {
+        let record = serde_json::json!({ "name": NAME, "cwd": main, "created_ms": created_ms });
+        let checkout = super::super::request_checkout::Checkout { top: lane.canonicalize().unwrap(), git_dir: PathBuf::new(), common: PathBuf::new() };
+        super::super::finish_request::admitted(NAME, &record, &directory, &checkout, &Peer::from(Some(cgroup)), &fixture.host)
+    };
+    let later = u64::MAX / 2000;
+    assert!(admitted(&fixture.other, later).is_err_and(|refused| refused.contains("no record binds")), "a second project's lane made before the session launched, handed to nobody, was admitted");
+    assert_eq!(admitted(&fixture.other, 1), Ok(()), "a lane of a second project, made with north lane new after launch, was refused");
+    let former = fixture.host.fleet.join("former-owner");
+    std::fs::create_dir_all(&former).unwrap();
+    std::fs::write(former.join(crate::fleet::session_lifecycle::LANES_HANDED), serde_json::json!({ "to": NAME, "lanes": [fixture.other] }).to_string()).unwrap();
+    assert_eq!(admitted(&fixture.other, later), Ok(()), "a lane handed over by fleet forget --to was refused");
+}

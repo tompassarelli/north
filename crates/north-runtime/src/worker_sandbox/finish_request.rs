@@ -68,7 +68,7 @@ pub(super) fn granted(check: Check, checkout: &Checkout, peer: &Peer, host: &Hos
     Ok(Granted { _turn: check_request::turn_in(&directory, &session, TURN)?, session, arguments, directory: checkout.top.clone(), environment, command: check.command, head: check.head })
 }
 
-/// Why `checkout` is not a lane the session `name`, whose record is `record` in the fleet directory `directory`, may run a finish check in, if it is not. An ordinary session's lanes are those under `worktrees/` of the project of the directory it launched in, one it made after launch among them (the sandbox gives it the same reach), never the main checkout and never the lane another live fleet session launched in, one placed here by another host among them, by its recorded directory or by its name; a lane-only session's is its own lane alone, since the scratch directory that would say which lanes it made since is not a fact the broker holds. The record vouches only for the tree the command ran on (`Granted::record`), so a lane another session could make is no gain to a caller.
+/// Why `checkout` is not a lane the session `name`, whose record is `record` in the fleet directory `directory`, may run a finish check in, if it is not. An ordinary session's lanes are those under `worktrees/` of the project of the directory it launched in, one it made after launch among them, and a lane of another project that it created after it launched (the lane directory's birth time, which a worker cannot set back) or that a `north fleet forget --to` handover in the fleet's own directory names it as receiving (the sandbox gives it the same reach), never the main checkout and never the lane another live fleet session launched in, one placed here by another host among them, by its recorded directory or by its name; a lane-only session's is its own lane alone, since the scratch directory that would say which lanes it made since is not a fact the broker holds. The record vouches only for the tree the command ran on (`Granted::record`), so a lane another session could make is no gain to a caller.
 pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path, checkout: &Checkout, peer: &Peer, host: &Host) -> Result<(), String> {
     let own = lane_grant::own_lane(name, record)?;
     if north_base::platform::session_scope::lane_only_cgroup(peer.cgroup().unwrap_or_default()) {
@@ -76,9 +76,11 @@ pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path,
     }
     let cwd = PathBuf::from(record["cwd"].as_str().unwrap_or_default());
     let canonical = |path: PathBuf| path.canonicalize().unwrap_or(path);
-    let (project, _) = request_checkout::project(&host.code, &cwd).ok_or_else(|| format!("{name} launched in {}, which is in no project of this host", cwd.display()))?;
-    if checkout.top.parent() != Some(project.join("worktrees").as_path()) {
-        return Err(format!("{} is no lane of {name}'s project {} (PROJECT/worktrees/NAME): a finish check runs in a lane, never in main", checkout.top.display(), project.display()));
+    let (own_project, _) = request_checkout::project(&host.code, &cwd).ok_or_else(|| format!("{name} launched in {}, which is in no project of this host", cwd.display()))?;
+    let beneath = |project: &Path| checkout.top.parent() == Some(project.join("worktrees").as_path());
+    let bound = || made_by(name, record, checkout, host);
+    if !(beneath(&own_project) || (request_checkout::project(&host.code, &checkout.top).is_some_and(|(project, _)| beneath(&project)) && bound())) {
+        return Err(format!("{} is no lane of {name}'s project {} (PROJECT/worktrees/NAME) and no record binds it to {name}: a finish check runs in a lane, never in main", checkout.top.display(), own_project.display()));
     }
     let local = std::fs::read_dir(&host.fleet).into_iter().flatten().flatten().map(|entry| entry.path()).filter_map(|other| {
         let alive = north_base::platform::session_host_files::pid(&other).is_some_and(|pid| Path::new("/proc").join(pid.to_string()).exists());
@@ -94,6 +96,16 @@ pub(super) fn admitted(name: &str, record: &serde_json::Value, directory: &Path,
         }
     }
     Ok(())
+}
+
+/// Whether the lane `checkout` is one the session `name` made after it launched, by the lane directory's birth time, or one a forgotten session handed to it, by that session's handover record in the fleet directory, neither of which a worker's domain can write.
+fn made_by(name: &str, record: &serde_json::Value, checkout: &Checkout, host: &Host) -> bool {
+    let launched = std::time::UNIX_EPOCH + std::time::Duration::from_millis(record["created_ms"].as_u64().unwrap_or(u64::MAX));
+    let made = std::fs::symlink_metadata(&checkout.top).ok().and_then(|metadata| metadata.created().ok()).is_some_and(|born| born >= launched);
+    made || std::fs::read_dir(&host.fleet).into_iter().flatten().flatten().any(|entry| {
+        let handed = std::fs::read(entry.path().join(crate::fleet::session_lifecycle::LANES_HANDED)).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        handed.is_some_and(|handed| handed["to"] == name && handed["lanes"].as_array().into_iter().flatten().filter_map(|lane| lane.as_str()).any(|lane| Path::new(lane).canonicalize().is_ok_and(|lane| lane == checkout.top)))
+    })
 }
 
 /// Whether `head` is the tip of the lane `checkout` or a commit whose first parent is that tip, read from the repository the broker placed the lane in.

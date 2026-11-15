@@ -129,6 +129,9 @@ impl Launch<'_> {
 /// The directory under a fleet root that holds archived sessions.
 pub const ARCHIVE: &str = ".archive";
 
+/// The file in a forgotten session's fleet directory listing the lanes (`lanes`, absolute paths) it handed to the session `to`, which only the fleet writes.
+pub const LANES_HANDED: &str = "lanes-handed.json";
+
 pub fn store_path(root: &Path) -> PathBuf {
     match root.parent() {
         Some(state) if root.file_name().is_some_and(|name| name == "fleet") => state.join("ledger.db"),

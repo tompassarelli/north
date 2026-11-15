@@ -15,7 +15,7 @@ use super::super::runtime::{binary, now_ms};
 use super::super::sender::Sender;
 use super::Fleet;
 
-const HANDED: &str = "lanes-handed.json";
+use super::super::session_lifecycle::LANES_HANDED as HANDED;
 
 /// What a session owns that has not landed: the tickets that report to it and its own lane worktree.
 pub(super) struct OwnedLanes {
@@ -100,8 +100,9 @@ impl Fleet {
         for lane in &lanes.tickets {
             forget::reassign(&lane.ticket, &heir)?;
         }
+        let paths: Vec<PathBuf> = lanes.tickets.iter().filter_map(|lane| forget::ticket_root(&lane.ticket)).chain(lanes.worktree.iter().map(|(path, _)| path.clone())).collect();
         let branches: Vec<&str> = lanes.tickets.iter().map(|lane| lane.branch.as_str()).chain(lanes.worktree.iter().map(|(_, branch)| branch.as_str())).collect();
-        fs::write(dir.join(HANDED), serde_json::to_vec_pretty(&json!({"to": heir, "at_ms": now_ms(), "branches": branches}))?)?;
+        fs::write(dir.join(HANDED), serde_json::to_vec_pretty(&json!({"to": heir, "at_ms": now_ms(), "branches": branches, "lanes": paths}))?)?;
         Ok(true)
     }
 }
