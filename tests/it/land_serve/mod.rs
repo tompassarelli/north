@@ -83,10 +83,6 @@ if [ "$1" = fleet ] && [ "$2" = send ] && [ "${6%% *}" = landed ]; then
 fi
 "#;
 
-fn now_micros() -> u128 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()
-}
-
 struct Fixture {
     _scratch: tempfile::TempDir,
     root: PathBuf,
@@ -134,7 +130,7 @@ impl Fixture {
         let template = template::Template::get(build_template);
         template.copy_into(&root);
         let (origin, repo, state, trace, bin) = layout(&root);
-        Self { _scratch: scratch, root, origin, repo, state, trace, bin, queued: now_micros() }
+        Self { _scratch: scratch, root, origin, repo, state, trace, bin, queued: 1_793_761_200_000_000 }
     }
 
     fn lane(&self, name: &str, file: &str, text: &str) -> PathBuf {

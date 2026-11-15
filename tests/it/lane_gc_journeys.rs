@@ -221,7 +221,8 @@ impl Classified {
         rig.fleet(&[("north-parent", None, "north"), ("north-worker", Some("north-parent"), "north"), ("scratch-parent", None, "galileo"), ("scratch-worker", Some("scratch-parent"), "galileo")]);
         let main = rig.home.join("code/north/main");
         let holder = Holder(Command::new("sleep").arg("300").current_dir(rig.home.join("code/north/worktrees/held")).spawn().unwrap());
-        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 30 * 3600;
+        let built: u64 = rig.git(&main, &["log", "--all", "-1", "--format=%ct"]).parse().unwrap();
+        let at = built + 30 * 3600;
         let now = String::from_utf8(Command::new("date").args(["-u", "-d", &format!("@{at}"), "+%FT%TZ"]).output().unwrap().stdout).unwrap().trim().to_string();
         Self { rig, main, now, _holder: holder }
     }
