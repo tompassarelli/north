@@ -1794,6 +1794,7 @@ dependencies = [
  "north-offload",
  "north-runtime-follow",
  "north-strategy-types",
+ "north-trusted-mirror",
  "rustix 0.38.44",
  "serde",
  "serde_json",

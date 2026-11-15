@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::candidate::git;
 use north_runtime_follow::runtime_of;
+use north_trusted_mirror::Mirror;
 
 pub const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
 /// How long main may hold lander code the running build lacks: promote-on-landing moves the link within minutes, so a count of changes says nothing.
@@ -81,10 +82,19 @@ pub fn report(repo: &Path) -> Option<Lag> {
         return None;
     }
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    Some(match git(&checkout, &["rev-parse", "--verify", "refs/remotes/origin/main^{commit}"]) {
-        Ok(main) => measure(&checkout, own_build(), main.trim(), now),
-        Err(error) => own_build().map_or(Lag::Unpromoted, |build| Lag::Unknown { build: build.to_owned(), why: error }),
-    })
+    Some(lag_in(&checkout, own_build(), now))
+}
+
+/// The lag read from the trusted mirror of `checkout`, whose origin/main only a fetch writes, never from the checkout's own store, which a worker writes.
+pub fn lag_in(checkout: &Path, build: Option<&str>, now: u64) -> Lag {
+    let unknown = |why: String| build.map_or(Lag::Unpromoted, |build| Lag::Unknown { build: build.to_owned(), why });
+    match Mirror::open(checkout) {
+        Ok(mirror) => match mirror.origin_main() {
+            Ok(main) => measure(mirror.git_dir(), build, &main, now),
+            Err(error) => unknown(error),
+        },
+        Err(error) => unknown(error),
+    }
 }
 
 fn same_checkout(repo: &Path, north: &Path) -> bool {

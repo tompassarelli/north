@@ -20,6 +20,7 @@ north-land-sandbox = { path = "../north-land-sandbox" }
 north-landing = { path = "../north-landing" }
 north-offload = { path = "../north-offload" }
 north-strategy-types = { path = "../north-strategy-types" }
+north-trusted-mirror = { path = "../north-trusted-mirror" }
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
