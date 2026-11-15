@@ -469,7 +469,7 @@ pub fn queue_revert_in(repo: &Path, queue_dir: &Path, worktree: &Path, branch: &
 fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: &str, cases: &[Failure]) -> Result<String, String> {
     let branch = format!("sheriff-revert-{}", short(lane));
     if !without(worktree, tip, lane)? {
-        return Err(format!("{} no longer reverts cleanly onto {}", short(lane), short(tip)));
+        return Ok(format!("no verdict: {} no longer reverts cleanly onto {}; nothing is reverted", short(lane), short(tip)));
     }
     follow_removed_tests(worktree);
     git(worktree, &["checkout", "-q", "-B", &branch])?;

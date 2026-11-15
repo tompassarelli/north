@@ -162,6 +162,7 @@ pub enum Acted {
     Queued(String),
     Unreviewed { refusal: String, evidence: String },
     Unconfirmed(Compared),
+    Unapplied(String),
 }
 
 /// The review-accept scan of a revert `head` over `main` in a worktree, which an exact revert passes with one reviewer's accept.
@@ -171,7 +172,7 @@ pub type Review<'a> = &'a dyn Fn(&Path, &str, &str) -> Result<(), String>;
 /// revert and queues it once `review` passes it.
 pub fn act(trees: &Trees, main: &str, live: &Live, evidence: &str, check: &dyn Fn(&Path) -> Reading, review: Review) -> Result<Acted, String> {
     if !without(trees.base, main, &live.commit)? {
-        return Err(format!("{} no longer reverts cleanly onto {}", short(&live.commit), short(main)));
+        return Ok(Acted::Unapplied(format!("{} no longer reverts cleanly onto {}", short(&live.commit), short(main))));
     }
     git(trees.base, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &format!("sheriff probe: main {} without {}", short(main), short(&live.commit))])?;
     git(trees.candidate, &["reset", "-q", "--hard"])?;
@@ -187,7 +188,7 @@ pub fn act(trees: &Trees, main: &str, live: &Live, evidence: &str, check: &dyn F
 pub fn queue_in(trees: &Trees, main: &str, live: &Live, evidence: &str, review: Review) -> Result<Acted, String> {
     let branch = format!("sheriff-revert-{}", short(&live.commit));
     if !without(trees.candidate, main, &live.commit)? {
-        return Err(format!("{} no longer reverts cleanly onto {}", short(&live.commit), short(main)));
+        return Ok(Acted::Unapplied(format!("{} no longer reverts cleanly onto {}", short(&live.commit), short(main))));
     }
     git(trees.candidate, &["checkout", "-q", "-B", &branch])?;
     let subject = live.message.lines().next().unwrap_or_default();
@@ -308,6 +309,7 @@ pub fn patrol(lander: &Lander, worktree: &Path) -> Result<Option<String>, String
             write(format!("unreviewed {main} confirmed: {confirmed}\n"))?;
             Ok(Some(format!("{evidence}; confirmed regressed, but its revert waits on the review-accept scan: {refusal}; {}", page(session, &format!("north land: sheriff: {evidence}; the revert of {} is confirmed and built, and waits on the review-accept scan: {refusal}", short(&live.commit))))))
         }
+        Acted::Unapplied(why) => write(format!("unconfirmed {main}: {why}\n")).map(|()| Some(format!("{evidence}; {why}, so nothing is reverted"))),
         Acted::Unconfirmed(compared) => {
             let why = readings(&compared);
             write(format!("unconfirmed {main}: {why}\n"))?;
