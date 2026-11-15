@@ -274,15 +274,20 @@ fn is_doc_or_config(file: &str) -> bool {
     if file.split('/').any(|part| part == "..") {
         return false;
     }
-    if let Some(rest) = file.strip_prefix("harness/") {
-        if rest.ends_with(".toml") && !rest.contains('/') {
-            return true;
-        }
-        if let Some(skill) = rest.strip_prefix("skills/") {
-            return skill.split_once('/').is_some_and(|(_, tail)| tail == "SKILL.md" || tail.starts_with("references/"));
-        }
+    if let Some(rest) = file.strip_prefix("agents/") {
+        return rest.ends_with(".toml") && !rest.contains('/');
     }
-    file.starts_with("docs/")
+    if let Some(rest) = file.strip_prefix("harness/") {
+        return is_harness_config(rest);
+    }
+    file.starts_with("docs/") || file.starts_with("secrets/")
+}
+
+fn is_harness_config(rest: &str) -> bool {
+    if rest.ends_with(".toml") && !rest.contains('/') {
+        return true;
+    }
+    rest.strip_prefix("skills/").is_some_and(|skill| skill.split_once('/').is_some_and(|(_, tail)| tail == "SKILL.md" || tail.starts_with("references/")))
 }
 
 pub fn shell_action(command: &str, lane_ok: bool) -> Option<String> {

@@ -89,10 +89,6 @@ fn a_coordinator_over_its_read_budget_is_refused_and_its_turn_continues() {
     let Verdict::Deny(reason) = streak_verdict(&ReadStreak { calls: 16, ..reads(16, true) }, 15) else { panic!("the 16th read of a streak went on") };
     assert!(reason.contains("your turn goes on") && reason.contains("north fleet launch"), "{reason}");
     assert_eq!(streak_verdict(&ReadStreak { calls: 16, ..reads(16, false) }, 15), Verdict::Allow, "a launch over the streak is not refused");
-}
-
-#[test]
-fn harness_required_loads_spend_no_coordinator_read_budget() {
     let load = |tool: &str, text: &str| harness_load("/home/tom", Some("/home/tom/.local/state/north/profiles/claude-d"), tool, text);
     for (tool, text) in [
         ("Skill", ""),
@@ -208,5 +204,30 @@ fn the_coordinator_has_no_diagnosis_budget_without_break_glass() {
     ];
     for input in &open {
         assert_eq!(decide(&coordinator(), input), Verdict::Allow, "{:?}", input.tool_input);
+    }
+}
+
+#[test]
+fn proxy_lands_its_own_config_lane() {
+    let lane = |files: &'static [&'static str]| Fake { lane: Some(files), ..coordinator() };
+    let landing = ["git commit -qm south", "safe-push --to main"];
+    let config: [&'static [&'static str]; 3] = [&["agents/rules.toml"], &["secrets/south.env.sops"], &["harness/defaults.toml"]];
+    for files in config {
+        for landing_command in landing {
+            let command = format!("cd {LANE} && {landing_command}");
+            assert_eq!(decide(&lane(files), &bash(&command)), Verdict::Allow, "{command} over {files:?}");
+        }
+    }
+    let refused: [&'static [&'static str]; 4] = [
+        &["agents/rules.toml", "agents/other.toml"],
+        &["agents/nested/rules.toml"],
+        &["agents/rules.md"],
+        &["crates/north-guard/src/guard/coordinator_role.rs"],
+    ];
+    for files in refused {
+        for landing_command in landing {
+            let command = format!("cd {LANE} && {landing_command}");
+            assert!(denied(&lane(files), &bash(&command)), "{command} over {files:?}");
+        }
     }
 }
