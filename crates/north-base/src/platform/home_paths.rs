@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-/// Every absolute path the prompt names under `home`, with a leading `~/` expanded, that the launching host holds and only it can: a file a session placed on another machine cannot read. A path this host does not hold is no such file. A path under a repository's folder in `~/code/REPO` (its checkouts, mirror and worktrees) or under the cargo registry is no such file, since every fleet host keeps those.
+/// Every absolute path the prompt names under `home`, with a leading `~/` expanded, that the launching host holds and only it can: a file a session placed on another machine cannot read. A path this host does not hold is no such file. A path under a repository's primary checkout, `~/code/REPO/main`, or under the cargo registry is no such file, since every fleet host keeps those; a lane worktree or a host's own mirror is not.
 pub fn home_paths(prompt: &str, home: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
     for word in prompt.split_whitespace() {
@@ -29,5 +29,5 @@ pub fn expand(word: &str, home: &Path) -> PathBuf {
 fn fleet_wide(path: &Path, home: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(home) else { return false };
     let Some(parts) = relative.components().map(|part| match part { Component::Normal(name) => name.to_str(), _ => None }).collect::<Option<Vec<&str>>>() else { return false };
-    matches!(parts.as_slice(), ["code", _, ..] | [".cargo", "registry", ..])
+    matches!(parts.as_slice(), ["code", _, "main", ..] | [".cargo", "registry", ..])
 }
