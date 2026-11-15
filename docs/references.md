@@ -110,9 +110,9 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: followed for its RED-then-GREEN skill pressure tests and the subagent fix loop; nothing taken yet.
 
 - <a id="addyosmani-agent-skills"></a>**agent-skills** (Addy Osmani, MIT), https://github.com/addyosmani/agent-skills,
-  read at `301b02b` on 2026-11-06. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
-  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636).
-  Outcome: followed for its fire and stay-quiet skill evals and rejected-change ledger; nothing taken yet.
+  read at `301b02b` on 2026-11-06 and at `39b723c` on 2026-11-15 (MIT, from its `LICENSE` at `39b723c`; nothing copied). A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636); [rationale/watch/2026-11-15-addyosmani-agent-skills.md](rationale/watch/2026-11-15-addyosmani-agent-skills.md) (north#1585).
+  Outcome: its fire and stay-quiet skill evals are kept as an experiment on north's own skills (a box on north#1585); its rejected-change ledger is dropped, since it had zero rows at `39b723c`; the rest is convergent with north's tools or does not apply.
 
 - <a id="t3code"></a>**T3 Code** (T3 Tools Inc., Theo Browne and contributors, MIT), https://github.com/pingdotgg/t3code, read at
   `32a0531` on 2026-11-07, at `5e59ece720` on 2026-11-10 and at `e9e934bb3d` on 2026-11-12. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
