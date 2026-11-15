@@ -51,6 +51,7 @@ pub struct LandChecks<'a> {
     pub wait_event: &'a str,
     pub capacity: &'a Capacity,
     pub claimed: &'a str,
+    pub alone: bool,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -142,7 +143,7 @@ impl<'a> Gates<'a> {
     }
 
     pub fn land_checks(&self, request: &LandChecks) -> LandChecked {
-        let arguments: Vec<String> = [
+        let mut arguments: Vec<String> = [
             "land",
             "checks",
             "--base",
@@ -163,6 +164,9 @@ impl<'a> Gates<'a> {
         .into_iter()
         .map(str::to_owned)
         .collect();
+        if request.alone {
+            arguments.push("--alone".to_owned());
+        }
         let program = self.shell.processes.current_exe();
         let mut environment = request.capacity.environment();
         environment.push(("SAFE_PUSH_OUTPUT_CLAIMED", request.claimed.to_owned()));

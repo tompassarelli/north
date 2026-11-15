@@ -206,7 +206,7 @@ fn land_checks(shell: &Shell, timeline: &Timeline, root: &str, (base, head): (&s
     let events = shell.settings.events_file();
     let wait = timeline.wait_line("land checks");
     let capacity = Capacity::default();
-    let request = LandChecks { base, head, dry_run: false, destination: "main", event_log: &events, wait_event: &wait, capacity: &capacity, claimed };
+    let request = LandChecks { base, head, dry_run: false, destination: "main", event_log: &events, wait_event: &wait, capacity: &capacity, claimed, alone: true };
     let checked = Gates::new(shell, std::path::Path::new(root)).land_checks(&request);
     let status = match checked.step {
         Ok(()) => 0,

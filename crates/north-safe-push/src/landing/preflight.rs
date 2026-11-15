@@ -215,6 +215,7 @@ impl Preflight<'_> {
             wait_event: &wait,
             capacity: &capacity,
             claimed: self.claimed,
+            alone: false,
         };
         let at = Observed {
             head: outgoing.head.clone(),
