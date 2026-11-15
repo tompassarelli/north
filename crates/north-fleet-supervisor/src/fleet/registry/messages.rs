@@ -86,13 +86,15 @@ impl Fleet {
     }
 
     fn holds_for_lead(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> bool {
-        let Sender::Service(unit) = from else { return false };
-        let unit = unit.split('@').next().unwrap_or(unit);
-        let held_notice = match unit {
-            FLEET => relayed_done(text),
-            LANDER => text.starts_with(LANDED),
-            LAND_WATCH => clears(text),
-            _ => false,
+        let held_notice = match from {
+            Sender::Service(unit) => match unit.split('@').next().unwrap_or(unit) {
+                FLEET => relayed_report(text),
+                LANDER => text.starts_with(LANDED),
+                LAND_WATCH => clears(text),
+                _ => false,
+            },
+            Sender::Session(sender) => self.role_of(sender) == Some(Role::Reviewer) && !refuses(text),
+            Sender::Tom => false,
         };
         held_notice && delivery != Delivery::Now && !text.starts_with(GATE) && from.author(text) == *from && self.role_of(name) == Some(Role::Lead)
     }
@@ -144,8 +146,13 @@ impl Fleet {
     }
 }
 
-fn relayed_done(text: &str) -> bool {
-    text.strip_prefix("[from ").and_then(|rest| rest.split_once("] ")).is_some_and(|(_, report)| report.starts_with("Done:"))
+fn refuses(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    ["not accepted", "reject", "refus"].iter().any(|word| lower.contains(word))
+}
+
+fn relayed_report(text: &str) -> bool {
+    text.strip_prefix("[from ").and_then(|rest| rest.split_once("] ")).is_some_and(|(_, report)| ["Done:", "Split:"].iter().any(|word| report.starts_with(word)))
 }
 
 #[cfg(test)]
@@ -250,6 +257,16 @@ mod tests {
         assert_eq!(owner.frames.lock().unwrap().len(), 1, "the landed notice woke the lead");
         assert_eq!(fleet.send_message(&Sender::fleet(), OWNER, "north fleet: launch north-x that you spooled did not start", Delivery::Queued).unwrap(), Sent::HandedIn, "a fleet refusal waited for the digest");
         assert_eq!(fleet.send_message(&Sender::fleet(), OWNER, "[from worker] Done: landed.", Delivery::Queued).unwrap(), Sent::Held, "a relayed Done report woke the lead");
+        assert_eq!(fleet.send_message(&Sender::fleet(), OWNER, "[from worker] Split: two lanes.", Delivery::Queued).unwrap(), Sent::Held, "a relayed Split report woke the lead");
+        assert_eq!(owner.frames.lock().unwrap().len(), 2, "a held relayed report woke the lead");
+        live(&fleet, "commit-reviewer");
+        let record = fleet.root.join("commit-reviewer/session.json");
+        let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+        json["role"] = "reviewer".into();
+        std::fs::write(&record, json.to_string()).unwrap();
+        assert_eq!(fleet.send_message(&Sender::Session("commit-reviewer".into()), OWNER, "ACCEPT abc.", Delivery::Queued).unwrap(), Sent::Held, "an accepting reviewer note woke the lead");
+        assert_eq!(fleet.send_message(&Sender::Session("commit-reviewer".into()), OWNER, "not accepted, abc.", Delivery::Queued).unwrap(), Sent::HandedIn, "a refusing reviewer note waited for the digest");
+        assert_eq!(owner.frames.lock().unwrap().len(), 3, "a refusal did not wake the lead");
 
         fleet.forget(OWNER).unwrap();
         assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled again", Delivery::Queued).unwrap(), Sent::Unreached);
