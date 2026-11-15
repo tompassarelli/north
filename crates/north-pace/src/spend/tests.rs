@@ -15,7 +15,7 @@ fn a_worker_starts_on_an_account_with_provider_room_whatever_its_use_projects_to
     assert_eq!(view.admit("claude:e", Starter::Worker).map_err(|refusal| refusal.rule), Err(Rule::ProviderLimit));
 }
 
-/// north#1049 reserves capacity for the privacy judge, lander and canaries: an account the policy declares
+/// north#1049 reserves capacity for the disclosure judge, lander and canaries: an account the policy declares
 /// the operational reserve starts no worker or subagent, and its week stays out of the pool.
 #[test]
 fn a_worker_launch_refuses_the_declared_operational_reserve_while_operational_callers_use_it() {

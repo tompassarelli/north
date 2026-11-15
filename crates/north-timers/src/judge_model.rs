@@ -18,7 +18,7 @@ pub struct Model<'a> {
 pub fn ask_subscription(model: &Model, prompt: &str, access: &RuntimeAccess) -> Result<(String, String), String> {
     let question = oneshot::Ask { model: model.model, effort: model.effort, system: model.system, input: prompt };
     let answered = std::cell::RefCell::new(None);
-    let subscription = || match oneshot::ask_claude_answered(&question, ATTEMPT_LIMIT, access, &mut |line| eprintln!("privacy judge: {line}")) {
+    let subscription = || match oneshot::ask_claude_answered(&question, ATTEMPT_LIMIT, access, &mut |line| eprintln!("disclosure judge: {line}")) {
         (Asked::Answer(answer), by) => {
             *answered.borrow_mut() = by;
             Ok(answer)
@@ -41,7 +41,7 @@ fn first_answer<'a>(judges: &[Judge<'a>]) -> Result<(String, &'a str), String> {
         match ask() {
             Ok(answer) => return Ok((answer, name)),
             Err(why) => {
-                eprintln!("privacy judge: {name}: {why}");
+                eprintln!("disclosure judge: {name}: {why}");
                 refused.push(format!("{name}: {why}"));
             }
         }

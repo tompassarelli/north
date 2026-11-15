@@ -198,7 +198,7 @@ fixes in each machine's code from history.
     file (`crates/north-base/src/dispatch_pause.rs`, `crates/north-dispatch/src/dispatch/pause.rs`) beside the timer
     it stops; health compares the two. Shapes: presence-flag, unit-intent.
 29. **Private-text judge** (none counted). No in-flight record: absent means not judged, judging or dead
-    (`crates/north-base/src/platform/private_text.rs:41`, `crates/north-land-scans/src/privacy_judge/judge.rs:29-132`); a
+    (`crates/north-base/src/platform/private_text.rs:41`, `crates/north-land-scans/src/disclosure_judge/judge.rs:29-132`); a
     failed judge keeps answering "judging". Shapes: presence-flag.
 30. **Review and distill locks** (none counted). `code-health/REPO/review.lock` is released by the launched agent's
     `rm` and a dry run keeps a real lock (`crates/north-code-health/src/code_health/tick.rs:95-173`); `distill.lock.d` is

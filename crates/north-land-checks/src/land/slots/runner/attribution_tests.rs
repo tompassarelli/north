@@ -79,7 +79,7 @@ fn a_lane_is_refused_only_for_its_own_failure() {
     assert_eq!(judged(BUCK_CHECK, &same, &base, &["crates/north-buck/src/lib.rs"]), Attribution::Touches(vec!["crates/north-buck/src/lib.rs".to_owned()]), "a lane that changes the check's own code owns its failure");
 
     let red_main = test_log(&[JUDGE_TEST]);
-    assert_eq!(judged(TESTS, &red_main, &red_main, &["crates/north-fleet/src/lib.rs"]), Attribution::Base, "the privacy-judge test broken on main since 598ce8b7b1 does not refuse a lane that never touched it");
+    assert_eq!(judged(TESTS, &red_main, &red_main, &["crates/north-fleet/src/lib.rs"]), Attribution::Base, "the disclosure-judge test broken on main since 598ce8b7b1 does not refuse a lane that never touched it");
     assert_eq!(judged(TESTS, &red_main, &red_main, &[JUDGE_FILE]), Attribution::Touches(vec![JUDGE_FILE.to_owned()]), "a lane that edits the failing test owns its failure");
     assert_eq!(judged(TESTS, &red_main, &red_main, &["crates/north-land-scans/src/private_kinds.rs"]), Attribution::Touches(vec!["crates/north-land-scans/src/private_kinds.rs".to_owned()]), "a lane that breaks the code a red test exercises fails that same test, so the test's package is the check's own");
 

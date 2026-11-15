@@ -1,7 +1,7 @@
 //! The spend rules a host start meets on the account it resolves to, never the name it was given
 //! (docs/rationale/spend-rule.md): the owner's hold on every API organization refuses it to every caller of every
 //! role; the operational reserve the policy declares (`[accounts.claude] reserve`) is drawn only by the coordinator, a
-//! scheduled routine, the owner's own sessions, the privacy judge, the lander and canaries, so a worker or subagent
+//! scheduled routine, the owner's own sessions, the disclosure judge, the lander and canaries, so a worker or subagent
 //! neither starts on it nor continues on it; and a plan profile whose settings would bill by token starts no session.
 use std::path::Path;
 
@@ -50,7 +50,7 @@ pub fn refusal(reserve: &Reserve, account: &Account, role: Role, parent: Option<
         return Some(format!("{resolved} is refused: {why}"));
     }
     (caller.is_none() && kept_off(role, parent) && reserve.labels.iter().any(|held| *held == resolved || *held == account.label))
-        .then(|| format!("{resolved} is the operational reserve: no worker or subagent starts on it, whatever account it was launched under; only the coordinator, scheduled routines, the privacy judge, the lander and canaries draw it"))
+        .then(|| format!("{resolved} is the operational reserve: no worker or subagent starts on it, whatever account it was launched under; only the coordinator, scheduled routines, the disclosure judge, the lander and canaries draw it"))
 }
 
 /// The reserve caller a host start draws as: the one `record` was stamped with, only while the process starting it runs in that same unit, so a revive or relaunch from anywhere else meets the rule afresh.

@@ -100,7 +100,7 @@ fn land(lander: &Lander, path: &Path, ticket: &Ticket, reason: &str) -> Result<S
     }
     let head = built.head.as_str();
     if outgoing::publication(&lander.worktree, &base, head).is_err() {
-        return Err(format!("the secret scan or the privacy judge refused {base}..{head}; nothing pushed"));
+        return Err(format!("the secret scan or the disclosure judge refused {base}..{head}; nothing pushed"));
     }
     let serve = Serve::new(lander);
     let token = serve.push_token(&base)?;

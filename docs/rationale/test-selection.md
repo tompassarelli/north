@@ -60,8 +60,8 @@ A test runs before landing when any of these holds:
      `worker_sandbox::` it module, about 40 tests.
    - Privacy gate: the outgoing denylist (`crates/north-land-scans/src/outgoing/`,
      `crates/north-landing-gates/src/landing/denylist*` and `crates/north-safe-push/src/publication/outgoing.rs`), the
-     private kinds (`crates/north-base/src/platform/private_text.rs`) and the privacy judge
-     (`crates/north-land-scans/src/privacy_judge/`). The suite is the tests of those modules.
+     private kinds (`crates/north-base/src/platform/private_text.rs`) and the disclosure judge
+     (`crates/north-land-scans/src/disclosure_judge/`). The suite is the tests of those modules.
    - Landing machinery: the whole packages north-lander, north-land-checks and north-safe-push, about 90 tests.
      Its paths include north-landing, where the post-land run and its argument order live, and `.safe-push`, whose
      lines decide what every land runs, and its `cases` line names

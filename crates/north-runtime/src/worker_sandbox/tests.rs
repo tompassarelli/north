@@ -937,13 +937,13 @@ fn a_confined_sessions_model_calls_run_outside_through_the_broker_with_their_tex
     };
     let session = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
     let claude = host.home.join(".local/bin/claude");
-    assert_eq!(judged(Some(session), &["privacy-judge", "at-once"]), (1, format!("check privacy judge --text - at-once=1 claude={}\na session's text\n", claude.display()), String::new()), "a confined session's judge request was refused, or a refusing model's words reached the client");
-    let (code, answered, told) = judged(None, &["privacy-judge", "at-once"]);
+    assert_eq!(judged(Some(session), &["disclosure-judge", "at-once"]), (1, format!("check disclosure judge --text - at-once=1 claude={}\na session's text\n", claude.display()), String::new()), "a confined session's judge request was refused, or a refusing model's words reached the client");
+    let (code, answered, told) = judged(None, &["disclosure-judge", "at-once"]);
     assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "a caller in no session's scope drew the judge: {told}");
     let lane_only = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-lane-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
-    assert_eq!(judged(Some(lane_only), &["privacy-judge", "at-once"]), (1, format!("check privacy judge --text - at-once=1 claude={}\na session's text\n", claude.display()), String::new()), "a lane-only session's judge request was refused, so a build host's session could not judge the text it posts (north#1575)");
+    assert_eq!(judged(Some(lane_only), &["disclosure-judge", "at-once"]), (1, format!("check disclosure judge --text - at-once=1 claude={}\na session's text\n", claude.display()), String::new()), "a lane-only session's judge request was refused, so a build host's session could not judge the text it posts (north#1575)");
     let broker_service = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-worker-outside.service\n";
-    let (code, answered, told) = judged(Some(broker_service), &["privacy-judge", "at-once"]);
+    let (code, answered, told) = judged(Some(broker_service), &["disclosure-judge", "at-once"]);
     assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "code the broker started drew the judge on the host's login: {told}");
     let planned = ["planner-ask", "claude-opus-5-5", "medium", "a system", "600"];
     assert_eq!(judged(Some(session), &planned), (1, format!("check oneshot --model claude-opus-5-5 --effort medium --system a system --seconds 600 --json --account a --session worker at-once= claude={}\na session's text\n", claude.display()), String::new()), "a confined session's planning call was refused, or a refusing model's words reached the client");

@@ -10,7 +10,7 @@ details of faults still open, are in south (agents/decisions/harness/security-ta
 
 The night of 2026-11-12 is the fleet's own evidence for this review: independent reads of landed commits found five
 faults that clippy, the tests and every land scan had passed (forged fleet messages through the spool, text sent to
-the privacy judge before its deny-list scan, a hand-over socket created with default modes, measuring code that read
+the disclosure judge before its deny-list scan, a hand-over socket created with default modes, measuring code that read
 token files itself, a promise checker that ran shell from report text). Each is fixed or filed.
 
 ## Verdicts

@@ -1279,7 +1279,7 @@ command = "Monitor {\"description\":\"offload test run on build host finishes\",
 label = "true"
 
 [[sample.row]]
-command = "cat /tmp/claude-1000/-home-tom-code-north-main/345adb18-6321-4d98-8659-dfc941284e73/tasks/byurhyn21.output; pgrep -af \"privacy judge\" | head"
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/345adb18-6321-4d98-8659-dfc941284e73/tasks/byurhyn21.output; pgrep -af \"disclosure judge\" | head"
 label = "false"
 
 [[sample.row]]
@@ -1805,7 +1805,7 @@ command = "cd /home/tom/code/north/worktrees/n696-adopt && cargo check -p north-
 label = "true"
 
 [[sample.row]]
-command = "cd /home/tom/code/north/worktrees/n701-judge; f=crates/north-timers/src/privacy/judge.rs; cat > /tmp/n701-test.rs <<'EOF' #[cfg(test)] mod tests {   "
+command = "cd /home/tom/code/north/worktrees/n701-judge; f=crates/north-timers/src/disclosure/judge.rs; cat > /tmp/n701-test.rs <<'EOF' #[cfg(test)] mod tests {   "
 label = "true"
 
 [[sample.row]]
@@ -3217,10 +3217,10 @@ label = "unclear"
 
 
 [[sample]]
-rule = "privacy-judge"
+rule = "disclosure-judge"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 1 of 32 distinct refused calls"
-narrowed = "2026-11-08 north#706: only the heredoc fed to the gh command, or written to the file it reads, is judged; the costs-and-accounts kind in south needs an amount or a named account. 2026-11-10 north#1041: no privacy-judge refusal from 2026-11-07T22:19Z to 2026-11-10T11:00Z (the 33 in the 7-day window all predate the fix), so no fresh false refusal was observed; replaying this sample through the current body selection leaves 0 false rows judged and the 2 true rows whose command shows its body still refused"
+narrowed = "2026-11-08 north#706: only the heredoc fed to the gh command, or written to the file it reads, is judged; the costs-and-accounts kind in south needs an amount or a named account. 2026-11-10 north#1041: no disclosure-judge refusal from 2026-11-07T22:19Z to 2026-11-10T11:00Z (the 33 in the 7-day window all predate the fix), so no fresh false refusal was observed; replaying this sample through the current body selection leaves 0 false rows judged and the 2 true rows whose command shows its body still refused"
 
 [[sample.row]]
 command = "cd /home/tom/code/north/main && cat > /tmp/n759-comment.md <<'EOF' Landed: the claim rule as fdb0d3d34 (every issue a fleet worker files is claimed wi"
@@ -3344,7 +3344,7 @@ label = "unclear"
 
 
 [[sample]]
-rule = "privacy-judge.pending"
+rule = "disclosure-judge.pending"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 5 of 171 distinct refused calls"
 narrowed = "0a478d5770: the hook waits 38 s, past the judge's 28 s p90; no pending refusal from 18:54 to 20:58 UTC on 2026-11-07"

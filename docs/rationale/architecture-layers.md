@@ -83,7 +83,7 @@ Each crate is placed in the lowest layer that lets every one of its dependencies
 |---|---|---|---|---|---|---|
 | north-pacing (and) |  | 8 / 1 | 4,120 | 2,331 | 62 / 114 | Placement of work on hosts and accounts, laptop state and the resident cap. |
 | north-dispatch |  | 13 / 6 | 7,971 | 25,984 | 41 / 363 | The dispatch decision: which box runs next, on which tier, with which brief. |
-| north-runtime (and) |  | 5 / 1 | 17,584 | 37,110 | 53 / 184 | Runtime update, canary, order and pin, and the worker sandbox, the offload, the timers and the privacy judge. |
+| north-runtime (and) |  | 5 / 1 | 17,584 | 37,110 | 53 / 184 | Runtime update, canary, order and pin, and the worker sandbox, the offload, the timers and the disclosure judge. |
 
 ### Layer 6: operations
 
@@ -188,7 +188,7 @@ The ten files with the highest commits times complexity, from `north code-health
 
 | Crate | What it holds | Verdict |
 |---|---|---|
-| north-runtime (17,584 lines) | runtime update and order (6,924), the worker sandbox (2,305), the offload (4,003), the timers and watches (3,208), the privacy judge (595) | split: L18 to L22 leave it with the runtime alone |
+| north-runtime (17,584 lines) | runtime update and order (6,924), the worker sandbox (2,305), the offload (4,003), the timers and watches (3,208), the disclosure judge (595) | split: L18 to L22 leave it with the runtime alone |
 | north-core (14,949) | agent catalog and policy contract, grounding, the crate-split tool, build time, Nix upkeep, a contract probe, the coordinator-call classifier; no module names another group's | dissolve: L23 to L27 |
 | north-ops (16,767) | 38 verb families in one module | split the docs indexes (L28); the rest stays, see below |
 | north-providers (9,606) | five provider adapters and the run ledger (2,546), which names nothing in the adapters | split: L29 |
@@ -414,7 +414,7 @@ Four boxes cannot be 60 minutes or less, and each says why: L14, L31, L41, L48.
 - Behavior: unchanged.
 - Check: `test ! -e crates/north-timers/src/timers && test -d crates/north-timers`.
 
-**L22 Move: the privacy judge becomes a land scan with its model call passed in.** 1.0 h. After: L21.
+**L22 Move: the disclosure judge becomes a land scan with its model call passed in.** 1.0 h. After: L21.
 - Files: `crates/north-timers/src/privacy/` (595 lines), north-land-scans, `src/cli/tools.rs`, `crates/north-land-checks/src/land/slots/guard_suites_tests.rs`.
 - Change: the judge's one provider call becomes a parameter the command layer supplies, so the judge is a rule.
 - Behavior: unchanged.

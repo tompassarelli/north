@@ -8,7 +8,7 @@ use std::io::Read;
 
 use north_base::platform::private_text::{self, ASKING_STATUS, AT_ONCE_ENV, Finding, render};
 
-const USAGE: &str = "usage: north check privacy judge --text FILE|- [--kinds FILE]";
+const USAGE: &str = "usage: north check disclosure judge --text FILE|- [--kinds FILE]";
 
 /// The model call is the caller's: it answers one prompt for a tier and names who answered.
 pub type Model<'a> = dyn Fn(&Tier, &str) -> Result<(String, String), String> + Sync + 'a;
@@ -42,7 +42,7 @@ pub fn run(arguments: &[String], model: &Model) -> u8 {
             1
         }
         Err(reason) => {
-            eprintln!("privacy judge: {reason}");
+            eprintln!("disclosure judge: {reason}");
             2
         }
     }

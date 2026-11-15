@@ -1,4 +1,4 @@
-//! The reserve operational callers (the privacy judge, lander and canaries) draw on before shared
+//! The reserve operational callers (the disclosure judge, lander and canaries) draw on before shared
 //! capacity (north#1049, north#1076): `[accounts.claude] reserve` in the orchestration policy names its
 //! account labels, and an operational ask tries them first.
 use toml_edit::{DocumentMut, Item};

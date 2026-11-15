@@ -10,7 +10,7 @@ guard over 10% false with its `narrowed` line, or "not narrowed" (north#706, car
   the laptop and gex45, including `agent-ID.jsonl` subagent transcripts. 8,629 of the 9,049 were found.
 - **Unnamed guards.** 2,285 refusals were filed as `other` because their refusal text matched no rule. Six guards were behind
   them, and `hook_rules.rs` now names them: heavy-command.local-write, launch-critical.layout, session-kill.self-match,
-  privacy-judge.pending and privacy-judge, issue-cleanup, worker-tier.item and worker-tier.routing, and coordinator-role.
+  disclosure-judge.pending and disclosure-judge, issue-cleanup, worker-tier.item and worker-tier.routing, and coordinator-role.
 - **Sample.** Up to 30 rows per guard: distinct refused calls sorted by text, taking every Nth.
   - launch-critical counts only refusals after its 786ac1b9d4 fix.
   - heavy-command.farm counts only refusals after its df206b8a67 fix.
@@ -24,7 +24,7 @@ False share by guard (over 10% marked *):
 
 - worker-wait 24/30 * (narrowed here)
 - poll-loop 30/30 * (narrowed here)
-- privacy-judge.pending 14/30 * (narrowed by 0a478d5770: no pending refusal in the 2 h after it deployed)
+- disclosure-judge.pending 14/30 * (narrowed by 0a478d5770: no pending refusal in the 2 h after it deployed)
 - issue-cleanup 24/30 *
 - heavy-command.farm 2/3 * (after df206b8a67; the 26 earlier false rows were already fixed) (narrowed here)
 - resource-safe-search 20/30 * (narrowed here)
@@ -35,7 +35,7 @@ False share by guard (over 10% marked *):
 - modern-search 8/30 * (narrowed here)
 - tripwire 8/30 *
 - issue-filing 6/30 *
-- privacy-judge 6/30 *
+- disclosure-judge 6/30 *
 - tripwire.push 6/30 *
 - coordinator-role 6/10 * (narrowed here)
 - sops-decrypt 6/18 *
@@ -157,7 +157,7 @@ The 2026-11-08 samples above are history; `north hook stats` now reads the later
   true rows (no `Class:` line) stay refused; five rows whose body was cut cannot be replayed.
 - **public-text: 0/1.** One true refusal: a public issue comment named private client projects. The sample row is cut
   before those names because publishing them here would leak the detail the guard protects.
-- **privacy-judge: no post-fix refusal**, so no fresh false refusal was observed; the 33 refusals in the 7-day window all
+- **disclosure-judge: no post-fix refusal**, so no fresh false refusal was observed; the 33 refusals in the 7-day window all
   predate the fix. Replaying the 2026-11-08 sample through the current body selection leaves 0 false rows judged and the
   2 true rows whose command still shows its body refused.
 - **`other`: under the box's 5% line.** The remaining `other` rows the Progress recorded predate 918813acb

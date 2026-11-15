@@ -112,7 +112,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 5 orchestration | north-dispatch | The dispatch decision: which box runs next, on which tier, with which brief. |
 | 5 orchestration | north-runtime | Runtime update: the canary, the order and the pin of the build each host runs. The worker sandbox, the offload and the timers move out (L18 to L22, docs/rationale/architecture-layers.md); agent containment and the laptop runner have no planned owner yet. |
 | 5 orchestration | north-offload | Running a land check, a session's build and the compiler cache on another host: which host has room, the slot a run holds and the script that ships and starts it. |
-| 6 operations | north-timers | The timers and the watches they start, and the model call of the privacy judge, which is a land scan. |
+| 6 operations | north-timers | The timers and the watches they start, and the model call of the disclosure judge, which is a land scan. |
 | 6 operations | north-tune | Tuned values and the learning-loop checks. |
 | 6 operations | north-flow | The flow report and the satellites that read it: agents, detectors, experiments, tempo and tool mining. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |

@@ -83,14 +83,14 @@ pub struct View {
     pub at: f64,
     pub accounts: Vec<Account>,
     pub working: usize,
-    /// Accounts the policy declares an operational reserve (`[accounts.claude] reserve`): only the privacy judge, lander and canaries may use them, so no worker or subagent starts on them and their weeks stay out of the pool.
+    /// Accounts the policy declares an operational reserve (`[accounts.claude] reserve`): only the disclosure judge, lander and canaries may use them, so no worker or subagent starts on them and their weeks stay out of the pool.
     pub operational: Vec<String>,
     /// The owner's hold on every API organization (`[accounts.claude] api_hold`), which refuses an `api` account to every starter.
     pub held: Option<hold::Hold>,
 }
 
 /// Who starts: a worker or an Agent-tool subagent, or a reserved caller (the coordinator, a scheduled routine, one of
-/// Tom's own sessions, the privacy judge, lander and canaries), which alone may use the operational reserve.
+/// Tom's own sessions, the disclosure judge, lander and canaries), which alone may use the operational reserve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Starter {
     Worker,
@@ -144,7 +144,7 @@ impl View {
             return Err(Refusal { rule: Rule::Held, line });
         }
         if starter != Starter::Reserved && self.operational.iter().any(|name| name == account) {
-            return Err(Refusal { rule: Rule::Operational, line: format!("{account} is the operational reserve: only the privacy judge, lander and canaries may use it") });
+            return Err(Refusal { rule: Rule::Operational, line: format!("{account} is the operational reserve: only the disclosure judge, lander and canaries may use it") });
         }
         match self.account(account).and_then(|chosen| chosen.limit(self.at)) {
             Some(refusal) => Err(refusal),

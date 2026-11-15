@@ -78,7 +78,7 @@ Measured for north#970 cut 13 (docs/rationale/leaner-north.md): one 30-day use c
 - `ops strategy refusals` (north (root); source refs 2): TRY. The oracle of the launch-refusals-per-hour goal; nothing reads it, so the goal is unmeasured. Use it or drop the goal.
 - `outside-watch status` (north-runtime; source refs 0): KEEP. Shows the last run of the outside watch timer; a read-only status line.
 - `provider-capacity status` (north-capacity-host; source refs 0): TRY. Reads provider capacity for accounts a, b and c; pacing admission should read it, and no caller does. Wire it before judging.
-- `runtime agy` (north-runtime; source refs 1): KEEP. Installs and updates the Agy vendor runtime under ~/.local/lib/agy that bin/agy launches; no session ran it in 30 days, but Tom runs agy by hand and the usage reader calls it, so north#1045 restored the installer and its twice-daily step (2026-11-11); the privacy judge stopped calling it on 2026-11-15 (north#1553).
+- `runtime agy` (north-runtime; source refs 1): KEEP. Installs and updates the Agy vendor runtime under ~/.local/lib/agy that bin/agy launches; no session ran it in 30 days, but Tom runs agy by hand and the usage reader calls it, so north#1045 restored the installer and its twice-daily step (2026-11-11); the disclosure judge stopped calling it on 2026-11-15 (north#1553).
 - `test coverage miss` (north-coverage; source refs 3): TRY. Names after-push failures the test selection missed and refreshes the map; the feedback that keeps selection honest. Costs a call per red push.
 - `test frontier oracle` (north-frontier; source refs 0): RETIRE. Part of the frontier scoreboard that cut 7 may retire; grade and run have 1 and 4 uses; oracle has none. Retire with the group if cut 7 passes.
 - `test mutant record` (north-mutants; source refs 1): TRY. Records a scratch-copy mutant that kills a test; the test-admission rule asks for a recorded mutant, and sweep (4) is the only user.
@@ -168,7 +168,7 @@ Lines are Rust totals of `git ls-files 'crates/CRATE/*.rs'` at 14871e01b3, all l
 | `graph ingest` | north-graph-ingest | 83 | 65 | 17 | 0 | 0 | 0 | 1 | 0 | 5 |  |
 | `lane unlock` | north-lanes | 82 | 73 | 9 | 0 | 0 | 0 | 0 | 0 | 6 |  |
 | `dep-gate` | north-landing | 81 | 55 | 26 | 0 | 0 | 0 | 0 | 0 | 2 |  |
-| `check privacy judge` | north-runtime | 80 | 55 | 25 | 0 | 0 | 0 | 0 | 0 | 2 |  |
+| `check disclosure judge` | north-runtime | 80 | 55 | 25 | 0 | 0 | 0 | 0 | 0 | 2 |  |
 | `code-health build-time` | north-code-health | 76 | 51 | 24 | 0 | 0 | 1 | 0 | 0 | 4 |  |
 | `ops check` | north-ops | 76 | 40 | 33 | 0 | 1 | 0 | 2 | 0 | 2 |  |
 | `agent-policy-contract` | north-core | 75 | 47 | 28 | 0 | 0 | 0 | 0 | 0 | 3 |  |

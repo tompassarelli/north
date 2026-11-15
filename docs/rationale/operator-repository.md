@@ -51,7 +51,7 @@ A file that holds two classes has two rows. Line numbers are at commit `c013d612
 | 12 | `agents/routines/*.md` (frontmatter) | `crates/north-flow/src/agents/routines/mod.rs:42`, `crates/north-timers/src/job_watch/mod.rs:28`, `crates/north-agent-policy/src/agent_config_check/mod.rs:305` | schema |
 | 13 | `agents/replay/` (cases and sweeps) | `crates/north-agent-policy/src/agent_config_check/gate.rs:164`, `:193` | schema |
 | 14 | `privacy/public-denylist.toml` | `crates/north-landing-gates/src/landing/denylist_mirror.rs:12`, `crates/north-guard/src/guard/public_text.rs:10`, `crates/north-land-scans/src/outgoing/denylist.rs:113` | schema |
-| 15 | `privacy/private-kinds.toml` | `crates/north-land-scans/src/privacy_judge/kinds.rs:8` | schema |
+| 15 | `privacy/private-kinds.toml` | `crates/north-land-scans/src/disclosure_judge/kinds.rs:8` | schema |
 | 16 | `infra/manifest.toml` | `src/cli/infra/manifest.rs:11` | schema |
 | 17 | `agents/AGENTS.md` (the operator's global rules) | `crates/north-agent-policy/src/agent_config_check/gate.rs:265`, `crates/north-agent-policy/src/agent_config_check/rules.rs:177`, `crates/north-agent-policy/src/agent_policy_contract.rs:113`, `crates/north-convo/src/policy_replay/sweep.rs:141`, `harness/mayday/tier0.list:5` | private value |
 | 18 | `agents/skills/` (skills the operator owns) | each registration's owner path, `crates/north-agent-policy/src/catalog/paths.rs:58` | private value |

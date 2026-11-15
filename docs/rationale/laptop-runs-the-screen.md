@@ -2,7 +2,7 @@
 
 ## Why
 
-On the night of 2026-11-14 to 15 every desktop freeze on the operator's laptop (whiterabbit) traced back to fleet machinery running there. Each one was fixed alone under north#1553: broker-run compiles, the lander sheriff's reruns, runtime and closure copies passing through the laptop, the privacy judge opening browser sign-ins, and `north health` reading about 3 GB from disk every 2 minutes (836 MB after 12acacbfa5, and only new transcript lines since). Fixing them one at a time keeps finding the next one. They have one cause: the lander, the health and tempo timers, the brokers, the runtime follower and the fleet's own sessions all run on the laptop.
+On the night of 2026-11-14 to 15 every desktop freeze on the operator's laptop (whiterabbit) traced back to fleet machinery running there. Each one was fixed alone under north#1553: broker-run compiles, the lander sheriff's reruns, runtime and closure copies passing through the laptop, the disclosure judge opening browser sign-ins, and `north health` reading about 3 GB from disk every 2 minutes (836 MB after 12acacbfa5, and only new transcript lines since). Fixing them one at a time keeps finding the next one. They have one cause: the lander, the health and tempo timers, the brokers, the runtime follower and the fleet's own sessions all run on the laptop.
 
 This plan fixes that cause. The laptop runs the operator's screen, his own sessions and what those need to reach the fleet. The control plane runs on a build host by default, and the screen talks to it.
 
@@ -30,7 +30,7 @@ Read from `~/.config/systemd/user` on 2026-11-15 (home-manager links into the Ni
 - `firn-delivery-liveness.timer`, every 30 minutes: the delivery floor of that follower.
 - GitHub-only timers with nothing local to read: `north-github-mirror` (a Nexus twin exists), `outside-watch`, `supply-chain-scan`, `watch-review`, `eta-calibration`, `mutant-sweep` (its work already runs on a build host), `coverage-map-refresh` (records on a check host), `cross-project-scan` and `north-land-drill`.
 - Pacing: `pace-enforcement.timer` (a gex45 twin exists). `usage-sample.timer` stays wherever a Claude login lives; it already runs on gex45 and cpx62b.
-- The fleet's own sessions: the commit-reviewer and second-reviewer, the privacy judge, leads and their `north fleet watchdog` processes, and the outside broker socket `$XDG_RUNTIME_DIR/north-broker/broker.sock` they call. On 2026-11-15 all of them ran on whiterabbit. gex45 is already an agent host (south `modules/agent-host.nix`, `fleet-tick`, `laptop-runner`, `lease-reaper`).
+- The fleet's own sessions: the commit-reviewer and second-reviewer, the disclosure judge, leads and their `north fleet watchdog` processes, and the outside broker socket `$XDG_RUNTIME_DIR/north-broker/broker.sock` they call. On 2026-11-15 all of them ran on whiterabbit. gex45 is already an agent host (south `modules/agent-host.nix`, `fleet-tick`, `laptop-runner`, `lease-reaper`).
 
 ### The laptop keeps
 
@@ -94,7 +94,7 @@ Who signs (agents as the North Fleet App, the lander as the North Lander App) is
    - Revert: `north control-plane move --to whiterabbit`.
 5. **Runtime promotion and the follower.** `north land promote`, `north-stable-hold`, `north-credentials`, `firn-host-follow`'s remote deploy and `firn-delivery-liveness` move to the holder. The laptop keeps a follower that substitutes the promoted closure from the binary cache (south's cache on wg-build) and never compiles. This changes the promotion path, so it needs both reviewers.
    - Revert: re-enable the laptop's units in nixos-config `hosts/whiterabbit/configuration.nix` and south `hosts/whiterabbit.nix`, then `north control-plane move --to whiterabbit` for the promote lock.
-6. **The fleet's sessions.** The commit-reviewer, second-reviewer, privacy judge, leads and their watchdogs launch on gex45 by default, with the outside broker beside them. Browser sign-ins stay a session on the laptop only when a step needs Tom's hands. The coordinator's interactive session stays on the laptop as Tom's screen.
+6. **The fleet's sessions.** The commit-reviewer, second-reviewer, disclosure judge, leads and their watchdogs launch on gex45 by default, with the outside broker beside them. Browser sign-ins stay a session on the laptop only when a step needs Tom's hands. The coordinator's interactive session stays on the laptop as Tom's screen.
    - Revert: set the launch placement back to whiterabbit.
 7. **The rest of the GitHub-only timers.** Retire `north-github-mirror` and `pace-enforcement` on the laptop, because their twins run on Nexus and gex45. Move `outside-watch`, `supply-chain-scan`, `watch-review`, `eta-calibration`, `mutant-sweep`, `coverage-map-refresh` and `cross-project-scan` to gex45. These need no lease, since none of them lands anything.
    - Revert: re-enable each unit in whiterabbit's host file.

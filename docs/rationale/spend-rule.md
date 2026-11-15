@@ -16,7 +16,7 @@ refusal names which: `api hold`, `provider limit` or `operational reserve`.
 
 1. **The owner's API hold.** While `[accounts.claude] api_hold` records a day and a reason, every API
    organization (the pooled `api` account and each `api:ORG`) is refused to every caller of every role, the
-   coordinator, the owner's sessions, the privacy judge, the lander, canaries, spare fills and one-shot asks
+   coordinator, the owner's sessions, the disclosure judge, the lander, canaries, spare fills and one-shot asks
    included, before any request leaves; the refusal is one line naming the hold. `spend::hold` is the one copy
    of the rule: the start refusal every host start passes through (`fleet::registry::reserve`), placement and
    dispatch admission, the API pool (no key handed out, no exhausted mark probed, no session moved onto another
@@ -34,7 +34,7 @@ refusal names which: `api hold`, `provider limit` or `operational reserve`.
    in its own conversation (north#998). This is the provider's rule, read from its own figures; north adds no
    margin below it.
 3. **The declared operational reserve.** An account named in `[accounts.claude] reserve` (a plan account by
-   label, an API organization as `api:ORG`) takes no worker and no subagent; only the privacy judge, the
+   label, an API organization as `api:ORG`) takes no worker and no subagent; only the disclosure judge, the
    lander and the canaries use it. The entry in use names prepaid API credit, so this is a spending boundary
    the owner decides, kept on purpose when the limiters went: workers do not go onto that credit. Placement
    and dispatch never offer such an account, its week stays out of the pool, and
@@ -99,7 +99,7 @@ settings, state files, refusal texts, commands and tests.
 - **The pooled reserve** (`spend_reserve`, 5 percent of the combined week of all counted accounts), with the
   charge a run took from the pool for each worker it placed.
 - **The operational floor** (`spend_floor_week`, `spend_floor_five_hour`), which kept the last 5 percent of a
-  week and 10 percent of a five-hour window of each account for the privacy judge, lander and canaries. Those
+  week and 10 percent of a five-hour window of each account for the disclosure judge, lander and canaries. Those
   callers now try the declared operational reserve first and meet the provider's limit like everything else.
 - **The drain switch** (`north fleet drain on|off`, `spend/drain.json`, the mode line of `north fleet usage`),
   which lifted the pooled reserve and has nothing left to lift.

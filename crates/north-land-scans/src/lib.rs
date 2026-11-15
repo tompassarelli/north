@@ -19,7 +19,7 @@ mod lanes;
 pub mod leftovers;
 pub mod nix_entry;
 pub mod outgoing;
-pub mod privacy_judge;
+pub mod disclosure_judge;
 mod peer_invocations;
 pub mod policy;
 pub mod push_jobs;

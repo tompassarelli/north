@@ -1,11 +1,11 @@
-//! The private-text judge for a confined caller (north#1553): a worker's domain reads no model account's login (readable.rs), so `north check privacy judge` inside it has no model to ask. The request is the words `privacy-judge` or `privacy-judge at-once` and the text on the caller's standard input; the broker runs the judge outside every domain with its own environment and relays only the judge's answer, every token withheld. It is served to any fleet session's own scope, a lane-only one included, so a build host's session judges the text it posts (north#1575).
+//! The private-text judge for a confined caller (north#1553): a worker's domain reads no model account's login (readable.rs), so `north check disclosure judge` inside it has no model to ask. The request is the words `disclosure-judge` or `disclosure-judge at-once` and the text on the caller's standard input; the broker runs the judge outside every domain with its own environment and relays only the judge's answer, every token withheld. It is served to any fleet session's own scope, a lane-only one included, so a build host's session judges the text it posts (north#1575).
 
 use std::io::Write;
 use std::path::Path;
 
 use north_base::platform::private_text::{ASKING_STATUS, AT_ONCE_ENV, CLAUDE_ENV, JUDGE_ARGS};
 
-pub(super) const VERB: &str = "privacy-judge";
+pub(super) const VERB: &str = "disclosure-judge";
 pub(super) const AT_ONCE: &str = "at-once";
 
 /// Whether `arguments` name this request, and whether the caller judges at once.
@@ -28,7 +28,7 @@ pub(super) fn programs(mut environment: Vec<(String, String)>, north: &Path, hom
     let claude = std::env::split_paths(&path).map(|entry| entry.join("claude")).chain([home.join(".local/bin/claude")]).find(|candidate| candidate.is_absolute() && candidate.is_file()).unwrap_or_else(|| home.join(".local/bin/claude"));
     for program in [north, claude.as_path()] {
         if !program.is_file() {
-            let _ = writeln!(refusals, "privacy judge: the private-text judge needs {}, which does not exist", program.display());
+            let _ = writeln!(refusals, "disclosure judge: the private-text judge needs {}, which does not exist", program.display());
             return None;
         }
     }

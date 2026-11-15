@@ -25,9 +25,9 @@ fn machinery_lane_replays_rounds_and_is_refused_for_a_verdict_it_flips_unless_it
     assert_eq!(judge(round, "failed gate-x", &landed(), unreached_main, &flip), Judged::Declared);
     assert_eq!(flip.len(), 1, "a declaration with no reason declares nothing");
     assert!(matches!(judge(round, "landed abc", &unreached, unreached_main, &none), Judged::Unreached(_)));
-    let case = replayed("failed nextest", &["worker_sandbox::a_privacy_judge_runs_outside"]);
-    assert!(matches!(judge(round, "landed abc", &case, || replayed("failed nextest", &[]), &flip), Judged::Refused(why) if why.contains("a_privacy_judge_runs_outside")), "a case that passes under main's machinery and fails under the lane's refuses it");
-    assert_eq!(judge(round, "landed abc", &case, || replayed("failed nextest", &["worker_sandbox::a_privacy_judge_runs_outside"]), &none), Judged::Shared, "a failure main shares is not the lane's");
+    let case = replayed("failed nextest", &["worker_sandbox::a_disclosure_judge_runs_outside"]);
+    assert!(matches!(judge(round, "landed abc", &case, || replayed("failed nextest", &[]), &flip), Judged::Refused(why) if why.contains("a_disclosure_judge_runs_outside")), "a case that passes under main's machinery and fails under the lane's refuses it");
+    assert_eq!(judge(round, "landed abc", &case, || replayed("failed nextest", &["worker_sandbox::a_disclosure_judge_runs_outside"]), &none), Judged::Shared, "a failure main shares is not the lane's");
 }
 
 fn unreached_main() -> Replayed {

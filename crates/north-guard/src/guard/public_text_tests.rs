@@ -98,15 +98,15 @@ fn sample_rows(rule: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Replays the stored 2026-11-08 privacy-judge sample through the current body selection: a stub
+/// Replays the stored 2026-11-08 disclosure-judge sample through the current body selection: a stub
 /// judge refuses every body, so a row is still refused only when the guard still sends it one.
 /// Every row labelled false must now pass; the true rows whose command still shows its gh body
 /// must still be refused (north#1041).
 #[test]
-fn the_2026_11_08_privacy_judge_sample_reads_no_false_refusal_after_the_body_selection_fix_north_1041() {
+fn the_2026_11_08_disclosure_judge_sample_reads_no_false_refusal_after_the_body_selection_fix_north_1041() {
     let mut false_refused = Vec::new();
     let mut true_refused = 0;
-    for (command, label) in sample_rows("privacy-judge") {
+    for (command, label) in sample_rows("disclosure-judge") {
         let verdict = decide_with(
             &input(&command, "/tmp"),
             |_| BTreeSet::new(),

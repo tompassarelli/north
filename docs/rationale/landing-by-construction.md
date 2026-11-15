@@ -84,7 +84,7 @@ updates its own class's line when its lane lands.
   current pass is checked alone on current main before it joins a batch (f5fd775d71,
   `land/serve/alone.rs`). The `@enqueue` land.check lines refuse in either mode; a lane gate
   outside them follows `landing_refusals`, so in shadow it logs its would-be refusal at enqueue and
-  cannot fail a batch later. Privacy judges each commit's added prose as its own segment, so one
+  cannot fail a batch later. Disclosure judges each commit's added prose as its own segment, so one
   lane's text never fails another's pass (4127fb389a). One ticket is batched without a pass: the
   sheriff's revert, whose tree is the main its culprit replaced and so the side of a red main that
   already passed.

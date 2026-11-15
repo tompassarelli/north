@@ -16,7 +16,7 @@ const HOOK_MARGIN_SECS: u64 = 15;
 const HOOK_LIMIT: Duration = Duration::from_secs(HOOK_TIMEOUT_SECS as u64 - HOOK_MARGIN_SECS);
 const _: () = assert!(HOOK_LIMIT.as_secs() >= JUDGE_P90_SECS + 10, "the hook must wait past the judge's measured p90 (13 to 28 s on 2026-11-08) with room to spare");
 const AT_ONCE_LIMIT: Duration = Duration::from_millis(300);
-pub const JUDGE_ARGS: [&str; 5] = ["check", "privacy", "judge", "--text", "-"];
+pub const JUDGE_ARGS: [&str; 5] = ["check", "disclosure", "judge", "--text", "-"];
 const SPAN_CHARS: usize = 160;
 const JUDGE_SLOTS: usize = 4;
 const SLOT_POLL: Duration = Duration::from_millis(100);
@@ -52,10 +52,10 @@ pub fn parse(stdout: &str) -> Vec<Finding> {
         .collect()
 }
 
-/// Judges `text` by running `north check privacy judge`: exit 0 is clean, exit 1 prints the findings, anything else means the judge could not run.
+/// Judges `text` by running `north check disclosure judge`: exit 0 is clean, exit 1 prints the findings, anything else means the judge could not run.
 pub fn judge(text: &str) -> Result<Vec<Finding>, String> {
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| Path::new(&std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), std::path::PathBuf::from);
-    let _slot = slot(&state.join("north/privacy-judge"));
+    let _slot = slot(&state.join("north/disclosure-judge"));
     verdict(&process::run_command_within(command(), Some(text.as_bytes()), JUDGE_LIMIT).ok_or("the private-text judge did not finish")?)
 }
 

@@ -82,7 +82,7 @@ Method: 30-day invocations are the text north followed by the verb calls in Bash
 | runtime build | 3 | 0 | 0 | 0 | 0 | 3 |
 | work brief | 3 | 0 | 0 | 3 | 0 | 17 |
 | work show | 3 | 0 | 0 | 0 | 0 | 1 |
-| check privacy | 2 | 0 | 0 | 0 | 0 | 1 |
+| check disclosure | 2 | 0 | 0 | 0 | 0 | 1 |
 | code-health gate | 2 | 0 | 0 | 0 | 0 | 1 |
 | code-health review-done | 2 | 0 | 0 | 0 | 0 | 0 |
 | finish | 2 | 0 | 0 | 2 | 0 | 13 |

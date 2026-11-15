@@ -8,7 +8,7 @@ use north_base::platform::private_text::AT_ONCE_ENV;
 use super::broker;
 use super::judge_request::{AT_ONCE, VERB};
 
-/// `north check privacy judge ARGUMENTS` inside a worker sandbox's domain, sent to the outside broker when it reads one text and no kinds file; `None` outside a domain or for any other words.
+/// `north check disclosure judge ARGUMENTS` inside a worker sandbox's domain, sent to the outside broker when it reads one text and no kinds file; `None` outside a domain or for any other words.
 pub fn command(arguments: &[String]) -> Option<u8> {
     std::env::var_os(super::MARK)?;
     let [verb, option, text] = arguments else { return None };
@@ -22,7 +22,7 @@ pub fn command(arguments: &[String]) -> Option<u8> {
         file => File::open(file).map_err(|error| format!("cannot read {file}: {error}")).and_then(|input| broker::request_with_input(&words, input.as_fd())),
     };
     Some(sent.unwrap_or_else(|why| {
-        eprintln!("privacy judge: {why}");
+        eprintln!("disclosure judge: {why}");
         2
     }))
 }

@@ -186,12 +186,12 @@ impl<'a> Basis<'a> {
         plan(self.cfg, self.catalog, account)
     }
 
-    /// Why `account` takes no worker at all: the owner holds every API organization, or `[accounts.PROVIDER] reserve` names it (a plan account by label, an API organization as `api:ORG`) for the privacy judge, lander and canaries.
+    /// Why `account` takes no worker at all: the owner holds every API organization, or `[accounts.PROVIDER] reserve` names it (a plan account by label, an API organization as `api:ORG`) for the disclosure judge, lander and canaries.
     pub fn operational(&self, account: &str) -> Option<String> {
         if let Some(line) = north_pace::spend::hold::declared(self.cfg).and_then(|hold| hold.refusal(account)) {
             return Some(line);
         }
-        north_pace::spend::operational_reserve(self.cfg).iter().any(|name| name == account).then(|| "reserve: operational callers only (privacy judge, lander, canaries)".to_owned())
+        north_pace::spend::operational_reserve(self.cfg).iter().any(|name| name == account).then(|| "reserve: operational callers only (disclosure judge, lander, canaries)".to_owned())
     }
 
     /// An API grant's rank under the owner's `[accounts.claude] api_beside_plans`.

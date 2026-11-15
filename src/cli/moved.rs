@@ -22,7 +22,7 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["mutant"], "test mutant", &[]),
     (&["coverage"], "test coverage", &[]),
     (&["agents"], "config agents", &[]),
-    (&["privacy"], "check privacy", &[]),
+    (&["privacy"], "check disclosure", &[]),
     (&["dispatch"], "fleet dispatch", &[]),
     (&["pace"], "fleet pace", &[]),
     (&["usage"], "fleet usage", &[]),
