@@ -228,6 +228,8 @@ fn walk(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<(BTreeS
             walk.rust(&source, None)?;
         }
     }
+    let own: BTreeSet<String> = change.files.iter().filter(|changed| changed.path.ends_with(".rs") && !change.apart.contains(&changed.path)).filter_map(|changed| facts.crate_of(&changed.path)).map(str::to_owned).collect();
+    walk.tests.extend(facts.tests_of(&own));
     let packages: BTreeSet<String> = walk.fallback.iter().flat_map(|name| facts.dependents(name)).collect();
     walk.tests.extend(facts.tests_of(&packages));
     Ok((walk.tests, walk.bare))
