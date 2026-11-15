@@ -132,7 +132,6 @@ const FULL: &str = "safe-push: the Rust checks cover -p north -p north-base\n   
 #[test]
 fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert() {
     a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_records_a_red_main();
-    a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the_red_record_when_they_pass();
     let scratch = tempfile::tempdir().unwrap();
     let repo = scratch.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -239,7 +238,9 @@ fn a_red_verdict_arriving_after_a_descendants_green_run_covered_its_checks_opens
     assert_eq!(sent.borrow().len(), 3, "{:?}", sent.borrow());
 }
 
-fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the_red_record_when_they_pass() {
+#[test]
+fn a_rerun_command_is_composed_for_the_host_that_runs_it() {
+    a_check_that_selects_no_test_on_the_comparison_tree_reaches_no_verdict();
     let scratch = tempfile::tempdir().unwrap();
     let repo = scratch.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -261,11 +262,20 @@ fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the
         sent.borrow_mut().push(message.to_owned());
         true
     };
-    let rerun = |command: &str| {
+    let chosen = std::cell::Cell::new(0);
+    let host = || {
+        chosen.set(chosen.get() + 1);
+        Some("build-host".to_owned())
+    };
+    let rerun = |host: &str, command: &str| {
+        assert_eq!(host, "build-host", "the rerun runs on the host chosen for it");
         command.clone_into(&mut asked.borrow_mut());
         "test drill ... ok\nland check: harness/a.test.sh passed after 0 s\n".to_owned()
     };
-    assert_eq!(super::settle::settle_from(&landed, &green, north_base::platform::wait::after(Duration::ZERO), Verdict::Green.into(), alarm, rerun), Verdict::Green);
+    assert_eq!(super::settle::settle_from(&landed, &green, north_base::platform::wait::after(Duration::ZERO), Verdict::Green.into(), alarm, host, rerun), Verdict::Green);
+    assert_eq!(chosen.get(), 1, "the rerun's host is chosen once");
+    let episode = crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]) };
+    assert_eq!(Some(asked.borrow().clone()), episode.rerun_command("build-host"), "the command is composed for the host that runs it");
     assert!(asked.borrow().contains("--exact 'drill'") && asked.borrow().contains("land tests 'harness/a.test.sh'"), "{}", asked.borrow());
     assert!(!marker.exists(), "the red record outlived a green rerun of its tests: {:?}", sent.borrow());
     assert!(sent.borrow().len() == 1 && sent.borrow()[0].contains("main is green again"), "{:?}", sent.borrow());
@@ -344,7 +354,6 @@ fn a_red_lane_scoped_check_over_a_batch_range_enters_no_blame() {
     assert_eq!(named, [1], "the red names the lane whose own range failed");
 }
 
-#[test]
 fn a_check_that_selects_no_test_on_the_comparison_tree_reaches_no_verdict() {
     let selects_none = "safe-push: land check cargo clippy selects no test in this change, so it passes without a slot\n";
     let runs_none = "safe-push: land check cargo clippy runs no test after this landing, so it passes without a slot: no test selected\n";

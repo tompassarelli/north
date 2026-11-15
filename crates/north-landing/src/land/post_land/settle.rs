@@ -64,10 +64,10 @@ pub(super) fn rerun_result(verdict: &Verdict, outcome: &Path, log: &str, request
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
     let started = Instant::now();
     let checked = check(landed, &landed.head, run);
-    settle_from(landed, run, started, checked, alarm, |command| offload_rerun(landed, run, command))
+    settle_from(landed, run, started, checked, alarm, || super::rerun_host(&landed.repo, run), |host, command| offload_rerun(landed, run, host, command))
 }
 
-pub(super) fn settle_from(landed: &Landed, run: &Run, started: Instant, mut checked: Checked, alarm: impl Fn(&str, &str) -> bool, rerun: impl Fn(&str) -> String) -> Verdict {
+pub(super) fn settle_from(landed: &Landed, run: &Run, started: Instant, mut checked: Checked, alarm: impl Fn(&str, &str) -> bool, host: impl FnOnce() -> Option<String>, rerun: impl FnOnce(&str, &str) -> String) -> Verdict {
     if matches!(checked.verdict, Verdict::Transient(_)) && !checked.expired && !run.superseded() {
         println!("north land: the post-land checks of {} reached no verdict; rerunning them once", landed.head);
         checked = check(landed, &landed.head, run);
@@ -75,7 +75,7 @@ pub(super) fn settle_from(landed: &Landed, run: &Run, started: Instant, mut chec
     let Checked { verdict, expired } = checked;
     record(run, landed, &verdict, expired, started.elapsed().as_secs());
     if verdict == Verdict::Green {
-        rerun_red(landed, run, rerun);
+        rerun_red(landed, run, host, rerun);
     }
     announce(landed, run, &verdict, alarm);
     verdict
@@ -107,30 +107,29 @@ fn episode_state(run: &Run, landed: &Landed) -> Option<(Store, Option<Main>)> {
     Some((store, state))
 }
 
-pub(super) fn rerun_red(landed: &Landed, run: &Run, rerun: impl Fn(&str) -> String) {
+pub(super) fn rerun_red(landed: &Landed, run: &Run, host: impl FnOnce() -> Option<String>, rerun: impl FnOnce(&str, &str) -> String) {
     let Some((_, Some(Main::Opened | Main::Red))) = episode_state(run, landed) else { return };
     let Some(episode) = Episode::read(&episode_marker(run, landed)) else { return };
     if episode.ended_by(&fs::read_to_string(&run.log).unwrap_or_default(), &landed.repo, &landed.head) {
         return;
     }
-    let host = run.host.clone().unwrap_or_else(north_base::platform::host::name);
+    let Some(host) = host() else {
+        eprintln!("north land: no build host takes main's red tests to rerun them");
+        return;
+    };
     let Some(command) = episode.rerun_command(&host) else { return };
     let names: Vec<&str> = episode.named().into_iter().map(Failure::label).collect();
     println!("north land: main has been red since {}, so the after-landing run of {} reruns {}", episode.head, landed.head, names.join(", "));
-    let log = rerun(&command);
+    let log = rerun(&host, &command);
     if let Err(error) = OpenOptions::new().append(true).open(&run.log).and_then(|mut file| file.write_all(log.as_bytes())) {
         eprintln!("north land: could not add the rerun of main's red tests to {}: {error}", run.log.display());
     }
 }
 
-pub(super) fn offload_rerun(landed: &Landed, run: &Run, command: &str) -> String {
-    let Some(host) = super::rerun_host(&landed.repo, run) else {
-        eprintln!("north land: no build host takes main's red tests to rerun them");
-        return String::new();
-    };
+pub(super) fn offload_rerun(landed: &Landed, run: &Run, host: &str, command: &str) -> String {
     let timeout = run.deadline.as_secs().to_string();
     let ran = Command::new(follow::program())
-        .args(["capacity", "offload", "run", "--host", &host, "--base", &landed.head, "--head", &landed.head, "--timeout", &timeout, "--", command])
+        .args(["capacity", "offload", "run", "--host", host, "--base", &landed.head, "--head", &landed.head, "--timeout", &timeout, "--", command])
         .current_dir(&landed.repo)
         .env(OWNER_ENV, offload::yielding_owner(&run.offload_owner))
         .stdin(Stdio::null())

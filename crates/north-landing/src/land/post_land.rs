@@ -173,6 +173,8 @@ pub fn choose_host(repo: &Path, avoid: Option<&str>) -> Option<String> {
     Some(if host.is_empty() { north_base::platform::host::name() } else { host })
 }
 
+/// The one host a rerun runs on and its command is composed for: the run's own host, else the one `choose_host` gives, which
+/// falls back to this host when no build host answers; None when that is this host and it is closed to offloaded checks.
 pub(super) fn rerun_host(repo: &Path, run: &Run) -> Option<String> {
     let host = match &run.host {
         Some(host) => host.clone(),
