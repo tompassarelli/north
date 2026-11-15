@@ -1,12 +1,7 @@
 use super::lane::Worktree;
 use super::verdict::rejected_lane;
+use north_base::test_inputs::git::init_repo;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-
-fn init(directory: &Path) {
-    std::fs::create_dir_all(directory).unwrap();
-    assert!(Command::new("git").arg("init").arg("-q").arg(directory).status().unwrap().success());
-}
 
 #[test]
 fn the_reviewer_cwd_is_the_main_checkout_and_a_verdict_still_finds_its_lane() {
@@ -20,8 +15,8 @@ fn the_reviewer_cwd_is_the_main_checkout_and_a_verdict_still_finds_its_lane() {
     let root = tempfile::tempdir().unwrap();
     let main = root.path().join("main");
     let made = root.path().join("worktrees").join("ds-1");
-    init(&main);
-    init(&made);
+    init_repo(&main, None);
+    init_repo(&made, None);
     let top = made.canonicalize().unwrap();
     assert_eq!(rejected_lane(&made).map(|top| Path::new(&top).canonicalize().unwrap()), Some(top));
     assert_eq!(rejected_lane(&main), None, "the main checkout is not a lane to reject");
