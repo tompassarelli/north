@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
+use north_base::foundation::offload::ONE_LANE_ENV;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use north_base::platform::harness::DEFAULTS;
 use north_base::platform::review_accept::{Accepts, patch_id};
@@ -62,10 +63,14 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
 
 /// `Err` is a lane that changes a `trust_boundary_paths` file of the harness/defaults.toml at its landing `base` and holds no accept of its patch id from a reviewer session that did not author the lane.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
+    check_listed(directory, base, base, head, accepts, finished)
+}
+
+fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
-    let lists = lists_at(directory, base)?;
-    let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {base} lists no trust_boundary_paths, so no change can be told to cross one"))?;
+    let lists = lists_at(directory, listed_at)?;
+    let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {listed_at} lists no trust_boundary_paths, so no change can be told to cross one"))?;
     if crossing.is_empty() {
         return Ok(());
     }
@@ -78,6 +83,9 @@ pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finish
 
 pub(crate) fn each_commit(directory: &Path, base: &str, head: &str, judge: impl Fn(&str, &str) -> Result<(), String>) -> Result<(), String> {
     let Err(refusal) = judge(base, head) else { return Ok(()) };
+    if std::env::var(ONE_LANE_ENV).is_ok_and(|flag| flag == "1") {
+        return Err(refusal);
+    }
     let fork = git::merge_base(directory, base, head);
     let listed = git::text(directory, &["rev-list", "--first-parent", "--reverse", &format!("{fork}..{head}")]).unwrap_or_default();
     let commits: Vec<&str> = listed.lines().collect();
@@ -96,7 +104,7 @@ pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, fini
         return 2;
     };
     let finished = finished.all();
-    let outcome = each_commit(directory, base, head, |base, head| check(directory, base, head, accepts, &finished));
+    let outcome = each_commit(directory, base, head, |from, to| check_listed(directory, base, from, to, accepts, &finished));
     let fork = git::merge_base(directory, base, head);
     let enforce = holdlist::enforcing(directory, SELF, [base, head]);
     if !enforce {
