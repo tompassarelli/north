@@ -73,22 +73,31 @@ pub(super) fn from_proxy(fleet: &Fleet, caller: Option<&str>) -> bool {
 }
 
 /// A launch from a lead or worker starts a worker unless it names the lead role, and holds its launcher's task when it names none; a lead's take-over of a lead seat keeps that seat's lead role.
-pub(super) fn inherit(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<&str>, take_over: bool) {
-    if let Some(caller) = caller {
-        let seat = take_over.then(|| fleet.role_of(&request.name)).flatten();
-        inherit_from(request, fleet.role_of(caller), fleet.task_of(caller), seat);
+pub(super) fn inherit(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<&str>, take_over: bool) -> NorthResult<()> {
+    match caller {
+        Some(caller) => {
+            let seat = take_over.then(|| fleet.role_of(&request.name)).flatten();
+            inherit_from(request, fleet.role_of(caller), fleet.task_of(caller), seat)
+        }
+        None => Ok(()),
     }
 }
 
-fn inherit_from(request: &mut LaunchRequest, launcher: Option<Role>, task: Option<String>, seat: Option<Role>) {
-    if !matches!(launcher, Some(Role::Lead | Role::Worker)) {
-        return;
+fn inherit_from(request: &mut LaunchRequest, launcher: Option<Role>, task: Option<String>, seat: Option<Role>) -> NorthResult<()> {
+    let Some(launcher @ (Role::Lead | Role::Worker)) = launcher else {
+        return Ok(());
+    };
+    if let Some(named) = request.role
+        && (matches!(named, Role::Proxy | Role::Reviewer) || (launcher == Role::Worker && named == Role::Lead))
+    {
+        return Err(NorthError::Refused(format!("a {launcher:?} session cannot launch {} as a {named:?}; drop --role or name a role below your own", request.name)));
     }
-    let kept = if launcher == Some(Role::Lead) && seat == Some(Role::Lead) { Role::Lead } else { Role::Worker };
+    let kept = if launcher == Role::Lead && seat == Some(Role::Lead) { Role::Lead } else { Role::Worker };
     request.role.get_or_insert(kept);
     if request.tasks().is_empty() {
         request.task_ref = task;
     }
+    Ok(())
 }
 
 #[cfg(test)]
