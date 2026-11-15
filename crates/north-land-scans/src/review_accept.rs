@@ -82,7 +82,7 @@ pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, fini
     };
     let outcome = check(directory, base, head, accepts, &finished.all());
     let fork = git::merge_base(directory, base, head);
-    let enforce = holdlist::enforcing(directory, SELF, [&fork, head]);
+    let enforce = holdlist::enforcing(directory, SELF, [base, head]);
     if !enforce {
         holdlist::record(state, SELF, (head, patch_id(directory, &fork, head).ok().as_deref()), outcome.as_ref().err().map(String::as_str));
     }
