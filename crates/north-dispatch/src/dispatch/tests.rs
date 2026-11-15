@@ -323,3 +323,21 @@ fn a_launch_reads_the_listing_the_keeper_recorded_without_asking_the_host() {
     let read = super::fleets::shared_read(records.path(), "fleet-cpx62", || Err("the host was asked".to_owned()));
     assert_eq!(read, Ok(listing));
 }
+
+#[test]
+fn dispatched_lane_names_fit_review_fetch_and_session_name_caps_a_box_lane_at_the_limit_and_names_two_boxes_apart() {
+    let name_of = |box_text: &str| {
+        let (hosts, accounts) = fleet();
+        let outcome = decide(&survey(vec![issue("north", 1485, &format!("- [ ] {box_text}"), &[])], hosts, accounts), "test");
+        let launch = outcome.launches.iter().find(|launch| launch.item.number == 1485).unwrap_or_else(|| panic!("{:?}", outcome.skipped));
+        super::effects::session_name(launch, 0.0)
+    };
+    assert_eq!(name_of("ship it"), "north-1485-d0000-ship-it", "a box whose name fits keeps the plain form");
+    let first = name_of("cargo test p north landing lib candidate tests p");
+    let second = name_of("cargo test p north landing lib candidate tests q");
+    for name in [&first, &second] {
+        assert!(name.len() <= north_trusted_mirror::LONGEST_LANE && north_trusted_mirror::plain_name(name), "{name}");
+    }
+    assert!(first.starts_with("north-1485-d0000-cargo-test-p-north-landing"), "{first}");
+    assert_ne!(first, second, "two boxes whose slugs differ past the cut name apart");
+}

@@ -10,7 +10,9 @@ use crate::pacing::placement::{self, gate};
 use crate::fleet::runtime::COORDINATOR;
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::process::run_within;
+use north_trusted_mirror::LONGEST_LANE;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::time::Duration;
 use toml_edit::{DocumentMut, Item};
@@ -33,9 +35,20 @@ pub fn session_name(launch: &Launch, at: f64) -> String {
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     let name = format!("{short}-{}-d{hhmm}", launch.item.number);
     match super::facets::declared_in(&launch.brief, "Box").and_then(crate::threads::claims::box_slug) {
-        Some(slug) => format!("{name}-{slug}"),
+        Some(slug) => box_name(&name, &slug),
         None => name,
     }
+}
+
+fn box_name(name: &str, slug: &str) -> String {
+    let full = format!("{name}-{slug}");
+    if full.len() <= LONGEST_LANE {
+        return full;
+    }
+    let digest: String = Sha256::digest(slug).iter().take(4).map(|byte| format!("{byte:02x}")).collect();
+    let room = LONGEST_LANE.saturating_sub(name.len() + digest.len() + 2);
+    let head: String = slug.chars().take(room).collect();
+    format!("{name}-{}-{digest}", head.trim_end_matches('-'))
 }
 
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or

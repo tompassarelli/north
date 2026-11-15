@@ -156,7 +156,7 @@ pub fn fetch_lane_head(main: &Path, into: &Path, head: &str) -> Result<(), Strin
 }
 
 pub const REVIEW: &str = "refs/review";
-const LONGEST_LANE: usize = 64;
+pub const LONGEST_LANE: usize = 64;
 
 pub fn review_ref(lane: &str) -> String {
     format!("{REVIEW}/{lane}")

@@ -24,10 +24,12 @@ north-providers = { path = "../north-providers" }
 north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-strategy-types = { path = "../north-strategy-types" }
+north-trusted-mirror = { path = "../north-trusted-mirror" }
 regex.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
