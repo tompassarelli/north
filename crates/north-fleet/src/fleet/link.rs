@@ -208,7 +208,10 @@ impl Link {
         let command = if launched { attach } else { format!("{}; {attach}", self.launch) };
         let (sender, mut from_remote) = mpsc::unbounded_channel();
         let (to_remote, mut child) = match if held { self.over_held(&command, sender.clone()).await } else { None } {
-            Some(to_remote) => (to_remote, None),
+            Some(to_remote) => {
+                drop(sender);
+                (to_remote, None)
+            }
             None => {
                 let mut child = self.ssh(&command).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
                 let missing = || NorthError::State("ssh pipe was not captured".into());
