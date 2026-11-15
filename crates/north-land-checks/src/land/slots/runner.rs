@@ -26,6 +26,7 @@ mod attribution;
 mod base_tests;
 mod batch;
 mod build_host;
+mod check_north;
 mod checkout;
 mod entry;
 mod execute;
