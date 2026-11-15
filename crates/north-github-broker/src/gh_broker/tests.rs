@@ -348,3 +348,27 @@ fn a_worker_scope_callers_call_carries_a_credential_added_outside_its_domain() {
     assert_eq!(sent("app-niri-ghostty-1.scope", "GET", None), (200, String::new()), "a caller outside a worker scope gets no credential added");
     assert_eq!(sent("north-session-lane-deepseek-1.scope", "GET", Some(placeholder)), (200, format!("token {placeholder}")), "a lane-only session, refused every GitHub token (south#104), gets none added");
 }
+
+#[test]
+fn a_confined_caller_borrows_no_credential_from_a_kept_socket() {
+    let (api, _github) = fake_github();
+    let broker = Broker::new(Upstream::new(&api), Settings::default());
+    let app = super::app_reads::AppReads::with(Box::new(|| Some("ghs_app".to_owned())));
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("broker.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let sent = |confined: bool| {
+        let mut command = std::process::Command::new(if confined { "unshare" } else { "env" });
+        command.args(if confined { &["--user", "curl"][..] } else { &["curl"][..] });
+        let mut curl = command.args(["-sS", "-o", "/dev/null", "--unix-socket"]).arg(&socket).args(["-H", "Authorization: token gho_stand_in", "http://api.github.com/whoami"]).spawn().unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let held = super::calls::caller(&stream);
+        let caller = super::calls::Caller { cgroup: Some("0::/user.slice/user-1000.slice/user@1000.service/lane-gc.service\n".to_owned()), ..held };
+        let (sent, response, source) = app.serve(&broker, &caller, read_request(&stream).unwrap());
+        write_response(&stream, &response, source.name()).unwrap();
+        assert!(curl.wait().unwrap().success());
+        sent.header("authorization").unwrap_or("").to_owned()
+    };
+    assert_eq!(sent(false), "token ghs_app", "a borrowing service in the broker's own user namespace reads with the app token");
+    assert_eq!(sent(true), "token gho_stand_in", "the same unit from another user namespace keeps the stand-in credential it presented");
+}
