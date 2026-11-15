@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use north_base::foundation::offload::{ROOT_DEFAULT, SLOT_RECORDS};
+use north_foundation::foundation::offload::{ROOT_DEFAULT, SLOT_RECORDS};
 
 use super::Context;
 use super::removable::lanes;

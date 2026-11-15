@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub(super) struct CpuStat {

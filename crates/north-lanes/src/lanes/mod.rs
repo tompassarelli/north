@@ -77,7 +77,7 @@ pub(crate) fn test_now_ms() -> i64 {
 
 #[cfg(test)]
 pub(crate) fn touched_at(tree: &std::path::Path, at: std::time::SystemTime) {
-    let admin = std::path::PathBuf::from(north_base::test_inputs::git::git_in(tree, &["rev-parse", "--path-format=absolute", "--git-dir"]));
+    let admin = std::path::PathBuf::from(north_foundation::test_inputs::git::git_in(tree, &["rev-parse", "--path-format=absolute", "--git-dir"]));
     for touched in [tree.to_path_buf(), admin.join("HEAD"), admin.join("index")] {
         if touched.exists() {
             std::fs::File::open(&touched).unwrap().set_modified(at).unwrap();

@@ -21,7 +21,7 @@ use crate::capacity::local_machine::host_name;
 use super::scope::{cache_server_socket, children_cpu_seconds, scope_command, supervise};
 use crate::capacity::lease_lifecycle::Phase;
 use crate::capacity::subject_start::{self, Exit};
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 
 fn usage_entry(owner: &str, request: &Request, command: &[String], admitted: &Obj, exit_code: i32, usage: &Usage, child_cpu: f64) -> Obj {
     let cpu_seconds = usage.cpu_seconds.max(child_cpu);
@@ -29,7 +29,7 @@ fn usage_entry(owner: &str, request: &Request, command: &[String], admitted: &Ob
     let scope = admitted.get("scope").cloned().unwrap_or(Value::Null);
     let get = |key: &str| admitted.get(key).cloned().unwrap_or(Value::Null);
     let mut entry = Obj::new()
-        .put("at", crate::foundation::clock::Timestamp::now().iso_millis())
+        .put("at", north_foundation::foundation::clock::Timestamp::now().iso_millis())
         .put("owner", owner)
         .put("shape", command_shape(command))
         .put("command", recorded_command(command))
@@ -48,7 +48,7 @@ fn usage_entry(owner: &str, request: &Request, command: &[String], admitted: &Ob
         .put("gpuSeconds", num(round2(usage.gpu_seconds)))
         .put("queuedSeconds", admitted.get("queuedSeconds").cloned().unwrap_or(serde_json::json!(0)))
         .put_some("besideNative", request.beside_native.clone());
-    if let Some(cost) = build_offload::ShipCost::read(env, &crate::platform::host::name()) {
+    if let Some(cost) = build_offload::ShipCost::read(env, &north_base::platform::host::name()) {
         for (key, value) in cost.fields() {
             entry.set(key, value);
         }
@@ -157,7 +157,7 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
             let usual = Usual::of(request.forecast.as_ref(), timeout_seconds);
-            let overrun = Overrun::watch(env(crate::runtime::SESSION_ENV), subject, usual);
+            let overrun = Overrun::watch(env(north_fleet_store::runtime::SESSION_ENV), subject, usual);
             let code = supervise(child, &unit, terminations, overrun).await;
             start = subject_start::start(&witness, launched, now_ms() / 1000.0);
             let exit = Exit::judge(code, &witness);

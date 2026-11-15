@@ -4,7 +4,7 @@ use super::coupling::coupling;
 use super::report::{build, hand_of, inventory, now, texts};
 use super::snapshot::{Snapshot, git, line_count};
 use super::state::{Marker, State};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_graph_loops::code_health::{self, Review};
 use regex::Regex;
 use std::collections::HashMap;

@@ -12,8 +12,8 @@ mod live;
 mod sources;
 mod tierb;
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 pub use common::state_dir;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,7 @@ fn handoffs_dir() -> PathBuf {
 fn convo_path() -> PathBuf {
     env_path(
         "NORTH_GROUNDING_CONVO_DB",
-        north_base::foundation::convo_index::default_path(&home()),
+        north_foundation::foundation::convo_index::default_path(&home()),
     )
 }
 fn s(v: &Value, key: &str) -> String {

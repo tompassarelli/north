@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use north_base::platform::hook_commands;
 
 use super::configuration;
@@ -275,7 +275,7 @@ struct Options {
 }
 
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
-    let options: Options = north_base::foundation::arguments::parse(arguments).map_err(|message| NorthError::Usage(format!("{message}\n{USAGE}")))?;
+    let options: Options = north_foundation::foundation::arguments::parse(arguments).map_err(|message| NorthError::Usage(format!("{message}\n{USAGE}")))?;
     if options.help {
         println!("{USAGE}");
         return Ok(());

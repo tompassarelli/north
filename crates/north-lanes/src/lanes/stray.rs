@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north lane stray PATH...
 

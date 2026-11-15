@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::ledger::{Row, Verdict};
-use crate::platform::rolling_issue::Tracker;
+use north_base::platform::rolling_issue::Tracker;
 
 pub(super) const REPO: &str = "tompassarelli/north";
 

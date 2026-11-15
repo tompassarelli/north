@@ -7,8 +7,8 @@ use serde_json::Value;
 
 use super::Context;
 use super::sweeps;
-use crate::threads::calibration::quantile;
-use crate::foundation::clock::Timestamp;
+use north_calibration::threads::calibration::quantile;
+use north_foundation::foundation::clock::Timestamp;
 
 type Count = (usize, Option<f64>);
 

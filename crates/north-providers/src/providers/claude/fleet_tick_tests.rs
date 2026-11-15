@@ -7,14 +7,14 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::fleet::tick::*;
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::registry::Fleet;
-use crate::fleet::store::{Exchange, LedgerHost};
-use crate::fleet::runtimes::Runtimes;
-use crate::fleet::sender::Sender;
-use crate::fleet::store::{Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, HandedRow, Pull, RowKind, Store, Undecodable, UnknownKind, WaitKey};
-use crate::fleet::fakes::Paper;
+use north_fleet_supervisor::fleet::tick::*;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::registry::Fleet;
+use north_fleet_supervisor::fleet::store::{Exchange, LedgerHost};
+use north_fleet_supervisor::fleet::runtimes::Runtimes;
+use north_fleet_supervisor::fleet::sender::Sender;
+use north_fleet_supervisor::fleet::store::{Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, HandedRow, Pull, RowKind, Store, Undecodable, UnknownKind, WaitKey};
+use north_fleet_supervisor::fleet::fakes::Paper;
 use super::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -197,16 +197,16 @@ fn a_row_this_build_cannot_decode_is_set_aside_on_its_machine_with_a_notice_and_
     assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-ok'"), 1);
 }
 
-struct Table(crate::fleet::handover::Observed);
+struct Table(north_fleet_supervisor::fleet::handover::Observed);
 
-impl crate::fleet::handover::AccountReadings for Table {
-    fn observed(&self, _: u64) -> crate::fleet::handover::Observed {
-        crate::fleet::handover::Observed { readings: self.0.readings.clone(), limits: self.0.limits.clone(), credits: self.0.credits.clone() }
+impl north_fleet_supervisor::fleet::handover::AccountReadings for Table {
+    fn observed(&self, _: u64) -> north_fleet_supervisor::fleet::handover::Observed {
+        north_fleet_supervisor::fleet::handover::Observed { readings: self.0.readings.clone(), limits: self.0.limits.clone(), credits: self.0.credits.clone() }
     }
 }
 
-fn read(row: i64, account: &str, window: crate::usage::decide::world::Window, used: f64, resets_in_s: i64) -> crate::usage::decide::world::Reading {
-    use crate::usage::decide::world::{Label, Percent, Reading, RowId, Source, Unix};
+fn read(row: i64, account: &str, window: north_pace::usage::decide::world::Window, used: f64, resets_in_s: i64) -> north_pace::usage::decide::world::Reading {
+    use north_pace::usage::decide::world::{Label, Percent, Reading, RowId, Source, Unix};
     let now = (NOW_MS / 1000) as i64;
     Reading { row: RowId(row), account: Label(account.into()), window, used: Percent(used), resets_at: Some(Unix(now + resets_in_s)), read_at: Unix(now - 60), source: Source::Header }
 }
@@ -219,9 +219,9 @@ fn with_accounts(host: &Host, labels: &[&str]) {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(".credentials.json"), "{}").unwrap();
         std::fs::write(dir.join(".claude.json"), format!(r#"{{"oauthAccount":{{"accountUuid":"login-{label}"}}}}"#)).unwrap();
-        policy.push_str(&format!("[accounts.claude.profiles.{label}]\n\"{}\" = {{ path = \"{}\" }}\n", crate::platform::host::name(), dir.display()));
+        policy.push_str(&format!("[accounts.claude.profiles.{label}]\n\"{}\" = {{ path = \"{}\" }}\n", north_base::platform::host::name(), dir.display()));
     }
-    let file = crate::platform::orchestration::under(host.home.path());
+    let file = north_base::platform::orchestration::under(host.home.path());
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(file, policy).unwrap();
 }
@@ -243,29 +243,29 @@ fn lane(host: &Host, name: &str) -> PathBuf {
     lane
 }
 
-type Launches = std::cell::RefCell<Vec<crate::fleet::model::LaunchRequest>>;
+type Launches = std::cell::RefCell<Vec<north_fleet_supervisor::fleet::model::LaunchRequest>>;
 
-fn hand_over_with(host: &Host, table: &Table, launches: &Launches) -> crate::fleet::handover::HandOver {
+fn hand_over_with(host: &Host, table: &Table, launches: &Launches) -> north_fleet_supervisor::fleet::handover::HandOver {
     hand_over_telling(host, table, launches, &|_| Ok(()))
 }
 
-fn hand_over_telling(host: &Host, table: &Table, launches: &Launches, tell_tom: &dyn Fn(&str) -> Result<(), String>) -> crate::fleet::handover::HandOver {
-    let take = |request: &crate::fleet::model::LaunchRequest| {
+fn hand_over_telling(host: &Host, table: &Table, launches: &Launches, tell_tom: &dyn Fn(&str) -> Result<(), String>) -> north_fleet_supervisor::fleet::handover::HandOver {
+    let take = |request: &north_fleet_supervisor::fleet::model::LaunchRequest| {
         launches.borrow_mut().push(request.clone());
         host.fleet.session(&request.name)
     };
-    crate::fleet::handover::hand_over(&host.fleet, table, &BTreeMap::new(), &|_| true, &take, tell_tom, NOW_MS)
+    north_fleet_supervisor::fleet::handover::hand_over(&host.fleet, table, &BTreeMap::new(), &|_| true, &take, tell_tom, NOW_MS)
 }
 
 fn parked_on(host: &Host, name: &str, account: &str, at_ms: u64, since_ms: u64, cwd: &Path) {
-    use crate::fleet::waits::{Registered, Run};
+    use north_fleet_supervisor::fleet::waits::{Registered, Run};
     let wait = Registered { run: Run::Usage { account: account.into(), at_ms }, cwd: cwd.to_owned(), since_ms, label: None };
     std::fs::create_dir_all(host.root().join(".waits")).unwrap();
     std::fs::write(host.root().join(".waits").join(format!("{name}.json")), serde_json::to_vec(&[wait]).unwrap()).unwrap();
 }
 
 fn north_576() -> Table {
-    use crate::usage::decide::world::{LimitEvent, Window};
+    use north_pace::usage::decide::world::{LimitEvent, Window};
     let (hour, day) = (3_600, 86_400);
     let stale_reset = -(122 * hour + 21 * 60);
     let mut stale = read(1, "a", Window::FiveHour, 30.0, stale_reset);
@@ -279,7 +279,7 @@ fn north_576() -> Table {
         read(5, "d", Window::FiveHour, 3.0, 4 * hour),
     ];
     let limits = readings.iter().filter(|reading| reading.used.0 >= 99.5).map(|reading| LimitEvent { account: reading.account.clone(), window: reading.window, resets_at: reading.resets_at, at: reading.read_at }).collect();
-    Table(crate::fleet::handover::Observed { readings, limits, ..Default::default() })
+    Table(north_fleet_supervisor::fleet::handover::Observed { readings, limits, ..Default::default() })
 }
 
 fn on_north_576(host: &Host) -> u64 {
@@ -296,8 +296,8 @@ fn on_north_576(host: &Host) -> u64 {
 
 #[test]
 fn a_lead_or_coordinator_at_its_floor_goes_to_the_source_above_the_floor_with_most_headroom_else_parks_until_the_soonest_windfall_and_a_worker_on_spent_api_credit_waits_for_its_grant() {
-    use crate::usage::decide::world::{Account, Host as Machine, Label, Provider, Rate, Rates, Unix, Window, World};
-    use crate::usage::decide::{View, view};
+    use north_pace::usage::decide::world::{Account, Host as Machine, Label, Provider, Rate, Rates, Unix, Window, World};
+    use north_pace::usage::decide::{View, view};
     let host = host("nexus");
     on_north_576(&host);
     let table = north_576();
@@ -319,11 +319,11 @@ fn a_lead_or_coordinator_at_its_floor_goes_to_the_source_above_the_floor_with_mo
 
 #[test]
 fn a_worker_whose_five_hour_window_is_spent_resumes_its_own_conversation_on_an_account_above_the_floor_instead_of_parking_north_998() {
-    use crate::usage::decide::world::Window;
+    use north_pace::usage::decide::world::Window;
     let host = host("nexus");
     with_accounts(&host, &["b", "e"]);
     working_on(&host, "root-from-github-91", "e", Some("coordinator"), &lane(&host, "root-from-github-91"));
-    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "e", Window::Week, 60.0, 3 * 86_400), read(1, "e", Window::FiveHour, 100.0, 3 * 3_600), read(2, "b", Window::Week, 97.0, 2 * 86_400)], ..Default::default() });
+    let table = Table(north_fleet_supervisor::fleet::handover::Observed { readings: vec![read(0, "e", Window::Week, 60.0, 3 * 86_400), read(1, "e", Window::FiveHour, 100.0, 3 * 3_600), read(2, "b", Window::Week, 97.0, 2 * 86_400)], ..Default::default() });
     let launches = Launches::default();
 
     let done = hand_over_with(&host, &table, &launches);
@@ -336,8 +336,8 @@ fn a_worker_whose_five_hour_window_is_spent_resumes_its_own_conversation_on_an_a
 
 
 fn with_api_orgs(host: &Host, orgs: &[&str]) {
-    let file = crate::platform::orchestration::under(host.home.path());
-    let here = crate::platform::host::name();
+    let file = north_base::platform::orchestration::under(host.home.path());
+    let here = north_base::platform::host::name();
     let mut policy = std::fs::read_to_string(&file).unwrap();
     policy.push_str(&format!("[accounts.claude.api_keys.api]\n\"{here}\" = {{ path = \"{}\" }}\n", host.home.path().join("api").display()));
     for org in orgs {
@@ -348,17 +348,17 @@ fn with_api_orgs(host: &Host, orgs: &[&str]) {
     std::fs::write(file, policy).unwrap();
 }
 
-fn credit(left: f64, next_grant_in_s: i64) -> crate::usage::decide::world::Credit {
-    use crate::usage::decide::world::{Credit, Unix, Usd};
+fn credit(left: f64, next_grant_in_s: i64) -> north_pace::usage::decide::world::Credit {
+    use north_pace::usage::decide::world::{Credit, Unix, Usd};
     Credit { left: Usd(left), next_grant: Some(Unix((NOW_MS / 1000) as i64 + next_grant_in_s)) }
 }
 
 fn on_the_floor() {
-    use crate::fleet::waits::Run;
-    use crate::usage::decide::world::Window;
+    use north_fleet_supervisor::fleet::waits::Run;
+    use north_pace::usage::decide::world::Window;
     let (hour, day) = (3_600, 86_400);
     let at_ms = |in_s: i64| (NOW_MS / 1000 + in_s as u64) * 1000;
-    let floor = |credits: [(&str, crate::usage::decide::world::Credit); 2], b_week: f64| {
+    let floor = |credits: [(&str, north_pace::usage::decide::world::Credit); 2], b_week: f64| {
         let host = host("nexus");
         with_accounts(&host, &["a", "b"]);
         with_api_orgs(&host, &["ember", "zenith"]);
@@ -366,7 +366,7 @@ fn on_the_floor() {
         let cwd = lane(&host, "worker");
         working_on(&host, "worker", "api:ember", Some("coordinator"), &cwd);
         let readings = vec![read(0, "a", Window::FiveHour, 98.5, 2 * hour), read(1, "a", Window::Week, 50.0, 4 * day), read(2, "b", Window::FiveHour, 10.0, 3 * hour), read(3, "b", Window::Week, b_week, 3 * day)];
-        let table = Table(crate::fleet::handover::Observed { readings, limits: Vec::new(), credits: credits.into_iter().map(|(org, credit)| (org.to_owned(), credit)).collect() });
+        let table = Table(north_fleet_supervisor::fleet::handover::Observed { readings, limits: Vec::new(), credits: credits.into_iter().map(|(org, credit)| (org.to_owned(), credit)).collect() });
         let launches = Launches::default();
         let done = hand_over_with(&host, &table, &launches);
         let launched: Vec<(String, String)> = launches.borrow().iter().map(|request| (request.name.clone(), request.account.clone())).collect();
@@ -384,7 +384,7 @@ fn on_the_floor() {
 
 #[test]
 fn a_worker_handed_over_from_the_primary_checkout_with_no_land_ticket_is_pointed_at_its_brief_not_at_the_checkout_head_north_801() {
-    use crate::usage::decide::world::Window;
+    use north_pace::usage::decide::world::Window;
     let host = host("nexus");
     with_accounts(&host, &["a", "c"]);
     let primary = host.home.path().join("code/north/main");
@@ -396,7 +396,7 @@ fn a_worker_handed_over_from_the_primary_checkout_with_no_land_ticket_is_pointed
     record["brief"] = json!(brief);
     record["conversation"] = Value::Null;
     std::fs::write(file, record.to_string()).unwrap();
-    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "a", Window::FiveHour, 40.0, 3_600), read(1, "a", Window::Week, 100.0, 86_400), read(2, "c", Window::FiveHour, 10.0, 3_600), read(3, "c", Window::Week, 10.0, 86_400)], ..Default::default() });
+    let table = Table(north_fleet_supervisor::fleet::handover::Observed { readings: vec![read(0, "a", Window::FiveHour, 40.0, 3_600), read(1, "a", Window::Week, 100.0, 86_400), read(2, "c", Window::FiveHour, 10.0, 3_600), read(3, "c", Window::Week, 10.0, 86_400)], ..Default::default() });
     let launches = Launches::default();
 
     let done = hand_over_with(&host, &table, &launches);

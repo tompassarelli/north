@@ -10,9 +10,9 @@ use super::die::Die;
 use super::stamp::{iso, parse, write_atomic};
 use super::state::State;
 use super::zone::Window;
-use crate::platform::process::run_within;
-use crate::platform::ssh_retry::{Reply, Rerun, retried};
-use crate::shell::shlex_split;
+use north_base::platform::process::run_within;
+use north_base::platform::ssh_retry::{Reply, Rerun, retried};
+use north_base::shell::shlex_split;
 
 const FORWARD_ENV: [&str; 2] = ["LAPTOP_GRACE", "LAPTOP_BY"];
 pub(super) const FORWARD_WAIT: Duration = Duration::from_secs(90);
@@ -104,7 +104,7 @@ impl Ctx {
         let output = retried(&destination, rerun, |link| {
             let mut options = link.options().to_vec();
             options.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &destination, &command]);
-            let ssh = crate::platform::ssh::argv(&self.ssh, &self.env, &options);
+            let ssh = north_base::platform::ssh::argv(&self.ssh, &self.env, &options);
             let words: Vec<String> = ssh.iter().map(|word| word.to_string_lossy().into_owned()).collect();
             let refs: Vec<&str> = words[1..].iter().map(String::as_str).collect();
             let output = run_within(&words[0], &refs, self.forward_wait);

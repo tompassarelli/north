@@ -7,7 +7,7 @@ use rusqlite::{Connection, OpenFlags};
 use north_strategy_types::credit::{Finished, Open, Snapshot};
 use north_strategy_types::tokens::TokenUse;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::router::pricing::PriceTable;
 
 const SNAPSHOT_DAYS: i64 = 120;

@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 
 use super::store::Row;
 use super::py;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const MODES: [&str; 4] = ["standard", "fast", "ultrafast", "overflow"];
 

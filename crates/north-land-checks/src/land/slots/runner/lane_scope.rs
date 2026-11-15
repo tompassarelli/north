@@ -1,4 +1,4 @@
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 
 use crate::land::slots::unit_reuse::quote;
 

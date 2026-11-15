@@ -1,4 +1,4 @@
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
 

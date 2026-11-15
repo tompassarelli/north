@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::mirrored;
 use super::{Call, TITLE, gh, gh_json};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const REPOS: &str = "tompassarelli/wisp tompassarelli/north tompassarelli/firn tompassarelli/makgora";
 const REVERT_AFTER_S: i64 = 15 * 60;

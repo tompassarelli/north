@@ -52,7 +52,7 @@ pub fn category(issue: &Issue) -> Option<String> {
 /// empty when none.
 pub fn facet(issue: &Issue, key: &str) -> String {
     let default = default(key);
-    match (key, declared(issue, key).filter(|value| crate::router::brief::facet_known(key, value))) {
+    match (key, declared(issue, key).filter(|value| north_pace::router::brief::facet_known(key, value))) {
         ("Category", _) => category(issue).unwrap_or_else(|| default.into()),
         ("Repro", _) => repro(&issue.body).unwrap_or_default(),
         (_, Some(value)) => value.to_owned(),

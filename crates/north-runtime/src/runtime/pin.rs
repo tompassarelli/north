@@ -196,7 +196,7 @@ pub(super) fn events_here_or_mirrored(state: &Path, reader: &str) -> Vec<Event> 
     let events = read_path(&local);
     match events.iter().any(|event| matches!(event, Event::Landed { .. })) {
         true => events,
-        false => read_path(&crate::platform::records_mirror::read(reader).local(&local)),
+        false => read_path(&north_base::platform::records_mirror::read(reader).local(&local)),
     }
 }
 
@@ -245,7 +245,7 @@ pub fn status(state: &Path, live: Option<&str>) -> String {
 }
 
 pub(super) fn iso(at: i64) -> String {
-    crate::foundation::clock::Timestamp::from_unix_seconds(at).iso()
+    north_foundation::foundation::clock::Timestamp::from_unix_seconds(at).iso()
 }
 
 #[derive(Debug, PartialEq)]

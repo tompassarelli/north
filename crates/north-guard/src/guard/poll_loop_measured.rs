@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags, params};
 
-use crate::shell;
+use north_base::shell;
 
 const SIZING_RUNS: i64 = 20;
 const MINIMUM_RUNS: usize = 3;

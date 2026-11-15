@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
 use super::{BUILT, FLAG, PROGRAM, WORKER};
-use crate::fleet::model::Role;
+use north_fleet_supervisor::fleet::model::Role;
 
 const NO_SESSION: &str = "";
 

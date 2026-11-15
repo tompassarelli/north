@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::threads::incidents::corrections::{Class, UNCLASSIFIED};
+use north_calibration::threads::incidents::corrections::{Class, UNCLASSIFIED};
 
 use super::{Detector, Finding};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const SEEN_MIN: usize = 2;
 #[derive(Default)]

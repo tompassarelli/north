@@ -3,7 +3,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 
-use north_base::foundation::offload::{TREES_ENV, UNPROVED};
+use north_foundation::foundation::offload::{TREES_ENV, UNPROVED};
 
 /// A secret for one shipping of a run, which the client sends the host at the head of the job's standard input and never in an argument, the environment or a file; the host opens the line naming the tree it proved the run on with it, so no line of the check's own output passes for that proof.
 pub(super) fn secret() -> Result<String, String> {

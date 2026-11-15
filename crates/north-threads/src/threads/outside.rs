@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::platform::betterleaks;
+use north_base::platform::betterleaks;
 use super::claims::Issue;
 use super::claims::issues::{GitHub, Issues};
 
@@ -50,7 +50,7 @@ impl Live {
             .and_then(|value| value.as_array().map(|owners| owners.iter().filter_map(Value::as_str).map(str::to_owned).collect()))
             .unwrap_or_default();
         let home = PathBuf::from(var("HOME").unwrap_or_default());
-        let orchestration = crate::platform::orchestration::path_in(&home, var("AGENTS_ORCHESTRATION").map(std::path::Path::new), var("AGENTS_OPERATOR_DIR").map(std::path::Path::new));
+        let orchestration = north_base::platform::orchestration::path_in(&home, var("AGENTS_ORCHESTRATION").map(std::path::Path::new), var("AGENTS_OPERATOR_DIR").map(std::path::Path::new));
         let costs = orchestration.with_file_name("costs.toml");
         Self { fleet, relayed_owners, costs }
     }
@@ -72,7 +72,7 @@ impl super::verb::Outside for Live {
     }
 
     fn gh(&self, args: &[String]) -> Result<String, String> {
-        crate::platform::github::run_patiently(args, "NorthThreads")
+        north_base::platform::github::run_patiently(args, "NorthThreads")
     }
 
     fn alive_owners(&self) -> Option<BTreeSet<String>> {

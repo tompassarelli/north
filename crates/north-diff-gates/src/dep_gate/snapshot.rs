@@ -1,4 +1,4 @@
-use crate::platform::git as platform_git;
+use north_base::platform::git as platform_git;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -38,7 +38,7 @@ pub(crate) fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, Str
     }
     let request: String = wanted.iter().map(|(_, oid, _)| format!("{oid}\n")).collect();
     let root_text = root.to_string_lossy();
-    let output = crate::platform::process::run_with_input_within(
+    let output = north_base::platform::process::run_with_input_within(
         "git",
         &["-C", root_text.as_ref(), "cat-file", "--batch"],
         Some(request.as_bytes()),

@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::cpu::{self, CpuRow};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const MIB_KIB: i64 = 1024;
 const AGENTS: [&str; 2] = ["claude", "codex"];

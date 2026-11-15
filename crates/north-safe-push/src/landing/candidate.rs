@@ -1,4 +1,4 @@
-use north_base::foundation::step::Refused;
+use north_foundation::foundation::step::Refused;
 
 use crate::gates::plan::Gate;
 use crate::gates::run::{Capacity, Gates, LandChecks, fetch_crates, sync_dependencies};
@@ -8,7 +8,7 @@ use crate::report::timeline::Timeline;
 use crate::session::cancel::watch_for_cancel;
 use crate::session::output_log::claim;
 use crate::shell::Shell;
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_landing::land::lander::state_home;
 use north_landing::land::landing_refusals;
 
@@ -134,7 +134,7 @@ pub fn run(base: &str, shell: &Shell) -> u8 {
     };
     let mut timeline = Timeline::start(shell);
     timeline.announce();
-    let lanes = std::env::var(north_base::foundation::offload::LANES_ENV).ok().filter(|lanes| !lanes.is_empty()).unwrap_or_else(|| head.chars().take(12).collect());
+    let lanes = std::env::var(north_foundation::foundation::offload::LANES_ENV).ok().filter(|lanes| !lanes.is_empty()).unwrap_or_else(|| head.chars().take(12).collect());
     timeline.identify(&origin_url, &lanes, &head);
     let mut observed = Observed::Silent;
     let log = shell.processes.capture_output(&mut || observed = observe(shell, &timeline, &root, &origin_url, (base, &head), &claims.list));

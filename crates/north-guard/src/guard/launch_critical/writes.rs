@@ -4,7 +4,7 @@ use super::{
     COPY_COMMANDS, DESTRUCTIVE_COMMANDS, Env, PACKAGE_MANAGERS, Policy, READ_ONLY_COMMANDS,
     REMOTE_COPY_COMMANDS, WRITE_COMMANDS,
 };
-use crate::shell::{self, basename};
+use north_base::shell::{self, basename};
 use regex::Regex;
 use std::sync::LazyLock;
 

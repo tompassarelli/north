@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::git;
-use crate::landing::stale_revert;
+use north_landing_gates::landing::stale_revert;
 
 const USAGE: &str = "usage: north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD";
 

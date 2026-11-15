@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::super::prompt::StandingOrders;
 use super::super::records::{RetiredReport, recorded_names, retired_report};
@@ -11,7 +11,7 @@ pub(super) use super::super::home::{fleet_root, home_dir, live_state_dir, state_
 
 pub fn roster(runtimes: &Runtimes) -> NorthResult<Roster> {
     let home = home_dir()?;
-    Ok(runtimes.roster(&state_dir(&home), &home, &crate::platform::orchestration::path()))
+    Ok(runtimes.roster(&state_dir(&home), &home, &north_base::platform::orchestration::path()))
 }
 
 /// This host's standing orders, for briefs that start outside a fleet launch.

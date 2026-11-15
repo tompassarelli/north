@@ -191,7 +191,7 @@ fn codex_box_denial(input: &HookInput) -> Option<String> {
         },
         _ => "",
     };
-    let answer = crate::router::ops::answer(&json!({"op": "codex_box", "brief": message}))?.ok()?;
+    let answer = north_pace::router::ops::answer(&json!({"op": "codex_box", "brief": message}))?.ok()?;
     let failed = answer.as_str().filter(|text| !text.is_empty())?;
     Some(format!("route to Claude: {failed}"))
 }

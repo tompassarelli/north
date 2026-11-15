@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::claims::{self, Rows};
 use crate::fleet::launch_queue::{Admission, QueuedLaunch};
 

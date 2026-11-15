@@ -1,6 +1,6 @@
 //! A Bash call's stages, from the shared shell lexer: the program each stage runs after any
 //! wrapper, its arguments, and whether it loops or runs in the background.
-use crate::shell::{basename, command, is_separator, words};
+use north_base::shell::{basename, command, is_separator, words};
 
 const WRAPPERS: &[&str] = &["env", "exec", "time", "nice", "timeout", "builtin"];
 const KEYWORDS: &[&str] = &["do", "then", "else", "{", "!"];

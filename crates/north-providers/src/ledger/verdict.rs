@@ -2,10 +2,10 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Command;
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::books::Books;
-use crate::foundation::clock::Timestamp;
-use crate::platform::git;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::books::Books;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::git;
 
 use super::{CheckRun, Ledger};
 

@@ -18,7 +18,7 @@ const AUTO_REASONS: [&str; 4] = ["gaming", "sleep", "battery", "drained (battery
 const AUTO_DRAINED: [&str; 2] = ["drained (battery)", "drained (window)"];
 
 static IDLE_REOPEN_SECONDS: LazyLock<i64> = LazyLock::new(|| {
-    crate::platform::harness::table(crate::platform::harness::DEFAULTS)
+    north_base::platform::harness::table(north_base::platform::harness::DEFAULTS)
         .parse::<DocumentMut>()
         .ok()
         .and_then(|document| document["laptop_idle_reopen_sec"]["value"].as_integer())

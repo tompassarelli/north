@@ -4,28 +4,28 @@
 use super::issues::{self, Issue, IssueRef, OWNER};
 use super::record;
 use super::slots::{Account, Host, PlanSize};
-use crate::threads::projects::Projects;
+use north_calibration::threads::projects::Projects;
 use super::tier::{self, Evidence, History};
 use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
 use super::revive::Strand;
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use north_graph_loops::skill::{self, Decision};
-use crate::fleet::model::ProviderName;
-use crate::fleet::records::RetiredReport;
-use crate::ledger::ClosedReport;
-use crate::ledger::closed::ArmBox;
-use crate::fleet::roster::{Roster, Standing};
-use crate::pacing::placement::{self, gate};
-use crate::pacing::placement::case::{grants_left, keyed_here};
+use north_fleet_supervisor::fleet::model::ProviderName;
+use north_fleet_supervisor::fleet::records::RetiredReport;
+use north_providers::ledger::ClosedReport;
+use north_providers::ledger::closed::ArmBox;
+use north_fleet_supervisor::fleet::roster::{Roster, Standing};
+use north_pacing::pacing::placement::{self, gate};
+use north_pacing::pacing::placement::case::{grants_left, keyed_here};
 use north_strategy_types::placement::GrantSource;
-use crate::spend::{self, Rules, View};
+use north_pace::spend::{self, Rules, View};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
-pub(super) use crate::pacing::placement::room::room;
-use crate::pacing::placement::room::{Basis, Rank, Room};
+pub(super) use north_pacing::pacing::placement::room::room;
+use north_pacing::pacing::placement::room::{Basis, Rank, Room};
 
 pub struct Survey {
     pub here: String,
@@ -58,7 +58,7 @@ pub struct Survey {
     /// The host reached through the laptop job queue, when one serves `laptop`.
     pub laptop: Option<String>,
     pub notes: Vec<String>,
-    pub frozen: Vec<crate::platform::frozen_topics::Topic>,
+    pub frozen: Vec<north_base::platform::frozen_topics::Topic>,
     /// Dispatch's earlier launches by tier, which a Haiku retry and the next arm read.
     pub history: History,
     /// `north ledger worker --recommend` for each armed category.
@@ -125,7 +125,7 @@ pub(super) fn gate_holds(rows: impl Iterator<Item = (IssueRef, Option<String>, S
         };
         let Some(issue) = issues.iter().find(|issue| issue.reference() == item) else { continue };
         let wanted = text.trim().to_lowercase();
-        for slug in issue.takeable(at).filter(|line| line.to_lowercase().contains(&wanted)).filter_map(crate::threads::claims::box_slug) {
+        for slug in issue.takeable(at).filter(|line| line.to_lowercase().contains(&wanted)).filter_map(north_calibration::threads::claims::box_slug) {
             box_holds.entry(item.clone()).or_default().entry(slug).or_insert_with(|| why.clone());
         }
     }
@@ -197,7 +197,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
 /// this host counts only when its own roster holds the key, so a dispatcher with no key still places on the hosts that do.
 pub(super) fn grants(cfg: &DocumentMut, roster: &Roster, here: &str, sources: Vec<GrantSource>) -> Vec<Account> {
     let reserved = spend::operational_reserve(cfg);
-    let beside_plans = crate::pacing::placement::room::api_beside_plans(cfg);
+    let beside_plans = north_pacing::pacing::placement::room::api_beside_plans(cfg);
     let orgs = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs"));
     sources
         .into_iter()
@@ -223,7 +223,7 @@ fn spend_view(cfg: &DocumentMut, roster: &Roster, here: &str, rules: &Rules, ses
 /// active worker sessions, this host's from `here_listing`, the `north fleet list --json` its caller read in its own process.
 pub fn spend_now(roster: &Roster, here_listing: Option<Value>) -> Result<View, String> {
     let cfg = placement::config()?;
-    let (here, at, rules) = (crate::platform::host::name(), placement::now(), Rules::configured());
+    let (here, at, rules) = (north_base::platform::host::name(), placement::now(), Rules::configured());
     let mut listings: Vec<(String, Value)> = here_listing.map(|listing| (here.clone(), listing)).into_iter().collect();
     listings.extend(fleets::elsewhere_shared(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut Vec::new()));
     let sessions: Vec<(Session, String)> = listings.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
@@ -233,7 +233,7 @@ pub fn spend_now(roster: &Roster, here_listing: Option<Value>) -> Result<View, S
 /// Refreshes every host's fleet listing the spend view reads, which the survey keeper does while launches place work.
 pub fn refresh_fleet_listings() {
     let Ok(cfg) = placement::config() else { return };
-    fleets::refresh_shared(&cfg, &crate::platform::host::name(), &["fleet", "list", "--json"], "fleet", PROBE);
+    fleets::refresh_shared(&cfg, &north_base::platform::host::name(), &["fleet", "list", "--json"], "fleet", PROBE);
 }
 
 /// NorthThreads claim listings from this host's ledger, every ssh host's, and the laptop's copy, since a host whose
@@ -360,7 +360,7 @@ pub(super) fn unspent(records: &[record::Record], at: f64, forgotten: &BTreeSet<
 const DEGRADED: &str = "tier routing degraded";
 
 fn closed(notes: &mut Vec<String>) -> Option<ClosedReport> {
-    read_closed(crate::ledger::closed_report(tier::ARM_WINDOW), notes)
+    read_closed(north_providers::ledger::closed_report(tier::ARM_WINDOW), notes)
 }
 
 pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<String>) -> Option<ClosedReport> {
@@ -368,7 +368,7 @@ pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<Str
 }
 
 pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
-    let closed = read_closed(crate::ledger::recorded_closed_report(tier::ARM_WINDOW), notes);
+    let closed = read_closed(north_providers::ledger::recorded_closed_report(tier::ARM_WINDOW), notes);
     let mut evidence = evidence_from(categories, closed.as_ref());
     if let Some(line) = skill::verdict(Decision::ArmShares).line() {
         notes.push(format!("every arm draws an equal share: {line}"));
@@ -378,7 +378,7 @@ pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String
 }
 
 pub fn record_closed_reports() -> NorthResult<Vec<String>> {
-    crate::ledger::record_closed_reports(&[tier::ARM_WINDOW, super::grounds::WINDOW])
+    north_providers::ledger::record_closed_reports(&[tier::ARM_WINDOW, super::grounds::WINDOW])
 }
 
 fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>) -> BTreeMap<String, Evidence> {
@@ -389,7 +389,7 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>) -> BTreeMap
 pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let cfg = placement::config()?;
     let projects = Projects::read(&cfg)?;
-    let here = crate::platform::host::name();
+    let here = north_base::platform::host::name();
     let at = placement::now();
     let mut notes = Vec::new();
     let laptop = fleets::laptop(&cfg, &here);
@@ -408,13 +408,13 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, fleet.elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
     let accounts = accounts(&cfg, roster, &here, at, &mut notes);
-    let line_held = crate::pacing::placement::line_held(&cfg, &here);
+    let line_held = north_pacing::pacing::placement::line_held(&cfg, &here);
     if accounts.is_empty() {
         notes.push("usage-gate.json names no Claude account, so no slot is free".into());
     }
     let rules = Rules::configured();
     let spend = spend_view(&cfg, roster, &here, &rules, &fleet.sessions, at);
-    stopped(&fleet.records, &mut reads.issues, |launch| shown(launch, laptop_registry.as_ref()), crate::fleet::registry::retired_report_here, &reads.grounds, &mut notes);
+    stopped(&fleet.records, &mut reads.issues, |launch| shown(launch, laptop_registry.as_ref()), north_fleet_supervisor::fleet::registry::retired_report_here, &reads.grounds, &mut notes);
     let launches = super::stops::last_launches(&fleet.records);
     let learned = super::host_needs::read(&record::directory());
     for issue in &mut reads.issues {
@@ -430,7 +430,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let arm_boxes: Vec<ArmBox> = reads.report.iter().flat_map(|report| report.arms.iter().cloned()).chain(reads.remote_arms).collect();
     notes.extend(tier::context_figures(&arm_boxes));
     let super::strands::Read { strands, saturated, revived } = reads.strands;
-    let frozen = crate::platform::frozen_topics::load().map(crate::threads::catalog::canonical_topics).unwrap_or_else(|why| {
+    let frozen = north_base::platform::frozen_topics::load().map(north_calibration::threads::catalog::canonical_topics).unwrap_or_else(|why| {
         notes.push(why);
         Vec::new()
     });

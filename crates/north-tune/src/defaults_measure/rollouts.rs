@@ -5,8 +5,8 @@ use std::time::UNIX_EPOCH;
 use serde_json::Value;
 
 use super::row::Row;
-use crate::threads::calibration::quantile;
-use crate::foundation::clock::Timestamp;
+use north_calibration::threads::calibration::quantile;
+use north_foundation::foundation::clock::Timestamp;
 
 const ERROR_INFO: &str = "server_overloaded";
 const MESSAGE: &str = "Selected model is at capacity";

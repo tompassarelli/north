@@ -6,8 +6,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::accounts;
-use crate::fleet::model::{Account, ProviderName};
-use crate::foundation::clock::Timestamp;
+use north_fleet_supervisor::fleet::model::{Account, ProviderName};
+use north_foundation::foundation::clock::Timestamp;
 
 const MESSAGES: &str = "https://api.anthropic.com/v1/messages";
 const MINIMAL_TURN: &str = r#"{"model":"claude-haiku-5-5","max_tokens":1,"system":"You are Claude Code, Anthropic's official CLI for Claude.","messages":[{"role":"user","content":"."}]}"#;

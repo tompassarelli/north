@@ -56,7 +56,7 @@ fn a_lane_the_secret_scan_flags_is_refused() {
     fixture.commit(&fixture.repo, "a.txt", "Add a");
     let stub = fixture.root.join("stub-bin");
     fs::create_dir_all(&stub).unwrap();
-    north_core::foundation::shim::write_executable(&stub.join("betterleaks"), "#!/bin/sh\nexit 1\n");
+    north_foundation::foundation::shim::write_executable(&stub.join("betterleaks"), "#!/bin/sh\nexit 1\n");
     let gh = stub_gh(&fixture, "mkdir -p \"$XDG_STATE_HOME/gh\" && echo id >\"$XDG_STATE_HOME/gh/device-id\"; echo false PUBLIC");
     let path = PathBuf::from(format!("{}:{}", stub.display(), gh.display()));
     let output = north_enqueue_with(&fixture, &[("PATH", &path)]);

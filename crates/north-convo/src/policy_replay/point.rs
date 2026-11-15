@@ -8,7 +8,7 @@ use toml_edit::{DocumentMut, Item};
 use super::pyfmt::{float_repr, list_repr};
 use super::rows::{Scenarios, VariantRow};
 use super::stats::{Verdict, compare, covered, flips};
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 
 const POINT_KEYS: [&str; 8] = ["date", "model", "variant", "policy_sha256", "startup_tokens", "conformance", "n", "evidence"];
 

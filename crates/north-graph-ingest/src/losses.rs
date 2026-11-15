@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use north_base::platform::harness::{DEFAULTS, document};
 use north_base::platform::run_roles::worker_where;
 use north_graph::Term;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_threads::threads::attribution::losses;
 use rusqlite::{Connection, OpenFlags};
 

@@ -9,7 +9,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if !super::coordinator_role::is_coordinator(&super::coordinator_role::Live, input) {
         return Verdict::Allow;
     }
-    let now = crate::foundation::clock::Timestamp::now().unix_seconds();
+    let now = north_foundation::foundation::clock::Timestamp::now().unix_seconds();
     let judged = since(&threads_db(), now - HOUR_SECONDS).and_then(|reading| classes(&reading, &Owners::here(), &mirror_closed));
     match judged {
         Ok(found) => refusal(&found).map_or(Verdict::Allow, Verdict::Deny),

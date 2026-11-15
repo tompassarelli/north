@@ -1,8 +1,8 @@
 use rusqlite::{Connection, Transaction, params};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 use super::row::{FleetRow, RowKind};
 use super::schema::sql;

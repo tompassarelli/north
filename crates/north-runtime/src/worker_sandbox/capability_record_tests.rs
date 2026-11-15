@@ -1,10 +1,10 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::fs::File;
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::shim::write_executable;
+use north_foundation::foundation::shim::write_executable;
 use north_base::platform::session_host_files;
 
 use super::super::broker::{self, Request};
@@ -45,7 +45,7 @@ impl Fixture {
             std::fs::create_dir_all(fleet.join(name)).unwrap();
             std::fs::write(session_host_files::scope_path(&fleet.join(name)), format!("{unit}\n")).unwrap();
             if let Some(record) = record {
-                std::fs::write(crate::fleet::records::record_file(&fleet.join(name)), record.to_string()).unwrap();
+                std::fs::write(north_fleet_supervisor::fleet::records::record_file(&fleet.join(name)), record.to_string()).unwrap();
             }
         }
         for program in ["ssh", "git"] {

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::model::LaunchRequest;
 
 use super::registry::Fleet;

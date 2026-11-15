@@ -4,9 +4,9 @@ use std::io;
 use north_base::lifecycle::{Refusal, Store};
 use north_session_host::row_delivery::{Phase, RowDelivery, adopt, instance};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::store::FleetRow;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 use super::Fleet;
 
@@ -140,7 +140,7 @@ mod delivery_lifecycle {
         let fleet = fleet(home.path());
         let worker = live(&fleet, "worker");
         let row = fleet.spool_message(&Sender::Tom, "worker", "hello", Delivery::Queued).unwrap();
-        let dead = Owner { host: crate::platform::host::name(), pid: u32::MAX - 1, started: 1, booted_ms: crate::platform::host::booted_ms().unwrap_or(0) };
+        let dead = Owner { host: north_base::platform::host::name(), pid: u32::MAX - 1, started: 1, booted_ms: north_base::platform::host::booted_ms().unwrap_or(0) };
         let mut killed = Store::open_as(&fleet.state.join("ledger.db"), dead.clone(), Box::new(Proc)).unwrap();
         killed.transition::<RowDelivery>(&instance("worker", &row.id), Phase::HandingIn, "handing the row to the session", Timestamp::now()).unwrap().unwrap();
 

@@ -5,8 +5,8 @@ use std::fs;
 
 use super::Gatherer;
 use crate::detectors::skill_review::{Facts, Skill};
-use crate::foundation::clock::Timestamp;
-use crate::threads::incidents::corrections;
+use north_foundation::foundation::clock::Timestamp;
+use north_calibration::threads::incidents::corrections;
 
 const SKILLS: &str = "harness/skills";
 const CHANGE_HISTORY: &str = "--since=120 days ago";

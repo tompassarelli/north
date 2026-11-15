@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::step::{Refused, Step, cancelled};
+use north_foundation::foundation::step::{Refused, Step, cancelled};
 
 use super::plan::Gate;
 use super::verdict::{Outcome, Scanned, Snapshot, reuse};

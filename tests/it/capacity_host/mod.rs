@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 use serde_json::Value;
 use std::fs;
 use std::io::Read;
@@ -64,7 +64,7 @@ fn drain(pipe: Option<Box<dyn Read + Send>>) -> std::sync::mpsc::Receiver<Vec<u8
 
 fn wait_for_exit(child: &mut Child) -> std::io::Result<ExitStatus> {
     let mut failure = None;
-    north_core::platform::wait::until(crate::support::HANG, || match child.try_wait() {
+    north_base::platform::wait::until(crate::support::HANG, || match child.try_wait() {
         Ok(status) => status.is_some(),
         Err(error) => {
             failure = Some(error);
@@ -263,7 +263,7 @@ impl Host {
     }
 
     pub fn until(&self, what: &str, mut done: impl FnMut(&Self) -> bool) {
-        assert!(north_core::platform::wait::until(crate::support::HANG, || done(self)), "never saw {what}; helper stderr:\n{}", self.helper_stderr());
+        assert!(north_base::platform::wait::until(crate::support::HANG, || done(self)), "never saw {what}; helper stderr:\n{}", self.helper_stderr());
     }
 }
 

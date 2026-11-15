@@ -25,6 +25,7 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-fleet:north-fleet",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-threads:north-threads",
         "//third-party:fancy-regex",
         "//third-party:regex",
@@ -52,6 +53,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-fleet:north-fleet",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-threads:north-threads",
         "//third-party:fancy-regex",
         "//third-party:regex",

@@ -2,7 +2,7 @@
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::model::SessionRecord;
 

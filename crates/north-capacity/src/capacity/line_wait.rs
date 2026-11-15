@@ -1,7 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use north_base::foundation::offload::LAND_LINE_DEADLINE_SECONDS;
+use north_foundation::foundation::offload::LAND_LINE_DEADLINE_SECONDS;
 
 const BACKGROUND_DEADLINE_SECONDS: u64 = 3600;
 const BACKGROUND_RANK: u8 = 4;

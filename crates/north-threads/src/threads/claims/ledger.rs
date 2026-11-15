@@ -7,7 +7,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 use serde_json::json;
 
 use super::{Claim, Issue, Standing, key, same_box, split_key};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const BUSY: Duration = Duration::from_secs(60);
 const CLAIMS: &str = "SELECT c.item, c.owner, c.since, c.eta_min, \

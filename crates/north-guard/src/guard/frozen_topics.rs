@@ -1,12 +1,12 @@
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::frozen_topics::{self, Topic};
-use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
+use north_base::platform::frozen_topics::{self, Topic};
+use north_base::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 
 const OWNER: &str = "tompassarelli/";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     let cwd = input.cwd().map(str::to_owned);
-    let Ok(topics) = frozen_topics::load().map(crate::threads::catalog::canonical_topics) else {
+    let Ok(topics) = frozen_topics::load().map(north_calibration::threads::catalog::canonical_topics) else {
         return Verdict::Allow;
     };
     decide_with(
@@ -107,7 +107,7 @@ impl Write {
     ) -> Option<String> {
         let repo = repository(self.repo.as_deref())?;
         let lowered = repo.to_lowercase();
-        let short = crate::threads::catalog::CATALOG.canonical(lowered.strip_prefix(OWNER)?);
+        let short = north_calibration::threads::catalog::CATALOG.canonical(lowered.strip_prefix(OWNER)?);
         let title = match &self.target {
             Target::Created(title) => title.clone(),
             Target::Reopened(number) => title_of(&repo, number)?,

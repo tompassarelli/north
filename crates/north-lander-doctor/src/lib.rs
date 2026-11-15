@@ -24,7 +24,6 @@ use bounds::{Finding, PATIENCE_SECS, REPAGE_SECS, Remedy, State, minutes};
 use facts::{Facts, Place, Reach};
 use hands::Hands;
 
-pub use north_lander::land::promote::REFUSED;
 pub const UNKNOWN: &str = "lander-unknown";
 const USAGE: &str = "usage: north land doctor [--dry-run] (reads every lander health bound, applies each known remedy, pages the coordinator once per unknown state)";
 
@@ -201,7 +200,7 @@ pub fn run(arguments: &[String], review_holds: &dyn Fn() -> Vec<facts::ReviewHol
         }
     };
     let now = facts::now();
-    let graph = north_graph_loops::graph_path();
+    let graph = north_graph::default_path();
     let mut book = match Book::load(&graph) {
         Ok(book) => book,
         Err(error) => {

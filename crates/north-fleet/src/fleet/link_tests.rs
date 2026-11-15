@@ -22,7 +22,7 @@ fn machine(root: &Path) -> PathBuf {
     fs::create_dir_all(&shims).unwrap();
     let shim = |name: &str, body: String| {
         let path = shims.join(name);
-        crate::foundation::shim::write_script(&path, &format!("SHIMS='{}'\nexport PATH=\"$SHIMS:$PATH\"\n{body}", shims.display()));
+        north_foundation::foundation::shim::write_script(&path, &format!("SHIMS='{}'\nexport PATH=\"$SHIMS:$PATH\"\n{body}", shims.display()));
     };
     shim(
         "ssh",
@@ -117,7 +117,7 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     let cli_pid = first.strip_prefix("got one ").unwrap().to_owned();
     assert_eq!(fs::read_to_string(root.path().join("shims/links")).unwrap().lines().count(), 1, "one ssh command started the held unit and attached to it");
     let (ssh, units) = (root.path().join("plain-ssh"), [north_session_host::held::unit("box one")]);
-    crate::foundation::shim::write_script(&ssh, &format!("while [ \"$1\" != -- ]; do shift; done\nPATH='{}':$PATH exec sh -c \"$2\"", root.path().join("shims").display()));
+    north_foundation::foundation::shim::write_script(&ssh, &format!("while [ \"$1\" != -- ]; do shift; done\nPATH='{}':$PATH exec sh -c \"$2\"", root.path().join("shims").display()));
     let work = || north_session_host::held::work(&ssh, "tom@far", &units).unwrap()[&units[0]];
     assert_eq!(work(), 0, "an idle CLI has no work below it");
     to_link.write_all(b"wait\n").await.unwrap();
@@ -175,7 +175,7 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     let held_on_agent = Link::parse(&placed.argv[2..]).unwrap().dir;
     assert!(held_on_agent.starts_with("/home/agent/.local/state/north/held/"), "{held_on_agent}");
     let (ssh, sent) = (root.path().join("ssh"), root.path().join("sent"));
-    crate::foundation::shim::write_script(&ssh, &format!("cat > '{}'\nfor word; do script=$word; done\nprintf %s \"$script\" > '{}'\n", root.path().join("record").display(), sent.display()));
+    north_foundation::foundation::shim::write_script(&ssh, &format!("cat > '{}'\nfor word; do script=$word; done\nprintf %s \"$script\" > '{}'\n", root.path().join("record").display(), sent.display()));
     let record: crate::fleet::model::SessionRecord = serde_json::from_value(serde_json::json!({
         "name": "agent-first-turn", "provider": "claude", "account": "e", "cwd": "/home/tom/code/north/main", "model": null, "created_ms": 0,
         "conversation": "conversation-one", "machine": {"name": "cpx62", "ssh": "tom@cpx62", "agent_ssh": "agent@cpx62"}
@@ -194,7 +194,7 @@ async fn a_session_held_on_another_machine_links_from_here_reads_it_through_the_
     let _standing = std::os::unix::net::UnixListener::bind(runtime.join("north-links/agent_far")).unwrap();
     let master = standing_master_under(&runtime, &ssh, "agent@far");
     assert_eq!(master, runtime.join("north-links/agent_far"), "a launch read names the master its link rides");
-    crate::foundation::shim::write_script(&ssh, &format!("printf '%s\\n' \"$@\" > '{}'\necho answered\n", said.display()));
+    north_foundation::foundation::shim::write_script(&ssh, &format!("printf '%s\\n' \"$@\" > '{}'\necho answered\n", said.display()));
     assert!(matches!(super::super::remote::answer_through(&ssh, Some(&master), &agent, "true"), crate::fleet::runtime::Seen::Text(text) if text == "answered\n"));
     let words = fs::read_to_string(&said).unwrap();
     assert!(words.contains(&format!("ControlMaster=no\n-S\n{}\nagent@far\n", master.display())), "a launch read of a build host opened its own connection instead of a channel of the standing master (north#1054): {words}");
@@ -263,7 +263,7 @@ fn takes_lane_spares(shims: &Path, far: &Machine, home: &Path) {
         git(repo, &["add", "f", ".gitattributes"]);
         git(repo, &["commit", "-q", "-m", "other"]);
         let filter = marker.with_extension("filter");
-        crate::foundation::shim::write_script(&filter, &format!("touch '{}'\ncat\n", marker.display()));
+        north_foundation::foundation::shim::write_script(&filter, &format!("touch '{}'\ncat\n", marker.display()));
         git(repo, &["config", "filter.m.clean", &filter.to_string_lossy()]);
     };
     let (sub, sub_ran) = (task.join("sub"), home.join("sub-ran"));
@@ -282,7 +282,7 @@ fn takes_lane_spares(shims: &Path, far: &Machine, home: &Path) {
     fs::create_dir_all(&other).unwrap();
     git(&other, &["init", "-q"]);
     let (monitor, ran) = (home.join("monitor"), home.join("monitor-ran"));
-    crate::foundation::shim::write_script(&monitor, &format!("touch '{}'\n", ran.display()));
+    north_foundation::foundation::shim::write_script(&monitor, &format!("touch '{}'\n", ran.display()));
     git(&other, &["config", "core.fsmonitor", &monitor.to_string_lossy()]);
     let rogue = home.join("code/eval/worktrees/rogue");
     fs::create_dir_all(&rogue).unwrap();
@@ -305,7 +305,7 @@ fn takes_lane_spares(shims: &Path, far: &Machine, home: &Path) {
     marked(&swapped, &swapped_ran);
     let real = String::from_utf8(std::process::Command::new("sh").args(["-c", "command -v git"]).output().unwrap().stdout).unwrap();
     let shim = shims.join("git");
-    crate::foundation::shim::write_script(&shim, &format!("case \" $* \" in *\" switch \"*) printf 'gitdir: %s\\n' '{}' > '{}';; esac\nexec '{}' \"$@\"\n", swapped.join(".git").display(), task.join(".git").display(), real.trim()));
+    north_foundation::foundation::shim::write_script(&shim, &format!("case \" $* \" in *\" switch \"*) printf 'gitdir: %s\\n' '{}' > '{}';; esac\nexec '{}' \"$@\"\n", swapped.join(".git").display(), task.join(".git").display(), real.trim()));
     let taken = spares::take(&place, "fp-lane", "task-l2-run", &task, &spares::binding("task-l2-run", None), ":").expect("the second lane fits its spare");
     fs::remove_file(&shim).unwrap();
     assert!(!swapped_ran.exists(), "a lane whose .git is swapped after the fit runs no program of the repository it then names");

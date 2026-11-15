@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::{FarHost, OpenLedger, Pulls, Taken, Ticked};
 use crate::fleet::model::SessionRecord;

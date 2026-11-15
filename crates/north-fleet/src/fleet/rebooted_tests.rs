@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 
 #[derive(Default)]
 struct Recorded {

@@ -1,6 +1,6 @@
 //! A host's live load as dispatch reads it: its cores, its memory and its one-minute run queue,
 //! from `nproc`, `/proc/loadavg`, `/proc/meminfo` and two `/proc/stat` readings and `/proc/pressure/cpu` here or over ssh.
-use crate::platform::process::run_within;
+use north_base::platform::process::run_within;
 use std::time::Duration;
 
 pub const PROBE: &str = "nproc; cat /proc/loadavg /proc/meminfo; head -n1 /proc/stat; sleep 2; head -n1 /proc/stat; cat /proc/pressure/cpu 2>/dev/null; true";

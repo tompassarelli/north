@@ -3,8 +3,8 @@
 //! session was last revived for.
 use super::fleets;
 use super::revive::Strand;
-use crate::fleet::stranded::Stranded;
-use crate::pacing::placement;
+use north_fleet_supervisor::fleet::stranded::Stranded;
+use north_pacing::pacing::placement;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;

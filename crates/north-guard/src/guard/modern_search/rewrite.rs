@@ -1,7 +1,7 @@
 use super::{GREP_LIKE, find, grep};
 use crate::guard::argument_words;
 use crate::guard::search_words::{self, Located};
-use crate::shell::{self, Piece};
+use north_base::shell::{self, Piece};
 use std::collections::BTreeSet;
 
 type Edit = (usize, usize, String);

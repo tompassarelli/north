@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::detached;
 use crate::fleet::jobs::SpooledLeases;
 use crate::fleet::lane_probe;
@@ -43,11 +43,11 @@ impl Fleet {
     }
 
     pub fn placed_hosts(&self) -> Option<Vec<String>> {
-        crate::platform::orchestration::placed_hosts(&self.policy)
+        north_base::platform::orchestration::placed_hosts(&self.policy)
     }
 
     pub fn owners_machine(&self) -> Option<String> {
-        crate::platform::orchestration::owners_machine(&self.policy)
+        north_base::platform::orchestration::owners_machine(&self.policy)
     }
 
     pub fn accounts(&self) -> Vec<Account> {

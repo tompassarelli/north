@@ -1,5 +1,5 @@
-use crate::foundation::carry;
-use crate::platform::process;
+use north_foundation::foundation::carry;
+use north_base::platform::process;
 use regex::Regex;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -23,7 +23,7 @@ const RUNTIME_HEAD: &str = "SAFE_PUSH_LAND_RUNTIME_HEAD";
 const CLAIMS: &str = "north-dispatch";
 const RED: u8 = 1;
 
-pub const INFRASTRUCTURE: u8 = north_base::foundation::exit::NO_VERDICT;
+pub const INFRASTRUCTURE: u8 = north_foundation::foundation::exit::NO_VERDICT;
 
 struct Declaration {
     command: String,

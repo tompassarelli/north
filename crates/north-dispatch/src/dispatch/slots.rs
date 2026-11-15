@@ -1,8 +1,8 @@
 //! Free worker slots: a host has the sessions its measured memory and idle cores have room for, no more than an explicit resident cap less the sessions it runs, and none without a memory reading, no more than the builds
 //! its admission queue takes. Whether an account may take a worker is the spend rule's call
-//! (`crate::spend`), which counts the workers this run has started.
-pub use crate::pacing::placement::room::{Charge, PlanSize, Room};
-use crate::spend::{Starter, View};
+//! (`north_pace::spend`), which counts the workers this run has started.
+pub use north_pacing::pacing::placement::room::{Charge, PlanSize, Room};
+use north_pace::spend::{Starter, View};
 use std::collections::BTreeMap;
 
 /// Cores of load one resident session is charged; a guess that the measured peak cores of a resident session settles.
@@ -42,13 +42,13 @@ impl Host {
     /// ssh); an unreadable reading refuses nothing.
     pub fn probed(self, here: &str, ssh: Option<&str>) -> Self {
         let reachable = self.name == here || ssh.is_some();
-        let reading = reachable.then(|| crate::pacing::placement::saturation_reading(&self.name).ok()).flatten();
+        let reading = reachable.then(|| north_pacing::pacing::placement::saturation_reading(&self.name).ok()).flatten();
         self.read(reading.as_ref())
     }
 
     /// The host refused by the reading's memory, root disk or admission queue, with the builds its
     /// admission queue has room for.
-    pub fn read(self, reading: Option<&crate::capacity::saturation::Saturation>) -> Self {
+    pub fn read(self, reading: Option<&north_capacity_host::capacity::saturation::Saturation>) -> Self {
         let builds = reading.and_then(|reading| reading.backlog).map(|backlog| backlog.build_room().max(0));
         let room = reading.map(|reading| reading.session_room());
         let why = reading.and_then(|reading| reading.refusal(&self.name));
@@ -85,7 +85,7 @@ pub struct Account {
     pub plan: PlanSize,
     pub room: Room,
     /// The deadline rank of an API grant, which has no plan windows; None for a plan account.
-    pub grant: Option<crate::pacing::placement::room::Rank>,
+    pub grant: Option<north_pacing::pacing::placement::room::Rank>,
 }
 
 impl Account {

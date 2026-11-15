@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::json;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::super::forget::{self, QueuedLane};
 use super::super::model::{Delivery, SessionRecord};

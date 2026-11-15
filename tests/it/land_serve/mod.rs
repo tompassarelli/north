@@ -18,7 +18,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 }
 
 fn executable(path: &Path, body: &str) {
-    north_core::foundation::shim::write_executable(path, body);
+    north_foundation::foundation::shim::write_executable(path, body);
 }
 
 const CHECKER: &str = r#"#!/usr/bin/env bash

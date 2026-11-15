@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use north_base::platform::process::try_run_command_within;
 
 pub const SSH_WAIT: Duration = Duration::from_secs(20);

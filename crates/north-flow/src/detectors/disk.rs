@@ -12,7 +12,7 @@ pub struct Facts {
 }
 
 pub fn low(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
-    let day = &crate::foundation::clock::Timestamp::from_unix_seconds_f64(now).iso()[..10];
+    let day = &north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(now).iso()[..10];
     let mut findings: Vec<Finding> = facts
         .hosts
         .iter()

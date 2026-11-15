@@ -4,11 +4,11 @@ use std::path::PathBuf;
 use regex::Regex;
 
 use super::source::Case;
-use crate::fleet::model::Role;
-use crate::fleet::prompt::{PromptInputs, PromptMode, StandingOrders, render_from};
-use crate::fleet::records::{conversation_record, named_record_before};
-use crate::foundation::clock::Timestamp;
-use crate::fleet::runtime::DEFAULT_FOREGROUND_CAP_SECS;
+use north_fleet::fleet::model::Role;
+use north_fleet::fleet::prompt::{PromptInputs, PromptMode, StandingOrders, render_from};
+use north_fleet::fleet::records::{conversation_record, named_record_before};
+use north_foundation::foundation::clock::Timestamp;
+use north_fleet::fleet::runtime::DEFAULT_FOREGROUND_CAP_SECS;
 
 pub struct Launch {
     role: Role,

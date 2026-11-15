@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use super::held::Held;
 use super::{Inputs, Policy, Removal, hours, idle_for, removed, size};
-use crate::platform::shared_target;
+use north_base::platform::shared_target;
 
 const BUILD_OUTPUT_IDLE: Duration = Duration::from_secs(4 * 3600);
 const MAIN_BUILT_CONTAINER: &str = "north";

@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 use crate::threads::verb::{Context, Failure};
 

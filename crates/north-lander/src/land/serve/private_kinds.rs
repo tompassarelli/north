@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 
 use crate::land::after::route::{REMOTE_NORTH, SSH_OPTIONS, lane_login, plain, quote};
 use crate::land::enqueue::default_branch;

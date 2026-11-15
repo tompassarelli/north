@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use north_base::lifecycle::Retire;
 
-use crate::foundation::clock::Timestamp;
-use crate::platform::rolling_issue::Breaches;
-use crate::platform::sqlite::{self, Access};
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::rolling_issue::Breaches;
+use north_base::platform::sqlite::{self, Access};
 use units::Reading;
 
 type Verdict = Result<(), String>;

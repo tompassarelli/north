@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 
-use crate::threads::runs::hook_rules::{Class, HABIT_RULES, OTHER, RULES, find};
+use north_calibration::threads::runs::hook_rules::{Class, HABIT_RULES, OTHER, RULES, find};
 
 pub const PRUNE_DAYS: i64 = 30;
 pub const SAMPLES: &str = include_str!("hook_refusal_samples.toml");

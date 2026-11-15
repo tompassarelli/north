@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader, Read};
 
-use north_base::foundation::offload::TIMED;
+use north_foundation::foundation::offload::TIMED;
 
 use super::{Category, Span};
 

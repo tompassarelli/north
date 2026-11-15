@@ -1,6 +1,6 @@
 use super::judge::{self, Quarantine, Verdict};
 use super::results::{Case, Env, Key, Results, Store};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::shared_config;
 use std::collections::BTreeMap;
 use std::fs;

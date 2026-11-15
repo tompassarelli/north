@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use north_base::foundation::offload;
+use north_foundation::foundation::offload;
 
 use super::{Land, OFFLOAD_ROOT, quote};
 use north_base::platform::process::run_within;

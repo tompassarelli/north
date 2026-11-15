@@ -4,13 +4,13 @@ use rusqlite::Connection;
 
 use super::registry::Registry;
 use super::row::Row;
-use crate::platform::twister::Twister;
-use crate::foundation::clock::Timestamp;
-use crate::threads::calibration::{
+use north_base::platform::twister::Twister;
+use north_foundation::foundation::clock::Timestamp;
+use north_calibration::threads::calibration::{
     Knobs, Raw, Run, box_chains, box_duration, box_rows, calibration_runs_with, escalated_with, moment, quantile, raw_runs, recommend, recommend_usd, tier_key,
     walk_forward_eta,
 };
-use crate::threads::calibration::rework::{Rework, Sources};
+use north_calibration::threads::calibration::rework::{Rework, Sources};
 
 pub(super) const TIER_GRIDS: [(&str, &[f64]); 3] = [
     ("success_threshold", &[60.0, 70.0, 75.0, 80.0, 85.0, 90.0]),
@@ -31,7 +31,7 @@ pub(super) fn knobs(defaults: &Registry) -> Knobs {
         success_threshold: defaults.number("success_threshold"),
         min_runs,
         incumbent_margin: defaults.number("incumbent_margin") as i64,
-        usd_min: crate::router::policy::ARM_RUNS,
+        usd_min: north_pace::router::policy::ARM_RUNS,
         eta_min_samples: defaults.number("eta_min_samples") as usize,
         eta_coverage: defaults.number("eta_coverage"),
         box_chain_gap_min: defaults.number("box_chain_gap_min"),
@@ -127,7 +127,7 @@ fn score_picks(decisions: &[Decision]) -> Row {
     let priced_wins = priced.iter().filter(|(ok, _)| *ok).count();
     let rate = (n > 0).then_some(wins as f64 / n as f64);
     let (lo, hi) = rate.map_or((0.into(), 0.into()), |rate| {
-        let (lo, hi) = crate::platform::pystats::wilson(rate, n);
+        let (lo, hi) = north_base::platform::pystats::wilson(rate, n);
         (serde_json::Value::from(lo), serde_json::Value::from(hi))
     });
     Row::new()

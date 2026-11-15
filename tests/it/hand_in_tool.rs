@@ -7,10 +7,10 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use north_base::foundation::shim::write_executable;
+use north_foundation::foundation::shim::write_executable;
 use north_base::platform::wait;
-use north_core::fleet::model::{EntryKind, Transcript};
-use north_core::fleet::runtime::Runtime;
+use north_fleet_supervisor::fleet::model::{EntryKind, Transcript};
+use north_fleet_supervisor::fleet::runtime::Runtime;
 use north_providers::providers::claude::fleet::Claude;
 use north_providers::providers::claude::{shell_prefix, tool_server_args};
 use north_runtime::worker_sandbox::BROKER_SOCKET_ENV;

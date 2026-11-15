@@ -270,7 +270,7 @@ mod tests {
     fn ledger(script: &str, spooled: &Arc<Mutex<Vec<Vec<String>>>>, limit: Duration, claim_limit: Duration) -> (tempfile::TempDir, ThreadsCli) {
         let directory = tempfile::tempdir().unwrap();
         let program = directory.path().join("north");
-        north_core::foundation::shim::write_executable(&program, format!("#!/bin/sh\n{script}\n"));
+        north_foundation::foundation::shim::write_executable(&program, format!("#!/bin/sh\n{script}\n"));
         let queue = Arc::clone(spooled);
         let spool: Spooler = Box::new(move |args| {
             queue.lock().unwrap().push(args.iter().map(|arg| (*arg).to_owned()).collect());

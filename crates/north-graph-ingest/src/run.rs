@@ -180,7 +180,7 @@ fn retired_writers() -> Vec<String> {
 }
 
 fn now() -> i64 {
-    north_base::foundation::clock::Timestamp::now().unix_seconds()
+    north_foundation::foundation::clock::Timestamp::now().unix_seconds()
 }
 
 fn alone(db: &std::path::Path) -> Option<std::fs::File> {

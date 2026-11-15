@@ -39,13 +39,13 @@ fn fails_first_runs(arguments: &[String]) -> u8 {
         return 64;
     };
     let names: std::collections::BTreeSet<String> = names.iter().cloned().collect();
-    let Ok(cwd) = std::env::current_dir() else { return north_base::foundation::exit::NO_VERDICT };
+    let Ok(cwd) = std::env::current_dir() else { return north_foundation::foundation::exit::NO_VERDICT };
     match flake::executables(&cwd, &mut std::io::stderr()) {
         Ok(executables) => match flake::verdicts(&cwd, &executables, &names, runs, &mut std::io::stderr()).and_then(|judged| flake::print(&judged, &mut std::io::stdout())) {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("north land fails-first-runs: {error}");
-                north_base::foundation::exit::NO_VERDICT
+                north_foundation::foundation::exit::NO_VERDICT
             }
         },
         Err(None) => {
@@ -54,7 +54,7 @@ fn fails_first_runs(arguments: &[String]) -> u8 {
         }
         Err(Some(why)) => {
             eprintln!("north land fails-first-runs: {why}");
-            north_base::foundation::exit::NO_VERDICT
+            north_foundation::foundation::exit::NO_VERDICT
         }
     }
 }
@@ -67,13 +67,13 @@ fn mutant_runs(arguments: &[String]) -> u8 {
     let lines = |variable: &str| -> Vec<String> { std::env::var(variable).unwrap_or_default().lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect() };
     let names: std::collections::BTreeSet<String> = lines("MUTANT_TESTS").into_iter().collect();
     let trees: Vec<std::path::PathBuf> = lines("MUTANT_TREES").into_iter().map(std::path::PathBuf::from).collect();
-    let Ok(cwd) = std::env::current_dir() else { return north_base::foundation::exit::NO_VERDICT };
+    let Ok(cwd) = std::env::current_dir() else { return north_foundation::foundation::exit::NO_VERDICT };
     let target = std::env::var_os(north_mutants::trees::TARGET_ENV).map(std::path::PathBuf::from).unwrap_or_else(|| cwd.join("target"));
     match mutant_runs::run(&trees, &names, &target.join(mutant_runs::SHARED), &mut std::io::stdout()) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("north land mutant-runs: {error}");
-            north_base::foundation::exit::NO_VERDICT
+            north_foundation::foundation::exit::NO_VERDICT
         }
     }
 }

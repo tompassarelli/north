@@ -1,4 +1,4 @@
-use crate::platform::harness;
+use north_base::platform::harness;
 
 const OVERLAY: &str = "harness/overlays/deepseek.md";
 pub const OVERLAY_ARM: &str = "deepseek-overlay";

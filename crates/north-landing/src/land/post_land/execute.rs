@@ -6,8 +6,8 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
-use north_base::foundation::exit::NO_VERDICT_STATUS;
-use north_base::foundation::offload::{OWNER_ENV, TREES_ENV};
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::offload::{OWNER_ENV, TREES_ENV};
 
 use super::runner::{self, Ended, ended, supervise};
 use crate::land::outlive::SLICE_ENV;
@@ -15,7 +15,7 @@ use super::{Landed, Run, superseded};
 use crate::landing::red_check::{self, Failure};
 use crate::land::candidate::change_worktrees_alone;
 use crate::land::checks::Verdict;
-use north_base::foundation::exit::SLOTS_BUSY_STATUS;
+use north_foundation::foundation::exit::SLOTS_BUSY_STATUS;
 use crate::land::slots::graph_selection::{SELECTED, Selected};
 use crate::land::telemetry;
 
@@ -124,9 +124,9 @@ pub(super) fn judged(status: ExitStatus, run: &Run) -> Verdict {
         Some(126 | 127) => Verdict::Transient(format!("post-land checks could not start their command (exit {status}), so they reached no verdict; log: {}", run.log.display())),
         Some(NO_VERDICT_STATUS) => Verdict::Transient(format!("post-land checks exited {NO_VERDICT_STATUS}; log: {}", run.log.display())),
         Some(SLOTS_BUSY_STATUS) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
-        _ if let Some(age) = fs::read_to_string(&run.log).ok().and_then(|text| north_base::foundation::check_log::stale_token(&text)) => Verdict::Transient(format!("post-land checks failed on {} only because its GitHub token is {age}, past its 55 min trust: an environment failure, not main, so no commit is suspect and they run again on a host with a fresh token; log: {}", run.host.as_deref().unwrap_or("this host"), run.log.display())),
-        _ if fs::read_to_string(&run.log).ok().and_then(|text| north_base::foundation::check_log::ref_lock(&text)).is_some() => Verdict::Transient(format!("post-land checks hit a git ref-lock failure, an infrastructure fault, so they reached no verdict; log: {}", run.log.display())),
-        _ if let Some(line) = fs::read_to_string(&run.log).ok().and_then(|text| north_base::foundation::check_log::github_rate_limit(&text)) => Verdict::Transient(format!("post-land checks hit a GitHub rate limit, an infrastructure fault, so they reached no verdict; log: {}: {line}", run.log.display())),
+        _ if let Some(age) = fs::read_to_string(&run.log).ok().and_then(|text| north_foundation::foundation::check_log::stale_token(&text)) => Verdict::Transient(format!("post-land checks failed on {} only because its GitHub token is {age}, past its 55 min trust: an environment failure, not main, so no commit is suspect and they run again on a host with a fresh token; log: {}", run.host.as_deref().unwrap_or("this host"), run.log.display())),
+        _ if fs::read_to_string(&run.log).ok().and_then(|text| north_foundation::foundation::check_log::ref_lock(&text)).is_some() => Verdict::Transient(format!("post-land checks hit a git ref-lock failure, an infrastructure fault, so they reached no verdict; log: {}", run.log.display())),
+        _ if let Some(line) = fs::read_to_string(&run.log).ok().and_then(|text| north_foundation::foundation::check_log::github_rate_limit(&text)) => Verdict::Transient(format!("post-land checks hit a GitHub rate limit, an infrastructure fault, so they reached no verdict; log: {}: {line}", run.log.display())),
         _ if steps(&run.outcome).is_empty() => Verdict::Transient(format!("post-land checks exited {status} with no check reaching a failing verdict, so they reached no verdict; log: {}", run.log.display())),
         _ => Verdict::RedMain(failed_check(&run.outcome).unwrap_or_else(|| format!("exit {status}; log: {}", run.log.display()))),
     }

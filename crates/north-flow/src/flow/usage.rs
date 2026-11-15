@@ -12,7 +12,7 @@ pub fn line(places: &Places, now: i64) -> String {
         Ok(db) => db,
         Err(why) => return format!("usage per landing 24 h: unread: {}: {why}", places.ledger.display()),
     };
-    let policy = crate::platform::orchestration::path();
+    let policy = north_base::platform::orchestration::path();
     let facts = Facts::load(&Sources { db: &db, policy: &policy, state: &places.state }, now);
     let waited = priority_log::waited(&priority_log::read(&places.state), now - DAY_S, now + 1).unwrap_or(false);
     let reading = facts.reading(now - DAY_S, now + 1, waited);

@@ -6,10 +6,10 @@ use tokio::process::{Child, Command};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 
 use crate::land::slots::shared_build;
-use north_base::foundation::exit::SLOTS_BUSY_STATUS;
+use north_foundation::foundation::exit::SLOTS_BUSY_STATUS;
 use crate::landing::check_timings::outcomes::Records;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
@@ -86,7 +86,7 @@ impl Shared {
         }
         let argv = under_capacity(&self.environment.capacity, argv);
         let lease = self.span("local checks under a capacity lease", Category::HostWait, epoch());
-        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).envs(self.scope_environment()).env_remove(north_base::foundation::offload::TREES_ENV).env(trace::PARENT_ENV, &lease.id).stdin(Stdio::null()).kill_on_drop(true).spawn() {
+        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).envs(self.scope_environment()).env_remove(north_foundation::foundation::offload::TREES_ENV).env(trace::PARENT_ENV, &lease.id).stdin(Stdio::null()).kill_on_drop(true).spawn() {
             Ok(child) => child,
             Err(error) => {
                 warn(&format!("safe-push: land check capacity: {error}; NOT pushed."));

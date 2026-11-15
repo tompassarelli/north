@@ -47,7 +47,7 @@ pub(super) fn run(arguments: &[String], defines: impl Fn(&str) -> bool) -> u8 {
         println!("{USAGE}");
         return 0;
     }
-    let Ok(Options { tree, live }) = north_base::foundation::arguments::parse(arguments) else {
+    let Ok(Options { tree, live }) = north_foundation::foundation::arguments::parse(arguments) else {
         eprintln!("{USAGE}");
         return 64;
     };

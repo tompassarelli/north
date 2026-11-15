@@ -1,6 +1,6 @@
 use north_runtime_records::failure::{Failure, failed};
 use super::super::layout::{self, Layout, TREE};
-use crate::platform::{host, process};
+use north_base::platform::{host, process};
 use std::fs;
 use std::path::Path;
 use std::process::Command;

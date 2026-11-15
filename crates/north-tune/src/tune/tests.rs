@@ -1,7 +1,7 @@
 use super::{Ledger, Prior, Tick, Tracker, tick};
 use super::estimates::EstimatedRuns;
-use crate::router::pricing::PriceTable;
-use crate::ledger::{ClosedReport, SpendRun, summarize};
+use north_pace::router::pricing::PriceTable;
+use north_providers::ledger::{ClosedReport, SpendRun, summarize};
 use std::collections::HashSet;
 
 const AT: &str = "2026-10-27T06:00:00Z";
@@ -150,7 +150,7 @@ fn a_rise_is_told_once_and_only_while_it_holds_with_the_weeks_dearest_box_droppe
         (ticked.lines.iter().any(|line| line.starts_with("rose ")), issues.told)
     };
     assert_eq!(risen([1_000_000, 5_000_000, 9_000_000]), (false, Vec::new()), "the median box alone is past the bar, the box beside it is not");
-    assert_eq!(risen([5_000_000, 5_000_000, 9_000_000]), (true, vec![format!("north tune: {}: opus-medium tooling; `north tune --dry-run` shows them.", crate::ledger::rises::TITLE)]), "told on the first risen tick and not again while the cells hold");
+    assert_eq!(risen([5_000_000, 5_000_000, 9_000_000]), (true, vec![format!("north tune: {}: opus-medium tooling; `north tune --dry-run` shows them.", north_providers::ledger::rises::TITLE)]), "told on the first risen tick and not again while the cells hold");
 }
 
 const RECORDED_OPUS_HIGH_DEBUGGING: [(f64, f64); 20] = [
@@ -160,8 +160,8 @@ const RECORDED_OPUS_HIGH_DEBUGGING: [(f64, f64); 20] = [
 
 const DAY: i64 = 86_400;
 
-fn estimated(pairs: &[(f64, f64)], ended: i64) -> Vec<crate::ledger::EstimatedRun> {
-    let at = |(minutes, eta_min): &(f64, f64)| crate::ledger::EstimatedRun { tier: "opus-high".into(), category: "debugging-unknown-cause".into(), minutes: *minutes, eta_min: *eta_min, item: None, usd: 1.0, estimated_usd: None, started: Some(ended - (*minutes * 60.0) as i64), ended: crate::foundation::clock::Timestamp::from_unix_seconds(ended).iso() };
+fn estimated(pairs: &[(f64, f64)], ended: i64) -> Vec<north_providers::ledger::EstimatedRun> {
+    let at = |(minutes, eta_min): &(f64, f64)| north_providers::ledger::EstimatedRun { tier: "opus-high".into(), category: "debugging-unknown-cause".into(), minutes: *minutes, eta_min: *eta_min, item: None, usd: 1.0, estimated_usd: None, started: Some(ended - (*minutes * 60.0) as i64), ended: north_foundation::foundation::clock::Timestamp::from_unix_seconds(ended).iso() };
     pairs.iter().map(at).collect()
 }
 
@@ -187,8 +187,8 @@ fn an_eta_drifts_only_where_its_cells_earlier_runs_would_have_covered_its_runs()
     let cells = super::estimates::calibrations(&week_after(&faster, &RECORDED_OPUS_HIGH_DEBUGGING));
     assert!(!cells[0].drifted(), "{}", cells[0].line());
     assert_eq!(super::estimates::noise_lines(&cells)[0], "outside the band under every estimator: 1 cells");
-    let priced = |runs: Vec<crate::ledger::EstimatedRun>, tier: &str, usd: f64, budget: f64, per_box: usize| -> Vec<crate::ledger::EstimatedRun> {
-        runs.into_iter().enumerate().map(|(n, run)| crate::ledger::EstimatedRun { tier: tier.into(), item: Some(format!("{}#{}", run.ended, n / per_box)), usd, estimated_usd: Some(budget), ..run }).collect()
+    let priced = |runs: Vec<north_providers::ledger::EstimatedRun>, tier: &str, usd: f64, budget: f64, per_box: usize| -> Vec<north_providers::ledger::EstimatedRun> {
+        runs.into_iter().enumerate().map(|(n, run)| north_providers::ledger::EstimatedRun { tier: tier.into(), item: Some(format!("{}#{}", run.ended, n / per_box)), usd, estimated_usd: Some(budget), ..run }).collect()
     };
     let at = |runs: usize, ended: i64| estimated(&vec![(60.0, 60.0); runs], ended);
     let week = [priced(at(3, 10 * DAY), "haiku", 0.1, 1.0, 1), priced(at(9, 10 * DAY), "sonnet-high", 1.0, 3.0, 3), priced(at(3, 10 * DAY), "opus-high", 1.0, 0.2, 1)].concat();

@@ -15,7 +15,7 @@ use super::host::{Host, Places, iso, read_json, seconds, write_atomic};
 use super::jobs::landing_jobs;
 use super::stall::{self, Facts, Job};
 use super::{refused, stranded};
-use crate::fleet::stranded::Stranded;
+use north_fleet::fleet::stranded::Stranded;
 use super::throughput::{self, Closed, Commit, DeadLane, Inputs};
 use super::boxes::{self, Boxes};
 
@@ -81,7 +81,7 @@ pub fn project_targets(path: &Path) -> BTreeMap<String, f64> {
         .filter_map(|(name, project)| {
             let target = project.get("target")?;
             let text = target.as_datetime().map_or_else(|| target.as_str().map(str::to_owned), |at| Some(at.to_string()))?;
-            Some((crate::threads::catalog::CATALOG.canonical(name).to_owned(), seconds(&text)?))
+            Some((north_calibration::threads::catalog::CATALOG.canonical(name).to_owned(), seconds(&text)?))
         })
         .collect()
 }
@@ -150,8 +150,8 @@ fn fill(env: &mut Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
         row.insert("wisp".into(), json!(wisp_row(host, &places.home, &slug, now)));
     }
     let origin = host.run(&["git", "remote", "get-url", "--push", "origin"], Some(&path), None);
-    let records = crate::platform::records_mirror::Records::of(&places.state, &crate::platform::host::name());
-    let queue = origin.map(|origin| crate::platform::land_queue::directory(records.home(), origin.trim()));
+    let records = north_base::platform::records_mirror::Records::of(&places.state, &north_base::platform::host::name());
+    let queue = origin.map(|origin| north_base::platform::land_queue::directory(records.home(), origin.trim()));
     row.insert("slug".into(), json!(slug));
     let mut source = Source { env, repo, path, slug, now, autoland: false };
     let fetched = source.git(&["fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"]);

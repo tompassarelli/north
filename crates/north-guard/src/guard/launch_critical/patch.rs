@@ -1,6 +1,6 @@
 use super::shell::{leads_with, leads_with_rescue, resolve};
 use super::{PATCH_BEGIN, PATCH_ENVELOPE, PATCH_HEADER, PATCH_MOVE, Policy, SEGMENT_SPLIT};
-use crate::shell::{basename, strip_heredoc_bodies};
+use north_base::shell::{basename, strip_heredoc_bodies};
 use regex::Regex;
 use std::sync::LazyLock;
 

@@ -10,7 +10,7 @@ pub struct Ports<'a> {
 
 pub fn run(arguments: &[String], ports: &Ports) -> u8 {
     match arguments.first().map(String::as_str) {
-        Some("--score") if arguments.len() == 2 => goal::score(ports.harness, &arguments[1], &crate::platform::orchestration::path()),
+        Some("--score") if arguments.len() == 2 => goal::score(ports.harness, &arguments[1], &north_base::platform::orchestration::path()),
         Some("--score") => {
             eprintln!("{USAGE}");
             2
@@ -36,7 +36,7 @@ pub fn run(arguments: &[String], ports: &Ports) -> u8 {
 fn run_status(arguments: &[String], ports: &Ports) -> u8 {
     match Options::parse(arguments) {
         Some(Options { at: Some(scenario), json, .. }) => replay::run(&scenario, json),
-        Some(options) => status::run(&options, ports.harness, &crate::platform::orchestration::path()),
+        Some(options) => status::run(&options, ports.harness, &north_base::platform::orchestration::path()),
         None => {
             eprintln!("{USAGE}");
             2

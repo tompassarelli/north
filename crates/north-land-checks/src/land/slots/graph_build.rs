@@ -7,7 +7,7 @@
 //! generation, that run goes to a build host through `north capacity offload run`, never compiling on this host, and
 //! a build host with no store compiles the packages with `cargo check`.
 
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 
 const BASE_ENV: &str = "SAFE_PUSH_LAND_BASE";
 const TREE_ERROR: i32 = 3;

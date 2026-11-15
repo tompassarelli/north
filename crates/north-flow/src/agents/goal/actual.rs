@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::boxes::parse_boxes;
 use super::stamp;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 fn closed_at(issue: &Value) -> Option<Timestamp> {
     issue["state"].as_str().unwrap_or("").eq_ignore_ascii_case("CLOSED").then(|| issue["closedAt"].as_str().and_then(stamp)).flatten()

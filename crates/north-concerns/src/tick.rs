@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use std::collections::BTreeMap;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::host;
 use serde::{Deserialize, Serialize};
 

@@ -639,7 +639,7 @@ pub(super) fn reattach_script() -> String {
 }
 
 pub(super) fn run_part() -> String {
-    RUN.replace("@WORDS@", WORDS).replace("@CARRIED_NAMES@", &north_base::foundation::carry::names(north_base::foundation::carry::Boundary::Offload).collect::<Vec<_>>().join(" | ")).replace("@WATCH@", &super::quote(WATCH))
+    RUN.replace("@WORDS@", WORDS).replace("@CARRIED_NAMES@", &north_foundation::foundation::carry::names(north_foundation::foundation::carry::Boundary::Offload).collect::<Vec<_>>().join(" | ")).replace("@WATCH@", &super::quote(WATCH))
         .replace("@DRAIN@", DRAIN)
         .replace("@REATTACH_MINUTES@", &REATTACH_MINUTES.to_string())
         .replace("@DRAIN_GRACE@", &DRAIN_GRACE_SECONDS.to_string())
@@ -648,15 +648,15 @@ pub(super) fn run_part() -> String {
         .replace("@KILL_POLLS@", &KILL_POLLS.to_string())
         .replace("@WATCH_MARGIN@", &WATCH_MARGIN_SECONDS.to_string())
         .replace("@WATCH_START_POLLS@", &WATCH_START_POLLS.to_string())
-        .replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV)
-        .replace("@SUBJECT_ENV@", north_base::foundation::offload::SUBJECT_ENV)
-        .replace("@SUBJECT_DIRECTORY@", north_base::foundation::offload::SUBJECT_DIRECTORY)
-        .replace("@SUBJECT_FILE@", north_base::foundation::offload::SUBJECT_FILE)
-        .replace("@OWNER_ENV@", north_base::foundation::offload::OWNER_ENV)
-        .replace("@RED_FIX_ENV@", north_base::foundation::offload::RED_FIX_ENV)
+        .replace("@SLOT_HOLDER_ENV@", north_foundation::foundation::offload::SLOT_HOLDER_ENV)
+        .replace("@SUBJECT_ENV@", north_foundation::foundation::offload::SUBJECT_ENV)
+        .replace("@SUBJECT_DIRECTORY@", north_foundation::foundation::offload::SUBJECT_DIRECTORY)
+        .replace("@SUBJECT_FILE@", north_foundation::foundation::offload::SUBJECT_FILE)
+        .replace("@OWNER_ENV@", north_foundation::foundation::offload::OWNER_ENV)
+        .replace("@RED_FIX_ENV@", north_foundation::foundation::offload::RED_FIX_ENV)
         .replace("@RESERVE_CALLER@", north_base::platform::session_scope::RESERVE_CALLER_UNIT)
         .replace("@CANARY_SCOPE@", north_base::platform::session_scope::CANARY_SCOPE_PREFIX)
-        .replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
+        .replace("@SLOT_ENV@", north_foundation::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", north_runtime_follow::layout::LEASE)
         .replace("@TREE_MARKER@", &north_runtime_follow::layout::tree_marker())
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
@@ -664,11 +664,11 @@ pub(super) fn run_part() -> String {
 }
 
 pub(crate) fn jobs_part() -> String {
-    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK).replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH)
+    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK).replace("@SLOT_HELD@", north_foundation::foundation::offload::SLOT_HELD_SH)
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@WORDS@", WORDS).replace("@TETHER@", &TETHER.replace("@TETHER_SECONDS@", &(super::reattach::PAUSE.as_secs() + TETHER_MARGIN_SECONDS).to_string()).replace("@DROPPED_SECONDS@", &(super::reattach::WINDOW.as_secs() + DROPPED_MARGIN_SECONDS).to_string())).replace("@HOLD_CEILING@", &super::HOLD_CEILING_SECONDS.to_string()).replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_base::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_base::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &north_runtime_follow::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@WORDS@", WORDS).replace("@TETHER@", &TETHER.replace("@TETHER_SECONDS@", &(super::reattach::PAUSE.as_secs() + TETHER_MARGIN_SECONDS).to_string()).replace("@DROPPED_SECONDS@", &(super::reattach::WINDOW.as_secs() + DROPPED_MARGIN_SECONDS).to_string())).replace("@HOLD_CEILING@", &super::HOLD_CEILING_SECONDS.to_string()).replace("@FILL@", &fill_part()).replace("@SLOT_ENV@", north_foundation::foundation::offload::SLOT_ENV).replace("@SLOT_RECORDS@", north_foundation::foundation::offload::SLOT_RECORDS).replace("@SLOT_HOLDER_ENV@", north_foundation::foundation::offload::SLOT_HOLDER_ENV).replace("@TREE_MARKER@", &north_runtime_follow::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn hold_part() -> String {
@@ -703,7 +703,7 @@ pub(super) fn remote_script(class: SlotClass) -> String {
         .replace("@ADMIT@", ADMIT)
         .replace("@LINE@", LINE)
         .replace("@DEADLINES@", &deadlines())
-        .replace("@LINE_WITHIN_ENV@", north_base::foundation::carry::LINE_WITHIN)
+        .replace("@LINE_WITHIN_ENV@", north_foundation::foundation::carry::LINE_WITHIN)
         .replace("@SETTLE@", &settle_seconds().to_string())
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@POLL@", POLL_SECONDS)
@@ -716,7 +716,7 @@ pub(super) fn remote_script(class: SlotClass) -> String {
         .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
         .replace("@WAITED@", WAITED)
         .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
-        .replace("@PROVED_TREE@", north_base::foundation::offload::PROVED_TREE)
-        .replace("@TIMED@", north_base::foundation::offload::TIMED)
+        .replace("@PROVED_TREE@", north_foundation::foundation::offload::PROVED_TREE)
+        .replace("@TIMED@", north_foundation::foundation::offload::TIMED)
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
 }

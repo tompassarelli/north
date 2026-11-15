@@ -51,7 +51,7 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
     let (commit, other) = ("c".repeat(40), "f".repeat(40));
     let run = tempfile::tempdir().unwrap();
     let log = run.path().join("post-land-red.log");
-    fs::write(&log, format!("offload: running {} in /slots/code-north-main\n{}{other} of red\n", "a".repeat(40), north_base::foundation::offload::PROVED_TREE)).unwrap();
+    fs::write(&log, format!("offload: running {} in /slots/code-north-main\n{}{other} of red\n", "a".repeat(40), north_foundation::foundation::offload::PROVED_TREE)).unwrap();
     let named = |record: Option<String>| {
         let _ = fs::remove_file(verdict_tree::record(&log));
         if let Some(record) = record {

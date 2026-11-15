@@ -46,7 +46,7 @@ pub(crate) fn live_under(fleet: &Fleet, name: &str, parent: Option<&str>) -> Ses
 
 /// Stands in for the session host a start brings up in `dir`: this process is its pid, its socket answers every frame, and its client answers each one with a turn of the conversation the record names.
 #[cfg(test)]
-pub(crate) fn standing_host(dir: &std::path::Path, _: &crate::fleet::runtime::HostSpec, _: &crate::fleet::model::ProviderName, _: Option<std::time::Duration>, _: &str) -> crate::error::NorthResult<u32> {
+pub(crate) fn standing_host(dir: &std::path::Path, _: &crate::fleet::runtime::HostSpec, _: &crate::fleet::model::ProviderName, _: Option<std::time::Duration>, _: &str) -> north_foundation::error::NorthResult<u32> {
     std::fs::create_dir_all(dir.join("g1"))?;
     std::fs::write(north_base::platform::session_host_files::pid_path(dir), std::process::id().to_string())?;
     answering(dir, true);

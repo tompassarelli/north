@@ -42,7 +42,7 @@ pub(in crate::pacing) fn credit_verdict(credit: &Credit, name: &str, at: f64) ->
     credit_standing(credit.spent, credit.read_at, credit.initial, days, at)
 }
 fn credit_service(name: &str) -> Option<toml_edit::Table> {
-    let document = std::fs::read_to_string(crate::platform::orchestration::policy_file("costs.toml"))
+    let document = std::fs::read_to_string(north_base::platform::orchestration::policy_file("costs.toml"))
         .ok()
         .and_then(|s| s.parse::<DocumentMut>().ok())?;
     document

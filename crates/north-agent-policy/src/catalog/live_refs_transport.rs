@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::configuration;
 use super::live_refs::{Facts, SCHEMA};

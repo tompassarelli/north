@@ -1,5 +1,5 @@
 use super::*;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 fn at(text: &str) -> f64 {
     Timestamp::parse_rfc3339(text).map(Timestamp::unix_seconds_f64).unwrap()

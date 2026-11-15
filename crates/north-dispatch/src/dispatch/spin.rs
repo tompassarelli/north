@@ -4,8 +4,8 @@
 //! the two a day that hand a box to the coordinator, and its box climbs one rung of `tier::Rung::LADDER`
 //! (docs/rationale/nearest-routing.md section 5).
 use super::stops;
-use crate::ledger::{RunEnd, RunTime};
-use crate::platform::land_notice::Notice;
+use north_providers::ledger::{RunEnd, RunTime};
+use north_base::platform::land_notice::Notice;
 use serde_json::Value;
 use std::collections::BTreeMap;
 

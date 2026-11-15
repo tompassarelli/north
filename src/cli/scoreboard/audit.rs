@@ -105,7 +105,7 @@ pub fn parse_verdicts(answer: &str) -> Result<Vec<Verdict>, String> {
 
 fn ask_model(turns: &[&Turn]) -> Result<Vec<Verdict>, String> {
     let args = ["-p", "--model", "haiku", "--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"];
-    let output = north_core::platform::process::run_with_input_within("claude", &args, Some(prompt(turns).as_bytes()), MODEL_WAIT).ok_or("claude did not answer within 10 minutes")?;
+    let output = north_base::platform::process::run_with_input_within("claude", &args, Some(prompt(turns).as_bytes()), MODEL_WAIT).ok_or("claude did not answer within 10 minutes")?;
     if !output.status.success() {
         let said = [&output.stderr, &output.stdout].map(|text| String::from_utf8_lossy(text).trim().to_owned());
         return Err(format!("claude exited {}: {}", output.status, said.iter().find(|text| !text.is_empty()).map_or("no output", String::as_str)));

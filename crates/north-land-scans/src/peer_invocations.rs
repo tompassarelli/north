@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use regex::Regex;
 
 use super::{gate_shadow, git};
-use crate::platform::process;
+use north_base::platform::process;
 
 const SELF: &str = "peer-invocation";
 const REGISTRY: &str = "harness/gates.toml";
@@ -133,7 +133,7 @@ fn peer_checkouts(home: &Path) -> Vec<PathBuf> {
 fn peer_invocations(peer: &Path) -> Option<Vec<Invocation>> {
     let mut arguments = vec!["grep", "-z", "-n", "-I", "-F", "-e", MARKER, PEER_MAIN, "--"];
     arguments.extend(PEER_SOURCES);
-    let output = crate::platform::git::run(peer, &arguments).ok()?;
+    let output = north_base::platform::git::run(peer, &arguments).ok()?;
     match output.status.code() {
         Some(0) => {}
         Some(1) if output.stdout.is_empty() => return Some(Vec::new()),

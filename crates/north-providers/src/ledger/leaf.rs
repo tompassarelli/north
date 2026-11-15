@@ -3,8 +3,8 @@
 //! read as closures falling (north#1137, docs/rationale/sub-issue-cutover.md).
 use std::collections::{HashMap, HashSet};
 
-use crate::foundation::clock::Timestamp;
-use crate::router::pricing::PriceTable;
+use north_foundation::foundation::clock::Timestamp;
+use north_pace::router::pricing::PriceTable;
 
 use super::closed::{ClosedReport, SpendRun, WORKER};
 
@@ -34,7 +34,7 @@ impl Closed {
     /// Whether this is a leaf the lander closed by its own Done-when command: no checkbox in the body, and the command
     /// the closing comment names is the one the body names.
     pub fn closed_by_own_check(&self) -> bool {
-        crate::threads::claims::boxes(&self.body).next().is_none() && self.by_check.as_deref().is_some_and(|command| crate::platform::box_oracles::done_when_command(&self.body) == Some(command))
+        north_calibration::threads::claims::boxes(&self.body).next().is_none() && self.by_check.as_deref().is_some_and(|command| north_base::platform::box_oracles::done_when_command(&self.body) == Some(command))
     }
 }
 

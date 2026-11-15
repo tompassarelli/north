@@ -16,7 +16,7 @@ use tokio::net::UnixListener;
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 
 use super::{Activity, HostConfig, Pipes, Provider, SessionHost, Stage, StdinQueue, Watcher};
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 const FILE: &str = "handover.json";
 const POLL: Duration = Duration::from_secs(2);

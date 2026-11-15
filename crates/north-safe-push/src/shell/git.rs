@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use north_base::foundation::step::{Refused, Step, cancelled};
+use north_foundation::foundation::step::{Refused, Step, cancelled};
 use north_base::platform::git;
 use north_base::platform::process::exit_code;
 

@@ -1,4 +1,4 @@
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::runtime::Runtime;
 

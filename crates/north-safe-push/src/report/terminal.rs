@@ -1,5 +1,5 @@
 use north_base::build_inputs::{LIVE_FIX, promotion_slot, promotion_slot_sec, runtime_input};
-use north_base::foundation::step::cancel_origin;
+use north_foundation::foundation::step::cancel_origin;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Terminal {

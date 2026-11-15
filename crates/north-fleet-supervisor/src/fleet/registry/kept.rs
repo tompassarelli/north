@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::store::WaitKey;
 
 use super::Fleet;

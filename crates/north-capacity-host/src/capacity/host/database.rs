@@ -133,7 +133,7 @@ fn import_usage_log(db: &mut Connection) -> rusqlite::Result<()> {
     transaction.commit()
 }
 
-pub const TEMPORARY_FAILURE: i32 = north_base::foundation::exit::NO_VERDICT_STATUS;
+pub const TEMPORARY_FAILURE: i32 = north_foundation::foundation::exit::NO_VERDICT_STATUS;
 
 const LOCK_WAIT_SECONDS: f64 = 60.0;
 const RETRY_PAUSE: Duration = Duration::from_millis(50);
@@ -233,7 +233,7 @@ pub struct PriorityUse<'a> {
 pub fn insert_priority_use(db: &Connection, row: &PriorityUse<'_>) -> rusqlite::Result<()> {
     db.execute(
         "INSERT OR IGNORE INTO capacity_priority (lease, at, owner, class, priority, placed, queuedSeconds, command) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        rusqlite::params![row.lease, crate::foundation::clock::Timestamp::now().iso_millis(), row.owner, row.class, row.priority, row.placed, row.queued_seconds, row.command],
+        rusqlite::params![row.lease, north_foundation::foundation::clock::Timestamp::now().iso_millis(), row.owner, row.class, row.priority, row.placed, row.queued_seconds, row.command],
     )?;
     Ok(())
 }
@@ -254,8 +254,8 @@ pub struct Admission<'a> {
 }
 
 pub fn insert_admission(db: &Connection, row: &Admission<'_>) -> rusqlite::Result<()> {
-    let now = crate::foundation::clock::Timestamp::now();
-    db.execute("DELETE FROM capacity_admissions WHERE at < ?", [crate::foundation::clock::Timestamp::from_unix_seconds(now.unix_seconds() - ADMISSIONS_KEPT_SECONDS).iso_millis()])?;
+    let now = north_foundation::foundation::clock::Timestamp::now();
+    db.execute("DELETE FROM capacity_admissions WHERE at < ?", [north_foundation::foundation::clock::Timestamp::from_unix_seconds(now.unix_seconds() - ADMISSIONS_KEPT_SECONDS).iso_millis()])?;
     db.execute(
         "INSERT OR IGNORE INTO capacity_admissions (id, at, owner, class, decision, reason, queuedSeconds, cpus, memoryMiB) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rusqlite::params![row.id, now.iso_millis(), row.owner, row.class, row.decision, row.reason, row.queued_seconds, row.cpus, row.memory_mib],
@@ -296,7 +296,7 @@ pub fn queued_behind_capacity(db: &Connection, session: &str, from: i64, to: i64
         .into_iter()
         .flatten()
         .filter_map(Result::ok)
-        .filter_map(|(at, seconds)| Some(Queued { at: crate::foundation::clock::Timestamp::parse(&at).ok()?.unix_seconds(), seconds }))
+        .filter_map(|(at, seconds)| Some(Queued { at: north_foundation::foundation::clock::Timestamp::parse(&at).ok()?.unix_seconds(), seconds }))
         .filter(|queued| queued.at >= from && queued.at <= to)
         .collect();
     queued.sort_by(|left, right| right.seconds.total_cmp(&left.seconds));
@@ -311,7 +311,7 @@ pub fn queued_admissions(db: &Connection, since: i64) -> std::collections::BTree
     let rows = statement.query_map(rusqlite::params![QUEUED_BOUND_SECONDS], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?)));
     for (owner, at, seconds) in rows.into_iter().flatten().filter_map(Result::ok) {
         let Some(session) = owner.strip_prefix("gate:") else { continue };
-        let Ok(at) = crate::foundation::clock::Timestamp::parse(&at).map(|at| at.unix_seconds()) else { continue };
+        let Ok(at) = north_foundation::foundation::clock::Timestamp::parse(&at).map(|at| at.unix_seconds()) else { continue };
         if at >= since {
             admitted.entry(session.to_owned()).or_default().push(Queued { at, seconds });
         }
@@ -354,7 +354,7 @@ fn capacity_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<CapacityRun> {
 }
 
 pub fn capacity_history(db: &Connection) -> rusqlite::Result<Vec<CapacityRun>> {
-    capacity_history_of(db, &crate::platform::host::name())
+    capacity_history_of(db, &north_base::platform::host::name())
 }
 
 pub(super) fn capacity_history_of(db: &Connection, local: &str) -> rusqlite::Result<Vec<CapacityRun>> {
@@ -404,7 +404,7 @@ pub fn lander_runs(since: &str) -> String {
 pub fn recent_usage(lines: usize, matches: impl Fn(&Value) -> bool) -> Vec<Value> {
     let text = read_text(usage_log_path()).unwrap_or_default();
     if env("AGENT_CAPACITY_USAGE_LOG").is_none() {
-        crate::platform::reader_stamp::touch(&state_root(), "agents/machine-capacity-usage.jsonl");
+        north_base::platform::reader_stamp::touch(&state_root(), "agents/machine-capacity-usage.jsonl");
     }
     let host = crate::capacity::local_machine::host_name();
     let all: Vec<&str> = text.split('\n').collect();

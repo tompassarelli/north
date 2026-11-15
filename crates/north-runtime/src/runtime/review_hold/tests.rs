@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::rc::Rc;
 
-use north_base::foundation::pair::{self, Reading};
+use north_foundation::foundation::pair::{self, Reading};
 
 use super::super::main_runs::{Kept, MainRun, MainRuns};
 use super::super::trip::{REVERT_AFTER_SECONDS, Trip, Trips};

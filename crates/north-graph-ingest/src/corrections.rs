@@ -34,7 +34,7 @@ fn tell_correction(facts: &mut Facts, row: &Value) {
     let Some(id) = row["id"].as_str() else { return };
     let node = format!("correction:{id}");
     facts.tell(WRITER, text(&node), "class", text(format!("class:{}", row["class"].as_str().unwrap_or("unclassified"))));
-    if let Some(at) = row["at"].as_str().and_then(north_base::foundation::clock::Timestamp::parse_loose).and_then(|stamp| instant(stamp.unix_seconds_f64())) {
+    if let Some(at) = row["at"].as_str().and_then(north_foundation::foundation::clock::Timestamp::parse_loose).and_then(|stamp| instant(stamp.unix_seconds_f64())) {
         facts.tell(WRITER, text(&node), "at", at);
     }
     if let Some(paraphrase) = row["quote"].as_str() {

@@ -6,7 +6,7 @@ use north_base::platform::land_queue;
 use super::{Hand, Waiting};
 use crate::land::enqueue::Queued;
 use crate::land::queue::{self, Ticket};
-use crate::landing::lane_squash::Squash;
+use north_landing::landing::lane_squash::Squash;
 
 const NAME: &str = "1-lane.json";
 const ASK: &str = "safe-push: no verdict on lane";

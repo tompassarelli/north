@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::{Map, Value, json};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const CORE_THRESHOLD: f64 = 1.0;
 const STALE_MILLISECONDS: f64 = 90_000.0;

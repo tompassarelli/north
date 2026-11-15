@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use north_base::foundation::pair::{self, Pair, Reading};
+use north_foundation::foundation::pair::{self, Pair, Reading};
 
 use super::{Ran, cases, retried};
 

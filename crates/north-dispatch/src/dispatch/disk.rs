@@ -1,7 +1,7 @@
 use super::record;
 use super::slots::Host;
 use super::survey::Survey;
-use crate::platform::disk_read;
+use north_base::platform::disk_read;
 use std::time::Duration;
 
 const READS: u64 = 6;
@@ -40,9 +40,9 @@ fn read(survey: &Survey, host: &Host) -> Vec<String> {
     if host.name == survey.here {
         return survey.home.as_deref().map(disk_read::local).unwrap_or_default();
     }
-    let north = crate::platform::north_binary::north_binary();
+    let north = north_base::platform::north_binary::north_binary();
     let limit = Duration::from_secs(READS * disk_read::SECONDS.parse::<u64>().unwrap_or_default());
-    match crate::platform::process::run_within(&north.to_string_lossy(), &["runtime", "host-op", "disk", &host.name], limit) {
+    match north_base::platform::process::run_within(&north.to_string_lossy(), &["runtime", "host-op", "disk", &host.name], limit) {
         Some(output) if output.status.success() => disk_read::over_gib(&String::from_utf8_lossy(&output.stdout)),
         Some(output) => vec![format!("not read: {}", String::from_utf8_lossy(&output.stderr).trim())],
         None => vec!["not read: no answer".to_owned()],

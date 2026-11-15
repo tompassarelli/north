@@ -5,7 +5,7 @@ mod rewrite;
 use super::argument_words;
 use super::search_words::{self, Located, MAX_NESTING};
 use crate::hook_input::{HookInput, Verdict};
-use crate::shell;
+use north_base::shell;
 
 const GREP_LIKE: &[&str] = &["grep", "egrep", "fgrep", "rgrep"];
 const REWRITE_NOTE: &str = "modern-search-guard: rewrote a recursive grep or find tree search to rg or fd before it ran, keeping every shell argument and the rest of the command. rg and fd skip hidden and git-ignored files; add --hidden or -uu (rg), or -H and -I (fd), when you need them. Write rg and fd directly next time.";

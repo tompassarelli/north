@@ -6,7 +6,7 @@ use serde_json::Value;
 use toml_edit::Table;
 
 use super::{Places, py, settings};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) struct Costs {
     pub lines: Vec<String>,

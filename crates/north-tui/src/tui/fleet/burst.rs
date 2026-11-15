@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 pub const BURST_GAP: Duration = Duration::from_millis(15);
 

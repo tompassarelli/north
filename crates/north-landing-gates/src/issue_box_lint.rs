@@ -36,12 +36,12 @@ fn flagged(body: &str) -> Vec<&str> {
                     })
                 });
             verifier && MECHANICAL.is_match(&JUDGMENT.replace_all(box_text, ""))
-                || !crate::provenance::bars(box_text).is_empty() && !SOURCED.is_match(box_text)
+                || !north_diff_gates::provenance::bars(box_text).is_empty() && !SOURCED.is_match(box_text)
         })
         .collect()
 }
 fn gh(args: &[&str]) -> Result<serde_json::Value, String> {
-    crate::platform::github::json(args)
+    north_base::platform::github::json(args)
 }
 pub fn repository(repo: &str) -> &str {
     repo.strip_prefix("tompassarelli/").unwrap_or(repo)

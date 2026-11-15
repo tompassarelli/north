@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
-use crate::error::NorthResult;
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::Timestamp;
 
 mod cache;
 mod exchange;

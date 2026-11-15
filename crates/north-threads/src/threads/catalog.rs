@@ -24,10 +24,10 @@ pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog {
 });
 
 pub fn checkout(repo: &str) -> &str {
-    crate::platform::repo_names::checkout_name(repo)
+    north_base::platform::repo_names::checkout_name(repo)
 }
 
-pub fn canonical_topics(topics: Vec<crate::platform::frozen_topics::Topic>) -> Vec<crate::platform::frozen_topics::Topic> {
+pub fn canonical_topics(topics: Vec<north_base::platform::frozen_topics::Topic>) -> Vec<north_base::platform::frozen_topics::Topic> {
     topics.into_iter().map(|mut topic| { topic.repo = CATALOG.canonical(&topic.repo).to_owned(); topic }).collect()
 }
 

@@ -6,7 +6,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::{api, Config, Failure};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const YOUNG: i64 = 30 * 86_400;
 const NO_STANDING: [&str; 3] = ["NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR"];

@@ -19,6 +19,10 @@ north-calibration = { path = "../north-calibration" }
 serde_json.workspace = true
 rusqlite.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-graph = { path = "../north-graph" }
+
+
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -1,4 +1,4 @@
-use north_base::foundation::step::{Refused, Step};
+use north_foundation::foundation::step::{Refused, Step};
 
 use super::plan::Gate;
 use super::run::scan;

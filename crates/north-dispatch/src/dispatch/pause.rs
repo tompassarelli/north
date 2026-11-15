@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use north_base::dispatch_pause::{Pause, TIMER, record_path};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north fleet dispatch pause --reason TEXT --by WHO (--until TIME | --check COMMAND)";
 const CHECK_SECS: &str = "30";

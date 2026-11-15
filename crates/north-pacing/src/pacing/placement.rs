@@ -34,7 +34,7 @@ pub fn line_held(cfg: &toml_edit::DocumentMut, here: &str) -> Option<String> {
 }
 /// `line_held` for the launching host, for a launch that does not run through the placement gate.
 pub fn line_held_now() -> Option<String> {
-    let cfg: toml_edit::DocumentMut = std::fs::read_to_string(crate::platform::orchestration::path()).ok()?.parse().ok()?;
+    let cfg: toml_edit::DocumentMut = std::fs::read_to_string(north_base::platform::orchestration::path()).ok()?.parse().ok()?;
     line_held(&cfg, &local())
 }
 /// `north ssh-spare hold DESTINATION`, holding spare shells open to a build host so a survey question costs one round trip.
@@ -101,28 +101,28 @@ pub fn local_gpu_slots() -> Option<u32> {
     gate::gpu_slots(&sampling::config().ok()?, &local())
 }
 pub fn local_lease_builds() -> bool {
-    sampling::config().ok().and_then(|cfg| cfg.get("hosts")?.get(local())?.get("lease_builds")?.as_bool()).unwrap_or(false) || crate::capacity::mode::leases_own_builds()
+    sampling::config().ok().and_then(|cfg| cfg.get("hosts")?.get(local())?.get("lease_builds")?.as_bool()).unwrap_or(false) || north_capacity_host::capacity::mode::leases_own_builds()
 }
 pub fn local_session_builds() -> bool {
     north_base::platform::orchestration::read().ok().is_none_or(|cfg| north_base::platform::orchestration::builds_for_sessions(&cfg, &local()))
 }
-pub fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
+pub fn machine(name: &str) -> Option<north_fleet_supervisor::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;
-    Some(crate::fleet::model::Machine { name: machine.name, ssh: machine.ssh, agent_ssh: machine.agent_ssh })
+    Some(north_fleet_supervisor::fleet::model::Machine { name: machine.name, ssh: machine.ssh, agent_ssh: machine.agent_ssh })
 }
 pub fn saturation_refusal(name: &str) -> Result<Option<String>, String> {
     Ok(saturation_reading(name)?.refusal(name))
 }
 /// The host's memory, root disk and admission backlog, read here or over its ssh destination.
-pub fn saturation_reading(name: &str) -> Result<crate::capacity::saturation::Saturation, String> {
+pub fn saturation_reading(name: &str) -> Result<north_capacity_host::capacity::saturation::Saturation, String> {
     let destination = if name == local() { String::new() } else { machine(name).map(|machine| machine.ssh).ok_or_else(|| format!("no [hosts.{name}] ssh destination to read its saturation"))? };
     saturation(name, &destination).ok_or_else(|| format!("{name} saturation unreadable"))
 }
 fn local() -> String {
-    crate::platform::host::name()
+    north_base::platform::host::name()
 }
 fn stamp(at: f64) -> String {
-    crate::foundation::clock::Timestamp::from_unix_seconds_f64(at)
+    north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(at)
         .iso_micros_utc_offset()
         .replace(".000000", "")
         .replace("+00:00", "Z")

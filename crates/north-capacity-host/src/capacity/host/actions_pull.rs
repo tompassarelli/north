@@ -5,8 +5,8 @@ use rusqlite::Connection;
 use serde_json::{Map, Value};
 
 use super::fleet_pull::{insert_row, last_at, open_fleet_database, run_columns};
-use crate::foundation::clock::Timestamp;
-use crate::threads::incidents::Incident;
+use north_foundation::foundation::clock::Timestamp;
+use north_calibration::threads::incidents::Incident;
 
 const OWNER: &str = "tompassarelli";
 const REPOSITORIES: [&str; 3] = ["north", "makgora", "wisp"];
@@ -168,7 +168,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("usage: north capacity actions-pull");
         return 2;
     }
-    let mut db = match open_fleet_database(&crate::platform::host::name()) {
+    let mut db = match open_fleet_database(&north_base::platform::host::name()) {
         Ok(db) => db,
         Err(error) => {
             eprintln!("north capacity actions-pull: {error}");

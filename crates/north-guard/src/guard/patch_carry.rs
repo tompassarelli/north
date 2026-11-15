@@ -19,7 +19,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if !APPLY.is_match(command) || !super::coordinator_role::is_coordinator(&super::coordinator_role::Live, input) {
         return Verdict::Allow;
     }
-    let now = u64::try_from(crate::foundation::clock::Timestamp::now().unix_seconds()).unwrap_or_default();
+    let now = u64::try_from(north_foundation::foundation::clock::Timestamp::now().unix_seconds()).unwrap_or_default();
     decide(command, &Admission { ledger: &Ledger::here(), issues: &GitHub, now })
 }
 
@@ -30,7 +30,7 @@ pub fn decide(command: &str, admission: &Admission) -> Verdict {
         return Verdict::Allow;
     }
     let issue = command.split_whitespace().find_map(|word| word.strip_prefix(ISSUE));
-    match admission.admit(Kind::PatchCarry, CLASS, crate::runtime::COORDINATOR, issue) {
+    match admission.admit(Kind::PatchCarry, CLASS, north_fleet_store::runtime::COORDINATOR, issue) {
         Ok(()) => Verdict::Allow,
         Err(why) => Verdict::Deny(format!("BLOCKED (repeat-unblock): {why}; here the issue goes in the command as `{ISSUE}REPO#N`")),
     }

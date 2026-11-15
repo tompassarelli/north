@@ -1,6 +1,6 @@
 use crate::support;
 
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -40,7 +40,7 @@ fn shared_fixture(root: &Path) {
     fs::write(op.join("orchestration.toml"), "[placement]\nprivate_repos = []\n[hosts.here]\nserves = [\"warcraft\"]\n[tiers.\"claude:haiku\"]\nmodel = \"claude-haiku-5-5\"\neffort = \"high\"\n[tiers.\"claude:sonnet-high\"]\nmodel = \"claude-sonnet-5-5\"\neffort = \"high\"\n[tiers.\"claude:opus-medium\"]\nmodel = \"claude-opus-5-5\"\neffort = \"medium\"\n").unwrap();
     fs::write(profile.join(".credentials.json"), "{}").unwrap();
     fs::write(profile.join("settings.json"), r#"{"hooks": {"PreToolUse": []}}"#).unwrap();
-    let read_at = north_core::foundation::clock::Timestamp::now().iso();
+    let read_at = north_foundation::foundation::clock::Timestamp::now().iso();
     let windows = serde_json::json!([{"window": "5h", "used_pct": 10.0, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at}, {"window": "week", "used_pct": 10.0, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at}]);
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"windows": {"claude:a": windows}}}).to_string()).unwrap();
     let setsid = Command::new("sh").args(["-c", "command -v setsid"]).output().unwrap();
@@ -103,7 +103,7 @@ fn text(bytes: &[u8]) -> String {
 }
 
 fn finished(mut launches: Vec<(&str, std::process::Child, PathBuf, PathBuf)>) -> Vec<Output> {
-    north_core::platform::wait::until(crate::support::HANG, || launches.iter_mut().all(|(_, child, ..)| child.try_wait().unwrap().is_some()));
+    north_base::platform::wait::until(crate::support::HANG, || launches.iter_mut().all(|(_, child, ..)| child.try_wait().unwrap().is_some()));
     launches.into_iter().map(|(_, mut child, stdout, stderr)| Output { status: child.wait().unwrap(), stdout: fs::read(stdout).unwrap(), stderr: fs::read(stderr).unwrap() }).collect()
 }
 
@@ -137,7 +137,7 @@ fn launched_at_once(root: &Path, names: &[&str]) -> Vec<Output> {
 
 fn answered_then_forgotten(root: &Path, names: &[&str]) -> (bool, Vec<String>) {
     let mut shown = Vec::new();
-    let answered = north_core::platform::wait::until(crate::support::HANG, || {
+    let answered = north_base::platform::wait::until(crate::support::HANG, || {
         shown = names.iter().map(|name| text(&north(root, &["fleet", "show", name]).stdout)).collect();
         shown.iter().all(|show| show.contains("OK"))
     });
@@ -309,7 +309,7 @@ fn a_fresh_state_takes_one_usage_reading_of_every_account_before_the_coordinator
             let hash: String = Sha256::digest(uuid.as_bytes()).iter().take(4).map(|byte| format!("{byte:02x}")).collect();
             labels.push_str(&format!("\"{hash}\" = \"{label}\"\n"));
             fs::write(profile.join(".credentials.json"), "{}").unwrap();
-            let cache = serde_json::json!({"fetchedAtMs": north_core::foundation::clock::Timestamp::now().unix_seconds_f64() * 1000.0, "accountUuid": uuid, "utilization": {"limits": limits}});
+            let cache = serde_json::json!({"fetchedAtMs": north_foundation::foundation::clock::Timestamp::now().unix_seconds_f64() * 1000.0, "accountUuid": uuid, "utilization": {"limits": limits}});
             fs::write(profile.join(".claude.json"), serde_json::json!({"oauthAccount": {"accountUuid": uuid}, "cachedUsageUtilization": cache}).to_string()).unwrap();
             String::new()
         };
@@ -348,15 +348,15 @@ fn a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is() {
     assert!(revived.status.success(), "{}", text(&revived.stderr));
     let first = held(&session)["host_pid"].clone();
     let mut shown = String::new();
-    north_core::platform::wait::until(crate::support::HANG, || {
+    north_base::platform::wait::until(crate::support::HANG, || {
         shown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         shown.contains("OK")
     });
     Command::new("kill").args(["-TERM", &first.to_string()]).status().unwrap();
-    let parked = north_core::platform::wait::until(crate::support::HANG, || Command::new("kill").args(["-0", &first.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| !status.success()));
+    let parked = north_base::platform::wait::until(crate::support::HANG, || Command::new("kill").args(["-0", &first.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| !status.success()));
     let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "coordinator", "reply with the single word pong"]);
     let answered = |shown: &str, asked: &str| shown.split_once(asked).is_some_and(|(_, after)| after.contains("OK"));
-    north_core::platform::wait::until(crate::support::HANG, || {
+    north_base::platform::wait::until(crate::support::HANG, || {
         shown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         answered(&shown, "reply with the single word pong")
     });
@@ -369,14 +369,14 @@ fn a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is() {
     fs::create_dir_all(root.join(".local/state/threads")).unwrap();
     let ledger = rusqlite::Connection::open(root.join(".local/state/threads/threads.db")).unwrap();
     ledger.execute("CREATE TABLE IF NOT EXISTS usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT)", []).unwrap();
-    let read_at = north_core::foundation::clock::Timestamp::now().iso();
+    let read_at = north_foundation::foundation::clock::Timestamp::now().iso();
     for (account, name, used) in [("a", "session", 99.0), ("a", "weekly_all", 10.0), ("b", "session", 10.0), ("b", "weekly_all", 10.0)] {
         ledger.execute("INSERT INTO usage(ts, provider, account, kind, name, used_pct, resets_at, source) VALUES (?1, 'claude', ?2, 'window', ?3, ?4, '2099-01-01T00:00:00Z', 'header')", rusqlite::params![read_at, account, name, used]).unwrap();
     }
     let desk = root.join(".local/state/north/fleet/.handovers");
     let mut successor = serde_json::Value::Null;
     let mut ticks = Vec::new();
-    north_core::platform::wait::until(crate::support::HANG, || {
+    north_base::platform::wait::until(crate::support::HANG, || {
         let tick = north(root, &["fleet", "tick"]);
         ticks.push(format!("{}{}", text(&tick.stdout), text(&tick.stderr)));
         if desk.join("coordinator.asked.json").exists() && !desk.join("coordinator.md").exists() {
@@ -387,7 +387,7 @@ fn a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is() {
     });
     let resent = north(root, &["fleet", "send", "--from", "service:fleet-test", "coordinator", "reply with the single word ping"]);
     let mut reshown = String::new();
-    north_core::platform::wait::until(crate::support::HANG, || {
+    north_base::platform::wait::until(crate::support::HANG, || {
         reshown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         answered(&reshown, "reply with the single word ping")
     });

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::land_ticket::{self, Phase};
 use serde_json::Value;
 
@@ -142,7 +142,7 @@ fn shadow_section(out: &mut String, shadowed: &[Value]) {
 }
 
 fn shadow_rows(state: &Path, since_micros: u64) -> Vec<Value> {
-    std::fs::read_to_string(state.join(north_lander::landing_refusals::LOG)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|row| row["micros"].as_u64().is_some_and(|micros| micros >= since_micros)).collect()
+    std::fs::read_to_string(state.join(north_diff_gates::landing_refusals::LOG)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|row| row["micros"].as_u64().is_some_and(|micros| micros >= since_micros)).collect()
 }
 
 fn queues(state: &Path) -> Vec<PathBuf> {

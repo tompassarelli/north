@@ -1,13 +1,13 @@
 use super::brief::HAIKU_WAIT;
 use super::grounds::{self, Grounds};
 use super::issues::{IssueRef, OWNER};
-use crate::platform::github;
+use north_base::platform::github;
 use super::facets;
 use super::record::{self, Record};
 use super::survey;
-use crate::usage::decide::world::ModelFamily;
+use north_pace::usage::decide::world::ModelFamily;
 use super::tier::{self, Evidence, History, Route, Tier};
-use crate::pacing::placement;
+use north_pacing::pacing::placement;
 use std::collections::BTreeMap;
 use toml_edit::DocumentMut;
 
@@ -100,7 +100,7 @@ pub fn untasked_window(name: &str, category: &str, history: &History, ledger: &B
     let evidence = ledger.get(category).cloned().unwrap_or_default();
     let (arm, drawn) = tier::context_arm(name, category, history, &evidence);
     eprintln!("tier: {name} context arm {arm} {drawn}");
-    crate::fleet::compaction::window(&format!("Arm: {arm}"))
+    north_fleet_supervisor::fleet::compaction::window(&format!("Arm: {arm}"))
 }
 
 /// [`untasked_window`] over the ledger and launch history as `north fleet launch` reads them.
@@ -243,7 +243,7 @@ pub fn picked_tier(brief: &str) -> Result<Tier, String> {
 pub fn issue_text(item: &str) -> Result<(String, f64), String> {
     let item = IssueRef::parse(item).ok_or_else(|| format!("{item} names no issue"))?;
     let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body,createdAt"])?;
-    let created = json["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).ok_or_else(|| format!("{item} carries no createdAt"))?;
+    let created = json["createdAt"].as_str().and_then(north_foundation::foundation::clock::rfc3339_seconds).ok_or_else(|| format!("{item} carries no createdAt"))?;
     Ok((json["body"].as_str().unwrap_or_default().to_owned(), created))
 }
 

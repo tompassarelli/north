@@ -4,8 +4,8 @@ use serde_json::Value;
 
 use super::source::Case;
 use super::spec::Kind;
-use crate::error::NorthError;
-use crate::fleet::install;
+use north_foundation::error::NorthError;
+use north_fleet::fleet::install;
 
 pub struct Grade {
     pub repeats: Option<bool>,

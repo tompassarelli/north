@@ -1,7 +1,7 @@
 use north_base::platform::harness;
 
-use crate::ledger::closed::ClosedReport;
-use crate::router::settle::{self, Arm, Outcome};
+use north_providers::ledger::closed::ClosedReport;
+use north_pace::router::settle::{self, Arm, Outcome};
 
 pub const TABLE: &str = "harness/routing-cells.toml";
 const EFFORT_WORDS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];

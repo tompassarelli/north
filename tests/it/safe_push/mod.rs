@@ -1,4 +1,4 @@
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 use std::fs::File;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
@@ -103,7 +103,7 @@ pub fn write(path: &Path, content: &str) {
 }
 
 pub fn wait_until(limit: Duration, condition: impl FnMut() -> bool) -> bool {
-    north_core::platform::wait::until(limit, condition)
+    north_base::platform::wait::until(limit, condition)
 }
 
 pub struct Scratch {

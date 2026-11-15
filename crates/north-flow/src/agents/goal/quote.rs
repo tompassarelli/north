@@ -7,9 +7,9 @@ use super::metrics::{Metrics, delivery_metrics};
 use super::plan::{gate_width, snapshot};
 use super::schedule::{Task, schedule};
 use super::{plus_minutes, read_config, snapshot_path};
-use crate::foundation::clock::Timestamp;
-use crate::threads::calibration::box_durations;
-use crate::threads::verb::Failure;
+use north_foundation::foundation::clock::Timestamp;
+use north_calibration::threads::calibration::box_durations;
+use north_calibration::threads::verb::Failure;
 
 struct Options {
     project: String,
@@ -99,7 +99,7 @@ fn category_eta(category: &str) -> Result<(Option<f64>, u64, String), String> {
 }
 
 fn run_quote(options: &Options) -> Result<Option<String>, String> {
-    let config = read_config(&crate::platform::orchestration::path())?;
+    let config = read_config(&north_base::platform::orchestration::path())?;
     let Some(project) = config["projects"].get(&options.project) else { return Ok(Some(format!("unknown project '{}'", options.project))) };
     let database = snapshot_path();
     if database.file_name().is_some_and(|name| name == "threads.db") {

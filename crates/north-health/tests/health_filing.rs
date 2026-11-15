@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use north_base::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 use north_base::platform::rolling_issue::{Breaches, Gh, alarm};
 
 const TEST: &str = "a_unit_failing_after_its_closed_predecessor_tells_the_coordinator_once_and_files_no_issue";

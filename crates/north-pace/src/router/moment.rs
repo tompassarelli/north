@@ -100,7 +100,7 @@ impl Moment {
     }
 
     pub fn local_clock(self) -> String {
-        let local = crate::foundation::clock::Timestamp::from_unix_seconds(self.0.unix_timestamp());
+        let local = north_foundation::foundation::clock::Timestamp::from_unix_seconds(self.0.unix_timestamp());
         local.local_hour_minute()
     }
 

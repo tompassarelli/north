@@ -133,7 +133,7 @@ async fn locate(options: &Options) -> Result<(PathBuf, String), String> {
     let source = match &options.source {
         Some(path) => path.clone(),
         None => {
-            let top = crate::platform::git::run(&origin, &["rev-parse", "--show-toplevel"]).map_err(|error| error.to_string())?;
+            let top = north_base::platform::git::run(&origin, &["rev-parse", "--show-toplevel"]).map_err(|error| error.to_string())?;
             if !top.status.success() {
                 return Err("git rev-parse --show-toplevel failed".to_owned());
             }
@@ -166,8 +166,8 @@ async fn transfer(options: &Options, session: &mut Session) -> Result<i32, Failu
     let remote = format!("{remote_home}/.cache/nexus-run/{job}");
     let output = std::path::absolute(options.output_dir.clone().unwrap_or_else(|| home().join(".cache/nexus-run").join(&job))).map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&output).map_err(|error| error.to_string())?;
-    let route = plan::shell_join(&plan::ssh_argv(&real_env, &home(), &["-o", "BatchMode=yes", "-o", crate::platform::ssh::OWN_CONNECTION]));
-    let listing = crate::platform::git::stdout(&source, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"], |_| "git ls-files failed".to_owned())?;
+    let route = plan::shell_join(&plan::ssh_argv(&real_env, &home(), &["-o", "BatchMode=yes", "-o", north_base::platform::ssh::OWN_CONNECTION]));
+    let listing = north_base::platform::git::stdout(&source, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"], |_| "git ls-files failed".to_owned())?;
     let baseline = baseline_for(&source, &home(), &remote_home);
     let reuse = if ssh(&["test", "-d", &baseline], false).await?.code == 0 { vec!["--checksum".to_owned(), format!("--copy-dest={baseline}")] } else { Vec::new() };
     let selected = plan::select_files(&listing, &source);

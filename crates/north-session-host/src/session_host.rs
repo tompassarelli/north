@@ -14,7 +14,7 @@ use tokio::time::Instant;
 
 use north_base::platform::session_host_files::CLIENT_GRACE;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 mod frame_watch;
 mod handover;

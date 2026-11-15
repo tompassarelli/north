@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind};
 use crate::fleet::waits::Run;

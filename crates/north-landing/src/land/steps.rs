@@ -10,8 +10,8 @@ use super::bisect::Judgement;
 use super::candidate::{self, Built};
 use super::checks::Verdict;
 use super::queue::Ticket;
-use crate::platform::decision_log::{self, Entry};
-use crate::platform::github_quota;
+use north_base::platform::decision_log::{self, Entry};
+use north_base::platform::github_quota;
 
 /// The lander's state in one round of `batch`, beside the queue and the candidate built from it.
 pub struct Round<'a> {

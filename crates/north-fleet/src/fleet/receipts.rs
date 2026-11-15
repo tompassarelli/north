@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::ask_once;
 use super::gates::{Gate, GateBook, GateRequest};

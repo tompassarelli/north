@@ -1,4 +1,4 @@
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::claims;
 use crate::fleet::model::SessionRecord;
 use crate::fleet::store::{Claim, SessionRow};

@@ -5,14 +5,14 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use toml_edit::{DocumentMut, Item};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, ApiKey, Machine, ProviderName};
-use crate::fleet::refusals;
-use crate::fleet::roster::{Declared, Refused, Roster, Spent};
-use crate::fleet::runtime::labelled_homes;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::model::{Account, ApiKey, Machine, ProviderName};
+use north_fleet_supervisor::fleet::refusals;
+use north_fleet_supervisor::fleet::roster::{Declared, Refused, Roster, Spent};
+use north_fleet_supervisor::fleet::runtime::labelled_homes;
 
 use super::api_pool::{self, Org};
-use crate::credit::Grant;
+use north_pace::credit::Grant;
 
 const PREFIX: &str = "claude-";
 const CREDENTIALS: &str = ".credentials.json";
@@ -100,12 +100,12 @@ fn api_accounts(provider: &ProviderName, marks: &Path, profiles: &Profiles, usab
 }
 
 fn open_grants(policy: &Path, home: &Path) -> BTreeMap<String, Vec<Grant>> {
-    crate::credit::open_grants(policy, &home.join(".local/state/north/ledger.db"), &api_pool::today())
+    north_pace::credit::open_grants(policy, &home.join(".local/state/north/ledger.db"), &api_pool::today())
 }
 
 pub fn declared(path: &Path, home: &Path) -> Profiles {
     let policy = std::fs::read_to_string(path).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    profiles(&policy, &open_grants(path, home), home, &crate::platform::host::name())
+    profiles(&policy, &open_grants(path, home), home, &north_base::platform::host::name())
 }
 
 /// The account `label` on `machine`; an api account takes the key file `machine` declares, which this host cannot read. Only an api label reads the ledger for its credit grants, a read of the whole ledger that held a subscription launch's prelude up to a second (north#1531).

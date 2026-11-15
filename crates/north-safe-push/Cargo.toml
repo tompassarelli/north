@@ -13,6 +13,8 @@ north-landing = { path = "../north-landing" }
 rustix.workspace = true
 serde_json.workspace = true
 signal-hook.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [lints]
 workspace = true

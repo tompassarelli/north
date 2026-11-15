@@ -6,8 +6,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::error::NorthResult;
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::Timestamp;
 use crate::lifecycle::{Lifecycle, Lost, Refusal, State, Store};
 
 /// The longest a healthy land check holds a ticket: the land-check ceiling with room for a slow candidate build.

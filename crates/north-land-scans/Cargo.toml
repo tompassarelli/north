@@ -24,6 +24,8 @@ sha2.workspace = true
 tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [lints]
 workspace = true

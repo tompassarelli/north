@@ -1,5 +1,5 @@
 use super::habits::findings;
-use north_base::test_inputs::git::git_in;
+use north_foundation::test_inputs::git::git_in;
 use std::path::Path;
 
 fn call(prefix: &str, name: &str, args: &str, tail: &str) -> String {

@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use rusqlite::Connection;
 
 use super::row::Row;
-use crate::threads::calibration::quantile;
-use crate::foundation::clock::Timestamp;
+use north_calibration::threads::calibration::quantile;
+use north_foundation::foundation::clock::Timestamp;
 
 fn stamp(text: &str) -> f64 {
     Timestamp::parse_python_datetime(text).map_or(f64::NAN, Timestamp::unix_seconds_f64)

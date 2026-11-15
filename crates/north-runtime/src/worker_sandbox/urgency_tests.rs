@@ -1,17 +1,17 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::fs::File;
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
-use north_base::foundation::offload::URGENT_ENV;
-use north_base::foundation::shim::write_executable;
+use north_foundation::foundation::offload::URGENT_ENV;
+use north_foundation::foundation::shim::write_executable;
 use north_base::platform::session_host_files;
 
 use super::super::broker::{self, Request};
 use super::super::peer::Peer;
 use super::super::lane_grant::Host;
-use crate::capacity::host::urgency::Places;
+use north_capacity_host::capacity::host::urgency::Places;
 
 const URGENT_SCOPE: &str = "north-session-0f0f0f0f-urgent.scope";
 const NORMAL_SCOPE: &str = "north-session-0e0e0e0e-normal.scope";
@@ -48,10 +48,10 @@ impl Fixture {
         for (name, unit, urgent, role) in [("coordinated", URGENT_SCOPE, true, "lead"), ("worker", NORMAL_SCOPE, false, "worker")] {
             std::fs::create_dir_all(fleet.join(name)).unwrap();
             std::fs::write(session_host_files::scope_path(&fleet.join(name)), format!("{unit}\n")).unwrap();
-            std::fs::write(crate::fleet::records::record_file(&fleet.join(name)), serde_json::json!({ "name": name, "urgent": urgent, "role": role }).to_string()).unwrap();
+            std::fs::write(north_fleet_supervisor::fleet::records::record_file(&fleet.join(name)), serde_json::json!({ "name": name, "urgent": urgent, "role": role }).to_string()).unwrap();
         }
         std::fs::write(home.join(session_host_files::HELD).join(HELD_UNIT).join(session_host_files::BOUND_CONVERSATION), PLACED).unwrap();
-        std::fs::write(crate::fleet::records::record_file(&fleet.join(session_host_files::PLACED).join(PLACED)), serde_json::json!({ "name": "placed", "urgent": true, "parent": "coordinated" }).to_string()).unwrap();
+        std::fs::write(north_fleet_supervisor::fleet::records::record_file(&fleet.join(session_host_files::PLACED).join(PLACED)), serde_json::json!({ "name": "placed", "urgent": true, "parent": "coordinated" }).to_string()).unwrap();
         for program in ["ssh", "git"] {
             write_executable(&bin.join(program), "#!/bin/sh\nexit 0\n");
         }

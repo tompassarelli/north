@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use serde_json::Value;
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::configuration;
 use super::live_refs::{DEFAULT_MAX_AGE_MS, Report, judge, now_ms, parse_duration_ms};
@@ -57,7 +57,7 @@ struct Options {
 }
 
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
-    let options: Options = north_base::foundation::arguments::parse(arguments).map_err(NorthError::Usage)?;
+    let options: Options = north_foundation::foundation::arguments::parse(arguments).map_err(NorthError::Usage)?;
     let remote = options.remote;
     let max_age = options.max_age.as_deref().map_or(Ok(DEFAULT_MAX_AGE_MS), parse_duration_ms)?;
     let hosts: Vec<String> = options.hosts.as_deref().unwrap_or_default().split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect();

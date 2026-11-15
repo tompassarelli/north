@@ -3,8 +3,8 @@ use std::io::{Read, Write};
 
 use super::process::{Input, agent_event_checks, has_usage};
 use super::{Client, Flush};
-use crate::error::NorthResult;
-use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 use crate::threads::{ingest_lock, snapshot};
 
 const READS: [&str; 11] = [

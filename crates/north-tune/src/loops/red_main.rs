@@ -1,5 +1,5 @@
 use super::Finding;
-use crate::platform::watch_named;
+use north_base::platform::watch_named;
 use serde_json::Value;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -60,7 +60,7 @@ pub(super) fn unwatched(runs: &str, began: u64, now: u64, named: &dyn Fn(&str) -
 fn reverted_on_origin(sha: &str) -> bool {
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let args = ["log", "--format=%B", &format!("{sha}..origin/main")];
-    crate::platform::git::run(&home.join("code/north/main"), &args).is_ok_and(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).lines().any(|line| line.starts_with("Sheriff-Reverts:")))
+    north_base::platform::git::run(&home.join("code/north/main"), &args).is_ok_and(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).lines().any(|line| line.starts_with("Sheriff-Reverts:")))
 }
 
 pub(super) fn finding(state: &Path, at: SystemTime) -> Finding {

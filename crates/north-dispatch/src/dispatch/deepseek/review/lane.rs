@@ -1,8 +1,8 @@
 //! The lane a DeepSeek session worked in, its git, and the mechanical checks that run before any reviewer launches.
 
 use super::super::{mechanical, fleets};
-use crate::pacing::placement;
-use crate::platform::process::run_command_within;
+use north_pacing::pacing::placement;
+use north_base::platform::process::run_command_within;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -28,12 +28,12 @@ impl Worktree {
         let path = self.path.to_str().ok_or("the lane path is not UTF-8")?;
         let (program, rest) = words.split_first().ok_or("no command")?;
         let Some((_, ssh)) = &self.machine else {
-            let mut command = Command::new(crate::fleet::runtime::binary(program));
+            let mut command = Command::new(north_fleet_supervisor::fleet::runtime::binary(program));
             command.args(rest).current_dir(&self.path);
             return Ok(command);
         };
         let script = format!("cd {} && PATH=\"$HOME/.local/bin:$PATH\" {}", quote(path), words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
-        let mut command = Command::new(crate::fleet::runtime::binary("ssh"));
+        let mut command = Command::new(north_fleet_supervisor::fleet::runtime::binary("ssh"));
         command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", ssh, "--", &script]);
         Ok(command)
     }

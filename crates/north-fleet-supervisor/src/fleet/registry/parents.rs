@@ -5,7 +5,7 @@ use std::time::Duration;
 use north_base::lifecycle::{self, Effect};
 use north_runtime_follow::Follow;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::super::gates::GateRequest;
 use super::super::host::{Host, alive};

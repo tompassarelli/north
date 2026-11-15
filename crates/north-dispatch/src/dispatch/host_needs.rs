@@ -68,7 +68,7 @@ pub fn register(session: &str, need: &str, reason: &str, item: Option<&str>) -> 
     let directory = record::directory();
     let launched = record::read(&directory).into_iter().rfind(|launch| launch.launched && launch.name == session);
     let item = item.map(str::to_owned).or_else(|| launched.as_ref().map(|launch| launch.item.clone())).ok_or_else(|| format!("no launch of session {session} is on record here, so name its issue with --item REPO#N"))?;
-    let at = crate::pacing::placement::now();
+    let at = north_pacing::pacing::placement::now();
     let reference = IssueRef::parse(&item).ok_or_else(|| format!("{item} names no issue"))?;
     let (body, _) = super::manual::issue_text(&item)?;
     let issue = Issue { repo: reference.repo, number: reference.number, body, ..Issue::default() };
@@ -98,7 +98,7 @@ fn placed<'a>(issue: &Issue, lines: impl Iterator<Item = &'a str>, learned: &[Le
         shared = Some(shared.map_or(own.clone(), |before| before.into_iter().filter(|need| own.contains(need)).collect()));
     }
     needs.extend(shared.unwrap_or_default());
-    let needs = needs.into_iter().map(|need| if need == crate::pacing::placement::needs::LANDER { lander(&item).unwrap_or(need) } else { need });
+    let needs = needs.into_iter().map(|need| if need == north_pacing::pacing::placement::needs::LANDER { lander(&item).unwrap_or(need) } else { need });
     let mut needs: Vec<String> = needs.collect();
     needs.sort();
     needs.dedup();
@@ -120,9 +120,9 @@ pub fn of_box_with(issue: &Issue, box_text: &str, learned: &[Learned], at: f64, 
 
 fn repo_lander_host(item: &IssueRef) -> Option<String> {
     let home = std::env::var_os("HOME")?;
-    let checkout = std::path::Path::new(&home).join("code").join(crate::threads::catalog::checkout(&item.repo)).join("main");
+    let checkout = std::path::Path::new(&home).join("code").join(north_calibration::threads::catalog::checkout(&item.repo)).join("main");
     let directory = checkout.to_str()?;
-    let output = crate::platform::git::run_within(&["-C", directory, "config", "--blob", "refs/remotes/origin/main:.safe-push", "--get", "landing.lander-host"], super::fleets::PROBE)?;
+    let output = north_base::platform::git::run_within(&["-C", directory, "config", "--blob", "refs/remotes/origin/main:.safe-push", "--get", "landing.lander-host"], super::fleets::PROBE)?;
     let host = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     (output.status.success() && !host.is_empty()).then_some(host)
 }
@@ -145,7 +145,7 @@ const SERVED: [&str; 4] = ["north", "fleet", "dispatch", "needs"];
 fn from_ledger_host(item: &IssueRef, notes: &mut Vec<String>) -> Vec<Learned> {
     let reference = item.to_string();
     let words: Vec<&str> = SERVED.iter().copied().chain([reference.as_str()]).collect();
-    match crate::threads::client::ask_ledger_host(&words, &[]) {
+    match north_calibration::threads::client::ask_ledger_host(&words, &[]) {
         Ok(Some(answer)) => parse(&String::from_utf8_lossy(&answer)),
         Ok(None) => Vec::new(),
         Err(why) => {

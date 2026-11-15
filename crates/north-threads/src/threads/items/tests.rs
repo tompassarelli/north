@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use rusqlite::types::ValueRef;
 
 use super::run;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::fake::Recorded;
 use crate::threads::verb::Context;
 

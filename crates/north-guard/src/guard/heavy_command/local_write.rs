@@ -1,8 +1,8 @@
 //! The part of a command that changes files or the git index, which an offloaded build would run on the build host instead of in this worktree.
 
 use super::{PREFIXES, capacity};
-use crate::nix_command::{self, Inner};
-use crate::shell;
+use north_base::nix_command::{self, Inner};
+use north_base::shell;
 
 const WRITERS: &[&str] = &[
     "mv", "cp", "rm", "rmdir", "touch", "mkdir", "ln", "chmod", "chown", "patch", "truncate",

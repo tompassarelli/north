@@ -2,7 +2,7 @@ use super::bounded;
 use super::layout::Layout;
 use super::remote::ssh;
 use north_offload::land_offload;
-use crate::platform::host;
+use north_base::platform::host;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -108,7 +108,7 @@ fn note(layout: &Layout, host: &str, published: bool) {
 
 fn private_checkout() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    Some(crate::platform::shared_config::operator_root(&home)).filter(|repo| repo.join(".git").exists())
+    Some(north_base::platform::shared_config::operator_root(&home)).filter(|repo| repo.join(".git").exists())
 }
 
 fn newest_age(directory: &Path) -> Option<Duration> {

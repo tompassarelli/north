@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::model::{Account, Effort, LaunchRequest, SessionRecord};
 use super::registry::Restart;

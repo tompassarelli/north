@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rustix::fs::{FlockOperation, flock};
 
-pub const RETRY: i32 = north_base::foundation::exit::NO_VERDICT_STATUS;
+pub const RETRY: i32 = north_foundation::foundation::exit::NO_VERDICT_STATUS;
 const POLL: Duration = Duration::from_millis(50);
 const COMMAND_CHARS: usize = 200;
 const USER_HZ: u64 = 100;

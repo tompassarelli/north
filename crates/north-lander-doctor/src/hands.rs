@@ -49,7 +49,7 @@ echo "removed the holder files of slot $1, whose lock is free"
 
 /// The script that ends the process group a held slot names: `SLOT PGID [ROOT]`.
 pub fn release() -> String {
-    RELEASE.replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH)
+    RELEASE.replace("@SLOT_HELD@", north_foundation::foundation::offload::SLOT_HELD_SH)
 }
 
 const EVICT: &str = r#"PATH=$HOME/.local/bin:$PATH

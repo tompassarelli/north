@@ -5,10 +5,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bundle::{bundle, carried};
 use relay::{Relayed, relay, verdict};
 use super::outside::Stage;
-pub(super) use north_base::foundation::exit::TRANSPORT_FAILED;
+pub(super) use north_foundation::foundation::exit::TRANSPORT_FAILED;
 const WRONG_TREE: u8 = 98;
 const LACKS_BASE: u8 = 97;
-use north_base::foundation::exit::{ALREADY_PLACED, NO_VERDICT, SLOTS_BUSY};
+use north_foundation::foundation::exit::{ALREADY_PLACED, NO_VERDICT, SLOTS_BUSY};
 const BESIDE_MISSING: u8 = NO_VERDICT;
 const RUNTIME_MISSING: u8 = 95;
 const REPOSITORY_ENV: [&str; 13] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_GRAFT_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_NAMESPACE", "GIT_PREFIX"];
@@ -20,7 +20,7 @@ const POLL_SECONDS: &str = "0.2";
 const TARGET_CAP_MIB: u32 = 40 * 1024;
 const TARGET_FLOOR_MIB: u32 = 30 * 1024;
 const TARGET_KEEP_MIB: u32 = 24 * 1024;
-use north_base::foundation::offload::{self, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_foundation::foundation::offload::{self, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const FREE: &str = r#"set -eu

@@ -5,15 +5,15 @@
 //! at the quantile its estimator covers and the replayed one sat inside it: a stale estimate,
 //! which the tick tells the coordinator of whenever the set of them changes. A cell outside the band under
 //! both is noisy, and is counted beside the alarm rather than told.
-use crate::foundation::clock::Timestamp;
-use crate::ledger::EstimatedRun;
-use crate::ledger::closed::percentile;
-use crate::dispatch::floored_p90;
+use north_foundation::foundation::clock::Timestamp;
+use north_providers::ledger::EstimatedRun;
+use north_providers::ledger::closed::percentile;
+use north_dispatch::dispatch::floored_p90;
 use crate::tune::budgets::BUDGET_COVERAGE;
-use crate::threads::calibration::Knobs;
+use north_calibration::threads::calibration::Knobs;
 use std::collections::BTreeMap;
 
-pub use crate::threads::calibration::{CALIBRATED, DRIFT_MIN_RUNS};
+pub use north_calibration::threads::calibration::{CALIBRATED, DRIFT_MIN_RUNS};
 const REPLAY_SECONDS: i64 = 7 * 86_400;
 
 /// The tier label prefix of runs on the opencode provider: free models whose spend the Claude price table cannot state, and whose briefs carry the Claude cells' estimates.

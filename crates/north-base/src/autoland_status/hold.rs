@@ -2,7 +2,7 @@ use super::{commit_status, text};
 use crate::platform::process;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::Value;
 
 const QUEUE_PREFIX: &str = "claude/land-";

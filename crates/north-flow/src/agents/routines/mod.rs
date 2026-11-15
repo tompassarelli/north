@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::foundation::clock::{local_today, parse_python_date};
+use north_foundation::foundation::clock::{local_today, parse_python_date};
 
 pub use live::{live_timers, placement_findings, this_host};
 
@@ -38,7 +38,7 @@ pub fn routines_dir() -> PathBuf {
     }
     let operator = std::env::var_os("AGENTS_OPERATOR_DIR")
         .filter(|dir| !dir.is_empty())
-        .map_or_else(|| crate::platform::shared_config::operator_root(&PathBuf::from(std::env::var_os("HOME").unwrap_or_default())).join("agents"), PathBuf::from);
+        .map_or_else(|| north_base::platform::shared_config::operator_root(&PathBuf::from(std::env::var_os("HOME").unwrap_or_default())).join("agents"), PathBuf::from);
     operator.join("routines")
 }
 

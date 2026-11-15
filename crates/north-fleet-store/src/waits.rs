@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 use north_base::platform::process::run_command_within;
 use north_resume::OVER;

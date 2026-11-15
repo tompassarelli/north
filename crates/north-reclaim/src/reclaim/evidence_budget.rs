@@ -4,7 +4,7 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::platform::disk_budget::{DiskBudget, Share};
+use north_base::platform::disk_budget::{DiskBudget, Share};
 
 use super::held::Held;
 use super::{Inputs, Policy, Removal, hours, idle_for, removed, setting, size};
@@ -85,12 +85,12 @@ const ISSUE_READ_PAUSE: Duration = Duration::from_secs(5);
 
 /// The bodies and comments of the open issues in every catalogued repository that writes or cites Mak'gora evidence.
 pub(super) fn open_issue_text() -> Result<String, String> {
-    let owner = &crate::threads::catalog::CATALOG.owner;
+    let owner = &north_threads::threads::catalog::CATALOG.owner;
     ["makgora", "north", "wisp"]
         .iter()
         .map(|repo| {
             retrying(ISSUE_READ_ATTEMPTS, ISSUE_READ_PAUSE, || {
-                crate::platform::github::json(&["issue", "list", "-R", &format!("{owner}/{repo}"), "--state", "open", "--limit", "500", "--json", "body,comments"]).map(|issues| issues.to_string())
+                north_base::platform::github::json(&["issue", "list", "-R", &format!("{owner}/{repo}"), "--state", "open", "--limit", "500", "--json", "body,comments"]).map(|issues| issues.to_string())
             })
         })
         .collect::<Result<Vec<_>, _>>()

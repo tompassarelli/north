@@ -1,4 +1,4 @@
-use crate::platform::git as platform_git;
+use north_base::platform::git as platform_git;
 use std::path::Path;
 
 pub(super) fn git(repo: &Path, args: &[&str]) -> Result<String, String> {

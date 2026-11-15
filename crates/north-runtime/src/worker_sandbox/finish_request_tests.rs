@@ -1,9 +1,9 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::path::Path;
 
 use super::super::peer::Peer;
 use super::{CHECKED, FLAG, Granted};
-use crate::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 
 const NORTH: &str = "printf '%s\\n' \"$*\" >> \"$0.calls\"\ncase \"$1 $2\" in\n  'land checks') exit 0 ;;\n  'capacity offload') cat \"$0.host\" 2>/dev/null; exit 0 ;;\nesac\nexit 1\n";
 
@@ -41,7 +41,7 @@ pub(in crate::worker_sandbox) fn joins_only_on_a_build_host_the_brokers_own_plac
     let unplaced = granted(&lane, &head, &scratch.path().join("turn")).joining(&north);
     assert_eq!(unplaced.arguments, domain, "with no build host from the broker's own placement, the worker's command left its domain to run on the broker's host");
 
-    std::fs::write(north.with_extension("host"), crate::platform::host::name()).unwrap();
+    std::fs::write(north.with_extension("host"), north_base::platform::host::name()).unwrap();
     let here = granted(&lane, &head, &scratch.path().join("turn")).joining(&north);
     assert_eq!(here.arguments, domain, "a placement naming this host ran the worker's command outside its domain here");
 
@@ -78,8 +78,8 @@ fn a_finish_check_that_compiles_runs_as_the_sessions_fleet_compile_north_1553() 
     let gate = ["capacity", "host", "run", "--class", "heavy", "--owner", "gate:w-joining", "--timeout-seconds", "3600", "--", "/var/lib/agent-runtime/current/north", FLAG, CHECKED, "--", "sh", "-c", "cargo nextest run --workspace"];
     assert_eq!(compiled, gate, "a finish check that compiles Rust escaped the capacity gate's run as the session's fleet compile");
     let command = &compiled[10..];
-    assert!(crate::capacity::gate::compiles_rust(command), "the gate's run does not read the finish check as a Rust compile, so a host that compiles for no session would run it");
-    assert_eq!(crate::capacity::build_host_command::for_build_host(command, false), ["north", "depbox", "run", "--", "sh", "-c", "cargo nextest run --workspace"], "a build host was sent the laptop's worker-domain wrapper");
+    assert!(north_capacity_host::capacity::gate::compiles_rust(command), "the gate's run does not read the finish check as a Rust compile, so a host that compiles for no session would run it");
+    assert_eq!(north_capacity_host::capacity::build_host_command::for_build_host(command, false), ["north", "depbox", "run", "--", "sh", "-c", "cargo nextest run --workspace"], "a build host was sent the laptop's worker-domain wrapper");
 
     assert_eq!(check("echo ran"), [FLAG, CHECKED, "--", "sh", "-c", "echo ran"], "a finish check that compiles nothing left its domain for the capacity gate");
     assert_eq!(check("cargo --version"), [FLAG, CHECKED, "--", "sh", "-c", "cargo --version"], "a finish check that only asks cargo its version was held as a compile");

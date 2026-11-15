@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::fleet::model::Status;
+use north_fleet_supervisor::fleet::model::Status;
 
 use super::desk::SessionSummary;
 

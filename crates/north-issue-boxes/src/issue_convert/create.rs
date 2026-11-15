@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::boxes;
 use super::manifest::Row;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 /// The most issues one hour creates: GitHub allows more, and the run keeps headroom under its own limit.
 const MOST_PER_HOUR: usize = 450;

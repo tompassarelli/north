@@ -16,8 +16,8 @@ fn runs_beside_rustup_proxies() {
     let (bin, lane) = (home.join(".cargo/bin"), home.join("code/proj/worktrees/lane"));
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(lane.join(".git")).unwrap();
-    north_core::foundation::shim::write_executable(&bin.join("rustup"), format!("#!/bin/sh\nexec {} \"$@\"\n", real_cargo().display()));
-    north_core::foundation::shim::write_executable(&bin.join("cargo-clippy"), format!("#!/bin/sh\n: > {}\n", marker.display()));
+    north_foundation::foundation::shim::write_executable(&bin.join("rustup"), format!("#!/bin/sh\nexec {} \"$@\"\n", real_cargo().display()));
+    north_foundation::foundation::shim::write_executable(&bin.join("cargo-clippy"), format!("#!/bin/sh\n: > {}\n", marker.display()));
     std::os::unix::fs::symlink("rustup", bin.join("cargo")).unwrap();
     let output = std::process::Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["capacity", "exec", "--", "cargo", "clippy"]).current_dir(&lane).env("PATH", &bin).env("HOME", &home).env_remove("CARGO_HOME").output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -32,8 +32,8 @@ fn refuses_planted(planted: &str, lane: &str, what: &str, content: impl Fn(&std:
     std::fs::create_dir_all(lane.join(".git")).unwrap();
     std::fs::create_dir_all(lane.join("src")).unwrap();
     std::fs::create_dir_all(planted.parent().unwrap()).unwrap();
-    north_core::foundation::shim::write_executable(&marker.with_extension("sh"), format!("#!/bin/sh\n: > {}\nexec \"$@\"\n", marker.display()));
-    north_core::foundation::shim::write_executable(&planted, content(&marker));
+    north_foundation::foundation::shim::write_executable(&marker.with_extension("sh"), format!("#!/bin/sh\n: > {}\nexec \"$@\"\n", marker.display()));
+    north_foundation::foundation::shim::write_executable(&planted, content(&marker));
     let mut path = std::ffi::OsString::from(cargo.parent().unwrap());
     if planted.ends_with("cargo-clippy") {
         let (bin, system) = (planted.parent().unwrap().to_owned(), scratch.path().join("usr/bin"));
@@ -41,7 +41,7 @@ fn refuses_planted(planted: &str, lane: &str, what: &str, content: impl Fn(&std:
             std::fs::copy(&planted, bin.join(copy)).unwrap();
         }
         std::fs::create_dir_all(&system).unwrap();
-        north_core::foundation::shim::write_executable(&system.join("cargo"), format!("#!/bin/sh\nexec {} \"$@\"\n", cargo.display()));
+        north_foundation::foundation::shim::write_executable(&system.join("cargo"), format!("#!/bin/sh\nexec {} \"$@\"\n", cargo.display()));
         cargo = system.join("cargo");
         path = std::env::join_paths([system, bin]).unwrap();
     }

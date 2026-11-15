@@ -6,7 +6,7 @@ use north_base::platform::finish_record::FinishRecords;
 use serde::Deserialize;
 
 use crate::issue_body::{self, Edit, Issue};
-use crate::platform::process;
+use north_base::platform::process;
 
 const SHORT_SHA: usize = 12;
 const CLAIMS_LIMIT: Duration = Duration::from_secs(30);

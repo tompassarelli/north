@@ -7,7 +7,7 @@ use super::scope::Scope;
 use super::slots::Pools;
 use super::survey::Survey;
 use super::{IssueRef, Outcome, band, box_words, cloud, deepseek, effects, hotspots, screen, wait};
-use crate::pacing::placement::gate;
+use north_pacing::pacing::placement::gate;
 use north_graph_ground::Backlog;
 
 /// Every ready box placed on a free slot, or skipped with its reason.
@@ -135,7 +135,7 @@ fn stage_issue(round: &Round, issue: &Issue, staffing: &mut Staffing) {
     let tried = round.survey.box_tries.get(&reference).unwrap_or(&none);
     let boxes = open_boxes(issue, running, tried, round.survey.backlog.as_ref(), round.survey.at, &mut staffing.claims);
     for text in issue.takeable(round.survey.at) {
-        if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
+        if let Some(holder) = north_calibration::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
             staffing.outcome.skipped.push((reference.clone(), format!("box `{}` held: {holder}", box_words(text))));
         }
     }
@@ -206,7 +206,7 @@ fn staff(round: &Round, issue: &Issue, box_text: Option<&str>, ready: &Ready, ca
 /// The issues in the fact graph's measured order (`north graph ready`), each issue with no ready box there after them, by
 /// priority label, backlog rank, age, project and number; an issue the survey read twice is staffed once, so a run never
 /// launches a box it already launched.
-fn ordered<'a>(issues: &'a [Issue], projects: &crate::threads::projects::Projects, backlog: Option<&Backlog>) -> Vec<&'a Issue> {
+fn ordered<'a>(issues: &'a [Issue], projects: &north_calibration::threads::projects::Projects, backlog: Option<&Backlog>) -> Vec<&'a Issue> {
     let leaders = backlog.map(Backlog::leaders).unwrap_or_default();
     let place = |issue: &Issue| leaders.iter().position(|leader| *leader == issue.reference().to_string()).unwrap_or(usize::MAX);
     let rank = |issue: &Issue| backlog.and_then(|backlog| backlog.rank(&issue.reference().to_string())).unwrap_or(i64::MAX);
@@ -229,7 +229,7 @@ fn ordered<'a>(issues: &'a [Issue], projects: &crate::threads::projects::Project
 pub(super) fn candidates(survey: &Survey, scope: &Scope, brief: &str) -> Vec<Candidate> {
     let order: Vec<String> = survey.cfg.get("placement").and_then(|rules| rules.get("order")).and_then(toml_edit::Item::as_array).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
     let class = wait::class(brief);
-    let unreadable = survey.home.as_deref().map(|home| crate::platform::home_paths::home_paths(brief, home)).unwrap_or_default();
+    let unreadable = survey.home.as_deref().map(|home| north_base::platform::home_paths::home_paths(brief, home)).unwrap_or_default();
     let mut ranked: Vec<(f64, usize, Candidate)> = survey
         .hosts
         .iter()
@@ -255,7 +255,7 @@ pub(super) fn candidates(survey: &Survey, scope: &Scope, brief: &str) -> Vec<Can
 /// The boxes of `issue` that may be staffed now, each running box's paths already held in `claims`; a bare issue is one box with no text.
 fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMap<String, String>, backlog: Option<&Backlog>, at: f64, claims: &mut hotspots::Claims) -> Vec<Option<String>> {
     for text in issue.takeable(at) {
-        if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
+        if let Some(holder) = north_calibration::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
             claims.take(&hotspots::paths(issue, Some(text)), holder);
         }
     }

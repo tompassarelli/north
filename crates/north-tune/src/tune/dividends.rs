@@ -1,7 +1,7 @@
 //! The dividends of landed plan issues: each is a figure the 7-day ledger gives and the bar it must
 //! stay inside. A tick reads every one once a day and keeps the reading, so a landed change that
 //! stops paying turns DECAYED in the readings and tells the coordinator once.
-use crate::ledger::ClosedReport;
+use north_providers::ledger::ClosedReport;
 use serde_json::{Value, json};
 use toml_edit::{DocumentMut, Item, Table};
 

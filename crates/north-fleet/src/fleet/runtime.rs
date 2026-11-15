@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 pub use north_fleet_store::runtime::{BINDING_ENV, Binding, COORDINATOR, ROLE_ENV, SESSION_ENV, SPOOLED_ENV, binary, binding, now_ms};
 use super::gates::Question;

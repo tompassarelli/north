@@ -2,12 +2,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::fleet::registry::*;
-use crate::fleet::claims::{self};
-use crate::fleet::model::EntryKind;
-use crate::fleet::runtimes::Runtimes;
-use crate::fleet::test_support::Internals;
-use crate::fleet::fakes::Paper;
+use north_fleet_supervisor::fleet::registry::*;
+use north_fleet_supervisor::fleet::claims::{self};
+use north_fleet_supervisor::fleet::model::EntryKind;
+use north_fleet_supervisor::fleet::runtimes::Runtimes;
+use north_fleet_supervisor::fleet::test_support::Internals;
+use north_fleet_supervisor::fleet::fakes::Paper;
 use super::Claude;
 
 fn fleet(home: &Path, profiles: &str) -> Fleet {
@@ -19,9 +19,9 @@ fn fleet_claiming(home: &Path, profiles: &str, held: Arc<claims::Held>) -> Fleet
     fs::create_dir_all(&local).unwrap();
     fs::write(local.join(".credentials.json"), "{}").unwrap();
     fs::write(local.join(".claude.json"), r#"{"oauthAccount":{"accountUuid":"local-login"}}"#).unwrap();
-    let policy = crate::platform::orchestration::under(home);
+    let policy = north_base::platform::orchestration::under(home);
     fs::create_dir_all(policy.parent().unwrap()).unwrap();
-    let here = crate::platform::host::name();
+    let here = north_base::platform::host::name();
     fs::write(&policy, format!("[accounts.claude.profiles.a]\n\"{here}\" = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\n{profiles}")).unwrap();
     Fleet::at_claiming(home.into(), Runtimes::new(vec![Arc::new(Claude)]), Arc::new(Paper::default()), held).unwrap()
 }
@@ -69,7 +69,7 @@ fn fleet_coordinator(home: &Path, conversation: &str) {
 }
 
 fn proxies(fleet: &Fleet) -> Vec<String> {
-    fleet.sessions().unwrap().into_iter().filter(|record| record.role() == crate::fleet::model::Role::Coordinator && fleet.status(record) != crate::fleet::model::Status::Exited).filter_map(|record| record.conversation).collect()
+    fleet.sessions().unwrap().into_iter().filter(|record| record.role() == north_fleet_supervisor::fleet::model::Role::Coordinator && fleet.status(record) != north_fleet_supervisor::fleet::model::Status::Exited).filter_map(|record| record.conversation).collect()
 }
 
 #[test]
@@ -87,9 +87,9 @@ fn a_second_session_cannot_hold_the_coordinator_name_while_the_first_is_live() {
     let refused = fleet.revive("coordinator", None).unwrap_err().user_message();
     assert!(refused.contains("interactive window"), "{refused}");
     let followed = fleet.follow_recent("coordinator").expect("north fleet lists an adopted name it cannot tail");
-    assert_eq!(followed.transcript().status, crate::fleet::model::Status::Idle, "the fleet window shows the live window idle");
+    assert_eq!(followed.transcript().status, north_fleet_supervisor::fleet::model::Status::Idle, "the fleet window shows the live window idle");
 
-    let sender = std::thread::spawn(move || fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "coordinator", "hello", crate::fleet::model::Delivery::Queued).map(|_| fleet));
+    let sender = std::thread::spawn(move || fleet.send_message(&north_fleet_supervisor::fleet::sender::Sender::Session("lead".into()), "coordinator", "hello", north_fleet_supervisor::fleet::model::Delivery::Queued).map(|_| fleet));
     let lines = received(&first);
     let fleet = sender.join().unwrap().unwrap();
     assert_eq!(lines[0], serde_json::json!({"type": "auth", "token": first.token}));
@@ -120,7 +120,7 @@ fn a_launch_or_message_naming_the_coordinator_whose_holder_died_binds_a_window_o
     assert!(proxies(&fleet).is_empty(), "the holder's window is gone");
 
     newest.inbox.set_nonblocking(true).unwrap();
-    let Err(refusal) = fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "coordinator", "main is red", crate::fleet::model::Delivery::Queued) else {
+    let Err(refusal) = fleet.send_message(&north_fleet_supervisor::fleet::sender::Sender::Session("lead".into()), "coordinator", "main is red", north_fleet_supervisor::fleet::model::Delivery::Queued) else {
         panic!("a message to the dead name was accepted");
     };
     assert!(refusal.user_message().contains("north fleet adopt --name coordinator"), "{}", refusal.user_message());
@@ -137,14 +137,14 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
 
     let revive = fleet.revive("coordinator", None).unwrap_err().user_message();
     assert!(revive.contains("interactive window"), "{revive}");
-    let request = crate::fleet::model::LaunchRequest {
+    let request = north_fleet_supervisor::fleet::model::LaunchRequest {
         verification: false,
         gates_aside: false,
         urgent: false,
         container_shell: false,
         container_dir: None,
         name: "coordinator".into(),
-        provider: crate::fleet::model::ProviderName::new("claude"),
+        provider: north_fleet_supervisor::fleet::model::ProviderName::new("claude"),
         account: "a".into(),
         cwd: "/tmp".into(),
         model: None,
@@ -152,7 +152,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
         prompt: String::new(),
         system_prompt: None,
         foreground_cap_secs: None,
-        prompt_mode: crate::fleet::prompt::PromptMode::default(),
+        prompt_mode: north_fleet_supervisor::fleet::prompt::PromptMode::default(),
         idle_exit_minutes: None,
         parent: None,
         task_ref: None,
@@ -160,7 +160,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
         placement: None,
         machine: None,
         capacity_need: None,
-        role: Some(crate::fleet::model::Role::Coordinator),
+        role: Some(north_fleet_supervisor::fleet::model::Role::Coordinator),
         resume: Some("window-a".into()),
         compact_window: None,
         dispatched: false,

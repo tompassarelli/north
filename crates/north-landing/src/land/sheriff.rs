@@ -396,7 +396,7 @@ impl Probes<'_> {
             let run = Command::new(super::after::follow::program())
                 .args(["capacity", "offload", "run", "--host", &host, "--base", commit, "--head", commit, "--timeout", PROBE_SECONDS, "--", &command])
                 .current_dir(&self.lander.repo)
-                .env(north_base::foundation::offload::OWNER_ENV, &self.lander.offload_owner)
+                .env(north_foundation::foundation::offload::OWNER_ENV, &self.lander.offload_owner)
                 .stdin(std::process::Stdio::null())
                 .output()
                 .ok()?;
@@ -582,7 +582,7 @@ pub fn chase(lander: &Lander, head: &str, walked_back: Option<&str>, failing: &B
         return Ok(format!("the red post-land run of {} names no failing step, so no check reached a verdict and no revert is requested", short(head)));
     }
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let repository = crate::platform::push_ledger::repository(&origin);
+    let repository = north_base::platform::push_ledger::repository(&origin);
     let history = git(&lander.worktree, &["log", "--first-parent", "--format=%H", "-n", "400", &format!("{head}^")])?;
     let ledger = fs::read_to_string(post_land::ledger_path()).unwrap_or_default();
     let Some(parent) = green_ancestor(&ledger, &repository, &history.lines().collect::<Vec<_>>()) else {

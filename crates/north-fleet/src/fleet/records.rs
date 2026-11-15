@@ -6,7 +6,7 @@ use super::model::SessionRecord;
 
 pub use north_fleet_store::session_files::{RecordedSession, held_urgent, launched_urgent_in, past_records, find_session, read_phased, read_record, record_file, recorded_sessions, records_in, write_record};
 pub use super::session_lifecycle::ARCHIVE;
-pub use crate::platform::session_host_files::PLACED;
+pub use north_base::platform::session_host_files::PLACED;
 /// The note a retired session's archive keeps: why, when, and its last assistant text.
 pub const RETIRED_NOTE: &str = "retired.json";
 /// Marks a session whose claims the exited sweep cleared, so later sweeps skip it until it starts again.

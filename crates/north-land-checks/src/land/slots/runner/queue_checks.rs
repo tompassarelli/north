@@ -7,7 +7,7 @@ use super::super::verdict_key;
 use super::line_refusals::Refusals;
 use super::log::{first_error, last_error};
 use super::{Arguments, Config, Environment, NO_NORTH, Stop, affected, block_on, run_added_avoiding, say, shared_build, steps, warn};
-use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
+use north_foundation::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 use north_base::platform::finish_record::acceptance_in_prequeue;
 use north_base::platform::harness::{DEFAULTS, document};
 
@@ -28,7 +28,7 @@ pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>
     let landing = config.after_set().commands(root, base, head)?;
     let after_landing = tests_after_landing();
     let clippy = (!after_landing).then(|| clippy_first::listed(&landing, |command| !config.is_inferred(command))).flatten();
-    let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
+    let queued_lines = config.queue_set(north_diff_gates::landing_refusals::enforcing()).commands(root, base, head)?;
     let unread = !landing.iter().any(|command| verdict_key::reads_it(std::slice::from_ref(command)));
     let untested = if unread { config.commands(root, base, head)?.into_iter().filter(|command| !unit_reuse::runs_tests(command)).collect() } else { Vec::new() };
     let mut commands: Vec<String> = clippy.into_iter().collect();

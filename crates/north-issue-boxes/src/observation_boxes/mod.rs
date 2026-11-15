@@ -1,10 +1,10 @@
 use std::process::Command;
 
 use clap::Parser;
-use north_base::foundation::arguments::parse as parse_arguments;
+use north_foundation::foundation::arguments::parse as parse_arguments;
 
-use north_base::error::{NorthError, NorthResult};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::github;
 use north_base::platform::rolling_issue::{Gh, Tracker};
 

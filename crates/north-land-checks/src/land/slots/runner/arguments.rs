@@ -2,7 +2,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::offload::{LANDER_SLOT_ENV, LOCAL_ENV, OFF_HOST_ENV};
+use north_foundation::foundation::offload::{LANDER_SLOT_ENV, LOCAL_ENV, OFF_HOST_ENV};
 use north_base::platform::{harness, orchestration};
 use toml_edit::DocumentMut;
 
@@ -92,7 +92,7 @@ pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
 
 impl Arguments {
     pub(super) fn line_budget(&self) -> Option<u64> {
-        self.line_within.or_else(|| std::env::var(north_base::foundation::carry::LINE_WITHIN).ok().and_then(|left| left.parse().ok()))
+        self.line_within.or_else(|| std::env::var(north_foundation::foundation::carry::LINE_WITHIN).ok().and_then(|left| left.parse().ok()))
     }
 
     pub(super) fn tree(&self) -> &str {

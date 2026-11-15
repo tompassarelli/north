@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use crate::platform::wayland_idle::InputIdle;
+use north_base::platform::wayland_idle::InputIdle;
 
 const USAGE: &str = "usage: north capacity seat-idle-hint [--seconds N]";
 const DEFAULT_SECONDS: u32 = 300;

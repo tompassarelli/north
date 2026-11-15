@@ -2,8 +2,8 @@
 //! the boxes whose runs loaded it against the boxes of the same categories whose runs did not, each
 //! category weighted by the skill's boxes in it so a skill used mostly on hard categories is not
 //! blamed for them. Flags each installed skill no run loaded and each whose boxes did worse.
-use crate::ledger::ClosedReport;
-use crate::ledger::closed::SkillBox;
+use north_providers::ledger::ClosedReport;
+use north_providers::ledger::closed::SkillBox;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 

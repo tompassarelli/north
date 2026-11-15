@@ -7,7 +7,7 @@ use rusqlite::params;
 use rusqlite::types::Value as Sql;
 
 use super::{LABEL_CATEGORY, LANDING_DAYS};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open};
 

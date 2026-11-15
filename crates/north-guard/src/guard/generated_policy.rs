@@ -1,7 +1,7 @@
 use crate::guard::paths::{basename, dirname, expand_home, join, normpath, realpath};
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::Value;
-use crate::shell::{command_index, is_separator, words};
+use north_base::shell::{command_index, is_separator, words};
 use regex::Regex;
 use std::path::Path;
 use std::sync::LazyLock;

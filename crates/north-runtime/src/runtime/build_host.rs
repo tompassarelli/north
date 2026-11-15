@@ -4,7 +4,7 @@ use super::pin::{self, Event};
 use super::pull;
 use super::remote;
 use north_offload::land_offload::BuildHost;
-use crate::platform::ssh_retry::Rerun;
+use north_base::platform::ssh_retry::Rerun;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};

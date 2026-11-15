@@ -1,4 +1,4 @@
-use crate::platform::process;
+use north_base::platform::process;
 use serde_json::{Value, json};
 use std::process::Command;
 use std::thread;
@@ -72,7 +72,7 @@ fn push(refspec: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-pub const INFRASTRUCTURE: u8 = north_base::foundation::exit::NO_VERDICT;
+pub const INFRASTRUCTURE: u8 = north_foundation::foundation::exit::NO_VERDICT;
 
 #[derive(Debug, PartialEq)]
 enum RefPush {

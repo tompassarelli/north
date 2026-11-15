@@ -7,10 +7,10 @@ use std::time::UNIX_EPOCH;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Map, Value, json};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::providers::claude::runs::landing::{Step, tally, utc};
 use crate::providers::claude::runs::row::{FLAWS, SPACE, eta, prefix};
-use crate::threads::runs::brief::Fields;
+use north_calibration::threads::runs::brief::Fields;
 use crate::providers::ledger_rows::{self as rows, Shared};
 
 mod usage;

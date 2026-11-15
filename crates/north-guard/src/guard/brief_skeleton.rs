@@ -5,7 +5,7 @@ use north_base::platform::push_ledger;
 use north_base::platform::records_mirror::state_home;
 use north_base::platform::verification_budget;
 
-use crate::router::brief::CATEGORIES;
+use north_pace::router::brief::CATEGORIES;
 
 const GRAPH_BUDGET: Duration = Duration::from_millis(1500);
 

@@ -1,6 +1,6 @@
 //! The cost per closed box of each staffed cell as each tick read it, one row per cell per day, so
 //! a tick can print today's figure beside the last earlier day's for the same cell.
-use crate::ledger::ClosedReport;
+use north_providers::ledger::ClosedReport;
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq)]

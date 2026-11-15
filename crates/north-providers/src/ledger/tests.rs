@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::fleet::gates::{Answerer, GateBook, GateRequest};
+use north_fleet_supervisor::fleet::gates::{Answerer, GateBook, GateRequest};
 
 use super::Ledger;
 
@@ -25,7 +25,7 @@ fn request(session: &str, default_after_ms: u64) -> GateRequest {
 
 #[test]
 fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_strangers_and_a_gate_put_to_tom() {
-    use crate::fleet::gates::{Authority, Relay, TomTurn, TypedTurn, answer_gate, default_overdue, open, orphan, relay_gate};
+    use north_fleet_supervisor::fleet::gates::{Authority, Relay, TomTurn, TypedTurn, answer_gate, default_overdue, open, orphan, relay_gate};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     let legacy = super::SCHEMA.replace("answered_by TEXT,", "answered_by TEXT CHECK(answered_by IN ('tom','default')),").replace("verification INTEGER NOT NULL DEFAULT 0,\n  issue TEXT,\n  box_text TEXT,\n  ask_once TEXT\n", "verification INTEGER NOT NULL DEFAULT 0\n");
@@ -155,7 +155,7 @@ fn a_box_ticked_on_an_issue_that_stays_open_counts_as_closed() {
     let runs = [run("a", "north#1", Some(stamped)), run("b", "north#1", None), run("c", "north#1", Some("Piece 3 of the umbrella")), run("d", "north#1", Some("A box nobody has staffed yet.")), run("e", "north#1", Some(gap))];
     let body = format!("{}- [x] Fleet screen gap 13 of the umbrella, self-ticked by its worker.\n- [ ] Fleet screen gap 1 of the umbrella, not ticked yet.\n", umbrella());
     let bodies: std::collections::HashMap<String, String> = [("north#1".to_owned(), body)].into();
-    let report = super::summarize(&runs, &Default::default(), &bodies, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&bodies, None);
+    let report = super::summarize(&runs, &Default::default(), &bodies, "2026-11-01T00:00:00Z", &north_pace::router::pricing::PriceTable::load().unwrap()).verified(&bodies, None);
     assert_eq!(report.closed, 2, "the two ticked boxes count; the run naming no box and the unticked box do not, though the issue stays open");
     assert!(!report.arms.iter().any(|arm| arm.closed && arm.box_text.as_deref() == Some(gap)), "a run naming gap 1 does not count the ticked gap 13 box as its own while its own box is unticked");
     let read = |text: &str| report.arms.iter().find(|arm| arm.box_text.as_deref() == Some(text) && arm.closed).map(|arm| (arm.verified, arm.issue_verified));
@@ -170,11 +170,11 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     const SHA: &str = "59ff4fb9c2d24f619e93afe867761c1146740b3d";
     const COMMAND: &str = "cargo test -p north-providers corroborated";
     let box_text = "Corroborated rewards: the staffed box of an umbrella";
-    let node = crate::threads::claims::box_node("north#882", box_text).unwrap();
+    let node = north_calibration::threads::claims::box_node("north#882", box_text).unwrap();
     let split_one = "Split short name one";
     let split_two = "Split short name two";
-    let node_one = crate::threads::claims::box_node("north#882", &format!("{split_one}. Done when: `{COMMAND}`")).unwrap();
-    let node_two = crate::threads::claims::box_node("north#882", &format!("{split_two}. Done when: `{COMMAND}`")).unwrap();
+    let node_one = north_calibration::threads::claims::box_node("north#882", &format!("{split_one}. Done when: `{COMMAND}`")).unwrap();
+    let node_two = north_calibration::threads::claims::box_node("north#882", &format!("{split_two}. Done when: `{COMMAND}`")).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let seeded = |name: &str| {
         let path = directory.path().join(name);
@@ -215,7 +215,7 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     let verified = |path: &std::path::Path| {
         let corroborated = super::corroborated::checked_boxes(path).unwrap();
         let items = closed.keys().cloned().collect();
-        let report = super::summarize(std::slice::from_ref(&run), &items, &Default::default(), "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
+        let report = super::summarize(std::slice::from_ref(&run), &items, &Default::default(), "2026-11-01T00:00:00Z", &north_pace::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
         report.arms[0].verified
     };
     assert!(!verified(&path), "a self-ticked box whose own stamp claims a pass reads unverified while no checker assertion corroborates it");
@@ -259,7 +259,7 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     let corroborated = super::corroborated::checked_boxes(&path).unwrap();
     let named = |text: &str| super::closed::SpendRun { box_text: Some(text.into()), ..run.clone() };
     let items = closed.keys().cloned().collect();
-    let report = super::summarize(&[named("Corroborated rewards"), named("Split short name")], &items, &Default::default(), "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
+    let report = super::summarize(&[named("Corroborated rewards"), named("Split short name")], &items, &Default::default(), "2026-11-01T00:00:00Z", &north_pace::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
     let graded = |text: &str| report.arms.iter().find(|arm| arm.box_text.as_deref() == Some(text)).map(|arm| arm.verified);
     assert_eq!(graded("Corroborated rewards"), Some(true), "a run naming its box by the leading words grades once the whole box is corroborated");
     assert_eq!(graded("Split short name"), Some(false), "a name that two boxes of its issue extend grades neither, though both are corroborated");
@@ -299,13 +299,13 @@ fn one_repository_failing_on_github_leaves_the_other_reports_recorded_and_fails_
     let directory = tempfile::tempdir().unwrap();
     let runs = || vec![worker_run("north-worker", "north#5", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true), worker_run("makgora-worker", "makgora#7", "2026-11-08T10:00:00Z", "2026-11-08T11:00:00Z", true)];
     let issue = |item: &str| ClosedIssue { item: item.into(), at: "2026-11-08T11:30:00Z".into(), closed: super::Closed::of_body(LEAF) };
-    let prices = crate::router::pricing::PriceTable::load().unwrap();
+    let prices = north_pace::router::pricing::PriceTable::load().unwrap();
     let record = |makgora_reads: bool| {
         let unread = Mutex::new(BTreeSet::new());
-        let sources = Inputs { runs: runs(), native: Default::default(), closed: Default::default(), corroborated: None, catalog: &crate::threads::catalog::CATALOG };
+        let sources = Inputs { runs: runs(), native: Default::default(), closed: Default::default(), corroborated: None, catalog: &north_calibration::threads::catalog::CATALOG };
         let github = |repo: &str, since: &str, end: &str| {
             let fetch = || match repo {
-                "makgora" if !makgora_reads => Err(crate::error::NorthError::Configuration("gh issue list tompassarelli/makgora: Post https://api.github.com/graphql: EOF".into())),
+                "makgora" if !makgora_reads => Err(north_foundation::error::NorthError::Configuration("gh issue list tompassarelli/makgora: Post https://api.github.com/graphql: EOF".into())),
                 _ => Ok(Held { issues: vec![issue(&format!("{repo}#{}", if repo == "north" { 5 } else { 7 }))], open: Default::default() }),
             };
             let Held { issues, open } = listed(repo, fetch, &directory.path().join(format!("{repo}.json")), &unread);

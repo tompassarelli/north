@@ -1,4 +1,4 @@
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::verdict_cache::{Pass, REMOTE_DIR, Replica, Store, exchange, remote_hits, remote_record, sync};
 use std::process::Command;
 
@@ -11,7 +11,7 @@ fn ssh(destination: &str, script: &str) -> Option<String> {
 }
 
 fn remote(destination: &str, script: &str, input: &[u8]) -> std::io::Result<Vec<u8>> {
-    exchange(Command::new(north_base::foundation::offload::ssh()).args(SSH).args([destination, "--", script]), input)
+    exchange(Command::new(north_foundation::foundation::offload::ssh()).args(SSH).args([destination, "--", script]), input)
 }
 
 struct Remote<'a>(&'a str);

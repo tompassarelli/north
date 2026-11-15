@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::super::model::{Account, SessionRecord, Status, Transcript};
 use super::super::records::{read_record, write_record};

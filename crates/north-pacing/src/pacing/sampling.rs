@@ -1,12 +1,12 @@
 use super::{process, readout, storage};
-use crate::foundation::clock::rfc3339_seconds;
-use crate::spend::{self, Rules, Starter};
+use north_foundation::foundation::clock::rfc3339_seconds;
+use north_pace::spend::{self, Rules, Starter};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use storage::{load, number, rows, save};
 
 pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
-    std::fs::read_to_string(crate::platform::orchestration::path())
+    std::fs::read_to_string(north_base::platform::orchestration::path())
         .map_err(|e| e.to_string())?
         .parse()
         .map_err(|e: toml_edit::TomlError| e.to_string())
@@ -87,7 +87,7 @@ pub(super) fn install_token_usage(read: TokenUsage) {
 }
 
 fn token_rows(at: f64) -> Vec<Value> {
-    TOKEN_USAGE.get().map_or_else(Vec::new, |read| read(&crate::platform::orchestration::path(), at))
+    TOKEN_USAGE.get().map_or_else(Vec::new, |read| read(&north_base::platform::orchestration::path(), at))
 }
 
 pub(super) fn merge_token_rows(reads: &mut Reads, rows: impl FnOnce() -> Vec<Value>) {
@@ -168,13 +168,13 @@ const SLOW_READ_SECONDS: f64 = 20.0;
 
 pub(super) fn interval(previous: f64, elapsed: f64, throttled: bool) -> f64 {
     if throttled {
-        return MIN_INTERVAL_SECONDS.max(previous * 2.0).min(crate::usage::STALE_SECONDS);
+        return MIN_INTERVAL_SECONDS.max(previous * 2.0).min(north_pace::usage::STALE_SECONDS);
     }
     if elapsed > SLOW_READ_SECONDS { MIN_INTERVAL_SECONDS.max((elapsed * 2.0).ceil()) } else { MIN_INTERVAL_SECONDS }
 }
 
 fn usage_gate(db: &rusqlite::Connection) -> Result<Value, String> {
-    crate::usage::write_pace_gate(db).map_err(|error| format!("usage gate failed: {error}"))
+    north_pace::usage::write_pace_gate(db).map_err(|error| format!("usage gate failed: {error}"))
 }
 
 pub(super) fn prune_retired(state: &mut Value) {
@@ -230,7 +230,7 @@ pub(super) fn sample(provider: Option<&str>) -> Result<Value, String> {
     let _sampling = storage::lock(&directory, "pace-sampling.lock", None)?;
     let at = storage::now();
     let prior = load(&directory.join("pace-control.json"));
-    let here = crate::platform::host::name();
+    let here = north_base::platform::host::name();
     let cfg = config().ok();
     let owners = cfg.as_ref().map(|cfg| claude_owners(cfg, &here)).unwrap_or_default();
     let local: Vec<&str> = ADAPTERS.iter().copied().filter(|p| cfg.as_ref().is_none_or(|cfg| read_here(cfg, p, &here))).collect();

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use north_landing::foundation::check_log::Failure;
+use north_foundation::foundation::check_log::Failure;
 use north_landing::land::post_land::reproduced;
 
 use super::{Batch, Pending};

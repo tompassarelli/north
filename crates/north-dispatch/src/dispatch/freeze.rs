@@ -8,8 +8,8 @@ use super::Outcome;
 use super::record;
 use super::slots::Host;
 use super::survey::Survey;
-use crate::platform::process::run_within;
-use crate::spend::Starter;
+use north_base::platform::process::run_within;
+use north_pace::spend::Starter;
 
 const FILE: &str = "freeze.json";
 
@@ -61,7 +61,7 @@ pub fn closed(hosts: &[Host]) -> Vec<String> {
 pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) -> bool {
     let path = record::directory().join(FILE);
     let previous = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<Stretch>(&bytes).ok());
-    let limit = crate::platform::harness::default_number("dispatch_freeze_alarm_min");
+    let limit = north_base::platform::harness::default_number("dispatch_freeze_alarm_min");
     let (mut stretch, text) = step(previous, frozen, at, limit);
     let mut sent_all = true;
     if let Some(text) = text {
@@ -71,7 +71,7 @@ pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) -> bool
             return true;
         }
         let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
-        let sent = run_within(&north, &["fleet", "send", "--now", "--from", "service:north-dispatch", crate::fleet::runtime::COORDINATOR, &text], Duration::from_secs(30)).is_some_and(|output| output.status.success());
+        let sent = run_within(&north, &["fleet", "send", "--now", "--from", "service:north-dispatch", north_fleet_supervisor::fleet::runtime::COORDINATOR, &text], Duration::from_secs(30)).is_some_and(|output| output.status.success());
         println!("{}: {text}", if sent { "told the coordinator" } else { "could not tell the coordinator" });
         sent_all = sent;
         if let Some(stretch) = stretch.as_mut() {

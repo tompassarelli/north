@@ -3,7 +3,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::thread::ScopedJoinHandle;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::{brief_files, brief_grounding, proposal};
 use crate::fleet::hops;
 use crate::fleet::host::Host;

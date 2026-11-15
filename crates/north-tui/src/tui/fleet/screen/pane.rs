@@ -1,6 +1,6 @@
 //! The panes: which one has focus, which session or gate is selected, and how the viewport scrolls.
 
-use crate::fleet::gates::Decision;
+use north_fleet_supervisor::fleet::gates::Decision;
 
 use super::{Command, Focus, Notice, Screen};
 

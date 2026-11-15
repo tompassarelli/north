@@ -1,7 +1,7 @@
 use north_base::lifecycle::State;
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 use crate::gate_lifecycle::GatePhase;
 
 use super::record::{Answerer, Closure, Decision, Gate, GateBook};

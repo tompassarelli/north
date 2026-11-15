@@ -15,7 +15,7 @@ use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::platform::gh_broker_route::{Place, source_config};
+use north_base::platform::gh_broker_route::{Place, source_config};
 use broker::{Broker, Settings};
 use upstream::Upstream;
 

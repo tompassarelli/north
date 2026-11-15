@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::fleet::model::{Account, Entry, EntryKind, ProviderName, Report, SessionPhase, SessionRecord, Status};
+use north_fleet_supervisor::fleet::model::{Account, Entry, EntryKind, ProviderName, Report, SessionPhase, SessionRecord, Status};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
@@ -175,8 +175,8 @@ fn a_transcript_paints_each_entry_in_its_own_look() {
 
     let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
     screen.sync(vec![family("alpha", None, 1, Status::Working, 0)]);
-    let mut transcript = crate::fleet::model::Transcript::new();
-    transcript.tracker.observe(crate::fleet::turns::TurnSignal::Started { conversation: "c".into() }, 1_000);
+    let mut transcript = north_fleet_supervisor::fleet::model::Transcript::new();
+    transcript.tracker.observe(north_fleet_supervisor::fleet::turns::TurnSignal::Started { conversation: "c".into() }, 1_000);
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     let mut painter = TranscriptPainter::default();
     terminal.draw(|frame| draw(frame, &mut screen, Some(&transcript), &mut painter, 13_000)).unwrap();
@@ -231,7 +231,7 @@ fn the_main_view_is_the_chat_under_white_rules_with_its_title_on_the_status_row(
 
 #[test]
 fn the_digest_scrolls_to_its_last_row_and_shows_the_five_hour_window() {
-    use crate::fleet::board::{Board, Panel};
+    use north_fleet_supervisor::fleet::board::{Board, Panel};
     let mut accounts = Panel::new("Accounts", "every account lasts to its reset (3 accounts)");
     accounts.lines = ["a", "b", "c"].iter().enumerate().map(|(index, name)| format!("{name}  Max 5x  5h left {}%  Thu 9:00 AM  week left", 90 - index)).collect();
     let mut infra = Panel::new("Infra", "3 machines");
@@ -257,8 +257,8 @@ fn the_digest_scrolls_to_its_last_row_and_shows_the_five_hour_window() {
 
 #[test]
 fn the_digest_reads_right_on_the_example_operator() {
-    use crate::fleet::board::{Board, Panel, money};
-    use crate::fleet::books::SessionSpend;
+    use north_fleet_supervisor::fleet::board::{Board, Panel, money};
+    use north_fleet_supervisor::fleet::books::SessionSpend;
     let mut accounts = Panel::new("Accounts", format!("every account lasts to its reset (1 accounts); {} in the last 1 day", money(-0.0)));
     accounts.lines = vec!["account  plan  5h left".to_owned(), "work     -     90%".to_owned()];
     let mut infra = Panel::new("Infra", "2 machines, $0.00/month, 1 idle");

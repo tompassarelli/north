@@ -6,7 +6,7 @@ pub type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
 
 fn touched(node: &Value) -> f64 {
     let comment = node["comments"]["nodes"].as_array().and_then(|nodes| nodes.last()).unwrap_or(&Value::Null);
-    [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| crate::foundation::clock::rfc3339_seconds(time.as_str()?)).fold(0.0, f64::max)
+    [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| north_foundation::foundation::clock::rfc3339_seconds(time.as_str()?)).fold(0.0, f64::max)
 }
 
 /// The parent a flat read names, keyed by its owner, repository and number.
@@ -38,7 +38,7 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
         open_blockers,
         comments,
         touched: touched(node),
-        created: node["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).unwrap_or(0.0),
+        created: node["createdAt"].as_str().and_then(north_foundation::foundation::clock::rfc3339_seconds).unwrap_or(0.0),
         stop: Default::default(),
         needs: Vec::new(),
         landings: 0,
@@ -58,7 +58,7 @@ impl Live {
 
     fn still_open(&self, reference: &IssueRef) -> Option<bool> {
         let (number, repo) = (reference.number.to_string(), format!("{OWNER}/{}", reference.repo));
-        let state = crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state"]).ok()?;
+        let state = north_base::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state"]).ok()?;
         Some(state["state"] == "OPEN")
     }
 }
@@ -92,7 +92,7 @@ pub fn gone(node: &Value, box_text: Option<&str>) -> Option<String> {
 /// `gone` on the issue as GitHub holds it now; an unreadable issue is no reason to hold the launch.
 pub fn recheck(reference: &IssueRef, box_text: Option<&str>) -> Option<String> {
     let (number, repo) = (reference.number.to_string(), format!("{OWNER}/{}", reference.repo));
-    gone(&crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state,body"]).ok()?, box_text)
+    gone(&north_base::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state,body"]).ok()?, box_text)
 }
 
 pub fn open_issues(repos: &[String], at: f64, notes: &mut Vec<String>) -> OpenIssues {

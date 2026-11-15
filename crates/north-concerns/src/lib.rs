@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use history::{Recorded, Store};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use registry::Concern;
 use verdict::{Verdict, judge};
 

@@ -10,7 +10,7 @@ const ROOT_PREFIX: &str = "gcroot-";
 pub(super) fn references(runtime: &Path) -> Result<BTreeSet<String>, Failure> {
     let mut references = BTreeSet::new();
     for program in PROGRAMS {
-        references.extend(crate::platform::store_refs::roots(&fs::read(runtime.join(program))?));
+        references.extend(north_base::platform::store_refs::roots(&fs::read(runtime.join(program))?));
     }
     Ok(references)
 }

@@ -11,15 +11,15 @@ pub(super) fn carry(ledger: &Path, check: &CheckRun) {
         return;
     }
     let row = serde_json::json!({
-        "type": crate::threads::done_checks::KIND,
-        "host": crate::platform::host::name(),
+        "type": north_calibration::threads::done_checks::KIND,
+        "host": north_base::platform::host::name(),
         "task_ref": check.task_ref,
         "head_sha": sha,
         "command": check.command,
         "exit": check.exit,
         "ran_ms": check.ran_ms,
     });
-    if let Err(why) = crate::threads::client::spool_ingest(format!("{row}\n").as_bytes()) {
+    if let Err(why) = north_calibration::threads::client::spool_ingest(format!("{row}\n").as_bytes()) {
         eprintln!("north ledger: the check of {} at {sha} is not queued for the ledger host: {why}", check.task_ref);
     }
 }

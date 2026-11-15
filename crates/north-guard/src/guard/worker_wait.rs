@@ -1,6 +1,6 @@
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::Value;
-use crate::shell;
+use north_base::shell;
 use regex::Regex;
 use std::sync::LazyLock;
 

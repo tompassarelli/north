@@ -5,7 +5,7 @@ use rusqlite::Connection;
 
 use super::store::Row;
 use super::{Places, burn, costs, py, settings, web};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const NO_SNAPSHOT: &str = "fleet usage: no snapshot yet; run `north fleet usage --refresh`";
 pub(super) const RESET_NAME: &str = "cedar_ember";

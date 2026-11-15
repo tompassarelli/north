@@ -1,7 +1,7 @@
 use super::gh_write::{self, GhWrite};
 use super::gh_cli::gh;
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::{box_oracles, issue_scope};
+use north_base::platform::{box_oracles, issue_scope};
 
 const OWNER: &str = "tompassarelli/";
 struct Live {

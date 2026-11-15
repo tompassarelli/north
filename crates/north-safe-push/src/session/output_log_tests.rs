@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use north_base::foundation::step::Refused;
+use north_foundation::foundation::step::Refused;
 
 use super::claim;
 use crate::shell::recorded::{self, State};

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::platform::process::run_command_within;
+use north_base::platform::process::run_command_within;
 use crate::store::Mirror;
 
 const PULL_LIMIT: Duration = Duration::from_secs(60);

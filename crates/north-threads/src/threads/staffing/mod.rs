@@ -12,7 +12,7 @@ use rusqlite::params;
 use self::branches::{Failed, names_issue};
 use super::board::held;
 use super::verb::{Args, Context, Failure, Outcome, event, immediate, open, report};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::{Value, json};
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::{self, Moved};
@@ -95,7 +95,7 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
 }
 
 fn staffed(context: &Context) -> Result<Vec<String>, Failure> {
-    let cfg = crate::platform::orchestration::read().map_err(Failure::Refused)?;
+    let cfg = north_base::platform::orchestration::read().map_err(Failure::Refused)?;
     let projects = super::projects::Projects::read(&cfg).map_err(Failure::Refused)?;
     let at = context.now.unix_seconds_f64();
     Ok(projects.repos().iter().filter(|repo| projects.paused(repo, at).is_none()).cloned().collect())

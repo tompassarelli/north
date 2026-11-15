@@ -1,7 +1,7 @@
 use super::layout::{self, Layout};
 use super::pin::{self, Ahead, Event, Outcome, Reason};
 use super::probe;
-use crate::platform::process;
+use north_base::platform::process;
 use north_base::build_inputs::{live_fix, promotion_slot};
 use north_base::platform::harness::{DEFAULTS, document};
 use std::fs;

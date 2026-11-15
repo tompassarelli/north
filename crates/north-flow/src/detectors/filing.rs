@@ -79,7 +79,7 @@ fn subject_id(finding: &Finding) -> String {
 fn issue_of(owner: &str) -> Option<(String, String)> {
     let (repo, number) = owner.rsplit_once('#')?;
     let repo = repo.rsplit('/').next().filter(|repo| !repo.is_empty())?;
-    number.bytes().all(|byte| byte.is_ascii_digit()).then(|| (format!("{}/{repo}", crate::dispatch::OWNER), number.to_owned()))
+    number.bytes().all(|byte| byte.is_ascii_digit()).then(|| (format!("{}/{repo}", north_dispatch::dispatch::OWNER), number.to_owned()))
 }
 
 /// Whether the issue body already carries an unticked box for this cause, which a later episode's reading belongs
@@ -174,7 +174,7 @@ impl<'a> Filer<'a> {
     /// Files a finding as an issue of its own holding its one box, which the landing closes once that box is ticked; while
     /// an issue of the same title is open, its new reading is commented there instead, so the issues never stack.
     fn open_own(&self, finding: &Finding) -> Result<(Appended, String), String> {
-        let slug = format!("{}/{OWN_REPO}", crate::dispatch::OWNER);
+        let slug = format!("{}/{OWN_REPO}", north_dispatch::dispatch::OWNER);
         let search = format!("\"{}\" in:title", finding.title);
         let listed = self.host.json(&["gh", "issue", "list", "-R", &slug, "--state", "open", "--search", &search, "--json", "number,title"]).ok_or_else(|| format!("gh issue list {slug} did not answer"))?;
         let open = listed.as_array().into_iter().flatten().find(|issue| issue["title"].as_str() == Some(finding.title.as_str())).and_then(|issue| issue["number"].as_u64());

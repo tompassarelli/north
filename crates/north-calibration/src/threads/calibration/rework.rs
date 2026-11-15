@@ -9,8 +9,8 @@ use regex::Regex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::foundation::clock::Timestamp;
-use crate::platform::run_roles::worker_where;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::run_roles::worker_where;
 use crate::threads::catalog::CATALOG;
 
 pub const REWORK_WINDOW_S: i64 = 48 * 3600;

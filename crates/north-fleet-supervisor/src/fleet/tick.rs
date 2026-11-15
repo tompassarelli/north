@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::model::SessionRecord;
 

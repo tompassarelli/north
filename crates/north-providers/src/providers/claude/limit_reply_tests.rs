@@ -1,10 +1,10 @@
 use serde_json::json;
 
 use super::Claude;
-use crate::fleet::model::{EntryKind, Transcript};
-use crate::fleet::runtime::Runtime;
-use crate::usage::decide::world::ModelFamily;
-use crate::usage::{events, meter};
+use north_fleet_supervisor::fleet::model::{EntryKind, Transcript};
+use north_fleet_supervisor::fleet::runtime::Runtime;
+use north_pace::usage::decide::world::ModelFamily;
+use north_pace::usage::{events, meter};
 
 #[test]
 fn a_model_limit_reply_ends_its_turn_as_a_failed_usage_limit_and_marks_the_account_full_for_that_model_until_its_reset() {

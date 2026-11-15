@@ -11,6 +11,8 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-foundation = { path = "../north-foundation" }
+
 
 [lints]
 workspace = true

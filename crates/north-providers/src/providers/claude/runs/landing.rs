@@ -8,8 +8,8 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::truthy;
-use crate::fleet::landings::{self, Push};
-use crate::foundation::clock::Timestamp;
+use north_fleet_supervisor::fleet::landings::{self, Push};
+use north_foundation::foundation::clock::Timestamp;
 
 static LAND: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:(?:sudo|time|nohup|command|timeout\s+\S+)\s+)?(?:\S*/)?(?:safe-push|git(?:\s+-C\s+\S+)?\s+push)\b").unwrap()

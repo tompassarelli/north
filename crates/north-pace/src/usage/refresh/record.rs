@@ -2,7 +2,7 @@ use rusqlite::Connection;
 use rusqlite::types::Value as Sql;
 use serde_json::{Map, Value};
 
-use crate::platform::usage_table;
+use north_base::platform::usage_table;
 use crate::usage::store::COLUMNS;
 
 pub(super) type Reading = Map<String, Value>;

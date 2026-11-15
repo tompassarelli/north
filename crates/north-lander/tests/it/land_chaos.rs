@@ -46,7 +46,7 @@ fn isolated(name: &str, scenario: fn(&World)) {
     let gitconfig = home.path().join("gitconfig");
     fs::write(&gitconfig, "[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[user]\n\tname = chaos\n\temail = chaos@example.com\n").unwrap();
     let north = home.path().join("north");
-    north_base::foundation::shim::write_script(&north, AFTER_RUNNER);
+    north_foundation::foundation::shim::write_script(&north, AFTER_RUNNER);
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
         .args([name, "--exact", "--nocapture", "--test-threads=1"])

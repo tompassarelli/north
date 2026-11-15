@@ -164,7 +164,7 @@ pub(super) fn hotspots_of(churn: &[(String, usize)], complexity: impl Fn(&str) -
 }
 
 pub(super) fn now() -> String {
-    north_base::foundation::clock::Timestamp::now().iso_millis()
+    north_foundation::foundation::clock::Timestamp::now().iso_millis()
 }
 
 pub(super) fn build(repo: &Path, rev: &str, config: &Config) -> Result<Report, String> {

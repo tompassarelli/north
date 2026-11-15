@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use north_base::lifecycle::{Lifecycle, State};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 use crate::gates::{Answerer, GateRequest};
 

@@ -1,4 +1,4 @@
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::ORPHANED_LIKE;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashSet;

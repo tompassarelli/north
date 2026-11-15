@@ -5,9 +5,9 @@ use regex::Regex;
 use toml_edit::DocumentMut;
 
 use super::source::{self, Case, Named};
-use crate::error::NorthError;
-pub use crate::platform::replay_verdict::Kind;
-use crate::threads::incidents::corrections;
+use north_foundation::error::NorthError;
+pub use north_base::platform::replay_verdict::Kind;
+use north_threads::threads::incidents::corrections;
 
 pub enum Detector {
     Judge,

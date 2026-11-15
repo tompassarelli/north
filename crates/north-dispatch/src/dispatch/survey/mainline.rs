@@ -7,13 +7,13 @@ fn git(checkout: &std::path::Path, args: &[&str]) -> Option<String> {
     let directory = checkout.to_str()?;
     let mut full = vec!["-C", directory];
     full.extend_from_slice(args);
-    let output = crate::platform::git::run_within(&full, super::PROBE).filter(|output| output.status.success())?;
+    let output = north_base::platform::git::run_within(&full, super::PROBE).filter(|output| output.status.success())?;
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn checkout(repo: &str) -> Option<std::path::PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(std::path::Path::new(&home).join("code").join(crate::threads::catalog::checkout(repo)).join("main"))
+    Some(std::path::Path::new(&home).join("code").join(north_calibration::threads::catalog::checkout(repo)).join("main"))
 }
 
 /// The paths the takeable boxes of `issues` name in `repo` that origin/main lacks and a landed commit deleted, read in one history walk, since a walk per path cost the dispatch run 30 CPU seconds a run on nexus (north#1036).

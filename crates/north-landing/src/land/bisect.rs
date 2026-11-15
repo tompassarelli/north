@@ -2,9 +2,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::landing::check_findings;
-use crate::platform::attribution::Cause;
-pub use crate::platform::land_notice::OWNER;
-use crate::platform::land_notice::{self, Notice};
+use north_base::platform::attribution::Cause;
+pub use north_base::platform::land_notice::OWNER;
+use north_base::platform::land_notice::{self, Notice};
 use super::after;
 use super::checks::Verdict;
 use super::incidents;

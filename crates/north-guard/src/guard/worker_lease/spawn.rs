@@ -1,5 +1,5 @@
 use super::{Env, valid_id};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::hook_input::HookInput;
 use serde_json::{Value, json};
 use std::io::{ErrorKind, Write};
@@ -68,7 +68,7 @@ fn failure(error: std::io::Error) -> &'static str {
 }
 
 fn ingest(line: &str) -> Result<(), &'static str> {
-    match crate::threads::client::spool_ingest(line.as_bytes()) {
+    match north_calibration::threads::client::spool_ingest(line.as_bytes()) {
         Ok(true) => return Ok(()),
         Ok(false) => {}
         Err(_) => return Err("OSError"),

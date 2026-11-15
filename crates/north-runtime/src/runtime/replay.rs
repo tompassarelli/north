@@ -1,6 +1,6 @@
 //! The replay of a red hosted run's new cases, or of the build or lint step it failed when it failed no case (north#1537): `north runtime trip replay COMMIT` (trip_command.rs), started by the screen on the host
 //! that settles the fleet in a scope of its own, reads those cases on a build host at the commit and its parent, twice each, through
-//! `north capacity offload run` (north_base::foundation::pair). Only a regression, the parent green twice and the commit red twice
+//! `north capacity offload run` (north_foundation::foundation::pair). Only a regression, the parent green twice and the commit red twice
 //! the same way, writes the trip; any other answer trips nothing and records each case in unreproduced.tsv. In 58 of 65 red hosted
 //! runs from 2026-11-10 to 2026-11-15 the blamed head was not the cause (south red-main-profile-2026-11-15).
 
@@ -9,7 +9,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Stdio;
 
-use north_base::foundation::pair::{Compared, Pair, Reading};
+use north_foundation::foundation::pair::{Compared, Pair, Reading};
 
 use super::scope::own_scope;
 use super::layout;
@@ -80,5 +80,5 @@ fn outcome(pair: Pair) -> &'static str {
 /// A replay that reads every asked case green at the parent and red at the commit, so each red run it is asked of trips.
 #[cfg(test)]
 pub(crate) fn regressing() -> Replay {
-    Box::new(|_, asked, _| Ok(Some(north_base::foundation::pair::compare(&|commit: &str| if commit == asked.head { Reading::Red("failed".to_owned()) } else { Reading::Green("passed".to_owned()) }, "parent", asked.head.as_str()))))
+    Box::new(|_, asked, _| Ok(Some(north_foundation::foundation::pair::compare(&|commit: &str| if commit == asked.head { Reading::Red("failed".to_owned()) } else { Reading::Green("passed".to_owned()) }, "parent", asked.head.as_str()))))
 }

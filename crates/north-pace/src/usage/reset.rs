@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::decide::SUBSCRIPTION_FLOOR;
 use super::web;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 /// The grants an account advertises on its usage page.
 pub struct Offered {

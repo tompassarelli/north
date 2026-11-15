@@ -8,9 +8,9 @@ use super::build_offload;
 use super::build_host_command;
 use super::depbox_check;
 use super::depbox_mode::Mode;
-use crate::nix_command::{self, Inner};
-use crate::shell;
-use north_base::foundation::exit::NO_VERDICT;
+use north_base::nix_command::{self, Inner};
+use north_base::shell;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_base::platform::attribution::{self, Cause, Harness};
 
 

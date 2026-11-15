@@ -48,7 +48,7 @@ pub fn run(arguments: &[String], refresh_every_host: impl Fn()) -> u8 {
     while storage::now() - wanted_at(&dir) < IDLE_SECONDS {
         if current_runtime() != started_on {
             drop(lock);
-            let _ = Command::new(crate::platform::north_binary::north_binary()).args(["placement-survey", "keep"]).process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+            let _ = Command::new(north_base::platform::north_binary::north_binary()).args(["placement-survey", "keep"]).process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
             return 0;
         }
         refresh_every_host();

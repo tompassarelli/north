@@ -9,7 +9,7 @@ use super::broker::{Broker, Settings};
 use std::io::{BufReader, Read, Write};
 
 use super::http::{Request, Response, read_headers, read_line, read_request, status_code, write_response};
-use crate::platform::gh_broker_route::Place;
+use north_base::platform::gh_broker_route::Place;
 use super::upstream::Upstream;
 
 const ISSUES: &str = "/repos/o/r/issues";
@@ -340,7 +340,7 @@ fn a_worker_scope_callers_call_carries_a_credential_added_outside_its_domain() {
         let (sent, response, _) = app.serve(&broker, &caller, Request { method: method.to_owned(), target: "/whoami".to_owned(), headers, body: Vec::new() });
         (response.status, sent.header("authorization").unwrap_or("").to_owned())
     };
-    let placeholder = crate::platform::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER;
+    let placeholder = north_base::platform::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER;
     const WORKER: &str = "north-session-north-1397-worker.scope";
     assert_eq!(sent(WORKER, "GET", Some(placeholder)), (200, "token ghs_minted_outside".to_owned()), "a worker whose gh holds only the placeholder reads with the broker's token");
     assert_eq!(sent(WORKER, "POST", None), (200, "token ghs_minted_outside".to_owned()), "a worker's write that carries no credential gets the broker's token");

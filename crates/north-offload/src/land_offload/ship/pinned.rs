@@ -19,7 +19,7 @@ fn runtimes(home: &Path) -> PathBuf {
 fn place_runtime(home: &Path, sha: &str, north: &str, with_tree: bool) -> PathBuf {
     let runtime = runtimes(home).join(sha);
     fs::create_dir_all(&runtime).unwrap();
-    north_base::foundation::shim::write_script(&runtime.join("north"), &format!("{CONFINED}{north}"));
+    north_foundation::foundation::shim::write_script(&runtime.join("north"), &format!("{CONFINED}{north}"));
     if with_tree {
         let marker = runtime.join(layout::tree_marker());
         fs::create_dir_all(marker.parent().unwrap()).unwrap();
@@ -31,7 +31,7 @@ fn place_runtime(home: &Path, sha: &str, north: &str, with_tree: bool) -> PathBu
 fn build_host(lander_runtime: Option<bool>) -> tempfile::TempDir {
     let home = tempfile::tempdir().unwrap();
     fs::create_dir_all(home.path().join(".local/bin")).unwrap();
-    north_base::foundation::shim::write_script(&home.path().join(".local/bin/north"), SKEWED_CURRENT);
+    north_foundation::foundation::shim::write_script(&home.path().join(".local/bin/north"), SKEWED_CURRENT);
     if let Some(with_tree) = lander_runtime {
         place_runtime(home.path(), LANDER_SHA, LANDER_NORTH, with_tree);
     }

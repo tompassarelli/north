@@ -8,7 +8,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use north_base::foundation::offload::{GIT_ENV, HOLD_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV, RUN_SECONDS_CEILING, SSH_ENV, SUBJECT_ENV};
+use north_foundation::foundation::offload::{GIT_ENV, HOLD_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV, RUN_SECONDS_CEILING, SSH_ENV, SUBJECT_ENV};
 use north_base::platform::git_credential;
 use north_base::platform::session_scope::REMOVAL_ROOTS;
 

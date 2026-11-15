@@ -25,6 +25,7 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-build-system:north-build-system",
+        "//crates/north-foundation:north-foundation",
         "//third-party:serde",
         "//third-party:serde_json",
         "//third-party:sha2",
@@ -44,6 +45,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-build-system:north-build-system",
+        "//crates/north-foundation:north-foundation",
         "//third-party:serde",
         "//third-party:serde_json",
         "//third-party:sha2",

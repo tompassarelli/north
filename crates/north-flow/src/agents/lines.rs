@@ -1,11 +1,11 @@
 use serde_json::{Map, Value, json};
 
-use crate::router::ctx::Knobs;
+use north_pace::router::ctx::Knobs;
 
 pub(super) fn ask(op: &str, fields: Value) -> Result<Value, String> {
     let mut request = fields;
     request["op"] = json!(op);
-    crate::router::ops::answer(&request).unwrap_or_else(|| Err(format!("unknown op {op}"))).map_err(|error| format!("north fleet pace: {error}"))
+    north_pace::router::ops::answer(&request).unwrap_or_else(|| Err(format!("unknown op {op}"))).map_err(|error| format!("north fleet pace: {error}"))
 }
 
 pub(super) fn text(value: &Value) -> String {
@@ -44,7 +44,7 @@ fn project_line(name: &str, project: &Value) -> String {
 }
 
 fn truthy(value: &Value) -> bool {
-    crate::router::ctx::truthy(value)
+    north_pace::router::ctx::truthy(value)
 }
 
 fn measured_lines(ctx: &Value) -> Vec<String> {

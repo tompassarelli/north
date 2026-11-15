@@ -5,7 +5,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::Value;
 
 use super::lease_lifecycle::{Ledger, Phase};

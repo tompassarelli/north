@@ -6,7 +6,7 @@ use regex::Regex;
 use super::poll_loop_bounded;
 use super::poll_loop_measured::{self, MeasuredDuration};
 use crate::hook_input::{HookInput, Verdict};
-use crate::shell;
+use north_base::shell;
 
 const LIMIT_SECONDS: f64 = 60.0;
 const PREFIXES: &[&str] = &["exec", "command", "env", "nohup", "setsid", "nice", "ionice", "stdbuf", "time"];

@@ -3,11 +3,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use crate::fleet::board::Board;
-use crate::fleet::books::Digest;
-use crate::fleet::gates::Gate;
-use crate::fleet::model::{EntryKind, SessionRecord, Transcript};
-use crate::fleet::sender::urgent_text;
+use north_fleet_supervisor::fleet::board::Board;
+use north_fleet_supervisor::fleet::books::Digest;
+use north_fleet_supervisor::fleet::gates::Gate;
+use north_fleet_supervisor::fleet::model::{EntryKind, SessionRecord, Transcript};
+use north_fleet_supervisor::fleet::sender::urgent_text;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionFacts {

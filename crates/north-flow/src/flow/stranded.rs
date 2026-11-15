@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::host::Host;
-use crate::fleet::stranded::Stranded;
+use north_fleet::fleet::stranded::Stranded;
 
 const AFTER_S: f64 = 900.0;
 const LIMIT: Duration = Duration::from_secs(120);

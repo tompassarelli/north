@@ -1,8 +1,8 @@
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 
 use super::rows::VariantRow;
-pub use crate::platform::trials::{TRIALS, Verdict, compare, flips};
-use crate::platform::trials::Scenarios;
+pub use north_base::platform::trials::{TRIALS, Verdict, compare, flips};
+use north_base::platform::trials::Scenarios;
 
 pub fn covered(scenarios: &Scenarios) -> usize {
     scenarios.values().filter(|cell| cell[1] >= TRIALS).count()

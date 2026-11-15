@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use north_core::fleet::attachments::base64;
+use north_fleet_supervisor::fleet::attachments::base64;
 use north_remote_serve::remote_serve::south_land::{self, Config, Refusal, TOKEN_FILE};
 use north_remote_serve::remote_serve::south_policy;
 use tempfile::TempDir;
@@ -74,7 +74,7 @@ impl World {
         let record = self.root.path().join("push-header");
         let hook = self.remote.join("hooks/pre-receive");
         fs::create_dir_all(hook.parent().expect("hooks")).expect("hooks");
-        north_core::foundation::shim::write_script(&hook, &format!("printf '%s' \"$GIT_CONFIG_VALUE_0\" > '{}'\n", record.display()));
+        north_foundation::foundation::shim::write_script(&hook, &format!("printf '%s' \"$GIT_CONFIG_VALUE_0\" > '{}'\n", record.display()));
         record
     }
 }

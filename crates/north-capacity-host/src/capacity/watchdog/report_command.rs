@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::Value;
 
 use crate::capacity::provider_capacity::Outcome;

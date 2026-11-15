@@ -6,7 +6,7 @@
 
 use std::process::Command;
 
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 
 use super::unit_reuse::quote;
 

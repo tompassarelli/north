@@ -5,9 +5,9 @@ pub mod replay_tests;
 
 use std::collections::BTreeMap;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::ledger::closed::tier_label;
-use crate::threads::calibration::rework::{Judged, REWORK_WINDOW_S};
+use north_calibration::threads::calibration::rework::{Judged, REWORK_WINDOW_S};
 use attention::{Attention, Incidents};
 
 pub const WEEK_S: i64 = 7 * 86_400;

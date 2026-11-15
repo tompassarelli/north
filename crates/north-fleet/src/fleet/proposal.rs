@@ -12,7 +12,7 @@ use std::time::Duration;
 use north_fleet_store::ssh::quote;
 
 use super::model::{Machine, boxed, item_issues, named_line};
-use crate::router::brief::SPEC_EXACT;
+use north_pace::router::brief::SPEC_EXACT;
 
 pub const CATEGORIES: [&str; 5] = ["mechanical", "docs-policy", "tooling", "bug-known-cause", "feature"];
 pub const SPECS: [&str; 1] = [SPEC_EXACT];

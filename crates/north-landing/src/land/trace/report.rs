@@ -7,8 +7,8 @@ use super::check_times;
 use crate::landing::check_timings::outcomes::Records;
 use super::profile::{Profile, Split, Trace, percentile};
 use super::{Category, Span, Spans};
-use crate::foundation::clock::Timestamp;
-use crate::platform::records_mirror;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::records_mirror;
 use crate::land::telemetry::epoch;
 
 const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--host NAME] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]";

@@ -4,7 +4,7 @@ use serde_json::Value;
 use super::events::{final_text, tool_calls};
 use super::json::Json;
 use super::pyfmt::{lstrip, splitlines, strip};
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 
 const COMMAND_TIMEOUT_S: f64 = 120.0;
 

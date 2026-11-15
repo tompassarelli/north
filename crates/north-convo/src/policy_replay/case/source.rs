@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::error::NorthError;
-use crate::threads::incidents::corrections;
+use north_foundation::error::NorthError;
+use north_threads::threads::incidents::corrections;
 
 pub struct Case {
     pub id: String,

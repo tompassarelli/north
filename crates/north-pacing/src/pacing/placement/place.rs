@@ -7,15 +7,15 @@ use super::gate::{self, Decision};
 use super::launch::{LEAD_ON_TRUSTED, Launch, Overrides, Placed, brief_text, home_path_refusal, is_lead, lead_refusal, machine_load, trusted};
 use super::recent;
 use super::refusal::Refusal;
-use crate::usage::decide::world::ModelFamily;
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::hops::timed;
-use crate::fleet::model::{LaunchRequest, Role};
-use crate::fleet::registry::Fleet;
-use crate::fleet::roster::Roster;
-use crate::platform::attribution::{self, Cause, Harness};
-use crate::platform::decision_log;
-use crate::spend::Starter;
+use north_pace::usage::decide::world::ModelFamily;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::hops::timed;
+use north_fleet_supervisor::fleet::model::{LaunchRequest, Role};
+use north_fleet_supervisor::fleet::registry::Fleet;
+use north_fleet_supervisor::fleet::roster::Roster;
+use north_base::platform::attribution::{self, Cause, Harness};
+use north_base::platform::decision_log;
+use north_pace::spend::Starter;
 use north_strategy_types::Kind;
 use north_strategy_types::placement::{self as record, Case};
 
@@ -23,7 +23,7 @@ use north_strategy_types::placement::{self as record, Case};
 #[derive(Clone, Copy)]
 pub struct Placer<'a> {
     pub fleet: &'a Fleet,
-    pub spend_now: fn(&Fleet, &Roster) -> Result<crate::spend::View, String>,
+    pub spend_now: fn(&Fleet, &Roster) -> Result<north_pace::spend::View, String>,
     pub harness_cap: fn(&Fleet, &LaunchRequest) -> Result<(), String>,
 }
 
@@ -96,7 +96,7 @@ impl Placer<'_> {
 
 /// A launch of a non-Claude harness (DeepSeek on opencode) obeys the host verdict a Claude launch obeys: a host that is
 /// saturated by memory, disk, load or admission queue starts nothing, and an unreadable reading refuses nothing.
-pub fn harness_host(host: &str, reading: Option<&crate::capacity::saturation::Saturation>) -> Result<Placed, Refusal> {
+pub fn harness_host(host: &str, reading: Option<&north_capacity_host::capacity::saturation::Saturation>) -> Result<Placed, Refusal> {
     match reading.and_then(|reading| reading.refusal(host)) {
         Some(why) => Err(Refusal::Saturated(format!("{why}; it starts there once the host has room"))),
         None => Ok(Placed::default()),

@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use crate::fleet::model::{Account, ProviderName};
-use crate::fleet::roster::{Declared, Roster};
-use crate::fleet::runtime::labelled_homes;
+use north_fleet_supervisor::fleet::model::{Account, ProviderName};
+use north_fleet_supervisor::fleet::roster::{Declared, Roster};
+use north_fleet_supervisor::fleet::runtime::labelled_homes;
 
 const PREFIX: &str = "codex-";
 const POOLED: &str = "pooled";

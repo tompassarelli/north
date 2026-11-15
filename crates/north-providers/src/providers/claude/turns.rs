@@ -1,7 +1,7 @@
 use serde_json::Value;
 
-use crate::fleet::runtime::{ClientRefusal, CredentialFailure};
-use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
+use north_fleet_supervisor::fleet::runtime::{ClientRefusal, CredentialFailure};
+use north_fleet_supervisor::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 
 pub(super) fn signals(frame: &Value) -> Vec<TurnSignal> {
     let Some(conversation) = frame["session_id"].as_str().map(str::to_owned) else { return Vec::new() };

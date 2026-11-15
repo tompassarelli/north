@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use super::verb::{Args, Context, Failure, Outcome, immediate, open};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const VERBS: [&str; 1] = ["incident"];
 

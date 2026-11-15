@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::fleet::model::Status;
+use north_fleet_supervisor::fleet::model::Status;
 
 #[derive(Default)]
 pub struct StateClock {

@@ -1,4 +1,4 @@
-use crate::platform::usage_table;
+use north_base::platform::usage_table;
 use rusqlite::{Connection, params_from_iter};
 use serde_json::Value;
 use std::path::PathBuf;

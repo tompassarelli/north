@@ -87,7 +87,7 @@ impl Lane {
     }
 
     fn shadowed(&self) -> String {
-        fs::read_to_string(self.dir.path().join("state").join(crate::landing_refusals::LOG)).unwrap_or_default()
+        fs::read_to_string(self.dir.path().join("state").join(north_diff_gates::landing_refusals::LOG)).unwrap_or_default()
     }
 }
 
@@ -319,7 +319,7 @@ struct Published {
     days_ago: i64,
 }
 
-impl crate::dep_gate::Registry for Published {
+impl north_diff_gates::dep_gate::Registry for Published {
     fn read(&self, host: &str, path: &str) -> Result<String, &'static str> {
         let name = path.rsplit('/').next().unwrap_or_default();
         let at = super::rfc3339(time::OffsetDateTime::now_utc() - time::Duration::days(self.days_ago));

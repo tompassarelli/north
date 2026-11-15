@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Record, Store};
 
 use super::after_landing_lifecycle::{self as lifecycle, BaseBroken, Pause};

@@ -7,8 +7,8 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
-use crate::foundation::clock::Timestamp;
-use crate::ledger::outcome::attention::Typed;
+use north_foundation::foundation::clock::Timestamp;
+use north_providers::ledger::outcome::attention::Typed;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Label {

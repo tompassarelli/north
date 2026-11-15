@@ -1,4 +1,4 @@
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::{Value, json};
 
 use super::sampling::round2;

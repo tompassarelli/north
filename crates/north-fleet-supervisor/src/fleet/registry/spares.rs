@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::thread::ScopedJoinHandle;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Predicted, Role, SessionRecord};
 use crate::fleet::hops;
 use crate::fleet::remote::{self, LaunchReads, ProfileReads};

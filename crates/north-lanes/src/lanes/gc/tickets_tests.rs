@@ -6,7 +6,7 @@ use north_base::platform::land_queue;
 
 use super::super::{test_now, test_now_ms, touched_at};
 use super::{Inputs, run_in};
-use north_base::test_inputs::git::{git_in, init_repo};
+use north_foundation::test_inputs::git::{git_in, init_repo};
 
 fn commit(dir: &Path, file: &str, text: &str, subject: &str) -> String {
     fs::write(dir.join(file), text).unwrap();

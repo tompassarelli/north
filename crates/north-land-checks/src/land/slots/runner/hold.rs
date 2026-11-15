@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use north_base::foundation::carry;
-use north_base::foundation::offload::RUN_SECONDS_CEILING;
+use north_foundation::foundation::carry;
+use north_foundation::foundation::offload::RUN_SECONDS_CEILING;
 use north_base::platform::harness;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin, Command};

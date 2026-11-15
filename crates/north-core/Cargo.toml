@@ -25,6 +25,8 @@ tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [dev-dependencies]
 north-fleet-supervisor = { path = "../north-fleet-supervisor", features = ["test-support"] }

@@ -7,8 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use regex::Regex;
 use serde_json::{Value, json};
 
-use crate::platform::orchestration;
-use crate::platform::{host, process};
+use north_base::platform::orchestration;
+use north_base::platform::{host, process};
 
 const AGENTS: [&str; 2] = ["claude", "codex"];
 const NON_RESIDENT_ARGS: [&str; 7] = ["-p", "--print", "--cloud", "exec", "app-server", "mcp-server", "cloud"];

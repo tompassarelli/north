@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -15,8 +15,8 @@ fn unit_runs_inline() -> String {
 fn units(root: &Path, systemd_run: &str) -> PathBuf {
     let units = root.join("units");
     std::fs::create_dir_all(&units).unwrap();
-    north_base::foundation::shim::write_executable(&units.join("systemd-run"), systemd_run);
-    north_base::foundation::shim::write_executable(&units.join("systemctl"), "#!/bin/sh\n");
+    north_foundation::foundation::shim::write_executable(&units.join("systemd-run"), systemd_run);
+    north_foundation::foundation::shim::write_executable(&units.join("systemctl"), "#!/bin/sh\n");
     units
 }
 
@@ -102,18 +102,18 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
     let (held_name, candidate_name) = if held.as_ref().is_some_and(|held| held.ahead) { (candidate_name, held_name) } else { (held_name, candidate_name) };
     let candidate = state.join("north/runtimes").join(&candidate_name).join("tree/bin/north");
     std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
-    north_base::foundation::shim::write_executable(&candidate, script.replace("{NEWER}", &newer));
+    north_foundation::foundation::shim::write_executable(&candidate, script.replace("{NEWER}", &newer));
     std::os::unix::fs::symlink(format!("runtimes/{candidate_name}"), state.join("north/current")).unwrap();
     if let Some(held) = held {
         let binary = state.join("north/runtimes").join(&held_name).join("tree/bin/north");
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        north_base::foundation::shim::write_executable(&binary, held.script);
+        north_foundation::foundation::shim::write_executable(&binary, held.script);
         std::os::unix::fs::symlink(format!("runtimes/{held_name}"), state.join("north/lander")).unwrap();
     }
     let alarmed = root.join("alarms.log");
     let north = root.join("bin/north");
     std::fs::create_dir_all(north.parent().unwrap()).unwrap();
-    north_base::foundation::shim::write_executable(&north, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n", alarmed.display()));
+    north_foundation::foundation::shim::write_executable(&north, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n", alarmed.display()));
     if let Some(age) = held_for {
         let since = NOW - age;
         std::fs::write(state.join("north/lander-held"), format!("{since}\n")).unwrap();
@@ -275,7 +275,7 @@ impl Chain {
     fn runtime(&self, sha: &str, on_replay: &str) {
         let binary = self.state.join(format!("north/runtimes/{sha}/tree/bin/north"));
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        north_base::foundation::shim::write_executable(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n[ \"$1 $2\" = \"land replay\" ] && {{ {on_replay}; }}\nexit 0\n"));
+        north_foundation::foundation::shim::write_executable(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n[ \"$1 $2\" = \"land replay\" ] && {{ {on_replay}; }}\nexit 0\n"));
     }
 
     fn current(&self, sha: &str) {
@@ -304,7 +304,7 @@ impl Chain {
     fn promote_through(&self, clock: u64, systemd_run: &str) -> Promoted {
         let units = units(self.root.path(), systemd_run);
         let fleet = self.root.path().join("fleet");
-        north_base::foundation::shim::write_executable(&fleet, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n");
+        north_foundation::foundation::shim::write_executable(&fleet, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n");
         let arguments = ["promote", "--shadow-minutes", "0", "--repo", self.checkout.to_str().unwrap()].join("\n");
         let output = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])

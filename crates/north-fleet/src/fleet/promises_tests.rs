@@ -11,7 +11,7 @@ fn commands(claims: &[Claim]) -> Vec<Option<&str>> {
 }
 
 fn unix_ms(text: &str) -> u64 {
-    u64::try_from(crate::foundation::clock::Timestamp::parse(text).unwrap().unix_millis()).unwrap()
+    u64::try_from(north_foundation::foundation::clock::Timestamp::parse(text).unwrap().unix_millis()).unwrap()
 }
 
 struct UtcDay(u64);

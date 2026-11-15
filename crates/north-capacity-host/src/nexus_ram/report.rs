@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use super::Inputs;
 use super::sample::read;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const LOW_AVAILABLE_MIB: i64 = 600;
 const PSI_FULL_LIMIT: f64 = 1.0;

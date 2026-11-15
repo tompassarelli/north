@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_base::foundation::step::Step;
+use north_foundation::foundation::step::Step;
 use north_landing::land::scans::outgoing::denylist::Denylist;
 use north_landing::land::scans::outgoing::{email, instruction_limits, language, native_ref, secrets};
 

@@ -290,7 +290,7 @@ fn a_confined_seat_shows_another_sessions_transcript_and_sends_it_a_row_with_the
     assert!(stdout.contains("show=0") && stdout.contains("child-reply"), "a confined seat could not read another session's transcript: {stdout}{stderr}");
     assert!(!session.join("g1/session-streams").exists(), "a confined seat wrote another session's stream index: {stderr}");
     assert!(stdout.contains("send=0"), "a confined worker's send failed: {stdout}{stderr}");
-    let spooled = north_core::fleet::store::Spool::at(&fleet).pending().unwrap();
+    let spooled = north_fleet_supervisor::fleet::store::Spool::at(&fleet).pending().unwrap();
     assert!(spooled.iter().any(|row| row.to == "child" && row.text == "ready to land"), "the send left no row for the fleet tick: {spooled:?} {stderr}");
 }
 
@@ -344,7 +344,7 @@ fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime
     let script = |relative: &str, says: &str| {
         let path = home.path().join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        north_core::foundation::shim::write_script(&path, &format!("echo {says}\n"));
+        north_foundation::foundation::shim::write_script(&path, &format!("echo {says}\n"));
         path
     };
     let shim = script(".local/share/north/bin/cargo", "shim");
@@ -357,7 +357,7 @@ fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime
     file(&home.path().join(".local/lib/claude/versions/1/token"));
     let north = home.path().join(".local/state/north/runtimes/host/north");
     std::fs::create_dir_all(north.parent().unwrap()).unwrap();
-    north_core::foundation::shim::copy_executable(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &north);
+    north_foundation::foundation::shim::copy_executable(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &north);
 
     for (program, says) in [(&shim, "shim"), (&on_path, "on-path"), (&runtime, "runtime"), (&opencode, "opencode"), (&pi, "pi")] {
         let output = home.run_in_lane_only_by(&north, &[program.to_str().unwrap()]);
@@ -389,7 +389,7 @@ fn a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_t
     let fresh = home.path().join("code/p/worktrees/fresh");
     let tool = fresh.join("bin/tool");
     std::fs::create_dir_all(tool.parent().unwrap()).unwrap();
-    north_core::foundation::shim::write_script(&tool, "echo fresh-lane\n");
+    north_foundation::foundation::shim::write_script(&tool, "echo fresh-lane\n");
     file(&fresh.join("note.txt"));
     let path = |relative: &str| home.path().join(relative);
 
@@ -484,14 +484,14 @@ const SPOOLING_CHILD: &str = "NORTH_956_SPOOLING_CHILD";
 #[test]
 fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
     if let Some(id) = std::env::var_os(SPOOLING_CHILD) {
-        use north_core::fleet::gates::GateRequest;
-        use north_core::fleet::sender::Sender;
-        use north_core::fleet::store::{FleetRow, RowKind, Spool};
+        use north_fleet_supervisor::fleet::gates::GateRequest;
+        use north_fleet_supervisor::fleet::sender::Sender;
+        use north_fleet_supervisor::fleet::store::{FleetRow, RowKind, Spool};
         let request = GateRequest { verification: false, issue: None, box_text: None, session: "far-1".into(), question: "which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 60_000, ask_once: None };
         let row = FleetRow { id: id.to_string_lossy().into_owned(), kind: RowKind::Gate, to: "far-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "which?".into(), sender: Sender::Session("far-1".into()), gate: Some(Box::new(request)), answer: None, job: None, origin: None, spooled_by: None };
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
         Spool::of(&home.join(".local/state/north/fleet"), "far-1").unwrap().put(&row).expect("a sandboxed worker opens a gate in its own fleet spool location");
-        let queued = north_core::threads::client::spool_ingest(b"{\"type\":\"done-check\"}\n").expect("a sandboxed worker queues a box check");
+        let queued = north_threads::threads::client::spool_ingest(b"{\"type\":\"done-check\"}\n").expect("a sandboxed worker queues a box check");
         assert!(queued, "the check was not queued for the ledger host");
         return;
     }
@@ -539,7 +539,7 @@ impl Worker {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
         let socket = runtime.path().join("north-outside/broker.sock");
         let broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
-        assert!(north_core::platform::wait::until(HANG, || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
+        assert!(north_base::platform::wait::until(HANG, || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
         Self { home, runtime, _broker: broker }
     }
 
@@ -568,7 +568,7 @@ impl Worker {
         let (stdout, stderr) = self.run(&format!("{north} fleet send {recipient} ready to land; echo exit=$?"));
         assert!(stdout.contains("exit=0"), "a worker's send failed: {stdout}{stderr}");
         assert!(!stderr.to_lowercase().contains("denied") && !stderr.to_lowercase().contains("fail") && !stderr.contains("not withdrawn"), "a worker's send printed an error: {stderr}");
-        let spooled = north_core::fleet::store::Spool::at(fleet).pending().unwrap();
+        let spooled = north_fleet_supervisor::fleet::store::Spool::at(fleet).pending().unwrap();
         assert!(spooled.iter().any(|row| row.to == recipient && row.text == "ready to land"), "the send left no row for the fleet tick: {spooled:?} {stderr}");
     }
 
@@ -588,7 +588,7 @@ fn a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker() {
     let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
     let socket = runtime.path().join("north-outside/broker.sock");
     let _broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
-    assert!(north_core::platform::wait::until(HANG, || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
+    assert!(north_base::platform::wait::until(HANG, || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
     let origin = home.path().join("origin");
     std::fs::create_dir_all(&origin).unwrap();
     git(&origin, &["init", "-q", "-b", "main"]);
@@ -675,7 +675,7 @@ fn a_candidate_check_or_after_landing_step_cannot_read_the_logins_or_write_the_t
         file(&root.join(relative));
     }
     let safe_push = root.join("safe-push");
-    north_core::foundation::shim::write_executable(&safe_push, "#!/bin/sh\nexit 0\n");
+    north_foundation::foundation::shim::write_executable(&safe_push, "#!/bin/sh\nexit 0\n");
     std::fs::write(root.join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
     let mut step: String = queued.iter().map(|relative| format!("printf x >> $HOME/{relative} || true && ")).collect();
     step.push_str("printf ran > ran.txt");

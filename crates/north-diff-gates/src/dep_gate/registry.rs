@@ -1,5 +1,5 @@
 use super::{Identity, LockCandidate, Parsed, Urgent, get, parse_json, required, string};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;

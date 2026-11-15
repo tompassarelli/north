@@ -4,7 +4,7 @@ use super::registry::{PublicRegistries, Registry, publish_times};
 use super::snapshot::{Snapshot, git, read_snapshot};
 use super::trailer::{dependency_reasons, urgent_dependencies};
 use super::{TRAILER_FORMAT, URGENT_FORMAT, Urgent};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use std::collections::BTreeMap;
 use std::path::Path;
 

@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use super::burn::{self, Burn};
 use super::py;
 use super::store::Row;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Runway {
@@ -70,5 +70,5 @@ fn current(mine: &[&Row], name: &str, now: Timestamp) -> Result<Option<(f64, Tim
 
 /// A time as the weekday and 12-hour clock in the laptop's timezone, such as `Thu 9:00 AM`.
 pub fn weekday_clock(at: Timestamp) -> String {
-    super::plain::clock(at, crate::foundation::clock::local_offset_seconds())
+    super::plain::clock(at, north_foundation::foundation::clock::local_offset_seconds())
 }

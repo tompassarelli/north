@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use toml_edit::{DocumentMut, Item, Table};
 
-pub static REGISTRY: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table("harness/loops.toml"));
+pub static REGISTRY: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("harness/loops.toml"));
 const USAGE: &str = "usage: north loops check [--role ledger|lander|here]";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -121,16 +121,16 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
     let ticks: OnceCell<Result<BTreeMap<String, i64>, String>> = OnceCell::new();
     let read = |store: &Store| match store {
         Store::Record(record) => last_written(&state, record).map_or(Reading::Never, Reading::At),
-        Store::Graph { writer } => graph_reading(ticks.get_or_init(|| north_graph_loops::ticks(&north_graph_loops::graph_path())), writer),
+        Store::Graph { writer } => graph_reading(ticks.get_or_init(|| north_graph_loops::ticks(&north_graph::default_path())), writer),
     };
     let score = |record: &str| std::fs::read_to_string(state.join(record)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
-    let closed_issues = north_graph_loops::closed_issues(&north_graph_loops::graph_path()).unwrap_or_default();
+    let closed_issues = north_graph_loops::closed_issues(&north_graph::default_path()).unwrap_or_default();
     let closed = |owner: &str| closed_issues.contains(owner);
     let held: Box<dyn Fn(Role) -> bool> = match role {
         Some(role) => Box::new(move |found| found == role),
         None => {
             let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-            let hosts = Hosts::read(&home, crate::platform::harness::harness_root());
+            let hosts = Hosts::read(&home, north_base::platform::harness::harness_root());
             Box::new(move |found| hosts.holds(found))
         }
     };

@@ -1,7 +1,7 @@
 use std::io::{BufRead, Write};
 
 use super::github_app;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north git-credential get|store|erase
 

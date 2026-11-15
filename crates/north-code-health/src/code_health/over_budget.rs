@@ -1,5 +1,5 @@
 use super::snapshot::git;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::rolling_issue::{Gh, Tracker, settle};
 use serde::Deserialize;
 use std::io::Read;

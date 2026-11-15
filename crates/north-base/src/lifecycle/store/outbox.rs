@@ -5,8 +5,8 @@ use std::time::Duration;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::{Store, millis, sql};
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 use crate::lifecycle::{Delivery, Effect, Fault, FaultKind, Leased, Lifecycle, Liveness, Moved, Owner, Stage};
 
 /// Leases an effect gets before it stays pending for `north health` to report; a lease whose lessee is gone is not one.

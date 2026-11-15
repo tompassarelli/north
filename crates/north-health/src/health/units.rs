@@ -1,4 +1,4 @@
-use crate::platform::rolling_issue::{Breaches, Tracker, alarm};
+use north_base::platform::rolling_issue::{Breaches, Tracker, alarm};
 
 type Verdict = Result<(), String>;
 

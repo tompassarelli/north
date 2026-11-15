@@ -10,9 +10,9 @@ use north_publish::publish;
 
 use super::process::{Input, detach, python_json};
 use super::{Client, Flush, SPOOL_FLUSH, rows_in_chunks};
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
-use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 use crate::threads::ingest_lock;
 use withheld::{WILL_NOT_RUN, exited};
 

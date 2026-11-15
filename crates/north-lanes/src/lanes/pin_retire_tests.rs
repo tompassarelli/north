@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::pin_retire::execute;
-use north_base::test_inputs::git::git_in;
+use north_foundation::test_inputs::git::git_in;
 
 struct World {
     root: tempfile::TempDir,

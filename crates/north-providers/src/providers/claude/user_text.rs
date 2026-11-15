@@ -1,4 +1,4 @@
-use crate::fleet::model::EntryKind;
+use north_fleet_supervisor::fleet::model::EntryKind;
 
 pub fn entry(text: &str, replay: bool, synthetic: bool) -> (EntryKind, String) {
     let sender = if replay { EntryKind::User } else { EntryKind::Notice };

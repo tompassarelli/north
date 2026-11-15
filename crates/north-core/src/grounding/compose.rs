@@ -1,5 +1,5 @@
 use super::*;
-use crate::foundation::redact::redact;
+use north_foundation::foundation::redact::redact;
 use std::collections::HashSet;
 use std::time::Instant;
 use store::{Bound, Hit, Index};

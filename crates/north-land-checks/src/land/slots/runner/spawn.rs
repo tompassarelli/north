@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use north_base::foundation::carry;
-use north_base::foundation::offload::ONE_LANE_ENV;
+use north_foundation::foundation::carry;
+use north_foundation::foundation::offload::ONE_LANE_ENV;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
@@ -105,7 +105,7 @@ fn confined_to_candidate(north: &str, argv: Vec<String>) -> Vec<String> {
 
 /// The words that run the check command `observed` on this host in its dependency box, outside any candidate confinement.
 fn local_step(north: &str, observed: String) -> Vec<String> {
-    ["env".to_owned(), "-u".to_owned(), north_base::foundation::offload::TREES_ENV.to_owned(), north.to_owned(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed].into()
+    ["env".to_owned(), "-u".to_owned(), north_foundation::foundation::offload::TREES_ENV.to_owned(), north.to_owned(), "depbox".to_owned(), "check".to_owned(), "--".to_owned(), "bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed].into()
 }
 
 /// The words that run `command` on this host as the lander runs a candidate's land check, confined to the candidate checkout it runs in (south#138).
@@ -307,7 +307,7 @@ impl Shared {
             .env(carry::LAND_STORE_VIEW, if self.config.host_inputs(command).is_empty() { "" } else { north_base::store_pins::AT_HEAD })
             .env(carry::CHECK_ENDS, check_ends(timeout))
             .env(ONE_LANE_ENV, if self.arguments.one_lane { "1" } else { "" })
-            .envs(self.arguments.twin_away.as_ref().map(|away| (north_base::foundation::offload::TWIN_AWAY_ENV, away.join(" "))).into_iter().chain(self.arguments.hold.clone().map(|held| (north_base::foundation::offload::HOLD_ENV, held))))
+            .envs(self.arguments.twin_away.as_ref().map(|away| (north_foundation::foundation::offload::TWIN_AWAY_ENV, away.join(" "))).into_iter().chain(self.arguments.hold.clone().map(|held| (north_foundation::foundation::offload::HOLD_ENV, held))))
             .envs(self.arguments.line_budget().map(|left| (carry::LINE_WITHIN, left.to_string())))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -396,7 +396,7 @@ impl Shared {
         let deadline = steps::timed("deadline", || self.deadline_of(&command));
         let timeout = deadline.seconds;
         let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
-        say(&format!("safe-push: land check{label}: {command} ({deadline}; started {})", north_base::foundation::clock::Timestamp::now().iso_millis()));
+        say(&format!("safe-push: land check{label}: {command} ({deadline}; started {})", north_foundation::foundation::clock::Timestamp::now().iso_millis()));
         let measured = self.offload_host_for(&command).is_none();
         let before = children_cpu_seconds();
         let ran = match self.spawn_check(&command, leased, self.arguments.tree(), timeout, &self.root).await {

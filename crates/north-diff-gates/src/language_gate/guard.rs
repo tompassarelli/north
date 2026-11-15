@@ -1,6 +1,6 @@
 use super::allowlist::{Allowlist, Class, classify};
 use super::{ALLOWLIST, ALTERNATIVE, INPUT_LIMIT, Result};
-use crate::shell::{ShellToken, operator_tokens, strip_heredocs};
+use north_base::shell::{ShellToken, operator_tokens, strip_heredocs};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;

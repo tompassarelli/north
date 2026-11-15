@@ -1,4 +1,4 @@
-use crate::shell;
+use north_base::shell;
 use std::time::Duration;
 
 const LANDING: &str = "main";
@@ -62,7 +62,7 @@ fn replacement(args: &[&str], cwd: &str, moves: bool) -> Option<String> {
 }
 
 fn on_landing_branch(cwd: &str) -> bool {
-    crate::platform::git::run_within(&["-C", cwd, "symbolic-ref", "--short", "HEAD"], Duration::from_secs(5))
+    north_base::platform::git::run_within(&["-C", cwd, "symbolic-ref", "--short", "HEAD"], Duration::from_secs(5))
         .filter(|output| output.status.success())
         .is_some_and(|output| String::from_utf8_lossy(&output.stdout).trim() == LANDING)
 }

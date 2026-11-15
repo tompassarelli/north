@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 use super::host::{Host, Places, valid_name, write_atomic};
 use super::stall::Verdict;
-use crate::platform::rolling_issue::Breaches;
+use north_base::platform::rolling_issue::Breaches;
 
 const GUARDS: [&str; 4] = ["actions", "wisp", "reuse", "pins"];
 const EPISODES: [&str; 4] = ["guard", "notice", "stranded", "refused"];
@@ -52,7 +52,7 @@ pub fn guard_reasons(row: &Value) -> Vec<(&'static str, String)> {
 }
 
 fn parent_of(nodes: &[Node], repo: &str) -> String {
-    let fragment = format!("/code/{}/", crate::threads::catalog::checkout(repo));
+    let fragment = format!("/code/{}/", north_calibration::threads::catalog::checkout(repo));
     nodes
         .iter()
         .find(|node| node.active && node.cwd.contains(&fragment))

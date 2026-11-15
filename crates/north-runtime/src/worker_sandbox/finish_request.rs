@@ -103,7 +103,7 @@ fn made_by(name: &str, record: &serde_json::Value, checkout: &Checkout, host: &H
     let launched = std::time::UNIX_EPOCH + std::time::Duration::from_millis(record["created_ms"].as_u64().unwrap_or(u64::MAX));
     let made = std::fs::symlink_metadata(&checkout.top).ok().and_then(|metadata| metadata.created().ok()).is_some_and(|born| born >= launched);
     made || std::fs::read_dir(&host.fleet).into_iter().flatten().flatten().any(|entry| {
-        let handed = std::fs::read(entry.path().join(crate::fleet::session_lifecycle::LANES_HANDED)).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        let handed = std::fs::read(entry.path().join(north_fleet_supervisor::fleet::session_lifecycle::LANES_HANDED)).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
         handed.is_some_and(|handed| handed["to"] == name && handed["lanes"].as_array().into_iter().flatten().filter_map(|lane| lane.as_str()).any(|lane| Path::new(lane).canonicalize().is_ok_and(|lane| lane == checkout.top)))
     })
 }
@@ -132,7 +132,7 @@ impl Granted {
         if !joins && !check_offload::compiles(&self.command) {
             return self;
         }
-        let here = crate::platform::host::name();
+        let here = north_base::platform::host::name();
         let chosen = north_says(&["capacity", "offload", "choose"]).filter(|host| !host.is_empty() && !host.contains(char::is_whitespace));
         if let Some(host) = chosen.as_ref().filter(|host| joins && **host != here) {
             self.arguments = ["land", "checks", "--accept", &self.command, "--base", &base, "--head", &self.head, "--runner-host", host].map(str::to_owned).to_vec();

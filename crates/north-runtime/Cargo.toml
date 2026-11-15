@@ -34,6 +34,12 @@ base64.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
 landlock = "0.4.7"
+north-calibration = { path = "../north-calibration" }
+north-capacity-host = { path = "../north-capacity-host" }
+north-foundation = { path = "../north-foundation" }
+north-pace = { path = "../north-pace" }
+north-pacing = { path = "../north-pacing" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 
 [dev-dependencies]
 north-control-plane = { path = "../north-control-plane" }

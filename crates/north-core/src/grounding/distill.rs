@@ -13,11 +13,11 @@ use serde_json::Value;
 
 use super::common::{state_dir, SQLITE_BUSY};
 use super::js_text::{js_space, squash, utf16_head, utf16_len, utf16_tail};
-use crate::threads::incidents::corrections;
-use crate::foundation::redact::redact;
-use crate::platform::sqlite::{self, Access};
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_threads::threads::incidents::corrections;
+use north_foundation::foundation::redact::redact;
+use north_base::platform::sqlite::{self, Access};
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = r#"distill: distill Tom's decisions into a long-term ledger that does not decay.
 
@@ -135,12 +135,12 @@ fn paths() -> Paths {
     let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
     let state = state_dir();
     Paths {
-        db: env::var_os("NORTH_GROUNDING_CONVO_DB").map(PathBuf::from).unwrap_or_else(|| north_base::foundation::convo_index::default_path(&home)),
+        db: env::var_os("NORTH_GROUNDING_CONVO_DB").map(PathBuf::from).unwrap_or_else(|| north_foundation::foundation::convo_index::default_path(&home)),
         handoffs: env::var_os("NORTH_GROUNDING_HANDOFFS").map(PathBuf::from).unwrap_or_else(|| home.join(".local/state/agents/handoffs")),
         ledger: env::var_os("NORTH_GROUNDING_LEDGER").map(PathBuf::from).unwrap_or_else(|| state.join("ledger.jsonl")),
         watermark: state.join("distill-state.json"),
         score: state.join(SCORE_FILE),
-        graph: north_graph_loops::graph_path(),
+        graph: north_graph::default_path(),
         state,
     }
 }

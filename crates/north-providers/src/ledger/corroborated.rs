@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use north_graph::{Atom, Graph, Term, parse_query};
 
-use crate::error::{NorthError, NorthResult};
-use crate::platform::harness::harness_root;
+use north_foundation::error::{NorthError, NorthResult};
+use north_base::platform::harness::harness_root;
 
 const RULE: &str = "harness/graph-rules/corroborated.json";
 const CHECKER: &str = "checker";

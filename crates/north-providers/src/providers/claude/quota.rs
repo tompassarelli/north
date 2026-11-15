@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::fleet::model::{Quota, QuotaWindow};
+use north_fleet_supervisor::fleet::model::{Quota, QuotaWindow};
 
 pub(super) fn account_quota(frame: &Value) -> Option<Quota> {
     if frame["type"] != "rate_limit_event" {

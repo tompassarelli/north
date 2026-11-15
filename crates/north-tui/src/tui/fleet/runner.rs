@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
-use crate::error::NorthResult;
-use crate::fleet::prompt::deepened;
+use north_foundation::error::NorthResult;
+use north_fleet_supervisor::fleet::prompt::deepened;
 
 use super::desk::SessionActions;
 use super::screen::Command;

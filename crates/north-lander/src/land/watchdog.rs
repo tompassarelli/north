@@ -308,7 +308,7 @@ fn named_worktrees(problem: &str) -> Vec<PathBuf> {
 }
 
 pub fn unit(repo: &Path) -> String {
-    crate::platform::land_queue::lander_unit(repo)
+    north_base::platform::land_queue::lander_unit(repo)
 }
 
 fn restart(repo: &Path, why: &str, hands: &dyn Hands, restarted: &mut BTreeSet<String>) -> Repair {

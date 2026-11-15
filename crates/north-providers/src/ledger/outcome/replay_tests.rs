@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::Connection;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::ledger::closed::SpendRun;
-use crate::threads::calibration::rework::{Commit, Judged, Landing, judge};
+use north_calibration::threads::calibration::rework::{Commit, Judged, Landing, judge};
 
 pub const NOW: i64 = 1_793_793_600;
 
@@ -14,8 +14,8 @@ pub fn at(text: &str) -> i64 {
 
 pub fn ledger() -> Connection {
     let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
-    db.execute_batch(crate::threads::landing::SCHEMA).unwrap();
+    db.execute_batch(north_calibration::threads::fixtures::LEDGER_SCHEMA).unwrap();
+    db.execute_batch(north_calibration::threads::landing::SCHEMA).unwrap();
     db.execute_batch(include_str!("fixtures/ledger.sql")).unwrap();
     db
 }

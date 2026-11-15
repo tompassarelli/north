@@ -1,6 +1,6 @@
 //! Driving a session's turn: the text delivered into it, and the interrupt that cuts a turn short.
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
 use crate::fleet::model::{Delivery, SessionRecord, Status, Transcript};
 use crate::fleet::sender::urgent_prefixed;

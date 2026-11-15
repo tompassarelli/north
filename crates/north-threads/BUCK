@@ -30,6 +30,7 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-control-plane:north-control-plane",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-publish:north-publish",
         "//crates/north-strategy-types:north-strategy-types",
         "//third-party:regex",
@@ -57,6 +58,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-control-plane:north-control-plane",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-publish:north-publish",
         "//crates/north-strategy-types:north-strategy-types",
         "//third-party:regex",

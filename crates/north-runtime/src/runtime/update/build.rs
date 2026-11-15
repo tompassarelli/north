@@ -4,7 +4,7 @@ use super::super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::super::build_host;
 use super::super::pull;
 use super::git;
-use crate::capacity::game_reserve::Confinement;
+use north_capacity_host::capacity::game_reserve::Confinement;
 use north_offload::land_offload;
 use std::ffi::OsStr;
 use std::fs;
@@ -91,7 +91,7 @@ pub(super) fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
         Err(why) => why,
     };
     let mut confined = None;
-    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), crate::capacity::game_reserve::confinement) {
+    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), north_capacity_host::capacity::game_reserve::confinement) {
         Placement::Confined(confinement) => {
             println!("north runtime: {refused}; this host is in game-reserve, so it builds {short} on the agent CPUs {} at idle priority", confinement.cpus);
             confined = Some(confinement);
@@ -106,14 +106,14 @@ pub(super) fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
     let started = std::time::Instant::now();
     build_here(layout, checkout, target, runtime, confined.as_ref())?;
     let binary = layout::binary_hash(&runtime.join("north"))?;
-    build_host::note(layout, target, build_host::Built { host: crate::platform::host::name(), seconds: started.elapsed().as_secs() as i64, binary });
+    build_host::note(layout, target, build_host::Built { host: north_base::platform::host::name(), seconds: started.elapsed().as_secs() as i64, binary });
     Ok(())
 }
 
 /// On a build host: builds `target`, a commit on origin/main, into this host's runtimes for the settling host to take, under this host's runtime capacity admission, without promoting it here.
 pub(super) fn build_for_peer(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
     if !land_offload::builds_for_peers() {
-        return Err(failed(1, format!("{} is no build host (no offload_builds), so it builds no runtime for another host", crate::platform::host::name())));
+        return Err(failed(1, format!("{} is no build host (no offload_builds), so it builds no runtime for another host", north_base::platform::host::name())));
     }
     let short = layout::short(target);
     if layout::has_programs(runtime) && layout::built_from_own_commit(runtime).is_ok() {

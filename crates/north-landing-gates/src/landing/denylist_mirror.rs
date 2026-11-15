@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::platform::git as platform_git;
-use crate::platform::process;
+use north_base::platform::git as platform_git;
+use north_base::platform::process;
 
 const SOUTH_REF: &str = "refs/south/main";
 const SOUTH_DENYLIST_PATH: &str = "privacy/public-denylist.toml";

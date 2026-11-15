@@ -1,7 +1,7 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::path::Path;
 
-use north_base::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 use north_offload::check_offload::offloaded;
 
 use super::super::{Lane, Road};

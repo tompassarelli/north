@@ -8,8 +8,8 @@ use serde_json::Value;
 
 use super::probes::SILENT_SECS;
 use super::{CapacityView, CloudSession, CloudView, HostView, RuntimeView, SessionView, SubagentView, Ticket, WaitView, WatchContext};
-use crate::capacity::admission::default_mib;
-use crate::fleet::waits::Waits;
+use north_capacity_host::capacity::admission::default_mib;
+use north_fleet_supervisor::fleet::waits::Waits;
 
 const SUBAGENT_HORIZON_SECS: u64 = 6 * 3600;
 
@@ -137,7 +137,7 @@ pub(super) fn remote_hosts(orchestration: &str, local: &str) -> Vec<(String, Str
 
 fn host_reads() -> Vec<HostRead> {
     let local = fs::read_to_string("/etc/hostname").map(|name| name.trim().to_owned()).unwrap_or_default();
-    let remote = remote_hosts(&fs::read_to_string(crate::platform::orchestration::path()).unwrap_or_default(), &local);
+    let remote = remote_hosts(&fs::read_to_string(north_base::platform::orchestration::path()).unwrap_or_default(), &local);
     std::thread::scope(|scope| {
         let here = scope.spawn(|| {
             let status = bounded(20, &north(), &["capacity", "host", "status"]).filter(|output| output.status.success()).and_then(|output| serde_json::from_slice(&output.stdout).ok());
@@ -202,7 +202,7 @@ pub(super) fn cloud_rows(listing: &str) -> Vec<CloudSession> {
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\t').collect();
             let [id, status, _, updated, title, ..] = fields[..] else { return None };
-            let updated = crate::foundation::clock::Timestamp::parse_rfc3339(updated)?.unix_seconds();
+            let updated = north_foundation::foundation::clock::Timestamp::parse_rfc3339(updated)?.unix_seconds();
             Some(CloudSession { id: id.into(), status: status.into(), updated: u64::try_from(updated).ok()?, title: title.into() })
         })
         .collect()
@@ -240,7 +240,7 @@ fn runtime(state: &Path, checkout: &Path) -> RuntimeView {
     let live = fs::read_link(state.join("current")).ok().and_then(|link| Some(link.file_name()?.to_str()?.to_owned()));
     let rust_change_since = live.as_deref().and_then(|live| {
         let range = format!("{live}..origin/main");
-        let output = crate::platform::git::run(checkout, &["log", "--format=%ct", &range, "--", ":(glob)**/*.rs", ":(glob)**/Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]).ok()?;
+        let output = north_base::platform::git::run(checkout, &["log", "--format=%ct", &range, "--", ":(glob)**/*.rs", ":(glob)**/Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]).ok()?;
         String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.trim().parse().ok()).min()
     });
     RuntimeView { live, rust_change_since }

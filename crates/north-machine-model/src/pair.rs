@@ -4,7 +4,7 @@
 //! no second instance may start.
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use north_base::error::NorthResult;
+use north_foundation::error::NorthResult;
 use north_base::lifecycle::{Lifecycle, State};
 
 use crate::world::{Event, PairEvent, PairSituation, PairWorld, START};

@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::detect::{Action, Cap, message};
-use crate::platform::process::status_within;
+use north_base::platform::process::status_within;
 
 const COMMAND_WAIT: Duration = Duration::from_secs(15);
 

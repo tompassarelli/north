@@ -1,6 +1,6 @@
 use super::record::{fields, records};
-use crate::foundation::clock;
-use crate::platform::{git as platform_git, github};
+use north_foundation::foundation::clock;
+use north_base::platform::{git as platform_git, github};
 use std::path::{Path, PathBuf};
 
 fn home() -> PathBuf {

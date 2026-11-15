@@ -8,8 +8,8 @@ pub const REMOTE_FACTS: &str = r#""$HOME/.local/state/north/current/north" healt
 
 /// Each `[hosts.NAME]` in orchestration.toml that this host reaches over ssh, by its `ssh` or else its `deploy_ssh`.
 fn remote_hosts() -> Vec<(String, String)> {
-    let Ok(document) = crate::platform::orchestration::read() else { return Vec::new() };
-    let here = crate::platform::host::name();
+    let Ok(document) = north_base::platform::orchestration::read() else { return Vec::new() };
+    let here = north_base::platform::host::name();
     let Some(hosts) = document.get("hosts").and_then(toml_edit::Item::as_table_like) else { return Vec::new() };
     hosts
         .iter()
@@ -33,7 +33,7 @@ fn behind_since(repo: &Path, runtime: Option<&str>) -> Result<Option<f64>, Strin
 
 fn snapshot(path: &Path) -> Snapshot {
     let written = std::fs::metadata(path).ok().and_then(|meta| meta.modified().ok()).and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok()).map(|age| age.as_secs_f64());
-    Snapshot { written, failure: crate::threads::snapshot::last_failure(path) }
+    Snapshot { written, failure: north_calibration::threads::snapshot::last_failure(path) }
 }
 
 pub fn world(home: &Path, repo: &Path, now: f64) -> World {

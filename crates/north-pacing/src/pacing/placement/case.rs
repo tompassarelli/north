@@ -8,11 +8,11 @@ use super::hosts::{self, Facts};
 use super::line_wait;
 use super::room::{self, Basis, Rank};
 use super::{local, strings};
-use crate::capacity::saturation::Saturation;
-use crate::capacity::{agent_load, laptop_auto, mode};
-use crate::fleet::hops::timed;
-use crate::fleet::roster::Roster;
-use crate::usage::decide::world::ModelFamily;
+use north_capacity_host::capacity::saturation::Saturation;
+use north_capacity_host::capacity::{agent_load, laptop_auto, mode};
+use north_fleet_supervisor::fleet::hops::timed;
+use north_fleet_supervisor::fleet::roster::Roster;
+use north_pace::usage::decide::world::ModelFamily;
 use north_strategy_types::placement::{ApiHold, Case, Config, GrantSource, Here, Host, Launch, Usage, Window};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -30,10 +30,10 @@ pub struct Ask<'a> {
 /// Reads every input placement decides from, once, at one clock reading, parsing the model catalog and
 /// the harness defaults here so the timed decision spends none of its `decide_us` on that.
 pub fn gather(ask: &Ask) -> Result<Case, String> {
-    for table in [crate::platform::harness::MODEL_CATALOG, crate::platform::harness::DEFAULTS] {
-        crate::platform::harness::document(table);
+    for table in [north_base::platform::harness::MODEL_CATALOG, north_base::platform::harness::DEFAULTS] {
+        north_base::platform::harness::document(table);
     }
-    let text = std::fs::read_to_string(crate::platform::orchestration::path()).map_err(|error| error.to_string())?;
+    let text = std::fs::read_to_string(north_base::platform::orchestration::path()).map_err(|error| error.to_string())?;
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| storage::seconds(&s)).unwrap_or_else(storage::now);
     let (gate, usage) = timed("placement usage", || usage(at));
@@ -46,13 +46,13 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
         at,
         launch: ask.launch.clone(),
         brief: ask.brief.to_owned(),
-        config: config(&cfg, crate::platform::decision_log::sha256_hex(text.as_bytes())),
+        config: config(&cfg, north_base::platform::decision_log::sha256_hex(text.as_bytes())),
         credit: timed("placement credit", || credit::credit_case(&credit_name)),
         roster: gate::standings(&gate, ask.roster),
         usage,
         machines,
         here: timed("placement here", here),
-        github: timed("placement github quota", || crate::platform::github_quota::seen(at)),
+        github: timed("placement github quota", || north_base::platform::github_quota::seen(at)),
         grants: timed("placement grants", || grant_sources(ask.roster, at)),
         line_waits: if line_wait::counts(ask.launch.role.as_deref()) { timed("placement line waits", || hosts::surveyed_lines(&cfg, &local(), unprobed)) } else { Vec::new() },
     })
@@ -181,7 +181,7 @@ fn usage(at: f64) -> (Value, Usage) {
     let modified = std::fs::metadata(&path).and_then(|meta| meta.modified()).ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
     let gate: Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
     let controls = gate["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:")).map(|(name, sampled)| (name.clone(), storage::rows(sampled).iter().map(window).collect())).collect();
-    let usage = Usage { sha256: crate::platform::decision_log::sha256_hex(&bytes), age_s: modified.map(|since| at - since.as_secs_f64()), controls };
+    let usage = Usage { sha256: north_base::platform::decision_log::sha256_hex(&bytes), age_s: modified.map(|since| at - since.as_secs_f64()), controls };
     (gate_value(&usage), usage)
 }
 
@@ -353,16 +353,16 @@ pub fn grant_sources(roster: &Roster, at: f64) -> Vec<GrantSource> {
 
 /// Whether this host's roster holds a key for the API grant account `account` (`claude:api:NAME`).
 pub fn keyed_here(roster: &Roster, account: &str) -> bool {
-    let claude = crate::fleet::model::ProviderName::new("claude");
-    matches!(roster.standing(&claude, account.trim_start_matches("claude:")), crate::fleet::roster::Standing::Listed(_))
+    let claude = north_fleet_supervisor::fleet::model::ProviderName::new("claude");
+    matches!(roster.standing(&claude, account.trim_start_matches("claude:")), north_fleet_supervisor::fleet::roster::Standing::Listed(_))
 }
 
 /// Every API grant with credit left and no exhausted mark, wherever its keys are held.
 pub fn grants_left(at: f64) -> Vec<GrantSource> {
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), std::path::PathBuf::from);
-    let now = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at);
-    crate::credit::sources(&crate::credit::standing(&crate::platform::orchestration::path(), &state, now))
+    let now = north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(at);
+    north_pace::credit::sources(&north_pace::credit::standing(&north_base::platform::orchestration::path(), &state, now))
         .into_iter()
         .filter(|source| !source.credit.exhausted && source.credit.left > 0.0)
         .map(|source| {
@@ -380,7 +380,7 @@ pub fn plan(roster: &Roster) -> Result<Vec<(String, String)>, String> {
 
 /// Every plan account as placement judges it from the usage gate file the sampler wrote; no provider is polled.
 pub fn accounts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
-    let text = std::fs::read_to_string(crate::platform::orchestration::path()).map_err(|error| error.to_string())?;
+    let text = std::fs::read_to_string(north_base::platform::orchestration::path()).map_err(|error| error.to_string())?;
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let at = storage::now();
     let (gate_value, _) = usage(at);
@@ -396,12 +396,12 @@ pub fn roomiest(roster: &Roster) -> Result<Option<String>, String> {
 /// Every account and api grant as placement judges it, the available ones first in placement order.
 pub fn verdicts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     let at = storage::now();
-    let cfg = crate::platform::orchestration::read()?;
+    let cfg = north_base::platform::orchestration::read()?;
     let basis = Basis::new(&cfg, at);
     let mut verdicts = accounts(roster)?;
-    let grants = if crate::spend::hold::declared(&cfg).is_some() { grants_left(at) } else { grant_sources(roster, at) };
+    let grants = if north_pace::spend::hold::declared(&cfg).is_some() { grants_left(at) } else { grant_sources(roster, at) };
     verdicts.extend(grants.iter().map(|source| gate::grant_verdict(source, &basis)));
-    let reserved = crate::spend::operational_reserve(&cfg).into_iter().filter(|account| keyed_here(roster, account) && !verdicts.iter().any(|verdict| &verdict.account == account));
+    let reserved = north_pace::spend::operational_reserve(&cfg).into_iter().filter(|account| keyed_here(roster, account) && !verdicts.iter().any(|verdict| &verdict.account == account));
     let reserved: Vec<_> = reserved.filter_map(|account| basis.operational(&account).map(|why| gate::reserve_verdict(&account, why))).collect();
     verdicts.extend(reserved);
     verdicts.sort_by(|a, b| b.available.cmp(&a.available).then(b.rank.order(&a.rank)).then(a.account.cmp(&b.account)));

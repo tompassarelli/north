@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -59,7 +59,7 @@ fn ran_remotely_with(hosts: &Hosts, lane: &Lane, report: &str) -> Vec<String> {
 
 fn ran_command(hosts: &Hosts, lane: &Lane, stub_body: &str, command: &[String]) -> Vec<String> {
     let stub = hosts.remote.join("north-stub");
-    north_base::foundation::shim::write_script(&stub, stub_body);
+    north_foundation::foundation::shim::write_script(&stub, stub_body);
     let returned = "NORTH-OFFLOAD-RETURNED-test";
     let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command, cpus: 6.0 }, returned);
     let mut transport = Command::new("sh");

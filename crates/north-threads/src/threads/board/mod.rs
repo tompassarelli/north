@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use self::issues::Board;
 use super::claims::{self, Claim, Standing};
 use super::verb::{Args, Context, Failure, Outcome, item_ref, report};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
 pub const VERBS: [&str; 2] = ["show", "ready"];

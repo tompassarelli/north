@@ -82,8 +82,8 @@ pub fn repeated(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
         .filter(|(_, refusals)| refusals.len() >= limits.refusal_min)
         .map(|(class, mut refusals)| {
             refusals.sort_by(|a, b| a.2.total_cmp(&b.2).then_with(|| a.0.cmp(b.0)));
-            let first = crate::foundation::clock::Timestamp::from_unix_seconds_f64(refusals[0].2).iso();
-            let instances: Vec<String> = refusals.iter().map(|(lane, sha, at)| format!("{lane} {} ({})", sha.chars().take(9).collect::<String>(), crate::foundation::clock::Timestamp::from_unix_seconds_f64(*at).iso())).collect();
+            let first = north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(refusals[0].2).iso();
+            let instances: Vec<String> = refusals.iter().map(|(lane, sha, at)| format!("{lane} {} ({})", sha.chars().take(9).collect::<String>(), north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(*at).iso())).collect();
             Finding {
                 detector: Detector::RepeatedRefusal,
                 key: format!("refusal:{class}:{}", &first[..10]),

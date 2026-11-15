@@ -28,6 +28,8 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
+        "//crates/north-foundation:north-foundation",
+        "//crates/north-shared-config:north-shared-config",
         "//third-party:base64",
         "//third-party:crossterm",
         "//third-party:ratatui",
@@ -52,7 +54,9 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-providers:north-providers",
+        "//crates/north-shared-config:north-shared-config",
         "//third-party:base64",
         "//third-party:crossterm",
         "//third-party:proptest",

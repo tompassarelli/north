@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use north_core::error::{NorthError, NorthResult};
-use north_core::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 use north_machine_model::{Model, Promises, Together, explore, explore_together, page};
 
 mod history;
@@ -79,7 +79,7 @@ const MACHINES: &[Machine] = &[
         ],
         sweep: None,
         explore: Some(|| {
-            use north_core::land_ticket::{LandTicket, Phase};
+            use north_base::land_ticket::{LandTicket, Phase};
             explore_together::<LandTicket>(&Promises { ends: &[Phase::Landed, Phase::Replaced, Phase::Withdrawn], repeats: &[Phase::Queued] }, &ticket_together())
         }),
     },
@@ -266,8 +266,8 @@ fn session_together() -> Together<north_fleet_store::session_lifecycle::Phase> {
 
 /// Two tickets of one head: a head whose newest ticket was withdrawn is not queued again until the withdrawal is
 /// cleared, which `refuse_requeue` decides from the queue.
-fn ticket_together() -> Together<north_core::land_ticket::Phase> {
-    use north_core::land_ticket::Phase;
+fn ticket_together() -> Together<north_base::land_ticket::Phase> {
+    use north_base::land_ticket::Phase;
     Together {
         alone: &[Phase::Withdrawn],
         admits: |other| match other {

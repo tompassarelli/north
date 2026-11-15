@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use crate::landing::check_findings;
-use crate::foundation::check_log::{github_rate_limit, ref_lock, stale_token};
-use crate::foundation::exit::TRANSPORT_FAILED_TEXT;
+use north_foundation::foundation::check_log::{github_rate_limit, ref_lock, stale_token};
+use north_foundation::foundation::exit::TRANSPORT_FAILED_TEXT;
 use crate::landing::red_check::{Failure, failures, log_text};
 
 const RUNNER_CHATTER: [&str; 4] = ["head-north: ", "safe-push: ", "north capacity offload: ", "land-shell: "];

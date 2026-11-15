@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::issue_box_lint;
+use north_landing_gates::issue_box_lint;
 
 const OBSERVATION_MARKERS: [&str; 2] = ["(observed", "(headless run)"];
 const CHECKED: &str = "done when:";

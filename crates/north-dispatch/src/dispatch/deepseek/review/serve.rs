@@ -5,7 +5,7 @@ use super::brief::{brief, Lander};
 use super::lane::{git, lane, mechanical_failure, north, oracle_files, Worktree};
 use super::super::sampling::{self, Kind, Verdict};
 use super::super::super::record;
-use crate::pacing::placement;
+use north_pacing::pacing::placement;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 

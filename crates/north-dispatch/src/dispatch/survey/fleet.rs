@@ -34,7 +34,7 @@ pub(super) fn place_holds(reads: &Reads, fleet: &mut Fleet, unspent: &BTreeMap<S
     fleet.holds.extend(record::holds(&fleet.records, at, unspent, gone));
     for (item, boxes) in record::box_retries(&fleet.records, at, unspent) {
         let Some(issue) = reads.issues.iter().find(|issue| issue.reference() == item) else { continue };
-        let unticked: BTreeSet<String> = issue.takeable(at).filter_map(crate::threads::claims::box_slug).collect();
+        let unticked: BTreeSet<String> = issue.takeable(at).filter_map(north_calibration::threads::claims::box_slug).collect();
         for (slug, why) in boxes.into_iter().filter(|(slug, _)| unticked.contains(slug)) {
             fleet.box_tries.entry(item.clone()).or_default().insert(slug, why);
         }

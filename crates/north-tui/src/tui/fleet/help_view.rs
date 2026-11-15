@@ -136,7 +136,7 @@ fn general_lines(screen: &Screen) -> Vec<Line<'static>> {
         None => screen.accounts().iter().map(|account| format!("{}·{}", account.provider.label(), account.label)).collect::<Vec<_>>().join(", "),
     };
     let workspace = selected.map_or_else(|| screen.workspace().to_path_buf(), |record| record.cwd.clone());
-    let fleet = crate::fleet::registry::root_here().ok();
+    let fleet = north_fleet_supervisor::fleet::registry::root_here().ok();
     let logs = selected.map(|record| record.host_dir.clone()).filter(|dir| !dir.as_os_str().is_empty());
     let facts = [
         ("Version:", Some(format!("north {}", env!("CARGO_PKG_VERSION")))),

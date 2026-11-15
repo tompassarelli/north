@@ -11,7 +11,7 @@ use super::settings::Plan;
 use super::store::Row;
 use super::plain::{self, GAP, grid};
 use super::{Places, costs, credit_table, detail, py, settings, web};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const NO_SNAPSHOT: &str = "No usage readings yet; run `north fleet usage --refresh`.";
 const HEADER: [&str; 6] = ["Claude", "5 hours", "5h resets", "week", "week resets", "outlook"];

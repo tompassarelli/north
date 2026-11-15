@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::foundation::clock::Timestamp;
-use crate::ledger::outcome::read as outcome;
+use north_foundation::foundation::clock::Timestamp;
+use north_providers::ledger::outcome::read as outcome;
 use crate::tempo::landing;
 use alerts::stall_alert;
 use capacity::host_alerts;
@@ -98,7 +98,7 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     if stall_alert(places, host, rows, now).is_err() {
         println!("agents flow: stall alert state error");
     }
-    if host_alerts(places, host, &crate::platform::orchestration::path(), now).is_err() {
+    if host_alerts(places, host, &north_base::platform::orchestration::path(), now).is_err() {
         println!("agents flow: saturation or spill alert state error");
     }
     if sampler_alert(places, host, now).is_err() {
@@ -133,7 +133,7 @@ pub fn landing_minutes(repo: &str) -> f64 {
         return 0.0;
     }
     let (places, machine) = (Places::from_env(), Machine::default());
-    let mut env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
+    let mut env = Env::new(&places, &machine, project_targets(&north_base::platform::orchestration::path()));
     get(&mut env, repo, Timestamp::now().unix_seconds_f64(), &["push_to_land_minutes"])["push_to_land_minutes"].as_f64().unwrap_or(0.0)
 }
 
@@ -147,7 +147,7 @@ fn row(arguments: &[String]) -> u8 {
         return 2;
     }
     let (places, machine) = (Places::from_env(), Machine::default());
-    let mut env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
+    let mut env = Env::new(&places, &machine, project_targets(&north_base::platform::orchestration::path()));
     let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
     let row = get(&mut env, repo, Timestamp::now().unix_seconds_f64(), &fields);
     println!("{}", json!({ "row": row, "line": format_row(&row, None) }));
@@ -178,7 +178,7 @@ fn slow_tests(arguments: &[String]) -> u8 {
     };
     let limits = super::detectors::Limits::registry();
     let (max, runs) = (max.unwrap_or(limits.slow_test_seconds), runs.unwrap_or(limits.slow_test_runs));
-    let state = crate::platform::records_mirror::read("north ledger flow slow-tests").home().to_owned();
+    let state = north_base::platform::records_mirror::read("north ledger flow slow-tests").home().to_owned();
     let times = |times: &[f64]| times.iter().map(|seconds| format!("{seconds:.2} s")).collect::<Vec<_>>().join(", ");
     match super::detectors::newest_slow_test(&state, &key, runs) {
         super::detectors::Newest::Runs(found) if found.iter().all(|seconds| *seconds <= max) => {
@@ -215,7 +215,7 @@ fn detect(arguments: &[String]) -> u8 {
 pub fn work_rows() -> Vec<Value> {
     let places = Places::from_env();
     let machine = Machine::default();
-    let targets = project_targets(&crate::platform::orchestration::path());
+    let targets = project_targets(&north_base::platform::orchestration::path());
     let mut repos: Vec<String> = DEFAULT_REPOS.iter().map(|repo| (*repo).to_owned()).collect();
     for repo in targets.keys() {
         if !repos.contains(repo) {
@@ -263,10 +263,10 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("north ledger flow's view moved to `north work` (lanes, landings and stalls) and `north accounts` (usage per landing); `north ledger flow --stall-alarm`, row and detect stay");
         return 2;
     }
-    crate::platform::records_mirror::Records::here().announce("north ledger flow");
+    north_base::platform::records_mirror::Records::here().announce("north ledger flow");
     let places = Places::from_env();
     let machine = Machine::default();
-    let targets = project_targets(&crate::platform::orchestration::path());
+    let targets = project_targets(&north_base::platform::orchestration::path());
     let repos: Vec<String> = if options.repos.is_empty() {
         DEFAULT_REPOS.iter().map(|repo| (*repo).to_owned()).chain(targets.keys().cloned()).collect()
     } else {
@@ -306,9 +306,9 @@ pub fn run(arguments: &[String]) -> u8 {
             Ok(lines) => println!("{}", lines.join("\n")),
             Err(why) => println!("outcome: unread: {why}"),
         }
-        println!("{}", crate::threads::attribution::pareto_line(&places.ledger, now as i64));
+        println!("{}", north_calibration::threads::attribution::pareto_line(&places.ledger, now as i64));
         println!("{}", usage::line(&places, now as i64));
-        if let Some(reading) = crate::threads::incidents::report::week(&places.ledger, now) {
+        if let Some(reading) = north_calibration::threads::incidents::report::week(&places.ledger, now) {
             for line in reading.lines() {
                 println!("{line}");
             }

@@ -5,7 +5,7 @@ use std::path::Path;
 use rusqlite::Connection;
 use toml_edit::{DocumentMut, Item};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::usage::{py, settings};
 
 const WITHIN_DAYS: i128 = 7;

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use north_base::foundation::check_log::{self, log_line, log_text};
+use north_foundation::foundation::check_log::{self, log_line, log_text};
 
 use crate::cone::{Cone, untraced_input};
 use crate::facts::Facts;

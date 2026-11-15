@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 
 use super::{Fixture, Observed, git, write};
 

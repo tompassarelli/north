@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use north_base::platform::session_scope::REMOVAL_ROOTS;
 use north_base::platform::{git_credential, session_scope};
-use north_base::foundation::{carry, offload};
+use north_foundation::foundation::{carry, offload};
 use north_base::verdict_cache;
 use north_providers::providers::{opencode, pi};
 
@@ -151,7 +151,7 @@ pub(super) fn caller_session(variables: Vec<(String, String)>, peer: &Peer, host
 }
 
 pub(super) fn urgency(variables: Vec<(String, String)>, peer: &Peer, host: &lane_grant::Host) -> Vec<(String, String)> {
-    let places = crate::capacity::host::urgency::Places::beside(host.fleet.clone(), host.home.clone(), host.cgroups.clone());
+    let places = north_capacity_host::capacity::host::urgency::Places::beside(host.fleet.clone(), host.home.clone(), host.cgroups.clone());
     let urgent = peer.cgroup().is_some_and(|cgroup| places.cgroup(cgroup));
     variables.into_iter().filter(|(name, _)| name != offload::URGENT_ENV).chain(urgent.then(|| (offload::URGENT_ENV.to_owned(), "1".to_owned()))).collect()
 }

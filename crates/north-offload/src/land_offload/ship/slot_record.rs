@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::offload;
+use north_foundation::foundation::offload;
 
 use super::{SlotClass, checkout, fail};
 

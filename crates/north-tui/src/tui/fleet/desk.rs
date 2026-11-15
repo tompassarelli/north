@@ -3,18 +3,18 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::board::Board;
-use crate::fleet::books::{Digest, Revision};
-use crate::fleet::gates::{Decision, due};
-use crate::fleet::model::{Account, Delivery, Effort, EntryKind, LaunchRequest, SessionPhase, SessionRecord, Status, Transcript};
-use crate::foundation::clock::Timestamp;
-use crate::fleet::registry::{Choices, Fleet, Follower};
-use crate::fleet::sender::Sender;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::board::Board;
+use north_fleet_supervisor::fleet::books::{Digest, Revision};
+use north_fleet_supervisor::fleet::gates::{Decision, due};
+use north_fleet_supervisor::fleet::model::{Account, Delivery, Effort, EntryKind, LaunchRequest, SessionPhase, SessionRecord, Status, Transcript};
+use north_foundation::foundation::clock::Timestamp;
+use north_fleet_supervisor::fleet::registry::{Choices, Fleet, Follower};
+use north_fleet_supervisor::fleet::sender::Sender;
 
 use super::scorecard::Scorecard;
 use super::state_clock::StateClock;
-use crate::fleet::runtime::now_ms;
+use north_fleet_supervisor::fleet::runtime::now_ms;
 
 const UPKEEP_INTERVAL: Duration = Duration::from_secs(30);
 const GATE_RETRY: Duration = Duration::from_secs(2);
@@ -123,7 +123,7 @@ pub struct FleetDesk {
 
 impl FleetDesk {
     pub fn new(fleet: Fleet, reads: Reads) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), board: BoardRead::of(reads.board), rooms: FleetRead::of(reads.rooms, ROOMS_INTERVAL), scorecard: FleetRead::of(reads.scorecard, SCORECARD_INTERVAL) }
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(north_base::platform::project_status::lines), board: BoardRead::of(reads.board), rooms: FleetRead::of(reads.rooms, ROOMS_INTERVAL), scorecard: FleetRead::of(reads.scorecard, SCORECARD_INTERVAL) }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {

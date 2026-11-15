@@ -1,7 +1,7 @@
 //! Number and time formats of the Python table: `{:g}`, whole minutes until a time, and the strftime shapes.
 use time::OffsetDateTime;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const NANOS: i128 = 1_000_000_000;

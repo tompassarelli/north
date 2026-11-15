@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::runtime::binary;
-use crate::fleet::install;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::runtime::binary;
+use north_fleet_supervisor::fleet::install;
 
 const AGENT_CONFIG: [&str; 7] = [
     r#"cli_auth_credentials_store="file""#,

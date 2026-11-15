@@ -25,6 +25,7 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-coverage:north-coverage",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-graph:north-graph",
         "//third-party:serde_json",
         "//third-party:toml_edit",
@@ -43,6 +44,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-coverage:north-coverage",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-graph:north-graph",
         "//third-party:serde_json",
         "//third-party:tempfile",

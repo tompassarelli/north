@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::read::{escalated, raw_runs};
 use super::tier_key;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS tier_predictions(item TEXT NOT NULL, tier TEXT NOT NULL, category TEXT NOT NULL, p REAL NOT NULL CHECK(p >= 0 AND p <= 1), at TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('dispatch','recommend')), PRIMARY KEY(item, tier, at, source)) STRICT";
 

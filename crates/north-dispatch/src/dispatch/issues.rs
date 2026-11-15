@@ -2,7 +2,7 @@
 //! Tom, no `(not before ...)` stamp ahead, and every predecessor closed. A box waits only on records: its stamp, a
 //! `## Parked` heading above it, the fact graph's box edges, a gate, a claim or a registered wait; its prose and the
 //! newest report hold nothing (north#872).
-use crate::platform::box_oracles;
+use north_base::platform::box_oracles;
 use north_graph_ground::{Backlog, Verdict};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
@@ -128,7 +128,7 @@ impl Issue {
 
     /// An issue with no box, ticked or not, that no label hands to Tom, its children, a running native job or the workflow that owns it.
     pub fn needs_box(&self) -> bool {
-        !self.body.lines().any(|line| ANY_BOX.is_match(line)) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS, &crate::platform::issue_scope::WORKFLOW_OWNED].iter().all(|names| self.labelled(names).is_none())
+        !self.body.lines().any(|line| ANY_BOX.is_match(line)) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS, &north_base::platform::issue_scope::WORKFLOW_OWNED].iter().all(|names| self.labelled(names).is_none())
     }
 
     /// The live sessions that own every unticked box, or none when some unticked box names no live owner.
@@ -157,7 +157,7 @@ impl Issue {
                 parked = heading.starts_with("Parked");
             }
             UNTICKED.is_match(line).then(|| {
-                let hold = parked.then_some(Hold::Parked).or_else(|| live_reading(line).map(Hold::Live)).or_else(|| crate::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom")).then_some(Hold::Tom));
+                let hold = parked.then_some(Hold::Parked).or_else(|| live_reading(line).map(Hold::Live)).or_else(|| north_pacing::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom")).then_some(Hold::Tom));
                 (line, hold)
             })
         })
@@ -197,7 +197,7 @@ impl Issue {
     /// The takeable boxes no worker in `held` has, as the text of each line without the checkbox; a box line written twice is one box, by slug.
     pub fn free_boxes<'a>(&'a self, held: &'a BTreeSet<String>, at: f64) -> impl Iterator<Item = &'a str> {
         let mut seen = BTreeSet::new();
-        self.takeable(at).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).filter(move |text| crate::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug) && seen.insert(slug)))
+        self.takeable(at).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).filter(move |text| north_calibration::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug) && seen.insert(slug)))
     }
 
     /// The needs the boxes `lines` declare with their own `Needs:` lines, and the lander host a check reads its records from;
@@ -205,8 +205,8 @@ impl Issue {
     pub fn needs_in<'a>(&self, lines: impl Iterator<Item = &'a str>) -> Vec<String> {
         let mut found: Vec<String> = lines
             .flat_map(|line| {
-                let mut needs = crate::pacing::placement::needs::declared(line).unwrap_or_default();
-                needs.extend(crate::pacing::placement::needs::implied(line));
+                let mut needs = north_pacing::pacing::placement::needs::declared(line).unwrap_or_default();
+                needs.extend(north_pacing::pacing::placement::needs::implied(line));
                 needs
             })
             .collect();
@@ -231,11 +231,11 @@ impl Issue {
 
     /// `held` split into the claims that name a box of this issue, ticked or not, each keyed by the slug of the box it names, and the stale ones that name none, which hold no box.
     pub fn settle_holds(&self, held: &BTreeMap<String, String>) -> (BTreeMap<String, String>, Vec<(String, String)>) {
-        let slugs: Vec<String> = crate::threads::claims::boxes(&self.body).filter_map(crate::threads::claims::box_slug).collect();
+        let slugs: Vec<String> = north_calibration::threads::claims::boxes(&self.body).filter_map(north_calibration::threads::claims::box_slug).collect();
         let mut named = BTreeMap::new();
         let mut stale = Vec::new();
         for (claim, why) in held {
-            match slugs.iter().find(|slug| crate::threads::claims::same_box(claim, slug)) {
+            match slugs.iter().find(|slug| north_calibration::threads::claims::same_box(claim, slug)) {
                 Some(slug) => {
                     named.entry(slug.clone()).or_insert_with(|| why.clone());
                 }
@@ -316,7 +316,7 @@ fn live_reading(line: &str) -> Option<&'static str> {
 /// What holds a leaf whole: a check that reads a live journal or ledger, or a `Needs: Tom` line in its body.
 fn leaf_hold(issue: &Issue) -> Option<String> {
     let live = live_reading(&issue.body).map(Hold::Live);
-    let tom = issue.body.lines().any(|line| crate::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom"))).then_some(Hold::Tom);
+    let tom = issue.body.lines().any(|line| north_pacing::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom"))).then_some(Hold::Tom);
     live.or(tom).map(|hold| hold.to_string())
 }
 
@@ -486,7 +486,7 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         return Err(format!("held: labelled {label}"));
     }
     let labels: Vec<&str> = issue.labels.iter().map(String::as_str).collect();
-    if let Some(reason) = crate::threads::withheld::withheld(&labels, &issue.comments, world.at) {
+    if let Some(reason) = north_calibration::threads::withheld::withheld(&labels, &issue.comments, world.at) {
         return Err(format!("a worker reported it blocked: {reason}"));
     }
     let mut waiting = predecessors(issue)?;

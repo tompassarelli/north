@@ -7,7 +7,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::harness::{self, Harness, Tally};
 use super::relay::Relay;
@@ -220,7 +220,7 @@ fn spawn(host: &Host, relay: Option<&Relay>, route: Route, text: &str) -> NorthR
             command.env(name, value);
         }
     }
-    command.envs(crate::platform::git_credential::session_env());
+    command.envs(north_base::platform::git_credential::session_env());
     for (variable, directory) in [("XDG_DATA_HOME", "data"), ("XDG_CONFIG_HOME", "config"), ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")] {
         let path = host.scratch.join(directory);
         std::fs::create_dir_all(&path)?;
@@ -244,7 +244,7 @@ fn command_shell(host: &Host) -> PathBuf {
     let path = host.scratch.join("shell");
     let north = north_base::platform::north_binary::north_binary();
     let script = format!("exec env SHELL=/bin/sh {} --worker-sandbox --outside -- {} --worker-sandbox --lane -- /bin/sh \"$@\"\n", north.display(), north.display());
-    north_base::foundation::shim::write_script(&path, &script);
+    north_foundation::foundation::shim::write_script(&path, &script);
     path
 }
 

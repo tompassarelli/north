@@ -5,7 +5,7 @@
 //! item inside its window, else not done (north#872, docs/rationale/attribution.md).
 use rusqlite::{Connection, params};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const WEEK_S: i64 = 7 * 86_400;
 const ENDED: &str = "('done', 'not done', 'escalated', 'split', 'handoff', 'unclear')";

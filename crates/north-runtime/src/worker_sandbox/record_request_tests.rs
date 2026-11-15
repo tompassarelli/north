@@ -13,7 +13,7 @@ use super::super::broker::{self, Request};
 use super::super::peer::Peer;
 use super::super::lane_grant::Host;
 use super::{OPEN_SCOPE, git};
-use crate::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 
 const ROLE: &str = "NORTH_118_RECORDS_ROLE";
 const SCRATCH: &str = "NORTH_118_RECORDS_SCRATCH";
@@ -99,7 +99,7 @@ fn serve(root: &Path) {
     let lane = root.join("home/code/alpha/worktrees/lane");
     let main = root.join("home/code/alpha/main");
     let head = String::from_utf8(Command::new("git").arg("-C").arg(&lane).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned();
-    let slots = root.join("home").join(north_base::foundation::offload::SLOT_RECORDS);
+    let slots = root.join("home").join(north_foundation::foundation::offload::SLOT_RECORDS);
     let mut failures = Vec::new();
 
     let (code, told) = ask(&north, &host, OPEN_SCOPE, &["capacity", "offload", "slot", "record", "code-alpha-main-3"].map(str::to_owned), &main);

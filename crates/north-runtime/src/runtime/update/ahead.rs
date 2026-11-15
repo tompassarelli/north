@@ -19,7 +19,7 @@ use super::super::pull;
 use super::super::remote;
 use north_offload::land_offload::{self, BuildHost};
 use north_trusted_mirror::Mirror;
-use crate::platform::process;
+use north_base::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};

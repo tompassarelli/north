@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::row::RowKind;
 

@@ -2,8 +2,8 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::fleet::gates::Decision;
-use crate::fleet::model::{Delivery, Status};
+use north_fleet_supervisor::fleet::gates::Decision;
+use north_fleet_supervisor::fleet::model::{Delivery, Status};
 
 use super::super::editor::edit_textarea;
 use super::super::form::{FormOutcome, newline_modifier};

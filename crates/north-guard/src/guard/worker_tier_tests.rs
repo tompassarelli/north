@@ -2,7 +2,7 @@
 
 use super::brief_skeleton::skeleton;
 use super::worker_tier::{brief_refusal, routing_refusal};
-use crate::router::tier::Tier;
+use north_pace::router::tier::Tier;
 
 const HEADER: &str = "Category: review\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n";
 

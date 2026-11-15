@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::model::{SessionRecord, Status};
 use crate::fleet::records::record_file;
 use crate::fleet::stranded::reported_done;

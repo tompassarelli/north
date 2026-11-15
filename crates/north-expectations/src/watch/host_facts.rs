@@ -27,7 +27,7 @@ pub(super) fn read(destination: Option<&str>) -> Option<String> {
         None => command.args(["20", "bash", "-s"]),
     };
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
-    child.stdin.take()?.write_all(SCRIPT.replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH).as_bytes()).ok()?;
+    child.stdin.take()?.write_all(SCRIPT.replace("@SLOT_HELD@", north_foundation::foundation::offload::SLOT_HELD_SH).as_bytes()).ok()?;
     let output = child.wait_with_output().ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }

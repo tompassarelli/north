@@ -4,8 +4,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use north_base::foundation::exit::SLOTS_BUSY;
-use north_base::foundation::offload;
+use north_foundation::foundation::exit::SLOTS_BUSY;
+use north_foundation::foundation::offload;
 
 use super::line_wait::{Line, LineClass, LineJob, deadline, expected_start, refuses_at_once};
 

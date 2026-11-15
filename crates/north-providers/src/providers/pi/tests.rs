@@ -6,14 +6,14 @@ use std::sync::Arc;
 use serde_json::Value;
 use time::Date;
 
-use crate::fleet::fakes::Paper;
-use crate::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, Transcript};
-use crate::fleet::prompt::PromptMode;
-use crate::fleet::registry::Fleet;
-use crate::fleet::runtimes::Runtimes;
-use crate::fleet::runtime::{Opening, Runtime};
-use crate::fleet::sender::Sender;
-use crate::fleet::turns::{TurnExit, TurnSignal};
+use north_fleet_supervisor::fleet::fakes::Paper;
+use north_fleet_supervisor::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, Transcript};
+use north_fleet_supervisor::fleet::prompt::PromptMode;
+use north_fleet_supervisor::fleet::registry::Fleet;
+use north_fleet_supervisor::fleet::runtimes::Runtimes;
+use north_fleet_supervisor::fleet::runtime::{Opening, Runtime};
+use north_fleet_supervisor::fleet::sender::Sender;
+use north_fleet_supervisor::fleet::turns::{TurnExit, TurnSignal};
 
 use super::super::opencode::route::{self, Route, Visibility};
 use super::super::opencode::turns;
@@ -86,7 +86,7 @@ fn run_briefs(runtime: &Deepseek, route: Route, home: &Path, briefs: &[&str]) ->
     let key = home.join("go.key");
     std::fs::write(&key, "key-material\n").unwrap();
     let program: PathBuf = home.join("pi");
-    north_base::foundation::shim::write_script(&program, FAKE);
+    north_foundation::foundation::shim::write_script(&program, FAKE);
     let host = turns::Host { harness: &PI, route, effort: None, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program, cwd: home.into() };
     let mut transcript = Transcript { name: "worker".into(), ..Transcript::new() };
     let input: Vec<String> = briefs.iter().enumerate().flat_map(|(at, brief)| runtime.message(&transcript, &format!("u{at}"), brief).unwrap()).collect();
@@ -201,7 +201,7 @@ fn a_pi_window_prompt_reaches_its_session_with_the_context_north_hook_adds_north
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    north_base::foundation::shim::write_executable(&bin.join("north"), GROUNDING_NORTH);
+    north_foundation::foundation::shim::write_executable(&bin.join("north"), GROUNDING_NORTH);
     std::fs::write(dir.path().join("north-fleet.ts"), super::windows::EXTENSION).unwrap();
     std::fs::write(dir.path().join("driver.ts"), PROMPT_DRIVER).unwrap();
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());

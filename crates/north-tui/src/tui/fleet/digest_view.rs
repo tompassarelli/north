@@ -4,11 +4,11 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 
-use crate::fleet::board::money;
-use crate::fleet::books::{Landing, SessionSpend};
-use crate::fleet::gates::Gate;
-use crate::fleet::model::Status;
-use crate::foundation::clock::Timestamp;
+use north_fleet_supervisor::fleet::board::money;
+use north_fleet_supervisor::fleet::books::{Landing, SessionSpend};
+use north_fleet_supervisor::fleet::gates::Gate;
+use north_fleet_supervisor::fleet::model::Status;
+use north_foundation::foundation::clock::Timestamp;
 
 use super::desk::SessionSummary;
 use super::digest::DigestPane;

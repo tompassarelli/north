@@ -1,10 +1,10 @@
 use super::*;
-use crate::foundation::redact::redact;
+use north_foundation::foundation::redact::redact;
 use rustix::fs::{FlockOperation, flock};
 use store::Doc;
 mod refresh;
 pub use refresh::refresh;
-use crate::threads::catalog::CATALOG;
+use north_threads::threads::catalog::CATALOG;
 mod history;
 mod issues;
 mod policy;
@@ -212,7 +212,7 @@ struct Db<'a> {
 }
 impl Db<'_> {
     fn query(&self, sql: &str) -> Result<Vec<Value>> {
-        Ok(crate::platform::sqlite::rows(self.path, crate::platform::sqlite::Access::ReadOnly, self.busy, sql)?)
+        Ok(north_base::platform::sqlite::rows(self.path, north_base::platform::sqlite::Access::ReadOnly, self.busy, sql)?)
     }
 }
 fn quote(s: &str) -> String {

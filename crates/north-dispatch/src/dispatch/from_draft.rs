@@ -5,8 +5,8 @@ use super::drafts::{self, Draft, Outcome};
 use super::plan::Launch;
 use super::survey::Survey;
 use super::{box_words, drafting, facets, record};
-use crate::pacing::placement::{self, gate};
-use crate::platform::process::run_within;
+use north_pacing::pacing::placement::{self, gate};
+use north_base::platform::process::run_within;
 use std::process::Output;
 use std::time::Duration;
 

@@ -8,7 +8,7 @@ use rustix::fs::{Mode, OFlags};
 use rustix::mount::{MountFlags, MountPropagationFlags, mount, mount_bind, mount_change, mount_recursive_bind};
 use rustix::thread::{LinkNameSpaceType, UnshareFlags, move_into_link_name_space, unshare};
 
-use north_base::foundation::offload::MASTER_SOCKET;
+use north_foundation::foundation::offload::MASTER_SOCKET;
 
 use super::Context;
 

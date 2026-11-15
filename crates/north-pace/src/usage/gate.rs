@@ -10,7 +10,7 @@ use toml_edit::DocumentMut;
 use super::ctx::{self, Defaults, Tier};
 use super::decide::world::ModelFamily;
 use super::{Places, meter, profiles, py, settings};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::router::{ops, policy};
 
 const REFUSAL_TAIL: &str = "Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the coordinator to put to Tom.";
@@ -129,7 +129,7 @@ pub(super) fn local_account(provider: &str, cfg: &Value) -> Option<String> {
         return None;
     }
     let directory = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(std::path::PathBuf::from);
-    account_in(cfg, &profiles::home(), directory.as_deref(), &crate::platform::host::name())
+    account_in(cfg, &profiles::home(), directory.as_deref(), &north_base::platform::host::name())
 }
 
 pub(super) fn account_in(cfg: &Value, home: &Path, directory: Option<&Path>, host: &str) -> Option<String> {

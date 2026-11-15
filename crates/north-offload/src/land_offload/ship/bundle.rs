@@ -81,7 +81,7 @@ pub(super) fn feed(header: Vec<u8>, mut bundle: File, mut stdin: std::process::C
 /// A bare repository borrowing the checkout's objects, where the bundle's refs are named: the checkout's own git
 /// directory is read-only inside a land sandbox, as in an after-landing run.
 fn scratch(land: &Land) -> Result<tempfile::TempDir, String> {
-    let common = Command::new(north_base::foundation::offload::git()).current_dir(land.checkout).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().map_err(|error| format!("git rev-parse: {error}"))?;
+    let common = Command::new(north_foundation::foundation::offload::git()).current_dir(land.checkout).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().map_err(|error| format!("git rev-parse: {error}"))?;
     if !common.status.success() {
         return Err(format!("cannot find the git directory of {}", land.checkout.display()));
     }
@@ -98,7 +98,7 @@ fn scratch(land: &Land) -> Result<tempfile::TempDir, String> {
 /// git in the scratch repository alone: a finish check inherits its lane's `GIT_WORK_TREE`, which `git init` refuses
 /// and which would point the other commands at the lane.
 fn in_scratch(scratch: &std::path::Path) -> Command {
-    let mut command = Command::new(north_base::foundation::offload::git());
+    let mut command = Command::new(north_foundation::foundation::offload::git());
     for name in super::REPOSITORY_ENV {
         command.env_remove(name);
     }

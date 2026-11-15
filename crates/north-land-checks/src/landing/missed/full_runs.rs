@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use serde::Deserialize;
 
-use crate::foundation::check_log::{self, Failure};
+use north_foundation::foundation::check_log::{self, Failure};
 
 mod coverage_record;
 

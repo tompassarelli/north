@@ -1,5 +1,5 @@
 use super::*;
-use crate::landing::pipe_verdicts::{Outcome, after_landing, hand_in};
+use north_landing_gates::landing::pipe_verdicts::{Outcome, after_landing, hand_in};
 use crate::watch::verdicts::{LOST as NO_VERDICT, unanswered};
 
 const RECORDED: &str = "\

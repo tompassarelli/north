@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use registry::Registry;
 use row::Row;
 

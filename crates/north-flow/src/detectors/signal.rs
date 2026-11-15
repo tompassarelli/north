@@ -15,7 +15,7 @@ pub struct Facts {
 }
 
 fn clock(at: f64) -> String {
-    crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso()
+    north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso()
 }
 
 pub fn silent(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {

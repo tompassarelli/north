@@ -6,7 +6,7 @@ use super::candidate::{self, Pick, git};
 use super::hold::{self, Locked};
 use super::checks::{self, Verdict};
 use super::queue::{self, Ticket};
-use crate::landing::red_check::{self, Failure};
+use north_landing::landing::red_check::{self, Failure};
 
 const USAGE: &str = "usage: north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...";
 pub const WORKTREE: &str = "lander-replay";

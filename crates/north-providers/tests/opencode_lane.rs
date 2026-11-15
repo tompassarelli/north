@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use landlock::RulesetStatus;
-use north_providers::fleet::model::{Account, LaunchRequest};
-use north_providers::fleet::prompt::PromptMode;
-use north_providers::fleet::runtime::{Opening, Runtime};
+use north_fleet_supervisor::fleet::model::{Account, LaunchRequest};
+use north_fleet_supervisor::fleet::prompt::PromptMode;
+use north_fleet_supervisor::fleet::runtime::{Opening, Runtime};
 use north_providers::providers::opencode::harness::OPENCODE;
 use north_providers::providers::opencode::{Deepseek, Route, Visibility, route, turns};
 use north_runtime::worker_sandbox::{Context, confine_to_lane};
@@ -107,7 +107,7 @@ fn an_opencode_worker_in_a_public_lane_cannot_read_south_or_sops_keys() {
         "seen=''\nfor path in {}; do if cat \"$path\" >/dev/null 2>&1; then seen=\"$seen read:$path\"; else seen=\"$seen refused:$path\"; fi; done\nprintf '{{\"type\":\"text\",\"sessionID\":\"ses_x\",\"part\":{{\"text\":\"Done:%s\"}}}}\\n' \"$seen\"\nprintf '%s\\n' '{{\"type\":\"step_finish\",\"sessionID\":\"ses_x\",\"part\":{{\"reason\":\"stop\",\"tokens\":{{\"input\":1,\"output\":1,\"reasoning\":0,\"cache\":{{\"read\":0,\"write\":0}}}}}}}}'\n",
         probes.join(" ")
     );
-    north_providers::foundation::shim::write_script(&program, &body);
+    north_foundation::foundation::shim::write_script(&program, &body);
     let launcher = [std::env::current_exe().unwrap().display().to_string(), "--exact".into(), LAUNCHER.into(), "--nocapture".into(), "--quiet".into(), "--".into(), home.display().to_string()].into();
     let host = turns::Host { harness: &OPENCODE, route: Route::Free, effort: None, session: "ses_x".into(), scratch: root.join("scratch"), key_file: None, instructions: None, launcher, program, cwd: lane };
     let mut output = Vec::new();

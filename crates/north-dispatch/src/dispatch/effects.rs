@@ -6,10 +6,10 @@ use super::plan::Launch;
 use super::revive::Revive;
 use super::record::{self, Record};
 use super::survey::Survey;
-use crate::pacing::placement::{self, gate};
-use crate::fleet::runtime::COORDINATOR;
-use crate::platform::attribution::{self, Cause, Harness};
-use crate::platform::process::run_within;
+use north_pacing::pacing::placement::{self, gate};
+use north_fleet_supervisor::fleet::runtime::COORDINATOR;
+use north_base::platform::attribution::{self, Cause, Harness};
+use north_base::platform::process::run_within;
 use north_trusted_mirror::LONGEST_LANE;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -31,10 +31,10 @@ pub fn session_name(launch: &Launch, at: f64) -> String {
         return super::leads::name(&launch.item);
     }
     let short = if launch.item.repo == "makgora" { "sc" } else { launch.item.repo.as_str() };
-    let clock = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset();
+    let clock = north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset();
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     let name = format!("{short}-{}-d{hhmm}", launch.item.number);
-    match super::facets::declared_in(&launch.brief, "Box").and_then(crate::threads::claims::box_slug) {
+    match super::facets::declared_in(&launch.brief, "Box").and_then(north_calibration::threads::claims::box_slug) {
         Some(slug) => box_name(&name, &slug),
         None => name,
     }
@@ -54,7 +54,7 @@ fn box_name(name: &str, slug: &str) -> String {
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
 /// a laptop job that runs it there, queued through north itself because the dispatch unit's PATH has no `threads` shim.
 pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> Result<(String, Vec<String>), String> {
-    command_in(launch, name, survey, north, format!("{home}/code/{}/main", crate::threads::catalog::checkout(&launch.item.repo)))
+    command_in(launch, name, survey, north, format!("{home}/code/{}/main", north_calibration::threads::catalog::checkout(&launch.item.repo)))
 }
 
 pub(super) fn command_in(launch: &Launch, name: &str, survey: &Survey, north: &str, directory: String) -> Result<(String, Vec<String>), String> {
@@ -127,7 +127,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
 /// Stores the launched tier's shrunk success probability for the box's first run, so `north tune` scores it; a
 /// failed store is printed and leaves the launch standing.
 fn predict(launch: &Launch) {
-    let north = crate::fleet::runtime::binary("north");
+    let north = north_fleet_supervisor::fleet::runtime::binary("north");
     let words = ["threads", "recommend", "--launched", launch.route.tier.key(), &launch.brief];
     match run_within(&north.to_string_lossy(), &words, PREDICT_WAIT) {
         Some(output) if output.status.success() => {}
@@ -148,8 +148,8 @@ pub(super) fn fleet_launch_in(launch: &Launch, name: &str, survey: &Survey, dire
 
 fn started(name: &str, (program, words): (String, Vec<String>)) -> Result<String, String> {
     let mut child = std::process::Command::new(&program);
-    child.args(&words).env_remove(crate::fleet::runtime::SESSION_ENV).env_remove(crate::fleet::runtime::ROLE_ENV);
-    match crate::platform::process::try_run_command_within(child, None, LAUNCH_WAIT) {
+    child.args(&words).env_remove(north_fleet_supervisor::fleet::runtime::SESSION_ENV).env_remove(north_fleet_supervisor::fleet::runtime::ROLE_ENV);
+    match north_base::platform::process::try_run_command_within(child, None, LAUNCH_WAIT) {
         Err(error) => {
             let why = format!("{program} did not start: {error}");
             Err(failed_launch(name, why.clone(), &why))

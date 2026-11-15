@@ -1,4 +1,4 @@
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::remote::{self, HeldOn};
 use crate::fleet::runtime::binary;
 

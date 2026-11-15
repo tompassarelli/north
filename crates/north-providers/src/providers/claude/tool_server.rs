@@ -4,9 +4,9 @@ use north_base::platform::agent_runtime;
 use north_base::platform::entry_points::{EntryPoint, linked_beside};
 use serde_json::json;
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{LaunchRequest, Machine};
-use crate::fleet::runtime::Seen;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::model::{LaunchRequest, Machine};
+use north_fleet_supervisor::fleet::runtime::Seen;
 
 const TOOL_SERVER_FLAG: &str = "--tool-server";
 const CALL_MARGIN: std::time::Duration = std::time::Duration::from_secs(300);

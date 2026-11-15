@@ -5,7 +5,7 @@
 //! ordinary fleet host on this machine, typed into from the fleet screen, so only a conversation on another machine is refused and no window opens.
 use std::sync::Mutex;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, LaunchRequest, Role, SessionRecord, Surface};
 use crate::fleet::records::write_record;
 use crate::fleet::remote::HooksCheck;

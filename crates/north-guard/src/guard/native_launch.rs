@@ -1,5 +1,5 @@
 use crate::hook_input::{HookInput, Verdict};
-use crate::shell;
+use north_base::shell;
 
 const PREFIXES: &[&str] = &[
     "env",

@@ -2,8 +2,8 @@ use serde_json::{Value, json};
 
 use super::decide::world::ModelFamily;
 use super::meter;
-use crate::foundation::clock::Timestamp;
-use crate::foundation::limit_clock::{limit_reply, reset_after, reset_on};
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::limit_clock::{limit_reply, reset_after, reset_on};
 
 const HEADERS: &str = "Messages response anthropic-ratelimit-unified headers on the account's setup token";
 const HEADER_WINDOWS: [&str; 2] = ["5h", "7d"];

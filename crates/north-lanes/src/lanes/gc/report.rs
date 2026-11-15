@@ -5,7 +5,7 @@ use super::Gc;
 use super::evidence::{LaneClass, cited_issues};
 use super::exec::{command, git};
 use super::state::Owned;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const DAY_MS: i64 = 86_400_000;
 const ALERT_ROWS: usize = 12;

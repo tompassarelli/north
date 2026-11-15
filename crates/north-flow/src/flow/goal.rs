@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::host::{Places, seconds};
-use crate::platform::sqlite::{self, Access};
+use north_base::platform::sqlite::{self, Access};
 
 /// Epoch of the newest `goal_eta` prediction recorded for this repository's current target.
 pub fn goal_finish(places: &Places, repo: &str, target: Option<f64>) -> Option<f64> {

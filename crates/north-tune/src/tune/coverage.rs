@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::ledger;
-use crate::platform::sqlite::{self, Access};
+use north_providers::ledger;
+use north_base::platform::sqlite::{self, Access};
 
 pub const FLOOR: f64 = 0.98;
 pub const WINDOW: &str = "24h";

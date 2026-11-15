@@ -1,4 +1,4 @@
-use crate::shell::{ShellToken, basename, command, heredoc_bodies, operator_tokens, strip_heredocs};
+use north_base::shell::{ShellToken, basename, command, heredoc_bodies, operator_tokens, strip_heredocs};
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

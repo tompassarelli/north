@@ -1,5 +1,5 @@
 use super::{Detector, Finding};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const STALE_DAYS: i64 = 30;
 const BUSY_COMMITS: usize = 10;

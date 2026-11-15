@@ -1,4 +1,4 @@
-use crate::shell;
+use north_base::shell;
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;

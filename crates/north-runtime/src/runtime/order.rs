@@ -53,7 +53,7 @@ pub(super) fn command(layout: &Layout, flags: &[String]) -> Result<(), Failure> 
     seat::reachable()?;
     let store = update::trusted_store()?;
     let sha = resolve(&store, commit.as_deref())?;
-    let name = crate::platform::host::name();
+    let name = north_base::platform::host::name();
     let here = Here { layout, shell: Shell::Here(name.clone()) };
     let deployment = land_offload::deployment();
     if let Some(line) = deployment.skip_line() {

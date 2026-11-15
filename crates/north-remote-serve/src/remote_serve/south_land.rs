@@ -8,9 +8,9 @@ use std::process::{Command, Output, Stdio};
 use rustix::fs::{FlockOperation, flock};
 
 use super::south_policy;
-use crate::platform::betterleaks;
-use crate::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
-use crate::fleet::attachments::base64;
+use north_base::platform::betterleaks;
+use north_base::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
+use north_fleet_supervisor::fleet::attachments::base64;
 
 pub const TOKEN_FILE: &str = "github-token";
 const BRANCH: &str = "main";

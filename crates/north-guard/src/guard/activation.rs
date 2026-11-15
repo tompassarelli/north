@@ -1,4 +1,4 @@
-use crate::foundation::activation::activation_paths;
+use north_foundation::foundation::activation::activation_paths;
 use rustix::fs::{Access, access};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;

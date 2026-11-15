@@ -1,7 +1,7 @@
 //! `north ops dividend`: each open issue labelled `bet` names the checks of its Dividend section;
 //! a run evaluates them over the last seven days, comments PAYING or DECAYED on the issue once a
 //! day, and sends the coordinator a fleet message for each bet that comments DECAYED.
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use checks::{Check, Facts, Standing, Verdict, evaluate};
 use live::Gh;
 

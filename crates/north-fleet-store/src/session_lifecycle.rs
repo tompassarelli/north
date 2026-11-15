@@ -7,8 +7,8 @@ use std::time::Duration;
 use north_base::lifecycle::{Effect, Leased, Lifecycle, Lost, Owner, Refusal, State, Store};
 use serde_json::Value;
 
-use north_base::error::{NorthError, NorthResult};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Phase {

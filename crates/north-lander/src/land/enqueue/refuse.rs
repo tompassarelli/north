@@ -6,8 +6,8 @@ use crate::land::lane_gates::{self, Lane};
 use crate::land::scans::git::merge_base;
 use crate::land::slots::runner::QueueRefusal;
 use north_base::platform::finish_record::{FinishRecords, Finished};
-use crate::dep_gate::Registry;
-use crate::landing::{merge_set, stale_revert};
+use north_diff_gates::dep_gate::Registry;
+use north_landing::landing::{merge_set, stale_revert};
 
 /// A lane the repository's checks before queueing judged and failed turns its session's passing finish record for
 /// that tree failed, so a route's first rung moves to its second on the repository's own checks and not only on the
@@ -40,16 +40,16 @@ pub(super) fn refuse_archived(repository: &Repository) -> Result<(), String> {
 pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(), &'static str> {
     let base = merge_base(root, destination, head);
     let base = base.as_str();
-    if !crate::language_gate::check(root, base, head) {
+    if !north_diff_gates::language_gate::check(root, base, head) {
         return Err("language gate");
     }
-    if !crate::build_cache_gate::check(root, base, head) {
+    if !north_diff_gates::build_cache_gate::check(root, base, head) {
         return Err("build-cache gate");
     }
-    if !crate::dep_gate::check_reasons(root, base, head) {
+    if !north_diff_gates::dep_gate::check_reasons(root, base, head) {
         return Err("dependency gate");
     }
-    if !crate::stub_exec_gate::check(root, destination, base, head) {
+    if !north_diff_gates::stub_exec_gate::check(root, destination, base, head) {
         return Err("stub-exec gate");
     }
     Ok(())
@@ -60,7 +60,7 @@ pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home:
     let fork = merge_base(root, base, head);
     let borrowed = lander_ledger.map(|rows| ledger_home(&rows)).transpose().map_err(|error| format!("cannot keep the lander's post-land ledger: {error}"))?;
     let code_health = crate::land::after::gates::code_health_program();
-    let advisory_db = crate::advisory_gate::database(state_home);
+    let advisory_db = north_diff_gates::advisory_gate::database(state_home);
     let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()), code_health: &code_health, registry, advisory_db: &advisory_db };
     let Some((failed, text)) = lane_gates::failed(&lane) else { return Ok(Ok(())) };
     let gates = failed.join(", ");
@@ -70,7 +70,7 @@ pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home:
 
 fn judge_lane_gates(diff: &DiffOnly<'_>) -> Result<Option<String>, String> {
     let (root, base, head) = (diff.root, diff.base, diff.head);
-    if let Err((gates, detail)) = refuse_lane_gates(root, base, head, diff.environment.state_home, diff.ledger.clone(), &crate::dep_gate::PublicRegistries)? {
+    if let Err((gates, detail)) = refuse_lane_gates(root, base, head, diff.environment.state_home, diff.ledger.clone(), &north_diff_gates::dep_gate::PublicRegistries)? {
         diff.judged(&gates, Err(detail))?;
     }
     Ok(git(root, &["status", "--porcelain"]).is_ok_and(|status| status.is_empty()).then(|| merge_base(root, base, head)))
@@ -142,7 +142,7 @@ impl DiffOnly<'_> {
         if self.record {
             super::judged(self.environment, self.root, self.branch, self.head, gate, outcome)
         } else {
-            crate::landing_refusals::standing(gate, outcome)
+            north_diff_gates::landing_refusals::standing(gate, outcome)
         }
     }
 }

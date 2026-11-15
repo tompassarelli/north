@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use serde::Deserialize;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::detectors::{Detector, Filer, Spend, record};
 use crate::flow::{Machine, Places};
 

@@ -6,14 +6,14 @@ use std::sync::LazyLock;
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 
-use crate::platform::{push_ledger, verification_budget};
+use north_base::platform::{push_ledger, verification_budget};
 use super::test_integrity::{in_vendored, vendored_trees};
 use super::incident_guard;
 use super::test_file::is_test_file;
 use super::{Range, git};
-use crate::landing::fails_first;
-use north_base::foundation::exit::NO_VERDICT;
-use north_base::foundation::offload::{ONE_LANE_ENV, TIPS_ENV};
+use north_landing_gates::landing::fails_first;
+use north_foundation::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::offload::{ONE_LANE_ENV, TIPS_ENV};
 
 mod kills;
 mod limits;

@@ -15,6 +15,8 @@ north-coverage = { path = "../north-coverage" }
 north-graph = { path = "../north-graph" }
 serde_json.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [lints]
 workspace = true

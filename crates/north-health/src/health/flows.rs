@@ -9,7 +9,7 @@ use north_base::dispatch_pause::RECORD;
 use north_base::lifecycle::Fault;
 use north_threads::threads::client::spool;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub mod facts;
 pub mod probe;
@@ -20,7 +20,7 @@ mod tests;
 /// A slow recording pass beyond the backstop timer's interval: runs are recorded as their sessions end, so only a run the timer must catch waits this long.
 const RECORDING_SLACK_S: f64 = 5.0 * 60.0;
 /// One snapshot pull interval and five minutes more for a slow pull.
-const SNAPSHOT_AGE_S: f64 = crate::threads::snapshot::SNAPSHOT_SECONDS as f64 + 5.0 * 60.0;
+const SNAPSHOT_AGE_S: f64 = north_calibration::threads::snapshot::SNAPSHOT_SECONDS as f64 + 5.0 * 60.0;
 /// A landing not live on a host this long after it reached origin/main is stuck.
 const LANDING_LAG_S: f64 = 10.0 * 60.0;
 /// A host whose policy generation is older than the newest host's by this much has stopped publishing.

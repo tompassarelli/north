@@ -1,5 +1,5 @@
-use crate::platform::git::run_within;
-use crate::shell;
+use north_base::platform::git::run_within;
+use north_base::shell;
 use std::time::Duration;
 
 const LIMIT: usize = 200;

@@ -2,8 +2,8 @@ use super::cloud::{autoland as cloud_autoland, branch as cloud_branch};
 use super::gate::{self, CloudLane, Decision, Target};
 use super::launch::{Launch, Overrides, Placed, is_coordinator};
 use super::refusal::Refusal;
-use crate::fleet::model::{Effort, Machine};
-use crate::usage::decide::world::ModelFamily;
+use north_fleet_supervisor::fleet::model::{Effort, Machine};
+use north_pace::usage::decide::world::ModelFamily;
 
 pub fn settle(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Placed, Refusal> {
     if let Some(why) = &decision.line_held {

@@ -2,9 +2,9 @@
 //! resident sessions, which accounts the out-rule keeps out and the staffed repositories' open issues,
 //! launches each ready box it can place through `north fleet launch`, records the launch, and tells
 //! Tom in one line when ready work and free slots coexist and nothing could launch.
-use crate::error::NorthResult;
-use crate::fleet::roster::Roster;
-use crate::pacing::placement;
+use north_foundation::error::NorthResult;
+use north_fleet_supervisor::fleet::roster::Roster;
+use north_pacing::pacing::placement;
 pub use issues::{IssueRef, OWNER, no_box_refusal, product_boxes, references};
 pub use decision::{boxless, decide};
 use decision::{candidates, decide_leaving, revive};
@@ -244,8 +244,8 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         println!("north fleet dispatch: paused on this host, launching nothing: {reason}; `north fleet dispatch resume` ends the pause");
         return 0;
     }
-    if let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &crate::platform::host::name())) {
-        return home::run_there(&crate::platform::host::name(), &host, &ssh, dry_run, &drafted);
+    if let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &north_base::platform::host::name())) {
+        return home::run_there(&north_base::platform::host::name(), &host, &ssh, dry_run, &drafted);
     }
     let survey = match roster().map_err(|error| error.to_string()).and_then(|roster| survey::survey(&roster)) {
         Ok(survey) => survey,
@@ -323,10 +323,10 @@ pub fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path, item: 
     let login = cloud::current_login()?;
     let brief = brief::cloud(&text, repo, &cloud::branch(slug), &brief::standing_orders()?);
     let launched = cloud::launch(repo, slug, &brief, &[], std::path::Path::new(cloud::SOURCES), &login.home, &mut cloud::run)?;
-    cloud::register(&record::directory(), repo, &launched, std::env::var(crate::fleet::runtime::SESSION_ENV).ok().filter(|session| !session.is_empty()).as_deref(), placement::now())?;
+    cloud::register(&record::directory(), repo, &launched, std::env::var(north_fleet_supervisor::fleet::runtime::SESSION_ENV).ok().filter(|session| !session.is_empty()).as_deref(), placement::now())?;
     cloud::record_run(&launched, &brief, placement::now());
     if let Some(item) = &item {
-        cloud::hold(item, &launched, &crate::platform::host::name(), &record::directory(), placement::now())?;
+        cloud::hold(item, &launched, &north_base::platform::host::name(), &record::directory(), placement::now())?;
     }
     Ok(format!("{} {} {}", launched.session, launched.branch, launched.directory.display()))
 }

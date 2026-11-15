@@ -1,6 +1,6 @@
-use crate::foundation::clock::Timestamp;
-use crate::pacing::placement;
-use crate::platform::host;
+use north_foundation::foundation::clock::Timestamp;
+use north_pacing::pacing::placement;
+use north_base::platform::host;
 use expectations::Roster;
 use facts::{Machine, Phone};
 use serde_json::json;
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 mod expectations;
 mod facts;
 
-static SOURCE: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table("north-data/expectations.toml"));
+static SOURCE: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("north-data/expectations.toml"));
 const USAGE: &str = "usage: north ops check [--dry-run | --synthetic]";
 const STATE: &str = "ops/state.json";
 

@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 
 use super::{failed, wrapped};
 

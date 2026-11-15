@@ -28,7 +28,7 @@ pub struct Rules {
 
 impl Rules {
     pub fn configured() -> Self {
-        let number = crate::platform::harness::default_number;
+        let number = north_base::platform::harness::default_number;
         Self { charge: number("spend_worker_charge"), reading_max_h: number("spend_reading_max_h"), money_ceiling: number("money_ceiling"), claude_sessions: number("dispatch_claude_sessions") as usize }
     }
 }

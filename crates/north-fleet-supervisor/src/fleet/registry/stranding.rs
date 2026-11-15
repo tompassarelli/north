@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::builds;
 use crate::fleet::model::{EntryKind, Machine, SessionRecord, Status};
 use crate::fleet::resume::OPENERS;

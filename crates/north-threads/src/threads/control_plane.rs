@@ -98,7 +98,7 @@ fn line(row: &Row) -> String {
 #[cfg(test)]
 mod tests {
     use super::run;
-    use crate::foundation::clock::Timestamp;
+    use north_foundation::foundation::clock::Timestamp;
     use crate::threads::fake::Recorded;
     use crate::threads::verb::Context;
 

@@ -2,7 +2,7 @@
 use super::decide;
 use super::slots::{Account, Host};
 use super::tests::{host, issue, survey};
-use crate::capacity::saturation::{Backlog, Saturation};
+use north_capacity_host::capacity::saturation::{Backlog, Saturation};
 
 fn account(name: &str, hosts: &[&str]) -> Account {
     let room = super::slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 };
@@ -60,9 +60,9 @@ pub(super) fn a_host_whose_pushed_github_token_is_past_its_trust_takes_no_sessio
     let (launched, skipped) = placed(vec![stale, host("nexus", 6, Ok(0))], accounts, 1);
     assert_eq!(launched, [("nexus".to_owned(), "claude:a".to_owned())]);
     assert!(skipped.is_empty(), "{skipped:?}");
-    let probed = crate::capacity::saturation::parse("65536000\n49152000\n/dev/md1 981000000 400000000 500000000 45% /\n#backlog\n0 1.0 20\n#token\n3400\n").unwrap();
+    let probed = north_capacity_host::capacity::saturation::parse("65536000\n49152000\n/dev/md1 981000000 400000000 500000000 45% /\n#backlog\n0 1.0 20\n#token\n3400\n").unwrap();
     assert_eq!(probed.token_age_s, Some(3400));
-    assert_eq!(crate::capacity::saturation::parse("65536000\n49152000\n/dev/md1 981000000 400000000 500000000 45% /\n#backlog\n#token\n").unwrap().token_age_s, None, "a host that mints its own token reports none");
+    assert_eq!(north_capacity_host::capacity::saturation::parse("65536000\n49152000\n/dev/md1 981000000 400000000 500000000 45% /\n#backlog\n#token\n").unwrap().token_age_s, None, "a host that mints its own token reports none");
 }
 
 pub(super) fn every_build_hosts_line_over_the_wait_bar_holds_each_box_with_its_expected_wait() {

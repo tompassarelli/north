@@ -151,7 +151,7 @@ pub fn write(path: &Path, text: &str) -> Result<(), String> {
 
 pub fn script(path: &Path, text: &str) -> Result<(), String> {
     write(path, "")?;
-    north_base::foundation::shim::write_executable(path, text);
+    north_foundation::foundation::shim::write_executable(path, text);
     Ok(())
 }
 

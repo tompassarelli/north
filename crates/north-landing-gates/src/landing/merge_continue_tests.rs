@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::fs;
 use std::path::Path;
 
@@ -28,7 +28,7 @@ fn derived_files_regenerate_at_landing_from_a_lane_that_changes_only_their_input
     let main = commit(root, &[("harness/merge-sets.toml", list), ("targets.sh", generator), ("crates/docs/Cargo.toml", "serde_json\n"), ("crates/docs/BUCK", "serde_json\n")], "main");
     let jail = tempfile::tempdir().unwrap();
     let north = jail.path().join("north");
-    north_base::foundation::shim::write_script(&north, "[ \"$1 $2 $3\" = \"--worker-sandbox --candidate --\" ] || exit 9\nshift 3\nexec \"$@\"\n");
+    north_foundation::foundation::shim::write_script(&north, "[ \"$1 $2 $3\" = \"--worker-sandbox --candidate --\" ] || exit 9\nshift 3\nexec \"$@\"\n");
     merge_set::run_drivers_with(&north);
 
     commit(root, &[("crates/docs/Cargo.toml", "serde_json\ntoml_edit\n")], "a lane adds a dependency to a manifest and leaves its BUCK file stale");
@@ -40,7 +40,7 @@ fn derived_files_regenerate_at_landing_from_a_lane_that_changes_only_their_input
     commit(root, &[("notes.md", "a lane that changes no generator input\n"), ("targets.sh", "exit 3\n")], "a lane outside every input");
     assert!(refresh(root, &main, &landed, Generators::Merged).unwrap().is_empty(), "a landing that changes no generator input ran a generator");
 
-    north_base::foundation::shim::write_script(&north, "case \"$1 $2\" in\n\"--worker-sandbox --candidate\") shift 3; exec \"$@\" ;;\n\"runtime build-ahead\") echo every build host is over its admission limit >&2; exit 75 ;;\n\"runtime covers\") exit 1 ;;\n\"buck targets\") cp crates/docs/Cargo.toml crates/docs/BUCK ;;\n*) exit 9 ;;\nesac\n");
+    north_foundation::foundation::shim::write_script(&north, "case \"$1 $2\" in\n\"--worker-sandbox --candidate\") shift 3; exec \"$@\" ;;\n\"runtime build-ahead\") echo every build host is over its admission limit >&2; exit 75 ;;\n\"runtime covers\") exit 1 ;;\n\"buck targets\") cp crates/docs/Cargo.toml crates/docs/BUCK ;;\n*) exit 9 ;;\nesac\n");
     let list = "[[set]]\npath = \"crates/**/BUCK\"\nkind = \"regenerate\"\ncommand = \"north buck targets\"\nsources = [\"**/Cargo.toml\"]\ngenerator = [\"targets/**\"]\n";
     let fixed = commit(root, &[("harness/merge-sets.toml", list), ("targets/mod.rs", "old\n")], "main lists a north generator");
     commit(root, &[("targets/mod.rs", "new\n"), ("crates/docs/Cargo.toml", "serde_json\nurgent\n")], "an urgent fix changes the generator code and a manifest");

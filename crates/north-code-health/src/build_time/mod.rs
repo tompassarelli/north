@@ -13,7 +13,7 @@ use config::Workspace;
 use ledger::{Row, Verdict};
 use measure::Builder;
 
-use crate::platform::rolling_issue::{Gh, Tracker};
+use north_base::platform::rolling_issue::{Gh, Tracker};
 
 const USAGE: &str = "usage: north code-health build-time --repo PATH [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]";
 
@@ -37,7 +37,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     options.env = std::env::vars().collect();
     let ledger = options.ledger.clone().unwrap_or_else(default_ledger);
-    let host = crate::platform::host::name();
+    let host = north_base::platform::host::name();
     let mut tracker = match options.file.then(|| issue::github_repo(&options.repo)).transpose() {
         Ok(Some(repo)) if repo != issue::REPO => return fail(&format!("--file reports to {}, so it measures only {}; origin is {repo}", issue::REPO, issue::REPO)),
         Ok(repo) => repo.map(|_| Gh::north()),
@@ -50,7 +50,7 @@ pub fn run(arguments: &[String]) -> u8 {
     if let Some(checkout) = &checkout {
         options.repo = checkout.path().to_path_buf();
     }
-    match measure_repo(&options, &mut Builder(north_build_system::here()), &ledger, &host, crate::platform::host::contention(), tracker.as_mut().map(|gh| gh as &mut dyn Tracker)) {
+    match measure_repo(&options, &mut Builder(north_build_system::here()), &ledger, &host, north_base::platform::host::contention(), tracker.as_mut().map(|gh| gh as &mut dyn Tracker)) {
         Ok(code) => code,
         Err(error) => fail(&error),
     }

@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::fs;
 use std::path::Path;
 
@@ -48,7 +48,7 @@ fn no_verdict_names_its_failing_step() {
     let gave_up = "head-north: refused, no whole runtime at /home/tom/.local/state/north/runtimes/2091ad2751 after waiting, and an offload slot never builds north from the tree it checks";
     fs::write(&log, format!("error: an earlier warning that is not the reason\n{gave_up}\n{{\"decision\":\"COMMAND_EXITED\",\"exitCode\":75}}\n")).unwrap();
     fs::write(&outcome, format!("failed-step\t./bin/head-north --code src/cli/ land lint\t{}\n", log.display())).unwrap();
-    let status = north_base::foundation::exit::NO_VERDICT_STATUS;
+    let status = north_foundation::foundation::exit::NO_VERDICT_STATUS;
     let named = format!("{:?}", super::refusal(status, (dir.path(), "", ""), super::failing_step(&outcome, status)));
     assert!(named.contains("land lint") && named.contains(gave_up) && !named.contains("host or its connection"), "a check that gave up inside the slot was blamed on the host or its connection instead of naming itself and its own last line (north#1578, 2026-11-15): {named}");
     let dropped = format!("{:?}", super::refusal(status, (dir.path(), "", ""), super::failing_step(&dir.path().join("no-outcome"), status)));

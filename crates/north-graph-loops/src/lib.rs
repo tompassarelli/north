@@ -20,5 +20,4 @@ pub use cells::{Cells, Learned, Measure};
 pub use check_deadline::{CheckDeadline, WRITER as CHECK_WRITER, check_deadline, check_deadline_from, check_key, tell_check_deadline, tell_check_deadline_to};
 pub use fleet::{Retirement, WRITER as FLEET_WRITER, retirement, retirement_from, tell_retirement, tell_retirement_to};
 pub use lander_doctor::{DOCTOR_WRITER, Held, Remembered, remembered, remembered_from, tell_remembered, tell_remembered_to};
-pub use north_graph::default_path as graph_path;
 pub use rules::{closed_issues, closed_issues_from, read, read_from, tell, tell_to, ticks, ticks_from};

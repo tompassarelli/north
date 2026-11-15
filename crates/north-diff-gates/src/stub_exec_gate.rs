@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::platform::git as platform_git;
+use north_base::platform::git as platform_git;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -12,7 +12,7 @@ pub type Allowlist = BTreeMap<String, String>;
 
 pub const ALLOWLIST: &str = ".stub-exec-allowlist.json";
 pub const ROOTS: [&str; 3] = ["crates", "src", "tests"];
-const REMEDY: &str = "write executable test stubs with north_core::foundation::shim::write_script or write_executable and copy binaries with copy_executable";
+const REMEDY: &str = "write executable test stubs with north_foundation::foundation::shim::write_script or write_executable and copy binaries with copy_executable";
 
 static SITE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"from_mode\(0o7[0-7]{2}\)|fn executable\(path: &Path, |fs::copy\(\s*(?:concat!\(env!\("CARGO_MANIFEST_DIR"\), "/bin|Path::new\(env!\("CARGO_MANIFEST_DIR"\)\)\.join\("bin|(?:env|bin_exe)!\("CARGO_BIN_EXE)"#).expect("site pattern")

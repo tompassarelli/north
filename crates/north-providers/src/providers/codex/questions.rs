@@ -1,6 +1,6 @@
 use serde_json::{Map, Value, json};
 
-use crate::fleet::gates::{ASKED_REPLY, Ask, Question};
+use north_fleet_supervisor::fleet::gates::{ASKED_REPLY, Ask, Question};
 
 const REQUEST_USER_INPUT: &str = "item/tool/requestUserInput";
 

@@ -2,11 +2,11 @@
 //! usage log, the cloud credit and GitHub.
 use super::checks::{Cpu, DAY_S, Facts, WINDOW_DAYS};
 use super::Bet;
-use crate::fleet::landings;
-use crate::foundation::clock::Timestamp;
-use crate::dispatch;
-use crate::pacing::placement;
-use crate::platform::{github, host, process::run_within};
+use north_fleet_supervisor::fleet::landings;
+use north_foundation::foundation::clock::Timestamp;
+use north_dispatch::dispatch;
+use north_pacing::pacing::placement;
+use north_base::platform::{github, host, process::run_within};
 use serde_json::Value;
 use std::time::Duration;
 use toml_edit::{DocumentMut, Item};

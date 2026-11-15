@@ -1,6 +1,6 @@
 use super::briefs::Event;
 use super::{World, capacity_home, home};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::{Path, PathBuf};

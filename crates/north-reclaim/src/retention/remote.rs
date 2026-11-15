@@ -2,7 +2,7 @@ use std::io;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use crate::platform::process::run_command_within;
+use north_base::platform::process::run_command_within;
 
 const READ_LIMIT: Duration = Duration::from_secs(600);
 
@@ -31,7 +31,7 @@ pub(super) struct Ssh {
 impl Remote for Ssh {
     fn command(&self, script: &str) -> Command {
         let mut command = Command::new("ssh");
-        command.args(["-T", "-o", "BatchMode=yes", "-o", crate::platform::ssh::OWN_CONNECTION, "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", &self.host, "--", script]);
+        command.args(["-T", "-o", "BatchMode=yes", "-o", north_base::platform::ssh::OWN_CONNECTION, "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", &self.host, "--", script]);
         command
     }
 }

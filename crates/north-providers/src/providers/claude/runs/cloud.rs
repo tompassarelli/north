@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 
 use super::stop;
 use super::row::{eta, prefix};
-use crate::foundation::clock::Timestamp;
-use crate::threads::runs::CLOUD_ORIGIN;
+use north_foundation::foundation::clock::Timestamp;
+use north_calibration::threads::runs::CLOUD_ORIGIN;
 
 pub const TIER: &str = "cloud";
 

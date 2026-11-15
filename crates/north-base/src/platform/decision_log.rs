@@ -14,7 +14,7 @@ use north_strategy_types::{Envelope, Kind, Snapshot, VERSION};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static DROPPED: AtomicU64 = AtomicU64::new(0);

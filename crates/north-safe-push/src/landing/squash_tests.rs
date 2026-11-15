@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use north_base::test_inputs::git::git_in;
-use north_lander::landing::lane_squash::{Squash, squash};
+use north_foundation::test_inputs::git::git_in;
+use north_landing::landing::lane_squash::{Squash, squash};
 
 fn commit(root: &Path, file: &str, text: &str, message: &str) {
     std::fs::write(root.join(file), text).unwrap();

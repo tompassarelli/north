@@ -1,7 +1,7 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::fleet::model::{Entry, EntryKind, Transcript};
+use north_fleet_supervisor::fleet::model::{Entry, EntryKind, Transcript};
 
 use super::table::{self, Block};
 

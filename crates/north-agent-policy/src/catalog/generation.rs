@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use north_base::platform::hook_commands;
 
 use super::files::{atomic_symlink, copy_tree, current_generation_path, replace_copy, write_json};

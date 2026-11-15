@@ -1,7 +1,7 @@
 //! The composer's submit path: a gate answer, a tuning request, or a message to the selected session.
 
-use crate::fleet::gates::{Decision, Gate};
-use crate::fleet::model::{Delivery, Effort};
+use north_fleet_supervisor::fleet::gates::{Decision, Gate};
+use north_fleet_supervisor::fleet::model::{Delivery, Effort};
 
 use super::super::help_panel::Tab;
 use super::super::slash;

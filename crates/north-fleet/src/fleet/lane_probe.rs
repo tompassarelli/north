@@ -2,7 +2,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::platform::process::run_within;
+use north_base::platform::process::run_within;
 
 use super::model::Machine;
 use super::stranded::{Checkout, Lane, Lanes, Worktree};

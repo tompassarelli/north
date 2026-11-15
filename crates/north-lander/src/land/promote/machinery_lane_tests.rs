@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use super::{Judged, declared, judge};
 use crate::land::replay::Replayed;
-use crate::landing::red_check::Failure;
+use north_landing::landing::red_check::Failure;
 
 fn replayed(verdict: &str, failures: &[&str]) -> Replayed {
     Replayed { verdict: verdict.to_owned(), failures: failures.iter().map(|name| Failure::Cargo((*name).to_owned())).collect() }

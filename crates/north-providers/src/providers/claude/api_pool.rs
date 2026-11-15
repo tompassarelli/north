@@ -5,18 +5,18 @@ use std::time::Duration;
 use north_base::platform::attribution::{self, Cause, Harness};
 use toml_edit::{DocumentMut, Item};
 
-use crate::credit::{Grant, marks};
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::handover::AccountReadings;
-use crate::fleet::limit::{park, recent, recent_within};
-use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, Machine, Phase, SessionRecord, Status, Transcript};
-use crate::fleet::runtime::Runtime;
-use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
-use crate::fleet::records::write_record;
-use crate::fleet::registry::{Fleet, Halt};
-use crate::fleet::sender::Sender;
-use crate::foundation::clock::Timestamp;
-use crate::usage::decide::world::LimitEvent;
+use north_pace::credit::{Grant, marks};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::handover::AccountReadings;
+use north_fleet_supervisor::fleet::limit::{park, recent, recent_within};
+use north_fleet_supervisor::fleet::model::{ApiKey, Delivery, Entry, EntryKind, Machine, Phase, SessionRecord, Status, Transcript};
+use north_fleet_supervisor::fleet::runtime::Runtime;
+use north_fleet_supervisor::fleet::transcript::{StreamTail, stream_len, stream_path};
+use north_fleet_supervisor::fleet::records::write_record;
+use north_fleet_supervisor::fleet::registry::{Fleet, Halt};
+use north_fleet_supervisor::fleet::sender::Sender;
+use north_foundation::foundation::clock::Timestamp;
+use north_pace::usage::decide::world::LimitEvent;
 
 const NEVER: &str = "9999-12-31";
 const ENDED_RECENT: Duration = Duration::from_secs(6 * 3600);
@@ -99,7 +99,7 @@ pub fn today() -> String {
 
 fn pool(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec<Org> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    declared(&document, &crate::credit::open_grants(policy, &state_root.join("ledger.db"), &today()), home, here)
+    declared(&document, &north_pace::credit::open_grants(policy, &state_root.join("ledger.db"), &today()), home, here)
 }
 
 fn readable(file: &Path) -> bool {
@@ -112,7 +112,7 @@ pub fn listing(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec
     let marks = state_root.join("api-exhausted");
     let mut lines: Vec<String> = orgs.iter().map(|org| format!("{} keys={} exhausted={}", org.line(), org.keys.len(), exhausted(&marks, org))).collect();
     let chosen = open(&orgs, &today(), |org| exhausted(&marks, org), readable);
-    match crate::spend::hold::at(policy) {
+    match north_pace::spend::hold::at(policy) {
         Some(held) => lines.push(format!("api launches on: none: {}", held.line("api"))),
         None => lines.push(chosen.map_or_else(|| "api launches on: no open entry".to_owned(), |(org, _)| format!("api launches on: {}", org.name))),
     }
@@ -121,7 +121,7 @@ pub fn listing(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec
 
 /// The entry and key a run outside the fleet takes: the one the pool opens next, leaving out the organizations in `skipped`.
 pub fn next_key(policy: &Path, home: &Path, state_root: &Path, here: &str, skipped: &[String]) -> Option<(String, ApiKey)> {
-    if crate::spend::hold::at(policy).is_some() {
+    if north_pace::spend::hold::at(policy).is_some() {
         return None;
     }
     let orgs = pool(policy, home, state_root, here);
@@ -132,7 +132,7 @@ pub fn next_key(policy: &Path, home: &Path, state_root: &Path, here: &str, skipp
 /// Marks organization `id` exhausted on `session`'s report that the API refused a turn for a credit balance too low,
 /// keeping the refusal's own body; a body that names anything else writes nothing.
 pub fn mark_ran_out(policy: &Path, state_root: &Path, id: &str, session: &str, body: &str) -> std::io::Result<bool> {
-    marks::mark(&state_root.join("api-exhausted"), id, session, &today(), crate::credit::next_credits(policy).get(id).map(String::as_str), body)
+    marks::mark(&state_root.join("api-exhausted"), id, session, &today(), north_pace::credit::next_credits(policy).get(id).map(String::as_str), body)
 }
 
 /// Whether an API error message is the low-credit refusal.
@@ -160,7 +160,7 @@ pub fn rejudge(policy: &Path, home: &Path, state_root: &Path, here: &str, probe:
     if held.is_empty() {
         return Vec::new();
     }
-    let hold = crate::spend::hold::at(policy);
+    let hold = north_pace::spend::hold::at(policy);
     let orgs = pool(policy, home, state_root, here);
     let mut lines = Vec::new();
     for (id, mark) in held {
@@ -234,7 +234,7 @@ pub struct Reading {
 impl Reading {
     fn of(policy: &Path, state: &Path) -> Self {
         let today = today();
-        Self { grants: crate::credit::open_grants(policy, &state.join("ledger.db"), &today), next_credits: crate::credit::next_credits(policy), today }
+        Self { grants: north_pace::credit::open_grants(policy, &state.join("ledger.db"), &today), next_credits: north_pace::credit::next_credits(policy), today }
     }
 }
 
@@ -245,7 +245,7 @@ pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Pa
     let reading = Reading::of(policy, &home.join(".local/state/north"));
     let observed = std::cell::OnceCell::new();
     let subscription = |record: &SessionRecord, machine: &Machine| {
-        let now = crate::fleet::runtime::now_ms();
+        let now = north_fleet_supervisor::fleet::runtime::now_ms();
         let labels: Vec<String> = fleet
             .accounts()
             .into_iter()
@@ -278,11 +278,11 @@ fn settle(
     let until = |org: &Org| next_credits.get(&org.id).map(String::as_str);
     let dir = home.join(".local/state/north/api-exhausted");
     let mut lines = Vec::new();
-    let reserve = crate::fleet::registry::reserve::declared(policy);
+    let reserve = north_fleet_supervisor::fleet::registry::reserve::declared(policy);
     let sessions = fleet.sessions().unwrap_or_default().into_iter().filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::Retired | Phase::Adopted)));
     for record in sessions.filter(|record| if record.ended() { recent_within(record, ENDED_RECENT) } else { recent(record) }) {
         let Some((_, name)) = record.account.split_once(':') else { continue };
-        let machine = record.machine.clone().unwrap_or_else(|| Machine { name: crate::platform::host::name(), ssh: String::new(), agent_ssh: None });
+        let machine = record.machine.clone().unwrap_or_else(|| Machine { name: north_base::platform::host::name(), ssh: String::new(), agent_ssh: None });
         let orgs = declared(&document, grants, home, &machine.name);
         let Some(org) = orgs.iter().find(|org| org.name == name) else { continue };
         let Some(transcript) = on_account(fleet, runtime, &record) else { continue };
@@ -296,7 +296,7 @@ fn settle(
             None => Ok(false),
         };
         lines.extend(marked_line(org, &record.name, &marked));
-        let kept_off = record.reserve_caller.is_none() && crate::fleet::registry::reserve::kept_off(record.role(), record.parent.as_deref());
+        let kept_off = record.reserve_caller.is_none() && north_fleet_supervisor::fleet::registry::reserve::kept_off(record.role(), record.parent.as_deref());
         let reserved = |org: &Org| reserve.held.is_some() || (kept_off && reserve.labels.iter().any(|held| held.split_once(':').is_some_and(|(_, held)| held == org.name)));
         let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org) || reserved(org)) {
             Some(to) => Some((to, None)),

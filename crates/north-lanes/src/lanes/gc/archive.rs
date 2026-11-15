@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;
 use super::exec::{git, git_with, LIMIT};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) const UNHELD_HOURS: f64 = 24.0;
 const LOCK_STALE_MS: i64 = 3_600_000;

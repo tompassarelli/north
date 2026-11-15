@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::platform::push_ledger;
+use north_base::platform::push_ledger;
 use super::after::{cleanup, follow};
 use super::candidate::git;
 use super::incidents;

@@ -12,10 +12,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::host::alive;
-use crate::fleet::model::Account;
-use crate::fleet::runtime::{LiveWindow, WindowInbox, now_ms};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::host::alive;
+use north_fleet_supervisor::fleet::model::Account;
+use north_fleet_supervisor::fleet::runtime::{LiveWindow, WindowInbox, now_ms};
 
 const SESSION_ENV: &str = "PI_SESSION_ID";
 const SESSION_FILE_ENV: &str = "PI_SESSION_FILE";

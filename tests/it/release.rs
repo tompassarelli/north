@@ -1,4 +1,4 @@
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};

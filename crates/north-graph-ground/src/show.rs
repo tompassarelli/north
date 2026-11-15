@@ -1,4 +1,4 @@
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_graph::{Atom, Term, Told};
 
 use crate::reach::Reach;

@@ -3,7 +3,7 @@ use std::path::Path;
 use super::{LANDER_PATHS, Repository, Round, run_replay};
 use crate::land::candidate::git;
 use crate::land::{enqueue, replay, sheriff};
-use crate::landing::red_check::Failure;
+use north_landing::landing::red_check::Failure;
 
 pub(super) struct Held<'a> {
     pub(super) binary: Option<&'a Path>,

@@ -9,7 +9,7 @@ use std::process::Command;
 use serde_json::Value;
 
 use self::core::{Alert, Rows, State, presence, read_registry, step};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]";
 
@@ -25,7 +25,7 @@ impl Options {
         let home = PathBuf::from(env::var("HOME").unwrap_or_default());
         let state_dir = env::var("STATE_DIRECTORY").map_or_else(|_| home.join(".local/state/job-watch"), PathBuf::from);
         let mut options = Self {
-            registry: crate::platform::shared_config::operator_root(&home).join("agents/routines"),
+            registry: north_base::platform::shared_config::operator_root(&home).join("agents/routines"),
             peers: PathBuf::from("/run/nexus/peers.json"),
             state: state_dir.join("state.json"),
             dry_run: false,

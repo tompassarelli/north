@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const ERROR_INFO: &str = "server_overloaded";
 const MESSAGE: &str = "Selected model is at capacity";

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

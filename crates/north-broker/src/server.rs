@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use north_base::foundation::clock::Timestamp;
-use north_base::foundation::socket_peer;
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::socket_peer;
 use north_base::platform::session_scope;
 use north_base::platform::broker_wire::{Request, Response, read_request, write_response};
 use serde_json::{Value, json};

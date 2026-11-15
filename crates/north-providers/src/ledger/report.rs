@@ -1,4 +1,4 @@
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::Ledger;
 

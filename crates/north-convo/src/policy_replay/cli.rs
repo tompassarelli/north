@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use super::point::{PromoteArgs, promote};
 use super::run::{Pick, state_dir};
 use super::sweep::{Arms, Common, Sweep, arms, sweep};
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 
 const USAGE: &str = "usage: north policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]
        north policy-replay run SCENARIO.json... --arm ARM... --out RESULTS.jsonl [--trials N] [--jobs N] [--policy PATH] [--model M] [--effort E]

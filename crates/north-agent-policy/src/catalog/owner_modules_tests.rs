@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::catalog_init::{catalog_from, initial_catalog};
 use super::owner_modules::STRUCTURE_FILE;
 use super::registration_checks::{OwnerCheckRoots, canonical, check_owner_files, git_text};
-use north_base::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 fn south_checkout(scratch: &Path) -> std::path::PathBuf {
     let origin = scratch.join("south-origin.git");

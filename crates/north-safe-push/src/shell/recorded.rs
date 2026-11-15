@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use north_base::foundation::step::{Refused, Step};
+use north_foundation::foundation::step::{Refused, Step};
 
 use super::Shell;
 use super::files::{Lock, Pushed, StateFiles};

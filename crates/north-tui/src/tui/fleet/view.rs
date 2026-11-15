@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 
-use crate::fleet::model::{Account, Effort, SessionRecord, Status, Transcript};
+use north_fleet_supervisor::fleet::model::{Account, Effort, SessionRecord, Status, Transcript};
 
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Notice, Screen};

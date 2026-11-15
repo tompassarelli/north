@@ -1,4 +1,4 @@
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};

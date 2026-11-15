@@ -6,7 +6,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::landing::red_check::Failure;
-use crate::platform::push_ledger;
+use north_base::platform::push_ledger;
 use crate::landing::check_timings::Deadline;
 use super::after::{follow, send};
 use super::blame;

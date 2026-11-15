@@ -1026,13 +1026,17 @@ dependencies = [
  "north-coverage",
  "north-credentials",
  "north-desktop",
+ "north-diff-gates",
  "north-dispatch",
  "north-docs",
  "north-expectations",
  "north-fleet-store",
+ "north-fleet-supervisor",
  "north-flow",
+ "north-foundation",
  "north-github-broker",
  "north-github-mirror",
+ "north-graph",
  "north-graph-change",
  "north-graph-ground",
  "north-graph-ingest",
@@ -1050,6 +1054,8 @@ dependencies = [
  "north-machine-model",
  "north-mutants",
  "north-offload",
+ "north-pace",
+ "north-pacing",
  "north-providers",
  "north-reclaim",
  "north-registries",
@@ -1090,6 +1096,7 @@ dependencies = [
  "clap",
  "fancy-regex",
  "north-base",
+ "north-foundation",
  "north-git-locks",
  "north-pace",
  "regex",
@@ -1141,6 +1148,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "north-base",
+ "north-foundation",
  "north-runtime-follow",
  "percent-encoding",
  "ring",
@@ -1165,6 +1173,7 @@ name = "north-build-system"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "serde",
  "serde_json",
  "sha2",
@@ -1177,6 +1186,7 @@ name = "north-calibration"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-pace",
  "north-threads",
  "regex",
@@ -1192,6 +1202,7 @@ name = "north-capacity"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-strategy-types",
  "proptest",
  "rusqlite",
@@ -1213,6 +1224,8 @@ dependencies = [
  "north-calibration",
  "north-capacity",
  "north-fleet-store",
+ "north-foundation",
+ "north-graph",
  "north-graph-loops",
  "north-runtime-follow",
  "north-threads",
@@ -1233,6 +1246,7 @@ name = "north-check-environment"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "tempfile",
 ]
 
@@ -1241,6 +1255,7 @@ name = "north-ci"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-github-mirror",
  "regex",
  "rustix 0.38.44",
@@ -1281,6 +1296,8 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-build-system",
+ "north-foundation",
+ "north-graph",
  "north-graph-loops",
  "north-implicit-state",
  "north-registries",
@@ -1297,6 +1314,7 @@ name = "north-concerns"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "serde",
  "serde_json",
 ]
@@ -1325,6 +1343,7 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-fleet",
+ "north-foundation",
  "north-threads",
  "regex",
  "rusqlite",
@@ -1346,6 +1365,7 @@ dependencies = [
  "north-base",
  "north-claude-stream",
  "north-fleet-supervisor",
+ "north-foundation",
  "north-graph",
  "north-graph-ground",
  "north-graph-loops",
@@ -1368,6 +1388,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-build-system",
+ "north-foundation",
  "serde",
  "serde_json",
  "sha2",
@@ -1397,8 +1418,8 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-capacity-host",
- "north-dispatch",
  "north-fleet-supervisor",
+ "north-pacing",
  "rustix 0.38.44",
  "serde_json",
  "sha2",
@@ -1411,6 +1432,7 @@ name = "north-diff-gates"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "percent-encoding",
  "regex",
  "serde",
@@ -1430,6 +1452,7 @@ dependencies = [
  "north-cli-reference",
  "north-fleet-store",
  "north-fleet-supervisor",
+ "north-foundation",
  "north-github-mirror",
  "north-graph",
  "north-graph-ground",
@@ -1469,7 +1492,9 @@ dependencies = [
  "north-capacity-host",
  "north-dispatch",
  "north-fleet-supervisor",
+ "north-foundation",
  "north-pace",
+ "north-pacing",
  "north-providers",
  "rustix 0.38.44",
  "serde_json",
@@ -1484,6 +1509,7 @@ dependencies = [
  "north-base",
  "north-claude-stream",
  "north-fleet-store",
+ "north-foundation",
  "north-pace",
  "north-resume",
  "north-session-host",
@@ -1504,6 +1530,7 @@ name = "north-fleet-store"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-publish",
  "north-resume",
  "north-strategy-types",
@@ -1523,8 +1550,10 @@ dependencies = [
  "north-agent-starts",
  "north-base",
  "north-fleet",
+ "north-foundation",
  "north-graph-loops",
  "north-machine-model",
+ "north-pace",
  "north-resume",
  "north-runtime-follow",
  "north-session-host",
@@ -1546,9 +1575,12 @@ dependencies = [
  "north-capacity-host",
  "north-dispatch",
  "north-fleet",
+ "north-foundation",
+ "north-graph",
  "north-graph-loops",
  "north-health",
  "north-pace",
+ "north-pacing",
  "north-providers",
  "north-threads",
  "regex",
@@ -1590,6 +1622,7 @@ name = "north-github-broker"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-runtime-follow",
  "rustix 0.38.44",
  "serde_json",
@@ -1603,6 +1636,7 @@ name = "north-github-mirror"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -1625,6 +1659,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-coverage",
+ "north-foundation",
  "north-graph",
  "serde_json",
  "tempfile",
@@ -1635,7 +1670,7 @@ dependencies = [
 name = "north-graph-ground"
 version = "0.1.0"
 dependencies = [
- "north-base",
+ "north-foundation",
  "north-graph",
  "regex",
  "serde_json",
@@ -1649,6 +1684,7 @@ dependencies = [
  "north-base",
  "north-coverage",
  "north-fleet",
+ "north-foundation",
  "north-github-mirror",
  "north-graph",
  "north-graph-ground",
@@ -1679,6 +1715,7 @@ dependencies = [
  "north-capacity",
  "north-code-health",
  "north-fleet-store",
+ "north-foundation",
  "north-github-mirror",
  "north-graph-ground",
  "north-pace",
@@ -1703,6 +1740,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-calibration",
+ "north-foundation",
  "north-pace",
  "north-threads",
  "rusqlite",
@@ -1728,8 +1766,9 @@ dependencies = [
  "clap",
  "north-base",
  "north-calibration",
- "north-dispatch",
+ "north-foundation",
  "north-github-mirror",
+ "north-pacing",
  "north-providers",
  "regex",
  "serde",
@@ -1748,6 +1787,7 @@ dependencies = [
  "north-build-system",
  "north-coverage",
  "north-diff-gates",
+ "north-foundation",
  "north-landing-gates",
  "regex",
  "rustix 0.38.44",
@@ -1781,6 +1821,7 @@ dependencies = [
  "north-build-system",
  "north-cli-reference",
  "north-diff-gates",
+ "north-foundation",
  "north-github-mirror",
  "north-landing-gates",
  "proptest",
@@ -1798,6 +1839,7 @@ name = "north-land-watch"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-land-scans",
  "north-landing-gates",
  "rustix 0.38.44",
@@ -1816,7 +1858,10 @@ dependencies = [
  "north-base",
  "north-check-environment",
  "north-concerns",
+ "north-diff-gates",
+ "north-foundation",
  "north-git-locks",
+ "north-graph-ground",
  "north-land-sandbox",
  "north-land-scans",
  "north-landing",
@@ -1839,8 +1884,12 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-check-environment",
+ "north-diff-gates",
+ "north-foundation",
+ "north-graph",
  "north-graph-loops",
  "north-lander",
+ "north-landing",
  "serde",
  "serde_json",
  "sha2",
@@ -1858,6 +1907,7 @@ dependencies = [
  "north-check-environment",
  "north-concerns",
  "north-diff-gates",
+ "north-foundation",
  "north-git-locks",
  "north-github-mirror",
  "north-land-checks",
@@ -1885,6 +1935,8 @@ dependencies = [
  "north-base",
  "north-build-system",
  "north-diff-gates",
+ "north-foundation",
+ "north-graph",
  "north-graph-loops",
  "north-mutants",
  "proptest",
@@ -1902,6 +1954,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "north-base",
+ "north-foundation",
  "north-git-locks",
  "north-github-mirror",
  "north-trusted-mirror",
@@ -1920,6 +1973,7 @@ name = "north-machine-model"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
 ]
 
 [[package]]
@@ -1955,6 +2009,7 @@ dependencies = [
  "north-build-system",
  "north-capacity-host",
  "north-dispatch",
+ "north-foundation",
  "north-lanes",
  "north-pacing",
  "north-runtime-follow",
@@ -1970,6 +2025,7 @@ name = "north-pace"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-strategy-types",
  "proptest",
  "regex",
@@ -1991,6 +2047,7 @@ dependencies = [
  "north-calibration",
  "north-capacity-host",
  "north-fleet-supervisor",
+ "north-foundation",
  "north-pace",
  "north-providers",
  "north-ssh-spare",
@@ -2016,6 +2073,7 @@ dependencies = [
  "north-calibration",
  "north-claude-stream",
  "north-fleet-supervisor",
+ "north-foundation",
  "north-graph",
  "north-pace",
  "north-runtime",
@@ -2068,6 +2126,7 @@ dependencies = [
  "north-base",
  "north-calibration",
  "north-fleet-supervisor",
+ "north-foundation",
  "rusqlite",
  "rustix 0.38.44",
  "serde",
@@ -2090,12 +2149,16 @@ dependencies = [
  "landlock",
  "north-base",
  "north-build-system",
+ "north-calibration",
+ "north-capacity-host",
  "north-control-plane",
  "north-dispatch",
  "north-fleet-supervisor",
+ "north-foundation",
  "north-landing",
  "north-lanes",
  "north-offload",
+ "north-pace",
  "north-pacing",
  "north-providers",
  "north-runtime-follow",
@@ -2128,6 +2191,7 @@ name = "north-runtime-records"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "serde",
  "serde_json",
  "tempfile",
@@ -2138,6 +2202,7 @@ name = "north-safe-push"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-lander",
  "north-landing",
  "proptest",
@@ -2152,6 +2217,7 @@ name = "north-session-host"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-foundation",
  "north-runtime-follow",
  "rustix 0.38.44",
  "serde",
@@ -2196,6 +2262,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-control-plane",
+ "north-foundation",
  "north-publish",
  "north-strategy-types",
  "regex",
@@ -2214,8 +2281,11 @@ name = "north-timers"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-calibration",
  "north-capacity-host",
- "north-dispatch",
+ "north-fleet-supervisor",
+ "north-foundation",
+ "north-pace",
  "north-providers",
  "percent-encoding",
  "regex",
@@ -2242,7 +2312,9 @@ dependencies = [
  "crossterm 0.28.1",
  "north-base",
  "north-fleet-supervisor",
+ "north-foundation",
  "north-providers",
+ "north-shared-config",
  "proptest",
  "ratatui",
  "serde_json",
@@ -2259,6 +2331,8 @@ dependencies = [
  "north-base",
  "north-calibration",
  "north-dispatch",
+ "north-foundation",
+ "north-graph",
  "north-graph-loops",
  "north-pace",
  "north-providers",

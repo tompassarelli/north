@@ -1,8 +1,8 @@
 //! Command lifecycle: a command marks its session busy, is reconciled against the transcript's echo, and settles back into a notice.
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::gates::Decision;
-use crate::fleet::model::{Effort, EntryKind, Transcript};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::gates::Decision;
+use north_fleet_supervisor::fleet::model::{Effort, EntryKind, Transcript};
 
 use super::super::form::LaunchForm;
 use super::{Command, Dialog, Focus, Notice, PendingMessage, Screen};

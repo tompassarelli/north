@@ -150,7 +150,7 @@ fn dispatch(arguments: &[String], io: &mut Io) -> Result<u8, String> {
         }
         "signal" => {
             let map = at_rev(&Snapshot::new(&repo, rev)?, config)?;
-            let reasons = signal(&io.state, &repo, &map, north_base::foundation::clock::Timestamp::now(), rev)?;
+            let reasons = signal(&io.state, &repo, &map, north_foundation::foundation::clock::Timestamp::now(), rev)?;
             if a.record {
                 record_loop(&io.state, &repo, rev, &map, &reasons)?;
             }

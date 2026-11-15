@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_base::platform::private_text::ASKING_STATUS;
 
-use crate::platform::betterleaks;
-use crate::landing::step::{Refused, Step, git_read};
-use crate::platform::process::{exit_status, on_path};
+use north_base::platform::betterleaks;
+use north_landing_gates::landing::step::{Refused, Step, git_read};
+use north_base::platform::process::{exit_status, on_path};
 
 pub mod denylist;
 pub mod email;
@@ -150,7 +150,7 @@ pub fn run(arguments: &[String]) -> Option<u8> {
 }
 
 pub fn instruction_limits(root: &Path, reference: &str) -> Step {
-    match crate::landing::instruction_limits::check(root, reference) {
+    match north_landing_gates::landing::instruction_limits::check(root, reference) {
         0 => Ok(()),
         code => Err(Refused(code)),
     }

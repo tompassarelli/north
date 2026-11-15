@@ -51,7 +51,7 @@ pub fn appended(brief: &str, arm: &str, item: &str) -> String {
     let Some((repo, number)) = item.rsplit_once('#') else { return brief.to_owned() };
     let repo = repo.rsplit('/').next().unwrap_or(repo);
     let Some(home) = std::env::var_os("HOME") else { return brief.to_owned() };
-    let checkout = std::path::Path::new(&home).join("code").join(crate::threads::catalog::checkout(repo)).join("main");
+    let checkout = std::path::Path::new(&home).join("code").join(north_calibration::threads::catalog::checkout(repo)).join("main");
     let mut command = Command::new(std::env::current_exe().unwrap_or_else(|_| "north".into()));
     command.args(["work", "brief", "pack"]).args(["--issue", &format!("{repo}#{number}")]).args(&paths).current_dir(checkout);
     match command.output() {

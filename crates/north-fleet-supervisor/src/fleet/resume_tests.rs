@@ -54,7 +54,7 @@ fn a_session_that_stopped_before_the_lander_decided_is_woken_though_its_stream_i
     let worker = live(&fleet, "north-790-late");
     let stopped = now_ms() - 10 * MINUTE;
     let stream = fleet.root.join("north-790-late/g1/stream.jsonl");
-    let event = serde_json::json!({"type": "assistant", "session_id": "north-790-late", "timestamp": north_base::foundation::clock::Timestamp::from_unix_millis(i64::try_from(stopped).unwrap()).iso(), "message": {"content": [{"type": "text", "text": "Stop: landing"}]}});
+    let event = serde_json::json!({"type": "assistant", "session_id": "north-790-late", "timestamp": north_foundation::foundation::clock::Timestamp::from_unix_millis(i64::try_from(stopped).unwrap()).iso(), "message": {"content": [{"type": "text", "text": "Stop: landing"}]}});
     std::fs::write(&stream, format!("{event}\n{}\n{}\n", serde_json::json!({"type": "result", "subtype": "success", "session_id": "north-790-late"}), serde_json::json!({"type": "result", "subtype": "success", "session_id": "claimant"}))).unwrap();
     live(&fleet, "claimant");
     let claimant = fleet.root.join("claimant/session.json");

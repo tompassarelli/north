@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use north_core::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::{CHARTS, MACHINES, git};
 

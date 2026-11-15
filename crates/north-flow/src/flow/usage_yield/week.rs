@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use rusqlite::Connection;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const NAMES: &str = "('week', 'weekly_all')";
 const WEEK_S: i64 = 7 * 86_400;

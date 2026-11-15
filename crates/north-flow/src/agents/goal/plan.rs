@@ -8,17 +8,17 @@ use super::actual::actual_row;
 use super::estimate::{Estimate, estimate, line};
 use super::metrics::delivery_metrics;
 use super::stamp;
-use crate::foundation::clock::Timestamp;
-use crate::platform::process::run_command_within;
-use crate::platform::sqlite::{self, Access};
-use crate::threads::calibration::box_durations;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::process::run_command_within;
+use north_base::platform::sqlite::{self, Access};
+use north_calibration::threads::calibration::box_durations;
 
 const GH_LIMIT: Duration = Duration::from_secs(30);
 const RECORD_LIMIT: Duration = Duration::from_secs(5);
 
 /// The spawn gate's width for a project's boxes: the measured concurrency while the gate admits spawns, else 1.
 pub fn gate_width(concurrency: usize) -> (usize, String) {
-    let shown = crate::pacing::spawn_gate::summary();
+    let shown = north_pacing::pacing::spawn_gate::summary();
     let open: Vec<&str> = shown["accounts"].as_array().into_iter().flatten().filter(|pair| pair[1] == true).filter_map(|pair| pair[0].as_str()).collect();
     let cpu = shown["cpu"] == true;
     let admitted = cpu && (!open.is_empty() || shown["accounts"].as_array().is_none_or(Vec::is_empty));
@@ -80,7 +80,7 @@ fn estimate_project(project: &str, issues: &[Value], database: &Path, now: Times
     let metrics = delivery_metrics(&rows, Some(project));
     let (width, note) = gate_width(delivery_metrics(&rows, None).concurrency);
     let measure = |facets: &[String]| box_durations(database, now, facets, None).map_err(|failure| match failure {
-        crate::threads::verb::Failure::Usage(why) | crate::threads::verb::Failure::Refused(why) => why,
+        north_calibration::threads::verb::Failure::Usage(why) | north_calibration::threads::verb::Failure::Refused(why) => why,
     });
     let result = estimate(project, issues, &measure, metrics.median_brief_to_landed_min, width, now)?;
     Ok((result, note))

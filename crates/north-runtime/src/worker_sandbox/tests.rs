@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -86,7 +86,7 @@ fn hand_off_removal_is_refused() {
     let session = home.join("fleet/n1");
     std::fs::create_dir_all(&session).unwrap();
     std::fs::write(north_base::platform::session_host_files::scope_path(&session), "north-session-lane-0f0f0f0f-n1.scope\n").unwrap();
-    std::fs::write(crate::fleet::records::record_file(&session), json!({ "name": "n1", "cwd": lane }).to_string()).unwrap();
+    std::fs::write(north_fleet_supervisor::fleet::records::record_file(&session), json!({ "name": "n1", "cwd": lane }).to_string()).unwrap();
     let host = super::lane_grant::Host { fleet: home.join("fleet"), code: vec![home.join("code")], home: home.clone(), environment: own.to_vec(), cgroups: home.join("cgroup") };
     let worker = Peer::from(Some("0::/user.slice/north-worker-n1.scope"));
     let lane_only = Peer::from(Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-lane-0f0f0f0f-n1.scope\n"));
@@ -202,7 +202,7 @@ fn no_agent_command_reads_the_operators_gh_login_and_no_worker_command_reads_a_k
     let state = home.join(".local/state/north");
     let policy = north_base::platform::orchestration::under(&home);
     std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
-    std::fs::write(&policy, format!("[accounts.claude.profiles.y]\n\"{}\" = {{ path = \"~/elsewhere/claude-y\", token_file = \"~/elsewhere/token-y\" }}\n", crate::platform::host::name())).unwrap();
+    std::fs::write(&policy, format!("[accounts.claude.profiles.y]\n\"{}\" = {{ path = \"~/elsewhere/claude-y\", token_file = \"~/elsewhere/token-y\" }}\n", north_base::platform::host::name())).unwrap();
     [state.join("claude-tokens/claude-x"), state.join("profiles/claude-x/.credentials.json"), home.join(".claude/.credentials.json"), home.join("elsewhere/claude-y/.credentials.json"), home.join("elsewhere/token-y"), state.join("codex-pooled/auth.json"), state.join("accounts/openai/codex-b/auth.json"), state.join("accounts/opencode/go.key"), state.join("gh-write-token"), state.join("gh-write-token.repos"), state.join("github-installation-token.yaml")].iter().map(PathBuf::as_path).for_each(runnable);
     let logins = "! cat ~/.config/gh/hosts.yml && ! cat ~/hosts-link.yml && ! ln ~/.config/gh/hosts.yml /tmp/north-969-leak-$$ && cat ~/.config/gh/config.yml && cat ~/secrets/beside";
     let trusted = ["~/.ssh/made-for-the-test", "~/.ssh/peer", "~/secrets/linked", "~/secrets/agent", "~/.local/state/north/claude-tokens/claude-x", "~/.local/state/north/profiles/claude-x/.credentials.json", "~/.claude/.credentials.json", "~/elsewhere/claude-y/.credentials.json", "~/elsewhere/token-y", "~/.local/state/north/codex-pooled/auth.json", "~/.local/state/north/accounts/openai/codex-b/auth.json", "~/.local/state/north/accounts/opencode/go.key", "~/.local/state/north/gh-write-token", "~/.local/state/north/gh-write-token.repos", "~/.local/state/north/github-installation-token.yaml"];
@@ -221,7 +221,7 @@ fn no_agent_command_reads_the_operators_gh_login_and_no_worker_command_reads_a_k
 
 fn runnable(path: &Path) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    crate::foundation::shim::write_script(path, "exit 0\n");
+    north_foundation::foundation::shim::write_script(path, "exit 0\n");
 }
 
 #[test]
@@ -278,7 +278,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     use std::os::unix::net::{UnixListener, UnixStream};
     let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
     let scratch = tempfile::tempdir().unwrap();
-    let master = scratch.path().join(format!("{}0a1b", north_base::foundation::offload::MASTER_SOCKET));
+    let master = scratch.path().join(format!("{}0a1b", north_foundation::foundation::offload::MASTER_SOCKET));
     let _listening = UnixListener::bind(&master).unwrap();
     let host = scratch.path().join(format!("{}0a1b", north_base::platform::ssh::HOST_MASTER));
     let _riding = UnixListener::bind(&host).unwrap();
@@ -409,10 +409,10 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
         assert!(!roots.iter().chain(&written).any(|path| cache.starts_with(path) || path.starts_with(&cache)), "a worker may write the private-blob cache {}, which the private-file refusal trusts", cache.display());
     }
     let written = super::writable(&context, &roots);
-    let records = context.home.join(north_base::foundation::offload::SLOT_RECORDS);
+    let records = context.home.join(north_foundation::foundation::offload::SLOT_RECORDS);
     std::fs::create_dir_all(&records).unwrap();
     assert!(!roots.iter().chain(&written).any(|path| records.starts_with(path) || path.starts_with(&records)), "a worker may write or remove a build slot's record under {}, which tells the broker the project a request from that slot is served as", records.display());
-    let rewrites = north_base::foundation::stale_rewrites::file(&context.home);
+    let rewrites = north_foundation::foundation::stale_rewrites::file(&context.home);
     assert!(!roots.iter().chain(&written).any(|path| rewrites.starts_with(path) || path.starts_with(&rewrites)), "a worker may write the rewrites record {}, which widens a lead's launch grant", rewrites.display());
     let assignment = state.join("north/fleet/scoreboard-lead").join(north_base::platform::lead_assignment::FILE);
     assert!(!super::state::writable(&state, Some("scoreboard-lead")).iter().any(|path| assignment.starts_with(path)), "a worker may write {}, the coordinator's assignment a lead's launches and box checks are granted by", assignment.display());
@@ -536,7 +536,7 @@ fn a_confined_write_child() {
             assert!(!writes(refused), "a lane-only command wrote {refused}");
         }
     } else {
-        let ledger = north_base::lifecycle::Store::read_only(&home.join(ADMITTED[1])).and_then(|store| store.faults(north_base::foundation::clock::Timestamp::now()));
+        let ledger = north_base::lifecycle::Store::read_only(&home.join(ADMITTED[1])).and_then(|store| store.faults(north_foundation::foundation::clock::Timestamp::now()));
         assert!(ledger.is_ok(), "a confined reader cannot read the capacity lifecycle ledger: {:?}", ledger.err());
     }
 }
@@ -752,7 +752,7 @@ fn a_hand_in_call_that_prints_a_long_log_returns_a_short_result_ending_in_its_ve
     let scratch = tempfile::tempdir().unwrap();
     let north = scratch.path().join("north");
     let noisy = format!("i=0\nwhile [ $i -lt 4000 ]; do printf '{{\"decision\":\"RESERVED\",\"lease\":\"%s\"}}\\n' \"$i\"; i=$((i+1)); done\nprintf 'safe-push: ✗ the refusal a worker must see\\n' >&2\nprintf '{VERDICT}\\n'\n");
-    north_base::foundation::shim::write_script(&north, &noisy);
+    north_foundation::foundation::shim::write_script(&north, &noisy);
     let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "hand-in", "arguments": {"message": "Hand it in", "paths": ["/lane/file"]}}});
     let mut answer = Vec::new();
     super::tool_server::serve(&["hand-in".to_owned()], &north, format!("{request}\n").as_bytes(), &mut answer).unwrap();
@@ -908,7 +908,7 @@ fn a_confined_sessions_model_calls_run_outside_through_the_broker_with_their_tex
     use std::os::unix::net::UnixStream;
     let scratch = tempfile::tempdir().unwrap();
     let north = scratch.path().join("north");
-    north_base::foundation::shim::write_executable(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE claude=$NORTH_PRIVACY_CLAUDE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n");
+    north_foundation::foundation::shim::write_executable(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE claude=$NORTH_PRIVACY_CLAUDE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n");
     let text = scratch.path().join("text");
     std::fs::write(&text, "a session's text\n").unwrap();
     let (home, fleet) = (scratch.path().join("home"), scratch.path().join("fleet"));

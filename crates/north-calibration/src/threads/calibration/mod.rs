@@ -26,7 +26,7 @@ use std::sync::LazyLock;
 
 use toml_edit::DocumentMut;
 
-use crate::router::brief::CATEGORIES;
+use north_pace::router::brief::CATEGORIES;
 
 /// The band of actual-to-estimate ratios, read at the quantile the estimator covers, inside which it counts as calibrated.
 pub const CALIBRATED: (f64, f64) = (0.67, 1.5);
@@ -84,7 +84,7 @@ impl Knobs {
             success_threshold: registry("success_threshold"),
             min_runs,
             incumbent_margin: registry("incumbent_margin") as i64,
-            usd_min: crate::router::policy::ARM_RUNS,
+            usd_min: north_pace::router::policy::ARM_RUNS,
             eta_min_samples: registry("eta_min_samples") as usize,
             eta_coverage: registry("eta_coverage"),
             box_chain_gap_min: registry("box_chain_gap_min"),
@@ -125,11 +125,11 @@ pub fn tier_key(tier: &str) -> String {
         "" => "-",
         trimmed => trimmed,
     };
-    crate::router::tier::label_key(tier).unwrap_or(tier).to_owned()
+    north_pace::router::tier::label_key(tier).unwrap_or(tier).to_owned()
 }
 
 pub fn tier_rank(tier: &str) -> usize {
-    crate::router::tier::rank(&tier_key(tier))
+    north_pace::router::tier::rank(&tier_key(tier))
 }
 
 fn provider(tier: &str) -> String {

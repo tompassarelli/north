@@ -1,5 +1,5 @@
-use crate::autoland_status::{deletion_hold, git_output, landed_commit, read_gh, status};
-use crate::foundation::clock::Timestamp;
+use north_base::autoland_status::{deletion_hold, git_output, landed_commit, read_gh, status};
+use north_foundation::foundation::clock::Timestamp;
 use std::process::{Command, Stdio};
 
 mod scratch;

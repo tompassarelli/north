@@ -3,12 +3,12 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
+use north_foundation::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 
 use crate::land::slots::select::{Config, changed};
 use crate::land::slots::unit_reuse;
 use crate::landing::check_timings::outcomes::Outcome as CheckOutcome;
-use crate::platform::land_queue::ROUND;
+use north_base::platform::land_queue::ROUND;
 use super::{BASE_FAILS, BROKEN_BASE};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};

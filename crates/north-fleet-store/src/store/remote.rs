@@ -4,7 +4,7 @@ use std::time::Duration;
 use north_strategy_types::credit::Snapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::runtime::binary;
 use crate::ssh::{SSH_WAIT, over_ssh_via};
 

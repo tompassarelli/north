@@ -7,7 +7,7 @@ use super::super::candidate::{git, output};
 use super::super::lander::Lander;
 use super::super::queue::{self, Ticket};
 use crate::landing::landed_tree;
-use crate::platform::land_queue;
+use north_base::platform::land_queue;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {

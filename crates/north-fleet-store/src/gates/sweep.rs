@@ -1,4 +1,4 @@
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::record::{Closure, Decision, Gate, GateBook};
 

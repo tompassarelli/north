@@ -8,10 +8,10 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::books::Digest;
-use crate::fleet::gates::{Decision, Gate, GateRequest};
-use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionPhase, Status, Transcript};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::books::Digest;
+use north_fleet_supervisor::fleet::gates::{Decision, Gate, GateRequest};
+use north_fleet_supervisor::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionPhase, Status, Transcript};
 
 use super::clipboard::Clipboard;
 use super::desk::{AccountRoom, SessionActions, SessionDesk, SessionSummary};
@@ -399,7 +399,7 @@ fn a_copy_reaches_the_terminal_clipboard_without_wl_copy() {
 }
 
 fn feed(transcript: &mut Transcript, frame: serde_json::Value, now_ms: u64) {
-    use crate::fleet::runtime::Runtime;
+    use north_fleet_supervisor::fleet::runtime::Runtime;
     let claude = north_providers::providers::claude::fleet::Claude;
     claude.observe(&frame, transcript);
     for signal in claude.signals(&frame) {

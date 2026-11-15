@@ -4,8 +4,8 @@ use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
-use north_base::error::NorthResult;
-use north_base::foundation::clock::{self, Timestamp};
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::{self, Timestamp};
 
 use super::paths::owner_path;
 use super::{REVIEW_STALE_DAYS, configuration, owner, string_field, units};

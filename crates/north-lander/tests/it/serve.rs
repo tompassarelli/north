@@ -1,4 +1,4 @@
-pub(super) use north_base::test_inputs::git::git_in as git;
+pub(super) use north_foundation::test_inputs::git::git_in as git;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};

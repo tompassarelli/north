@@ -13,7 +13,7 @@ impl GitHub for Gh {
             args.extend(["-H".to_owned(), format!("If-None-Match: {etag}")]);
         }
         args.push(endpoint.to_owned());
-        let out = crate::platform::github::run_owned(&args).map_err(|error| format!("cannot run gh: {error}"))?;
+        let out = north_base::platform::github::run_owned(&args).map_err(|error| format!("cannot run gh: {error}"))?;
         response(&String::from_utf8_lossy(&out.stdout)).map_err(|why| format!("gh api {endpoint}: {why} {}", String::from_utf8_lossy(&out.stderr).trim()))
     }
 
@@ -191,7 +191,7 @@ pub fn run(arguments: &[String]) -> u8 {
     if repos.is_empty() {
         repos = store::REPOS.iter().map(|repo| (*repo).to_owned()).collect();
     }
-    let (mirror, at) = (Mirror::local(), crate::foundation::clock::Timestamp::now().unix_seconds_f64());
+    let (mirror, at) = (Mirror::local(), north_foundation::foundation::clock::Timestamp::now().unix_seconds_f64());
     let mut failed = false;
     let account = audit::account(&Gh, &mirror, at);
     let listed: Vec<_> = std::thread::scope(|scope| {

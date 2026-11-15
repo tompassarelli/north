@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{Inputs, Policy, reclaim};
-use crate::platform::disk_budget::DiskBudget;
+use north_base::platform::disk_budget::DiskBudget;
 
 pub(super) const DAY: Duration = Duration::from_secs(24 * 3600);
 

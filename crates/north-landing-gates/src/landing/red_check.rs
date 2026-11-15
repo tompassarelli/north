@@ -1,7 +1,7 @@
-use crate::platform::{issue_scope, process};
-pub use north_base::foundation::check_log::{Failure, failures, log_text};
-use north_base::foundation::exit::{NO_VERDICT, RED_MAIN};
-use crate::platform::rolling_issue::{self, Tracker, settle};
+use north_base::platform::{issue_scope, process};
+pub use north_foundation::foundation::check_log::{Failure, failures, log_text};
+use north_foundation::foundation::exit::{NO_VERDICT, RED_MAIN};
+use north_base::platform::rolling_issue::{self, Tracker, settle};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -215,11 +215,11 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let request = Request { main, log: PathBuf::from(log), lane: flag(arguments, "--lane").unwrap_or_default() };
-    if let Some(line) = fs::read_to_string(&request.log).ok().and_then(|text| north_base::foundation::check_log::ref_lock(&text)) {
+    if let Some(line) = fs::read_to_string(&request.log).ok().and_then(|text| north_foundation::foundation::check_log::ref_lock(&text)) {
         println!("red check: environment: git could not lock a ref ({line}); not this lane's failure");
         return NO_VERDICT;
     }
-    if let Some(line) = fs::read_to_string(&request.log).ok().and_then(|text| north_base::foundation::check_log::github_rate_limit(&text)) {
+    if let Some(line) = fs::read_to_string(&request.log).ok().and_then(|text| north_foundation::foundation::check_log::github_rate_limit(&text)) {
         println!("red check: environment: GitHub rate limit ({line}); not this lane's failure");
         return NO_VERDICT;
     }

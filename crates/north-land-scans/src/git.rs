@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::platform::git;
+use north_base::platform::git;
 
 pub fn bytes(directory: &Path, arguments: &[&str]) -> Option<Vec<u8>> {
     git::run(directory, arguments)

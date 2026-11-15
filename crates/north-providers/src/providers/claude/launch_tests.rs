@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::fleet::model::EntryKind;
-use crate::fleet::prompt::PromptMode;
+use north_fleet_supervisor::fleet::model::EntryKind;
+use north_fleet_supervisor::fleet::prompt::PromptMode;
 
 use super::*;
 
@@ -169,7 +169,7 @@ fn launched_worker_settings_disable_unsandboxed_commands() {
     assert!(Claude.unguarded(&account, &here).is_some_and(|reason| reason.contains("no settings.json")));
     std::fs::write(home.join("settings.json"), r#"{"hooks": {"PreToolUse": [{}]}, "sandbox": {"allowUnsandboxedCommands": true}}"#).unwrap();
     assert_eq!(Claude.unguarded(&account, &here), None);
-    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), ..request() };
+    let worker = LaunchRequest { role: Some(north_fleet_supervisor::fleet::model::Role::Worker), ..request() };
     std::fs::write(home.join("CLAUDE.md"), "owner policy\n").unwrap();
     let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
     let settings: serde_json::Value = serde_json::from_str(&argv[argv.iter().position(|arg| arg == "--settings").unwrap() + 1]).unwrap();
@@ -221,7 +221,7 @@ $(printf '%s' "$*" | sed "s#'/#'$NORTH_TEST_LAUNCH_THERE/#g")"
 fn stand_in_ssh(scratch: &std::path::Path) -> String {
     let bin = scratch.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    north_base::foundation::shim::write_script(&bin.join("ssh"), STAND_IN_SSH);
+    north_foundation::foundation::shim::write_script(&bin.join("ssh"), STAND_IN_SSH);
     format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default())
 }
 
@@ -229,7 +229,7 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
     let home = PathBuf::from("/home/agent/.local/state/north/profiles/claude-e");
     let account = Account { provider: Claude.provider(), label: "e".into(), home: home.clone(), token_file: None, api: None };
     let machine = Machine { name: "cpx62".into(), ssh: "tom@cpx62".into(), agent_ssh: Some("agent@cpx62".into()) };
-    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), machine: Some(machine), ..request() };
+    let worker = LaunchRequest { role: Some(north_fleet_supervisor::fleet::model::Role::Worker), machine: Some(machine), ..request() };
     let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
     let settings: serde_json::Value = serde_json::from_str(&argv[argv.iter().position(|arg| arg == "--settings").unwrap() + 1]).unwrap();
     assert_eq!(settings["hooks"], serde_json::from_str::<serde_json::Value>(HOOKED).unwrap()["hooks"], "{argv:?}");
@@ -239,20 +239,20 @@ fn placed_worker_reads_its_profile_there(there: &std::path::Path) {
     let logins = std::fs::read_to_string(format!("{}.logins", there.display())).unwrap();
     assert!(!logins.is_empty() && logins.lines().all(|login| login == "agent@cpx62"), "{logins}");
     let logged = || std::fs::read_to_string(format!("{}.logins", there.display())).unwrap().lines().count();
-    let launch = crate::fleet::remote::ProfileReads::hold();
+    let launch = north_fleet_supervisor::fleet::remote::ProfileReads::hold();
     Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
     let before = logged();
     Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
     assert_eq!(logged() - before, 0, "a launch's second host spec asked the build host again for its profile files or its runtime link, an ssh round trip each, which the session host's start waits on");
     let before = logged();
     std::thread::scope(|scope| scope.spawn(|| {
-        let _other = crate::fleet::remote::ProfileReads::hold();
+        let _other = north_fleet_supervisor::fleet::remote::ProfileReads::hold();
         Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap();
     }).join().unwrap());
     assert!(logged() - before > 1, "a launch overlapping another took that launch's profile reads instead of reading the build host itself");
     drop(launch);
     let refusal = || Claude.host(&account, &worker, Opening::Fresh(None), "orders").err().map(|error| error.to_string()).unwrap_or_default();
-    let hooks = || crate::fleet::remote::HooksCheck::start(std::sync::Arc::new(Claude), &account, worker.machine.as_ref()).verdict().unwrap();
+    let hooks = || north_fleet_supervisor::fleet::remote::HooksCheck::start(std::sync::Arc::new(Claude), &account, worker.machine.as_ref()).verdict().unwrap();
     let named = "/home/agent/.local/state/north/profiles/claude-e/settings.json on cpx62 as agent@cpx62";
 
     std::fs::write(format!("{}.denied", there.display()), "").unwrap();
@@ -275,7 +275,7 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
     let scratch = tempfile::tempdir().unwrap();
     let north = scratch.path().join("runtime/north");
     std::fs::create_dir_all(scratch.path().join("runtime")).unwrap();
-    north_base::foundation::shim::write_script(&north, "exit 0\n");
+    north_foundation::foundation::shim::write_script(&north, "exit 0\n");
     let there = scratch.path().join("there");
     let profile = there.join("home/agent/.local/state/north/profiles/claude-e");
     std::fs::create_dir_all(&profile).unwrap();
@@ -313,7 +313,7 @@ fn a_worker_launch_reads_no_project_or_local_settings() {
         std::fs::write(lane.join(file), r#"{"disableAllHooks": true} lane rules"#).unwrap();
     }
     let account = Account { provider: Claude.provider(), label: "a".into(), home, token_file: None, api: None };
-    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), cwd: lane.join("worktrees/inner/crates"), ..request() };
+    let worker = LaunchRequest { role: Some(north_fleet_supervisor::fleet::model::Role::Worker), cwd: lane.join("worktrees/inner/crates"), ..request() };
 
     let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
     let after = |flag: &str| argv.iter().position(|arg| arg == flag).map(|at| argv[at + 1].as_str());

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::step::{Refused, Step, cancelled, refuse};
+use north_foundation::foundation::step::{Refused, Step, cancelled, refuse};
 
 use crate::shell::git::{feed, quiet as git_quiet, read as git_read, status as git_status};
 

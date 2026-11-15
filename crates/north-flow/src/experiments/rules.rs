@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use super::registry::{self, Experiment, Metric, Registry, collapse};
-use crate::platform::toml_json;
+use north_base::platform::toml_json;
 
 pub const NOTES: &str = "docs/rationale";
 pub const CRATES: &str = "crates";

@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, Machine, ProviderName};
-use crate::fleet::roster::{Declared, Roster};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::model::{Account, Machine, ProviderName};
+use north_fleet_supervisor::fleet::roster::{Declared, Roster};
 
 pub const LABEL: &str = "go";
 const KEY_FILE: &str = "go.key";

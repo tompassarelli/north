@@ -24,7 +24,7 @@ use rusqlite::{OptionalExtension, params_from_iter};
 use self::record::{Ingest, Tally};
 use self::row::{Row, value};
 use super::verb::{Args, Context, Failure, Outcome, immediate, open, report};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const VERBS: [&str; 4] = ["ingest", "label-runs", "run-ids", "landed-runs"];
 const LANDING_DAYS: i64 = 3;

@@ -6,7 +6,7 @@ use super::fail;
 use super::json::{field, num, round2, text};
 use super::model::{Forecast, Prediction, Subject, current_cache_state, forecast};
 use crate::capacity::local_machine::host_name;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use super::policy::{ChargedRun, Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
 use super::request::Request;
 use super::shape::{command_shape, recorded_command};

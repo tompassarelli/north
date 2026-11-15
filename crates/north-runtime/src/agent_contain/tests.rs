@@ -51,7 +51,7 @@ impl Scenario {
         }
         let busctl = base.join("busctl");
         let body = busctl_body.replace("PROC", &proc.display().to_string()).replace("LOG", &base.join("busctl.log").display().to_string());
-        crate::foundation::shim::write_script(&busctl, &body);
+        north_foundation::foundation::shim::write_script(&busctl, &body);
         let inputs = Inputs {
             proc,
             cgroup,

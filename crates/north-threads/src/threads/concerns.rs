@@ -4,7 +4,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use super::runs::row::Row;
 use super::verb::Failure;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS concern_samples(
   project TEXT NOT NULL,

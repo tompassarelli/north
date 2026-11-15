@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use crate::threads::runs::hook_rules::{HABIT_RULES, OTHER, classify};
+use north_calibration::threads::runs::hook_rules::{HABIT_RULES, OTHER, classify};
 
 const SLEEP_BLOCK: &str = "<tool_use_error>Blocked:";
 const HOOK_ERROR: &str = " hook error: ";

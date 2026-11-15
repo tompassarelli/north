@@ -16,8 +16,8 @@ use super::lane_gates::{self, Lane};
 use super::rebase_compile::{self, Ahead, Claim, Rebased};
 use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
-use crate::landing_refusals;
-use crate::platform::decision_log::{self, Entry};
+use north_diff_gates::landing_refusals;
+use north_base::platform::decision_log::{self, Entry};
 use north_strategy_types::Kind;
 use north_strategy_types::land::{self, PickCase};
 
@@ -257,7 +257,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         if failed.unbuilt.is_some() {
             return Ok(Pick::Deferred(format!("deferred: {}: {}; it stays queued, ahead of later lanes, for the first candidate after that build", ticket.branch, failed.message)));
         }
-        let kind = if failed.no_verdict { format!("regenerate.{}", north_base::foundation::exit::NO_VERDICT_KIND) } else { "regenerate".to_owned() };
+        let kind = if failed.no_verdict { format!("regenerate.{}", north_foundation::foundation::exit::NO_VERDICT_KIND) } else { "regenerate".to_owned() };
         return refuse(logs, name, &kind, &format!("could not regenerate a derived file the lane leaves stale: {}; NOT landed.", failed.message));
     }
     let found = match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
@@ -268,7 +268,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         }
     };
     case.stale_reverts = Some(found.iter().map(|reverted| reverted.commit.clone()).collect());
-    let (enforcing, state_home, root) = (landing_refusals::enforcing(), crate::platform::records_mirror::state_home(), ticket.root.to_string_lossy());
+    let (enforcing, state_home, root) = (landing_refusals::enforcing(), north_base::platform::records_mirror::state_home(), ticket.root.to_string_lossy());
     let shadowed = landing_refusals::Lane { at: "pick", root: &root, branch: &ticket.branch, head: &ticket.head };
     if !found.is_empty() {
         if enforcing {
@@ -316,9 +316,9 @@ fn gate_lane(worktree: &Path, job: &GateJob, logs: &Path) -> Gated {
     let path = tree.to_str().ok_or_else(|| format!("{} is not UTF-8", tree.display()))?;
     change_worktrees_alone(worktree, &["worktree", "add", "-q", "-f", "--detach", "--no-checkout", path, &job.gating.head])?;
     let judged = git(&tree, &["reset", "-q", "--hard", &job.gating.head]).and_then(|_| {
-        let (state_home, code_health) = (crate::platform::records_mirror::state_home(), super::after::gates::code_health_program());
-        let advisory_db = crate::advisory_gate::database(&state_home);
-        let lane = Lane { worktree: &tree, base: &job.gating.picked_onto, head: &job.gating.head, state_home: &state_home, code_health: &code_health, registry: &crate::dep_gate::PublicRegistries, advisory_db: &advisory_db };
+        let (state_home, code_health) = (north_base::platform::records_mirror::state_home(), super::after::gates::code_health_program());
+        let advisory_db = north_diff_gates::advisory_gate::database(&state_home);
+        let lane = Lane { worktree: &tree, base: &job.gating.picked_onto, head: &job.gating.head, state_home: &state_home, code_health: &code_health, registry: &north_diff_gates::dep_gate::PublicRegistries, advisory_db: &advisory_db };
         let rebased = Rebased { tree: &tree, checked_on: job.gating.checked_on.as_deref(), picked_onto: &job.gating.picked_onto, head: &job.gating.head, shipped_from: &job.gating.base };
         std::thread::scope(|scope| {
             let compiled = rebase_compile::enabled().then(|| scope.spawn(|| compile(&rebased, job, logs)));
@@ -504,7 +504,7 @@ fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: 
 }
 
 fn finish(built: Stack, gated: &BTreeMap<usize, Option<lane_gates::Refused>>, tickets: &[(PathBuf, Ticket)], enforcing: bool) -> Built {
-    let state_home = crate::platform::records_mirror::state_home();
+    let state_home = north_base::platform::records_mirror::state_home();
     let mut picks = Vec::new();
     for (at, lane) in built.lanes.into_iter().enumerate() {
         let Stacked { pick, mut case, decide_us, .. } = lane;

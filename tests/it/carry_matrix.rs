@@ -1,7 +1,7 @@
 use crate::capacity_host::{Host, SCOPE_SYSTEMCTL, scope_systemd_run};
-use north_base::foundation::carry;
-use north_base::foundation::offload::ROOT_ENV;
-use north_core::foundation::shim;
+use north_foundation::foundation::carry;
+use north_foundation::foundation::offload::ROOT_ENV;
+use north_foundation::foundation::shim;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};

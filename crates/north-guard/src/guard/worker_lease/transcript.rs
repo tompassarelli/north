@@ -1,4 +1,4 @@
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::Value;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};

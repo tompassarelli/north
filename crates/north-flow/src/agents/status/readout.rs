@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use toml_edit::DocumentMut;
 
-use crate::foundation::clock::Timestamp;
-use crate::router::policy::json_value;
+use north_foundation::foundation::clock::Timestamp;
+use north_pace::router::policy::json_value;
 
 use super::super::lines::{text, whole};
 use super::super::tiers::{Band, Tier, provider};
@@ -97,7 +97,7 @@ pub(super) fn promotion_lines(accounts: &Value, ledger: &Ledger, now: Timestamp)
         let spend: f64 = full.values().sum();
         let cost_share = 100.0 * full.get(name.as_str()).copied().unwrap_or(0.0) / if spend == 0.0 { 1.0 } else { spend };
         let verdict = if run_share >= cost_share { "earned its full price" } else { "did not earn its full price" };
-        let confirmed = if account.get("promo_end_confirmed").is_some_and(crate::router::ctx::truthy) { "confirmed" } else { "unconfirmed" };
+        let confirmed = if account.get("promo_end_confirmed").is_some_and(north_pace::router::ctx::truthy) { "confirmed" } else { "unconfirmed" };
         lines.push(format!(
             "Blocked: decision for Tom: {name} promotion (USD {}/month) ends {end} ({left} days, {confirmed}); at USD {}/month it is {cost_share:.1}% of plan spend and ran {run_share:.1}% of runs in 30 days ({runs} of {total}): {verdict}; keep it at full price?",
             field(account, "promo_price"),
@@ -111,7 +111,7 @@ fn show(reference: &str, tier: &Tier, entry: &Value, measured: &Measured) {
     let empty = Value::Object(Default::default());
     let value = entry.get("value").unwrap_or(&empty);
     println!("  {reference}: {} {}", tier.model, tier.effort);
-    if let Some(restriction) = entry.get("restriction").filter(|value| crate::router::ctx::truthy(value)) {
+    if let Some(restriction) = entry.get("restriction").filter(|value| north_pace::router::ctx::truthy(value)) {
         println!("    restriction: {}", text(restriction));
     }
     let strengths: Vec<String> = entry["strengths"].as_array().into_iter().flatten().map(text).collect();
@@ -125,7 +125,7 @@ fn show(reference: &str, tier: &Tier, entry: &Value, measured: &Measured) {
         "    value: {}; {monthly} ({}{public}); {}, checked {}",
         field(value, "plan"), field(value, "monthly_price_note"), field(value, "source"), field(value, "checked")
     );
-    if let Some(api) = value.get("api").filter(|value| crate::router::ctx::truthy(value)) {
+    if let Some(api) = value.get("api").filter(|value| north_pace::router::ctx::truthy(value)) {
         println!(
             "    API list comparison: {} {} input / {} output per million tokens ({}); {} input / {} output ({}); {}, checked {}",
             field(api, "currency"), field(api, "input_per_million"), field(api, "output_per_million"), field(api, "context"),
@@ -174,7 +174,7 @@ pub(super) fn catalog(document: &DocumentMut, tiers: &[Tier], usable: &[String],
     }
     for (owner, entries) in others {
         let first = &entries[0];
-        if !first.get("model").is_some_and(crate::router::ctx::truthy) {
+        if !first.get("model").is_some_and(north_pace::router::ctx::truthy) {
             let note = first.get("note").map_or("no model yet".to_owned(), text);
             println!("{owner} (no staffing band): not set up ({note})");
             continue;
@@ -184,7 +184,7 @@ pub(super) fn catalog(document: &DocumentMut, tiers: &[Tier], usable: &[String],
             "{owner} (no staffing band): {}, {} {}/month; {}, checked {}",
             field(value, "plan"), field(value, "currency"), field(value, "monthly_price"), field(value, "source"), field(value, "checked")
         );
-        if let Some(restriction) = first.get("restriction").filter(|value| crate::router::ctx::truthy(value)) {
+        if let Some(restriction) = first.get("restriction").filter(|value| north_pace::router::ctx::truthy(value)) {
             println!("  restriction: {}", text(restriction));
         }
         for entry in &entries {

@@ -9,7 +9,7 @@ mod usage;
 mod world;
 
 pub use briefs::Event;
-use crate::spend::{self, Rules, Starter, View};
+use north_pace::spend::{self, Rules, Starter, View};
 pub use world::Live;
 
 const PROTECTED_PRESSURE_LIMIT: f64 = 20.0;
@@ -71,7 +71,7 @@ fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
 /// The spend view from this host's state as last sampled; a subagent adds no session, so the active
 /// count is not read.
 fn spend_view(world: &impl World) -> View {
-    spend::view_from_policy(&crate::platform::orchestration::path(), &state_dir(world).join("agents"), &Rules::configured(), 0, world.now(), |_| true)
+    spend::view_from_policy(&north_base::platform::orchestration::path(), &state_dir(world).join("agents"), &Rules::configured(), 0, world.now(), |_| true)
 }
 
 fn flow_refusal(world: &impl World, event: &Event) -> Option<String> {
@@ -185,7 +185,7 @@ fn fleet_domain_rank(world: &impl World, event: &Event) -> Option<(String, usize
     let task_ref = found?["task_ref"].as_str()?;
     let domain = task_ref.split('#').next().unwrap_or("").rsplit('/').next().unwrap_or("").to_lowercase();
     let variable = |name: &str| world.var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
-    let policy = crate::platform::orchestration::path_in(&home(world), variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref());
+    let policy = north_base::platform::orchestration::path_in(&home(world), variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref());
     let document: toml_edit::DocumentMut = std::fs::read_to_string(policy).ok()?.parse().ok()?;
     let mut ranked = Vec::new();
     if let Some(projects) = document.get("projects") {

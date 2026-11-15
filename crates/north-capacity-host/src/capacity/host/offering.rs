@@ -16,7 +16,7 @@ use super::state::dequeue;
 use super::terminations::Terminations;
 use crate::capacity::build_offload::{self, Candidate, Declined, Job};
 use crate::capacity::effects::Host;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 pub(super) const NO_BUILD_HOST: &str = "NO_BUILD_HOST";
@@ -187,7 +187,7 @@ pub(super) fn session_builds_off(host: &Host, command: &[String], create: &Creat
     if (host.session_builds)() || !crate::capacity::gate::compiles_rust(command) {
         return None;
     }
-    let key = format!("[hosts.{}] session_builds = false, or offload_builds = false on a host that declares runners,", crate::platform::host::name());
+    let key = format!("[hosts.{}] session_builds = false, or offload_builds = false on a host that declares runners,", north_base::platform::host::name());
     Some(Obj::new().put("decision", "REFUSED").put("reason", SESSION_BUILDS_OFF).put("detail", key).put("owner", create.owner.as_str()))
 }
 

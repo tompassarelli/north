@@ -13,7 +13,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use north_base::foundation::offload;
+use north_foundation::foundation::offload;
 
 use rustix::fs::{FlockOperation, flock};
 

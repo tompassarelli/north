@@ -40,7 +40,7 @@ fn every_crate_a_tests_it_module_imports_is_one_the_table_selects_it_for() {
     let table = Table::parse(&read(TABLE), &plan, &spawners_of_tree()).unwrap();
     let mut unselected = Vec::new();
     for module in table.modules() {
-        let text = sources(module).replace("north_core::foundation::shim", "");
+        let text = sources(module).replace("north_foundation::foundation::shim", "");
         let imported: BTreeSet<String> = plan.names().filter(|name| text.contains(&format!("{}::", name.replace('-', "_")))).map(str::to_owned).collect();
         let selected = table.crates(module).unwrap();
         for name in imported.iter().filter(|name| !plan.closure(BTreeSet::from([(*name).clone()])).iter().any(|dependent| selected.contains(dependent))) {

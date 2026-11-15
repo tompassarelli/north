@@ -9,7 +9,7 @@ use north_base::platform::finish_record::FinishRecords;
 use north_base::platform::records_mirror::Records;
 use north_base::platform::review_accept::Accepts;
 use north_base::platform::trust_boundary;
-use north_base::foundation::pair::{self, Compared, Reading};
+use north_foundation::foundation::pair::{self, Compared, Reading};
 use crate::land::after::follow;
 use crate::land::slots::runner::{confined_step, failing, first_error, under_capacity};
 use crate::land::slots::select::Config;
@@ -224,7 +224,7 @@ fn read(tree: &Path, stalled: &Stalled, runner: &Runner) -> Reading {
         .current_dir(tree)
         .env("SAFE_PUSH_LAND_BASE", &head)
         .env("SAFE_PUSH_LAND_HEAD", &head)
-        .env(north_base::foundation::offload::OWNER_ENV, runner.owner)
+        .env(north_foundation::foundation::offload::OWNER_ENV, runner.owner)
         .stdin(Stdio::null())
         .output();
     let Ok(ran) = ran else { return Reading::NoVerdict(format!("{} could not start", stalled.check())) };

@@ -15,8 +15,8 @@ use super::json::Json;
 use super::policy::{arm_minus, no_fable, policy_for_arm};
 use super::pyfmt::{round_to, splitlines, strip};
 use super::rows::RunRow;
-use crate::error::NorthError;
-use crate::fleet::install;
+use north_foundation::error::NorthError;
+use north_fleet::fleet::install;
 
 const BOX_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep";
 

@@ -1,5 +1,5 @@
 use super::*;
-use north_base::test_inputs::{Generator, cases};
+use north_foundation::test_inputs::{Generator, cases};
 
 fn texts(side: &[Entry]) -> BTreeSet<String> {
     side.iter().map(|entry| entry.text.clone()).collect()

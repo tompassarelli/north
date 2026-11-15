@@ -7,7 +7,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_base::foundation::offload::{HOLD_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_foundation::foundation::offload::{HOLD_ENV, LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 
 use super::super::broker::{self, Request};
 use super::super::peer::Peer;
@@ -16,7 +16,7 @@ use super::super::broker_start;
 use super::super::lane_grant::Host;
 use super::super::{Context, removable};
 use super::{OPEN_SCOPE, git};
-use crate::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 
 const ROLE: &str = "NORTH_118_OFFLOAD_ROLE";
 const SCRATCH: &str = "NORTH_118_OFFLOAD_SCRATCH";
@@ -240,7 +240,7 @@ fn a_request_from_a_directory_north_cannot_place_is_refused_for_every_verb(root:
 fn a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_recorded_for_it(root: &Path, north: &Path, host: &Host, worker: &[(String, String)], failures: &mut Vec<String>) {
     const CASE: &str = "a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_recorded_for_it";
     let home = root.join("home");
-    let (slots, records) = (home.join(north_base::foundation::offload::ROOT_DEFAULT), home.join(north_base::foundation::offload::SLOT_RECORDS));
+    let (slots, records) = (home.join(north_foundation::foundation::offload::ROOT_DEFAULT), home.join(north_foundation::foundation::offload::SLOT_RECORDS));
     let (slot, made_up, named_as_lane) = (slots.join("code-alpha-main-5"), slots.join("made-up"), slots.join("lane"));
     for directory in [&made_up, &named_as_lane, &records] {
         std::fs::create_dir_all(directory).unwrap();

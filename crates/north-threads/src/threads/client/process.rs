@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::error::NorthResult;
-use crate::platform::process::child_within;
+use north_foundation::error::NorthResult;
+use north_base::platform::process::child_within;
 use crate::threads::outside;
 
 /// Waits on a child for up to a limit, `None` once it outlasted it and was killed; a stalled-host test swaps the clock for an event.

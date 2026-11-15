@@ -29,6 +29,11 @@ serde_json.workspace = true
 sha2.workspace = true
 time.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-pacing = { path = "../north-pacing" }
+north-graph = { path = "../north-graph" }
+
+
 
 [dev-dependencies]
 tempfile.workspace = true

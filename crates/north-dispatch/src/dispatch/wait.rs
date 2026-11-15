@@ -1,8 +1,8 @@
 //! How long a box would wait to start on a host, from the host's live measure and the class of run
 //! its Verify facet implies; a host whose memory can never admit that class takes none of it.
 use super::measure::Measure;
-use crate::capacity::admission::{self, Class};
-use crate::pacing::placement::needs;
+use north_capacity_host::capacity::admission::{self, Class};
+use north_pacing::pacing::placement::needs;
 
 /// Heavy for a box verified by a local or native test run, which machine-capacity admits as heavy;
 /// else agent, since only its CLI loads the host.

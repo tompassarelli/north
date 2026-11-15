@@ -2,5 +2,5 @@
 name = "north-expectations"
 layer = 6
 paths = ["crates/north-expectations/src/**"]
-may_use = ["north-dispatch"]
+may_use = ["north-dispatch", "north-capacity-host"]
 

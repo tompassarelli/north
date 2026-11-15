@@ -127,7 +127,7 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
 /// A worker's cargo run on a build host through its capacity gate, against the judged runtime: gex45 and cpx62b failed every one, and every offloaded land check, from 4:59 to 5:05 PM on 2026-11-15 on runtimes holding aea18d3b3e, which passed each other probe.
 pub(super) fn worker_cargo_run(sha: &str) -> Probe {
     let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
-    let script = WORKER_CARGO_CRATE.replace("__NO_VERDICT__", &north_base::foundation::exit::NO_VERDICT.to_string()).replace("__WORKER_SHELL__", &worker_shell(&format!("{runtime}/north"), WORKER_CARGO_RUN));
+    let script = WORKER_CARGO_CRATE.replace("__NO_VERDICT__", &north_foundation::foundation::exit::NO_VERDICT.to_string()).replace("__WORKER_SHELL__", &worker_shell(&format!("{runtime}/north"), WORKER_CARGO_RUN));
     judging(sha, vec![probe(WORKER_CARGO_RUN_PROBE, script, WORKER_CARGO_RUN_LIMIT)]).remove(0)
 }
 
@@ -195,7 +195,7 @@ NORTH_FLEET_ROLE=worker NORTH_WORKER_SANDBOX=1 CANARY_NORTH="$north" "$north" --
 /// What a worker command must not hold: a file of the ssh directory it can open, an offload master socket, the agent socket variable, and on a host whose sessions reach the hub, an ssh that gets there.
 fn no_ssh(reaches_hub: bool) -> String {
     let reached = if reaches_hub { NO_SSH_TO_HUB.replace("__HUB__", HUB) } else { String::new() };
-    format!("{}{reached}", NO_SSH.replace("__MASTER__", north_base::foundation::offload::MASTER_SOCKET))
+    format!("{}{reached}", NO_SSH.replace("__MASTER__", north_foundation::foundation::offload::MASTER_SOCKET))
 }
 
 const NO_SSH: &str = r#"for file in "$HOME"/.ssh/*; do
@@ -333,7 +333,7 @@ echo "landed $landed"
 "#;
 
 pub(super) fn launchable_script() -> String {
-    let key = crate::providers::opencode::key_file(std::path::Path::new(".local/state/north"));
+    let key = north_providers::providers::opencode::key_file(std::path::Path::new(".local/state/north"));
     format!(
         "for provider in {}; do\n  if [ \"$provider\" != claude ] && [ ! -f \"$HOME/{}\" ]; then continue; fi\n  if [ -x \"$HOME/.local/lib/$provider/current/bin/$provider\" ] || [ -f \"$HOME/.local/bin/$provider\" ] || command -v \"$provider\" >/dev/null 2>&1; then printf '%s\\n' \"$provider\"; fi\ndone\ntrue\n",
         PROVIDERS.join(" "),

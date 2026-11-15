@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::agent_load::{self, Host, Plan, Process};
 use super::mode::Effects;
 use super::mode_tick::{self, Power};
-use crate::platform::process::status_within;
+use north_base::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
 const OBSERVE_WAIT: Duration = Duration::from_secs(40);

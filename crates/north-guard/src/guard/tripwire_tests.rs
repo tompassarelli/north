@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use super::decide;
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::Value;
@@ -244,7 +244,7 @@ fn raw_gh_and_curl_calls_outside_the_github_broker_are_refused_with_a_named_reas
     let install = |directory: &str, text: &str| {
         let directory = root.path().join(directory);
         fs::create_dir_all(&directory).unwrap();
-        crate::foundation::shim::write_executable(&directory.join("gh"), text);
+        north_foundation::foundation::shim::write_executable(&directory.join("gh"), text);
         directory.display().to_string()
     };
     let shim = install("north-bin", "#!/bin/sh\nexec north gh-session \"$dir/$name\" \"$@\"\n");

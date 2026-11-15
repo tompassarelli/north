@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) fn lines(config: &Path, ledger: &Path) -> Vec<String> {
     match super::super::goal::read_config(config) {

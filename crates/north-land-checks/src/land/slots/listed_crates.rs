@@ -25,7 +25,7 @@ use north_build_system::{Cases, CrateTests, TestRun};
 use super::affected::PACKAGES_ENV;
 use super::it_modules::IT_ENV;
 use super::unit_reuse::quote;
-use crate::foundation::check_log::{Failure, failures};
+use north_foundation::foundation::check_log::{Failure, failures};
 use crate::land::trace::check_log;
 
 const USAGE: &str = "north land crate-tests available | north land crate-tests after-run-available | north land crate-tests host-cases [PACKAGE...] | north land crate-tests after-landing | north land crate-tests -- COMMAND";

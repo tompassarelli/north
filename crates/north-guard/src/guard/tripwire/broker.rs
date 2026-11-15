@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::{State, strip};
-use crate::platform::gh_shim;
+use north_base::platform::gh_shim;
 
 const LOCAL: &[&str] = &["auth", "config", "help", "version", "completion", "alias", "extension", "--version", "--help", "-h"];
 const WHY: &str = "every agent GitHub API call goes through north's GitHub broker, so identical reads share one call and GitHub's rate-limit holds are honored (north#638)";

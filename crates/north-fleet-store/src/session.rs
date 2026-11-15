@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::claim_key::{claim_keys, split_key};
 use crate::effort::Effort;
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::prompt_mode::PromptMode;
 use crate::sender::Sender;
 use crate::stated_budget::Stated;

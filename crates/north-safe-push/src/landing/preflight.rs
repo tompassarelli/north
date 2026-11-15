@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use north_base::foundation::clock::Timestamp;
-use north_base::foundation::step::{Refused, cancelled};
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::step::{Refused, cancelled};
 
 use crate::gates::plan::{Destination, Gate, GateFacts, plan};
 use crate::gates::run::{Capacity, Gates, LandChecks};

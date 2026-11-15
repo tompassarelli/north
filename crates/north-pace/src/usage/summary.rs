@@ -7,7 +7,7 @@ use super::plain::{self, spaced};
 use super::store::Row;
 use super::table::{current, plan_label};
 use super::Places;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const NONE: &str = "—";
 const GAP: &str = "  ";

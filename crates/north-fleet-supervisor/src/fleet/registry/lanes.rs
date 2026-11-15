@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use north_session_host::held::{KeptLane, kept_lanes};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::super::model::SessionRecord;
 use super::super::overlap::worktree_in_use;

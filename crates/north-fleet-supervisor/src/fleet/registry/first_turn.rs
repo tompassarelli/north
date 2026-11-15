@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::host::{Host, alive};
 use crate::fleet::model::{Account, Delivery, SessionRecord};
 use crate::fleet::hops;
@@ -128,7 +128,7 @@ impl Fleet {
             return;
         }
         let dir = refusals::directory(&super::home::state_dir(&self.home));
-        if let Err(error) = refusals::mark(&dir, &account.label, &record.name, &crate::foundation::clock::Timestamp::now().iso(), &failure.text) {
+        if let Err(error) = refusals::mark(&dir, &account.label, &record.name, &north_foundation::foundation::clock::Timestamp::now().iso(), &failure.text) {
             eprintln!("north fleet: could not mark {}:{} refused: {error}", record.provider.label(), account.label);
         }
     }
@@ -147,7 +147,7 @@ fn refusal(record: &SessionRecord, failure: &ClientRefusal) -> NorthError {
         CredentialFailure::SignedOut => format!("{name} on {account} answered its first turn with 'Not logged in' after one restart"),
         CredentialFailure::Expired => format!(
             "{name} on {account} answered its first turn with 'OAuth session expired': {account}'s login on {} was revoked, most likely by a copy refreshing on another host; sign it in again here and keep it in this host's profiles only",
-            crate::platform::host::name()
+            north_base::platform::host::name()
         ),
         CredentialFailure::Disabled | CredentialFailure::UsageLimit => {
             format!("{name} on {account} answered its first turn with '{}'; {account} stays unavailable until `north fleet accounts --probe` passes on it", failure.text)

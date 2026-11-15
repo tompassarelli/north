@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::error::NorthResult;
-use crate::fleet::model::{Effort, LaunchRequest, Machine, Role};
-use crate::fleet::registry::Fleet;
-use crate::usage::decide::world::ModelFamily;
+use north_foundation::error::NorthResult;
+use north_fleet_supervisor::fleet::model::{Effort, LaunchRequest, Machine, Role};
+use north_fleet_supervisor::fleet::registry::Fleet;
+use north_pace::usage::decide::world::ModelFamily;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Overrides {
@@ -87,9 +87,9 @@ pub fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthResult<Str
 /// to nothing and is not read. The refusal names each path so the launch can inline the text or pass
 /// it with `--system-prompt`, which the launch reads here.
 pub fn home_path_refusal(name: &str, written: &str, cwd: &Path, machine: Option<&Machine>) -> Option<String> {
-    let machine = machine.filter(|machine| machine.name != crate::platform::host::name())?;
+    let machine = machine.filter(|machine| machine.name != north_base::platform::host::name())?;
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    let paths = crate::platform::home_paths::outside(written, Path::new(&home), cwd);
+    let paths = north_base::platform::home_paths::outside(written, Path::new(&home), cwd);
     (!paths.is_empty()).then(|| {
         let named: Vec<String> = paths.iter().map(|path| path.display().to_string()).collect();
         format!("{} would start on {}, but its prompt names {}, under this host's home, which {} cannot read; inline the text or pass it with --system-prompt, which the launch reads here", name, machine.name, named.join(", "), machine.name,)
@@ -111,7 +111,7 @@ pub const LEAD_ON_TRUSTED: &str = "a lead staffs other hosts and its commands ru
 
 /// Whether the session this launch starts is a lead as its record will say: it names no parent and holds no task.
 pub fn is_lead(request: &LaunchRequest) -> bool {
-    request.role.map_or_else(|| request.parent.is_none() && request.tasks().is_empty() && request.name != crate::fleet::runtime::COORDINATOR, |role| role == Role::Lead)
+    request.role.map_or_else(|| request.parent.is_none() && request.tasks().is_empty() && request.name != north_fleet_supervisor::fleet::runtime::COORDINATOR, |role| role == Role::Lead)
 }
 
 /// Whether the role is the fleet coordinator, by either spelling the role has had.
@@ -121,7 +121,7 @@ pub fn is_coordinator(role: Role) -> bool {
 
 /// Whether `host` is trusted: it holds the ledger or declares the hosts it `reaches`; a worker host declares none.
 pub fn trusted(host: &str, here: &str) -> bool {
-    let ledger = crate::threads::client::ledger_host_name();
+    let ledger = north_calibration::threads::client::ledger_host_name();
     let reaches = super::config().ok().and_then(|cfg| cfg.get("hosts")?.get(host)?.get("reaches")?.as_array().map(|hosts| !hosts.is_empty()));
     reaches.unwrap_or(false) || ledger.as_deref() == Some(host) || (host == here && ledger.is_none())
 }

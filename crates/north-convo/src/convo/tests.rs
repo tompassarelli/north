@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::env::Env;
-use crate::fleet::sender::{Sender, urgent_prefixed};
-use crate::fleet::store::{FleetRow, RowKind, Store};
+use north_fleet::fleet::sender::{Sender, urgent_prefixed};
+use north_fleet::fleet::store::{FleetRow, RowKind, Store};
 use super::{Console, execute};
 
 const SID: &str = "11111111-2222-3333-4444-555555555555";

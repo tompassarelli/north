@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use crate::foundation::clock::Timestamp;
-use crate::platform::broker_client::Client;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::broker_client::Client;
 use crate::usage::{profiles, py};
 
 const API: &str = "https://api.digitalocean.com/v2/customers/my/balance";

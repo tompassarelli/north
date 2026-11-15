@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use crate::platform::git;
+use north_base::platform::git;
 
 const CATALOG: &str = "dotfiles/agents/catalog-config.json";
 const LIMIT: usize = 100;

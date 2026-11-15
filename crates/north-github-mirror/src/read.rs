@@ -12,7 +12,7 @@ pub enum Seen {
 }
 
 pub fn now() -> f64 {
-    crate::foundation::clock::Timestamp::now().unix_seconds_f64()
+    north_foundation::foundation::clock::Timestamp::now().unix_seconds_f64()
 }
 
 pub fn listed(mirror: &Mirror, at: f64, repo: &str, kind: &str, miss: impl FnOnce() -> Result<Vec<Value>, String>) -> Result<Vec<Value>, String> {

@@ -17,7 +17,7 @@ use super::super::live_process::any_inside;
 use super::super::reap::irreplaceable_ignored;
 use super::super::repo::is_lander_tree;
 use super::super::verdict::{Facts, Verdict, retirement_verdict};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::land_queue;
 
 pub(super) mod activity;

@@ -9,7 +9,7 @@ use north_runtime_records::failure::{Failure, failed};
 use super::super::layout::{self, Layout};
 use super::super::live::Swap;
 use super::{HOST_FAULT, retirement};
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_runtime_follow::{named, runtime_of};
 use serde::Deserialize;
 use std::fs;

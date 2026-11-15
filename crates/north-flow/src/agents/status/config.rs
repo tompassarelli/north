@@ -4,7 +4,7 @@ use std::path::Path;
 use serde_json::{Map, Value};
 use toml_edit::DocumentMut;
 
-use crate::router::policy::json_value;
+use north_pace::router::policy::json_value;
 
 use super::super::tiers::{self, Tier};
 

@@ -62,9 +62,9 @@ impl World for Live {
         let Some(actor) = var("THREADS_ACTOR").or_else(|| var("USER")) else {
             return Vec::new();
         };
-        let claims = crate::threads::claims::ledger::open(&crate::threads::client::threads_database(), false)
+        let claims = north_calibration::threads::claims::ledger::open(&north_calibration::threads::client::threads_database(), false)
             .ok()
-            .and_then(|db| crate::threads::claims::ledger::claims(&db).ok());
+            .and_then(|db| north_calibration::threads::claims::ledger::claims(&db).ok());
         claims
             .into_iter()
             .flatten()
@@ -74,7 +74,7 @@ impl World for Live {
     }
 
     fn refresh_claims(&mut self) {
-        crate::threads::client::refresh_mirrored_snapshot_now();
+        north_calibration::threads::client::refresh_mirrored_snapshot_now();
     }
 
     fn open(&mut self, repo: &str) -> Vec<(u64, String)> {
@@ -181,15 +181,15 @@ impl Filed for Live {
     }
 
     fn worker(&mut self) -> Option<String> {
-        let role = std::env::var(crate::runtime::ROLE_ENV).unwrap_or_default();
-        self.fleet_session.clone().filter(|_| role != crate::runtime::COORDINATOR)
+        let role = std::env::var(north_fleet_store::runtime::ROLE_ENV).unwrap_or_default();
+        self.fleet_session.clone().filter(|_| role != north_fleet_store::runtime::COORDINATOR)
     }
 
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String> {
         let north = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"));
         let ran = std::process::Command::new(north)
             .args(["fleet", "hold", &format!("{}#{}", new.0, new.1)])
-            .env(crate::runtime::SESSION_ENV, by)
+            .env(north_fleet_store::runtime::SESSION_ENV, by)
             .stdin(std::process::Stdio::null())
             .output()
             .map_err(|error| error.to_string())?;
@@ -202,8 +202,8 @@ impl Filed for Live {
     }
 
     fn may_launch(&mut self) -> bool {
-        let role = std::env::var(crate::runtime::ROLE_ENV).unwrap_or_default();
-        role == crate::runtime::COORDINATOR || role == "lead"
+        let role = std::env::var(north_fleet_store::runtime::ROLE_ENV).unwrap_or_default();
+        role == north_fleet_store::runtime::COORDINATOR || role == "lead"
     }
 
     fn intake(&mut self, new: &Ref, gaps: &[String]) -> Result<String, String> {
@@ -317,7 +317,7 @@ fn qualified(capture: &Captures, repo: &str) -> String {
 fn key(repo: &str, number: &str) -> String {
     let lowered = repo.to_lowercase();
     match lowered.strip_prefix(OWNER) {
-        Some(name) => format!("{OWNER}{}#{number}", crate::threads::catalog::CATALOG.canonical(name)),
+        Some(name) => format!("{OWNER}{}#{number}", north_calibration::threads::catalog::CATALOG.canonical(name)),
         None => format!("{lowered}#{number}"),
     }
 }
@@ -478,7 +478,7 @@ fn missing(write: &GhWrite, body: &str) -> Vec<String> {
     }
     match category(body, &write.labels) {
         None => gaps.push(NO_CATEGORY.to_owned()),
-        Some(category) if let Err(why) = crate::router::brief::known_category(&category) => gaps.push(why),
+        Some(category) if let Err(why) = north_pace::router::brief::known_category(&category) => gaps.push(why),
         Some(category) if BUG_CATEGORIES.contains(&category.as_str()) && !CLASS.is_match(body) => gaps.push(NO_CLASS.to_owned()),
         Some(_) => {}
     }

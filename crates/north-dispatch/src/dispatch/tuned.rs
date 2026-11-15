@@ -1,5 +1,5 @@
 use super::tier::Route;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_graph_loops::{Cells, Learned};
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -34,7 +34,7 @@ impl Tuned {
     }
 
     pub fn current() -> Self {
-        north_graph_loops::read(&north_graph_loops::graph_path(), WRITER).map_or_else(|_| Self::default(), |learned| Self::from_learned(learned, SystemTime::now()))
+        north_graph_loops::read(&north_graph::default_path(), WRITER).map_or_else(|_| Self::default(), |learned| Self::from_learned(learned, SystemTime::now()))
     }
 
     /// The `<name> <family> <category>` cell for the sizing family and the route's category.

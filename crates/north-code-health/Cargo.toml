@@ -24,6 +24,10 @@ serde_json.workspace = true
 tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-graph = { path = "../north-graph" }
+
+
 
 [lints]
 workspace = true

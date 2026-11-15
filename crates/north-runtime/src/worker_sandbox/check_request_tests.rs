@@ -5,7 +5,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_base::foundation::shim::write_executable;
+use north_foundation::foundation::shim::write_executable;
 use north_base::platform::gh_shim;
 
 use super::super::broker::{self, Request};

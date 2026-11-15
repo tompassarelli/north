@@ -29,6 +29,6 @@ pub(super) fn fleet_units(home: &Path) -> BTreeMap<String, String> {
         .into_iter()
         .flatten()
         .flatten()
-        .filter_map(|entry| Some((crate::platform::session_host_files::scope(&entry.path())?, entry.file_name().to_string_lossy().into_owned())))
+        .filter_map(|entry| Some((north_base::platform::session_host_files::scope(&entry.path())?, entry.file_name().to_string_lossy().into_owned())))
         .collect()
 }

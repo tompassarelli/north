@@ -1,4 +1,4 @@
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use rustix::fs::{FlockOperation, flock};
 use serde_json::{Value, json};
 use std::fs::{self, File, OpenOptions};

@@ -1,6 +1,6 @@
 use rusqlite::{Connection, params};
 
-use crate::fleet::model::first_item_issue;
+use north_fleet_supervisor::fleet::model::first_item_issue;
 
 const INHERIT: &str = "UPDATE runs SET task_ref = (SELECT k.task_ref FROM runs k WHERE k.session = runs.session AND k.task_ref IS NOT NULL ORDER BY k.run_id LIMIT 1) \
      WHERE task_ref IS NULL AND (?1 IS NULL OR session = ?1) AND EXISTS (SELECT 1 FROM runs k WHERE k.session = runs.session AND k.task_ref IS NOT NULL)";

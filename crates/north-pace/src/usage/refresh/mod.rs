@@ -9,7 +9,7 @@ use rustix::fs::{FlockOperation, flock};
 
 use super::{Host, Places, gate, settings, store};
 use adapters::Readers;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 mod adapters;
 mod agy;

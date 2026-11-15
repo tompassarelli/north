@@ -190,11 +190,11 @@ pub(crate) fn answered_in(store: PathBuf, accepts: Accepts) -> Answered {
 
 fn contained(store: &Path, commit: &str, head: &str) -> Result<bool, String> {
     let object = format!("{commit}^{{commit}}");
-    let present = crate::platform::process::run("git", Some(store), &["rev-parse", "--verify", "--quiet", object.as_str()]).map_err(|error| format!("git rev-parse: {error}"))?;
+    let present = north_base::platform::process::run("git", Some(store), &["rev-parse", "--verify", "--quiet", object.as_str()]).map_err(|error| format!("git rev-parse: {error}"))?;
     if present.status.code() == Some(1) {
         return Ok(false);
     }
-    let output = crate::platform::process::run("git", Some(store), &["merge-base", "--is-ancestor", commit, head]).map_err(|error| format!("git merge-base: {error}"))?;
+    let output = north_base::platform::process::run("git", Some(store), &["merge-base", "--is-ancestor", commit, head]).map_err(|error| format!("git merge-base: {error}"))?;
     match output.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),

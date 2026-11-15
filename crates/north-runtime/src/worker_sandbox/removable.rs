@@ -77,8 +77,8 @@ impl Context {
             runtimes: runtimes(),
             session: set("NORTH_FLEET_SESSION").and_then(|session| session.into_os_string().into_string().ok()),
             agent_socket: set(super::sockets::AGENT_ENV),
-            offload_slot: set(north_base::foundation::offload::SLOT_ENV),
-            land_check: set(north_base::foundation::carry::LAND_HEAD).is_some(),
+            offload_slot: set(north_foundation::foundation::offload::SLOT_ENV),
+            land_check: set(north_foundation::foundation::carry::LAND_HEAD).is_some(),
         }
     }
 }
@@ -187,7 +187,7 @@ pub(super) fn git_writable(context: &Context) -> Vec<PathBuf> {
 
 /// A Landlock rule holds an inode, so the done-when lane must exist before the domain is built.
 fn check_lane(project: &Path) -> Option<PathBuf> {
-    let lane = north_base::foundation::check_lane::of(project);
+    let lane = north_foundation::foundation::check_lane::of(project);
     (project.join("worktrees").is_dir() && std::fs::create_dir_all(&lane).is_ok()).then_some(lane)
 }
 

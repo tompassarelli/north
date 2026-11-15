@@ -1,4 +1,4 @@
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 use std::io::Read;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 pub fn home_dir() -> NorthResult<PathBuf> {
     std::env::var_os("HOME")

@@ -296,5 +296,5 @@ pub fn github_with(
     Ok(docs)
 }
 pub fn github(since: Option<f64>) -> Result<Vec<Doc>> {
-    github_with(since, |args| Ok(crate::platform::github::run_patiently(args, "grounding github")?))
+    github_with(since, |args| Ok(north_base::platform::github::run_patiently(args, "grounding github")?))
 }

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_dispatch::capacity::host::maximum_seconds;
+use north_capacity_host::capacity::host::maximum_seconds;
 
 use super::home;
 

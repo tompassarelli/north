@@ -1,5 +1,5 @@
-use crate::foundation::clock::Timestamp;
-use north_base::foundation::exit::NO_VERDICT_KIND;
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::exit::NO_VERDICT_KIND;
 use north_base::land_ticket::Phase;
 use north_base::lifecycle::State;
 use rusqlite::{Connection, OpenFlags};

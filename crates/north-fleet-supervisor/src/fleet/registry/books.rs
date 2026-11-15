@@ -1,6 +1,6 @@
 //! What the fleet's books say: its spend, its gates, and the landings it has observed.
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::books::{Digest, Revision, SessionSpend};
 use crate::fleet::gates;
 use crate::fleet::landings::{self, push_log};

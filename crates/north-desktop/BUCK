@@ -25,8 +25,8 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-capacity-host:north-capacity-host",
-        "//crates/north-dispatch:north-dispatch",
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
+        "//crates/north-pacing:north-pacing",
         "//third-party:rustix",
         "//third-party:serde_json",
         "//third-party:sha2",
@@ -47,8 +47,8 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-capacity-host:north-capacity-host",
-        "//crates/north-dispatch:north-dispatch",
         "//crates/north-fleet-supervisor:north-fleet-supervisor",
+        "//crates/north-pacing:north-pacing",
         "//third-party:rustix",
         "//third-party:serde_json",
         "//third-party:sha2",

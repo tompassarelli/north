@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use toml_edit::DocumentMut;
 
-use crate::ledger::Ledger;
+use north_providers::ledger::Ledger;
 
 use super::flow::Places;
 

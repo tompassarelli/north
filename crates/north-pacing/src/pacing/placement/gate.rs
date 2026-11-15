@@ -2,21 +2,21 @@
 //! work, else the Claude account the shared rank puts first (`room::Rank`), run on the machine with the lowest demand per thread
 //! (`Machine::projected_load`) that serves every local need of the box and is below its resident cap, `[placement] order` breaking ties, else here. An account is out
 //! only at its provider's limit; whether a worker may start at all is the spend rule's call
-//! (`crate::spend`).
+//! (`north_pace::spend`).
 use super::super::storage::{self, load, rows};
 pub use super::repository::{anchored, launch_repository, repository};
 use super::needs::{holds_checkout, is_local_need, listed, words};
 use super::reach::Reach;
 use super::room::{Basis, Rank};
 use super::{facets, strings};
-use crate::capacity::{agent_load, laptop_auto};
-use crate::capacity::saturation::Saturation;
-use crate::fleet::model::ProviderName;
-use crate::fleet::roster::{Roster, Standing};
-use crate::spend::hold::api;
-use crate::usage::decide::SUBSCRIPTION_FLOOR;
-use crate::usage::decide::world::ModelFamily;
-use crate::usage::meter;
+use north_capacity_host::capacity::{agent_load, laptop_auto};
+use north_capacity_host::capacity::saturation::Saturation;
+use north_fleet_supervisor::fleet::model::ProviderName;
+use north_fleet_supervisor::fleet::roster::{Roster, Standing};
+use north_pace::spend::hold::api;
+use north_pace::usage::decide::SUBSCRIPTION_FLOOR;
+use north_pace::usage::decide::world::ModelFamily;
+use north_pace::usage::meter;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -718,14 +718,14 @@ pub fn battery_refusal(here: &str, percent: u8, machines: &[Machine]) -> String 
 }
 
 /// Why `here` takes no work that crowded machines turned away: a playtest lease is on, read from the capacity mode state and not inferred from an open game, or the laptop is on battery.
-pub fn here_closed(here: &str, power_supply: &Path, since: &Path, state: &crate::capacity::mode::State, now: u64) -> Option<String> {
+pub fn here_closed(here: &str, power_supply: &Path, since: &Path, state: &north_capacity_host::capacity::mode::State, now: u64) -> Option<String> {
     closed(here, state.hold.as_ref().map(|hold| hold.until), || laptop_auto::settled_battery(power_supply, since, now), now)
 }
 
 /// `here_closed` on a recorded playtest hold and battery reading.
 pub fn closed(here: &str, hold_until: Option<u64>, battery: impl FnOnce() -> Option<u8>, now: u64) -> Option<String> {
     if let Some(until) = hold_until.filter(|until| *until > now) {
-        let until = crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(until).unwrap_or(i64::MAX)).local_twelve_hour();
+        let until = north_foundation::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(until).unwrap_or(i64::MAX)).local_twelve_hour();
         return Some(format!("{here} is under a playtest lease until {until}"));
     }
     let percent = battery()?;

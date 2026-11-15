@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub use guards::REMOTE_PEER;
 

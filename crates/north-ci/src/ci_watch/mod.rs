@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::platform::process;
+use north_base::platform::process;
 
 pub const TITLE: &str = "main is red";
 

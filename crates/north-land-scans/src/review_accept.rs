@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::LazyLock;
 
-use north_base::foundation::offload::ONE_LANE_ENV;
+use north_foundation::foundation::offload::ONE_LANE_ENV;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use north_base::platform::harness::DEFAULTS;
 use north_base::platform::review_accept::{Accepts, patch_id};

@@ -3,8 +3,8 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use north_base::error::NorthResult;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Refusal, State, Store};
 
 const MARKER: &str = ".handing";

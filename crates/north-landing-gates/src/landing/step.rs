@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-pub use north_base::foundation::step::{Refused, Step, cancelled, refuse, request_cancel};
+pub use north_foundation::foundation::step::{Refused, Step, cancelled, refuse, request_cancel};
 use north_base::platform::process::exit_code;
 
 fn git(dir: &Path, args: &[&str], stderr: Stdio) -> Step<String> {

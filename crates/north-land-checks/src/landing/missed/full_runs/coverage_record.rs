@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use north_coverage::map::{self, Map};
 use north_coverage::run_selected::repository;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 use super::{Conclusion, Run, Source, Window};
 

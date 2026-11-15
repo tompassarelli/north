@@ -22,6 +22,8 @@ rustix.workspace = true
 time.workspace = true
 sha2.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [dev-dependencies]
 landlock = "0.4.7"

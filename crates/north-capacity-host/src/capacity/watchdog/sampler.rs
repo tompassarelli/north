@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::sampling::{Incident, Reading, State, Term, step};
 use super::snapshot::{read, snapshot};
-use crate::platform::process::status_within;
+use north_base::platform::process::status_within;
 
 const ROTATE_MS: i64 = 24 * 3600 * 1000;
 const DEFAULT_INTERVAL_SECONDS: u64 = 30;
@@ -49,7 +49,7 @@ fn now_ms() -> i64 {
 fn first_sample_time(path: &Path) -> Option<i64> {
     let head: String = read(path)?.chars().take(200).collect();
     let stamp = head.split("\"at\":\"").nth(1)?.split('"').next()?;
-    north_base::foundation::clock::Timestamp::parse_rfc3339(stamp).map(|moment| moment.unix_millis())
+    north_foundation::foundation::clock::Timestamp::parse_rfc3339(stamp).map(|moment| moment.unix_millis())
 }
 
 pub(super) fn terminate(terms: &[Term]) {

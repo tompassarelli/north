@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use regex::Regex;
 use toml_edit::DocumentMut;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const TABLE: &str = "harness/corrections.toml";
 pub const UNCLASSIFIED: &str = "unclassified";

@@ -6,7 +6,7 @@ use toml_edit::DocumentMut;
 
 use super::ledgers_among;
 use north_offload::land_offload;
-use crate::pacing::placement::gate;
+use north_pacing::pacing::placement::gate;
 
 const HOSTS: &str = include_str!("../runtime/fixtures/orchestration-hosts.toml");
 const FAKE_SSH: &str = "cd \"$(dirname \"$0\")\"\nfor word; do [ \"$word\" = -- ] && break; case \"$word\" in -oProxyCommand=*) sh -c \"${word#-oProxyCommand=}\" ;; esac; done\nexit 255\n";
@@ -21,7 +21,7 @@ fn planted(root: &Path) -> DocumentMut {
 fn ssh_destination_from_orchestration_toml_refuses_an_ssh_option_before_ssh_runs() {
     let root = tempfile::tempdir().unwrap();
     let ssh = root.path().join("ssh");
-    crate::foundation::shim::write_script(&ssh, FAKE_SSH);
+    north_foundation::foundation::shim::write_script(&ssh, FAKE_SSH);
     let cfg = planted(root.path());
     assert!(gate::machines(&cfg).is_empty());
     assert_eq!(land_offload::pull_sources_in(&cfg, "whiterabbit"), ["nexus"]);

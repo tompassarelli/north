@@ -8,7 +8,7 @@ use super::boxes::moment;
 use super::summary::has_table;
 use super::verbs::since_start;
 use super::median;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::verb::{Args, Context, Failure, open, report, table};
 
 const DEEPSEEK: &str = "(provider IN ('opencode', 'pi') OR lower(coalesce(model, '')) LIKE '%deepseek%')";

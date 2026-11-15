@@ -1,10 +1,10 @@
 use crate::hook_input::{HookInput, Verdict};
-use crate::router::tier::Tier;
+use north_pace::router::tier::Tier;
 use serde_json::Value;
 use regex::Regex;
 use std::sync::LazyLock;
 
-pub(super) use crate::router::brief::FACETS;
+pub(super) use north_pace::router::brief::FACETS;
 const DECLARED: [&str; 5] = ["Category", "Spec", "Scope", "Surface", "Verify"];
 pub(super) const REPOS: [&str; 6] = ["makgora", "wisp", "north", "south", "nixos-config", "firn"];
 const VALUE: &str = r"[ \t]*([^\s.,;`'<>|)]*)";
@@ -142,7 +142,7 @@ pub(super) fn spawn_parts(input: &HookInput) -> Option<(&str, &str)> {
 
 pub(super) fn brief_refusal(kind: &str, native: bool, foreground: bool, prompt: &str) -> Option<String> {
     let mut reasons = declared_refusals(foreground, prompt);
-    reasons.extend(crate::router::brief::landing_refusal(prompt));
+    reasons.extend(north_pace::router::brief::landing_refusal(prompt));
     if !native && kind == "worker-haiku" && DOCS.is_match(prompt) {
         reasons.push("Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and documentation prose written carefully by Opus. Haiku keeps only mechanical edits (renames, link fixes, box ticks) under Category: mechanical.".into());
     }

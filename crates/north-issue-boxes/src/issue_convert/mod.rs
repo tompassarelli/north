@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::betterleaks;
 use north_calibration::threads::claims;
 use manifest::{Manifest, Parent, Row, Scan, Tracker};

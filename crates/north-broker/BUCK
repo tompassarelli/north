@@ -24,6 +24,7 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-runtime-follow:north-runtime-follow",
         "//third-party:base64",
         "//third-party:percent-encoding",
@@ -46,6 +47,7 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-runtime-follow:north-runtime-follow",
         "//third-party:base64",
         "//third-party:percent-encoding",

@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 use super::*;
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 use crate::sender::Sender;
 
 const OLD_EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('claim','release','KICKOFF','ANSWER')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;

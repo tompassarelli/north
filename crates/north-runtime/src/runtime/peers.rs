@@ -1,7 +1,7 @@
 use super::layout::linked_sha;
 use super::remote::{limit, ssh};
 use north_offload::land_offload;
-use crate::platform::process;
+use north_base::platform::process;
 use std::path::Path;
 use std::time::Duration;
 

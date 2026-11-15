@@ -1,4 +1,4 @@
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 use super::event::{Event, emit, event_line};
 use super::stage::{Stage, record};

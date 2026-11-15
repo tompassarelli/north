@@ -1,6 +1,6 @@
 use regex::Regex;
 use super::{LAUNCH_PREFIXES, UNMANAGED, launch};
-use crate::shell::{self, Piece, PieceKind};
+use north_base::shell::{self, Piece, PieceKind};
 
 const BOUND: &str = "24h";
 const NOT_EXECUTABLE: &[&str] = &[

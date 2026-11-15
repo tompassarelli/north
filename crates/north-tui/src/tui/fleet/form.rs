@@ -4,8 +4,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Modifier, Style};
 use tui_textarea::TextArea;
 
-use crate::fleet::model::{Account, Effort, LaunchRequest, ProviderName};
-use crate::fleet::prompt::PromptMode;
+use north_fleet_supervisor::fleet::model::{Account, Effort, LaunchRequest, ProviderName};
+use north_fleet_supervisor::fleet::prompt::PromptMode;
 
 use super::desk::AccountRoom;
 use super::editor::edit_textarea;

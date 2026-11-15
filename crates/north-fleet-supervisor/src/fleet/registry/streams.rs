@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::{SessionRecord, Transcript};
 use crate::fleet::runtime::Runtime;
 use crate::fleet::transcript::{current_session_stream_index, ensure_session_streams, private_session_stream, read_window, session_stream_path};

@@ -8,7 +8,7 @@ use std::time::Duration;
 use north_base::lifecycle::{Lifecycle, Refusal, State, Store};
 
 use super::{Claim, Standing};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 /// The longest a claim stays held with no renewal, handoff or release: twice [`super::STALE_AFTER_S`].
 pub const HELD_FOR: Duration = Duration::from_secs(2 * super::STALE_AFTER_S as u64);

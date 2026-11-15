@@ -3,7 +3,7 @@
 use super::Places;
 use super::plain::{self, grid};
 use crate::credit::{self, Reading, Standing};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const HEADER: [&str; 5] = ["API", "grant", "expires", "spent", "left"];
 const EXHAUSTED: &str = "exhausted";
@@ -55,7 +55,7 @@ fn row(org: &Standing, read: bool) -> Vec<String> {
 
 fn footer(spends: &Result<Reading, String>, peers: &[String], now_ms: i64) -> String {
     match spends {
-        Ok(reading) => reading.footer(&crate::platform::host::name(), peers, now_ms),
+        Ok(reading) => reading.footer(&north_base::platform::host::name(), peers, now_ms),
         Err(error) => format!("API spend unread: {error}."),
     }
 }

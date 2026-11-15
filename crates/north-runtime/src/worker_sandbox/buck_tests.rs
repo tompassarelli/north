@@ -15,7 +15,7 @@ fn confined_leased(home: &Path, lane: &Path, command: &str, writes_confined: boo
         .env("HOME", home)
         .env(COMMAND, command)
         .envs(writes_confined.then_some((WRITES_CONFINED, "1")))
-        .envs(offload_slot.map(|slot| (north_base::foundation::offload::SLOT_ENV, slot)))
+        .envs(offload_slot.map(|slot| (north_foundation::foundation::offload::SLOT_ENV, slot)))
         .current_dir(lane)
         .output()
         .unwrap()
@@ -58,7 +58,7 @@ fn a_buck2_slot_of_the_offload_gets_its_daemon_directory_and_build_output_and_no
     let slot = home.join(".cache/land-offload/code-alpha-main-5");
     std::fs::create_dir_all(&slot).unwrap();
     std::fs::write(slot.join(".buckconfig"), "[cells]\n  root = .\n").unwrap();
-    let records = home.join(north_base::foundation::offload::SLOT_RECORDS);
+    let records = home.join(north_foundation::foundation::offload::SLOT_RECORDS);
     std::fs::create_dir_all(&records).unwrap();
     std::fs::write(records.join("code-alpha-main-5"), "code/alpha/main\n").unwrap();
     let own = "d=\"$HOME/.buck/buckd/${PWD#/}/v2\" && mkdir -p \"${d:?}\" && echo 1 > \"${d:?}/buckd.pid\" && mkdir -p buck-out/v2/gen/root && printf '#!/bin/sh\\nexit 0\\n' > buck-out/v2/gen/root/action && chmod +x buck-out/v2/gen/root/action && ./buck-out/v2/gen/root/action";

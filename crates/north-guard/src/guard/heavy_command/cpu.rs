@@ -1,4 +1,4 @@
-use crate::shell;
+use north_base::shell;
 
 fn cpu_property(value: &str) -> bool {
     [

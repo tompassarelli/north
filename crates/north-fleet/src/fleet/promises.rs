@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use super::checkpoint::Answer;
 use super::runtime::COORDINATOR;
 
@@ -217,7 +217,7 @@ fn when(line: &str, said_ms: u64, reckon: &dyn Reckon) -> Option<(When, usize)> 
 
 fn read(line: &str) -> Option<(When, usize)> {
     if let Some(found) = UTC.captures(line) {
-        let at = crate::foundation::clock::Timestamp::parse(&format!("{}:00Z", &found[1])).ok()?;
+        let at = north_foundation::foundation::clock::Timestamp::parse(&format!("{}:00Z", &found[1])).ok()?;
         return u64::try_from(at.unix_millis()).ok().map(|at_ms| (When::Utc { at_ms }, found.get(0).map_or(0, |whole| whole.start())));
     }
     let found = WALL.captures(line)?;

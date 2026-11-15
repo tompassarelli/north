@@ -1,7 +1,7 @@
 use self::cpu::{cpu_file, cpu_throttle};
 use crate::hook_input::{HookInput, Verdict};
-use crate::nix_command::{self, Inner};
-use crate::shell;
+use north_base::nix_command::{self, Inner};
+use north_base::shell;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 

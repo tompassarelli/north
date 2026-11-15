@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use rustix::fs::{FlockOperation, flock};
 
-use crate::foundation::hook_deadline::HOOK_TIMEOUT_SECS;
+use north_foundation::foundation::hook_deadline::HOOK_TIMEOUT_SECS;
 
 use super::north_binary::north_binary;
 use super::process;

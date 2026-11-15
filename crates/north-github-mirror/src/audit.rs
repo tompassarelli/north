@@ -32,7 +32,7 @@ pub(crate) fn pages_answer(answer: Result<Answer, String>, repo: &str) -> Result
 }
 
 pub fn fetch_repo_list() -> Result<Value, String> {
-    crate::platform::github::json(&["repo", "list", OWNER, "--limit", "1000", "--json", REPO_FIELDS])
+    north_base::platform::github::json(&["repo", "list", OWNER, "--limit", "1000", "--json", REPO_FIELDS])
 }
 
 pub fn fetch_compares(repo: &str, branches: &[String]) -> Result<Vec<Value>, String> {
@@ -45,7 +45,7 @@ pub fn fetch_compares(repo: &str, branches: &[String]) -> Result<Vec<Value>, Str
         let heads: Vec<String> = chunk.iter().enumerate().map(|(n, branch)| format!("h{n}={branch}")).collect();
         let mut args = vec!["api", "graphql", "-f", &query, "-F", &owner, "-F", &name];
         args.extend(heads.iter().flat_map(|head| ["-f", head.as_str()]));
-        let answer = crate::platform::github::json(&args)?;
+        let answer = north_base::platform::github::json(&args)?;
         let base = &answer["data"]["repository"]["ref"];
         if answer.get("errors").is_some() || base.is_null() {
             return Err(format!("GitHub compare page for {repo} is incomplete"));

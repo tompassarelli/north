@@ -1,7 +1,7 @@
 //! Plain-word times for the default `north fleet usage` table: spans, reading ages and local 12-hour clock times.
 use time::{OffsetDateTime, UtcOffset};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) const GAP: &str = "   ";
 const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

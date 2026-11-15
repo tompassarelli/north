@@ -14,10 +14,10 @@ use super::issues::Issue;
 use super::record::Record;
 use super::shares::{Shares, arm_outcomes, experiment_arms};
 use super::spin::Signal;
-use crate::ledger::closed::{ArmBox, ClosedReport};
-pub use crate::router::brief::{ART, known_category as known};
-use crate::router::settle::Outcome;
-pub use crate::router::tier::Tier;
+use north_providers::ledger::closed::{ArmBox, ClosedReport};
+pub use north_pace::router::brief::{ART, known_category as known};
+use north_pace::router::settle::Outcome;
+pub use north_pace::router::tier::Tier;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::DocumentMut;
 
@@ -33,7 +33,7 @@ pub const SPANNING: [&str; 2] = ["cross-module", "cross-repo"];
 pub const CONTEXT_WINDOWS: [u64; 4] = [200_000, 300_000, 400_000, 500_000];
 
 pub fn evidenced() -> Vec<&'static str> {
-    crate::router::brief::CATEGORIES.to_vec()
+    north_pace::router::brief::CATEGORIES.to_vec()
 }
 
 /// The effort an Opus box runs at, compared as an arm on its own `Arm:` stamp.
@@ -121,7 +121,7 @@ impl Route {
 
     pub fn model_effort(&self, cfg: &DocumentMut) -> Result<(String, String), String> {
         let (model, effort) = self.tier.model_effort(cfg)?;
-        let effort = match crate::fleet::registry::efforts::admitted(Some(&model), self.effort.and_then(|effort| crate::fleet::effort::Effort::parse(effort.name()).ok())) {
+        let effort = match north_fleet_supervisor::fleet::registry::efforts::admitted(Some(&model), self.effort.and_then(|effort| north_fleet_supervisor::fleet::effort::Effort::parse(effort.name()).ok())) {
             Some(admitted) => admitted.label().to_owned(),
             None => self.effort.map_or(effort, |effort| effort.name().to_owned()),
         };
@@ -382,7 +382,7 @@ pub fn context_figures(arm_boxes: &[ArmBox]) -> Vec<String> {
     let mut seen = BTreeSet::new();
     let unique: Vec<&ArmBox> = arm_boxes.iter().filter(|armed| seen.insert(armed.item.as_str())).collect();
     CONTEXT_WINDOWS
-        .map(crate::fleet::compaction::arm)
+        .map(north_fleet_supervisor::fleet::compaction::arm)
         .into_iter()
         .map(|arm| {
             let boxes: Vec<_> = unique.iter().filter(|armed| armed.arm == arm).collect();

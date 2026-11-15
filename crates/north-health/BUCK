@@ -25,6 +25,7 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-calibration:north-calibration",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-pace:north-pace",
         "//crates/north-threads:north-threads",
         "//third-party:rusqlite",
@@ -47,6 +48,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-calibration:north-calibration",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-pace:north-pace",
         "//crates/north-threads:north-threads",
         "//third-party:rusqlite",
@@ -69,6 +71,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-calibration:north-calibration",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-pace:north-pace",
         "//crates/north-threads:north-threads",
         "//third-party:rusqlite",
@@ -92,6 +95,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-calibration:north-calibration",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-pace:north-pace",
         "//crates/north-threads:north-threads",
         "//third-party:rusqlite",

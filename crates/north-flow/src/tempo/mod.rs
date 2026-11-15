@@ -12,7 +12,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use north_base::land_ticket::{self, Phase};
 use serde::{Deserialize, Serialize};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::flow::Places;
 use landing::percentiles;
 
@@ -196,8 +196,8 @@ fn queue(places: &Places, repo: &str) -> Result<PathBuf, String> {
     if !output.status.success() {
         return Err(format!("{} has no origin remote", checkout.display()));
     }
-    let queue = crate::platform::land_queue::directory(&places.state, String::from_utf8_lossy(&output.stdout).trim());
-    Ok(crate::platform::records_mirror::read("north ledger tempo").local(&queue))
+    let queue = north_base::platform::land_queue::directory(&places.state, String::from_utf8_lossy(&output.stdout).trim());
+    Ok(north_base::platform::records_mirror::read("north ledger tempo").local(&queue))
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -246,7 +246,7 @@ fn print(reading: &Reading, split: Option<&split::Split>, json: bool) {
 }
 
 fn record(reading: &Reading, now: f64) -> Result<(), u8> {
-    let code = crate::threads::client::run(&record_arguments(reading, now), Arc::new(crate::threads::outside::Unread), &[]);
+    let code = north_calibration::threads::client::run(&record_arguments(reading, now), Arc::new(north_calibration::threads::outside::Unread), &[]);
     if code == 0 {
         return Ok(());
     }

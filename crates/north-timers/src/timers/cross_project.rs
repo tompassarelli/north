@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use super::oneshot::{self, Asked};
 use super::{date, env_or, home, north_program, text};
-use crate::platform::{git, github};
+use north_base::platform::{git, github};
 use crate::runtime_access::RuntimeAccess;
 
 const REPOS: [&str; 4] = ["makgora", "wisp", "north", "firn"];
@@ -79,7 +79,7 @@ fn bundle() -> String {
     let mut parts: Vec<String> = REPOS.iter().map(|repo| section(&format!("open issues: tompassarelli/{repo}"), &issues(repo))).collect();
     let threads = Command::new(north_program()).args(["threads", "list"]).output().map(|output| text(&output).trim_end_matches('\n').to_owned()).unwrap_or_default();
     parts.push(section("threads list (open)", &threads));
-    parts.extend(REPOS.iter().map(|repo| section(&format!("landings last 24h: {repo}"), &landings(crate::threads::catalog::checkout(repo)))));
+    parts.extend(REPOS.iter().map(|repo| section(&format!("landings last 24h: {repo}"), &landings(north_calibration::threads::catalog::checkout(repo)))));
     let tree = Command::new(north_program()).args(["fleet", "tree"]).output().map(|output| text(&output).trim_end_matches('\n').to_owned()).unwrap_or_default();
     parts.push(section("north fleet tree", &tree));
     parts.join("\n")

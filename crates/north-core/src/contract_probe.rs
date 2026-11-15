@@ -12,8 +12,8 @@ use north_claude_stream::{
     DeliveryState, StreamFrame, decode_frame, encode_initialize, encode_interrupt,
     encode_user_message,
 };
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::runtime::Invocation;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::runtime::Invocation;
 
 pub const INITIALIZE_ID: &str = "init1";
 pub const INTERRUPT_ID: &str = "int1";

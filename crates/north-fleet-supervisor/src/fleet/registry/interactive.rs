@@ -3,7 +3,7 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
 use crate::fleet::model::{Entry, LaunchRequest, SessionRecord, Status};
 use crate::fleet::runtime::{HostSpec, Opening};

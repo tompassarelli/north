@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub use north_base::platform::session_scope::{COORDINATOR_ROLE as COORDINATOR, ROLE_ENV};
 pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";

@@ -13,7 +13,7 @@ impl Hosts {
     pub fn read(home: &Path, harness: Result<PathBuf, String>) -> Self {
         let name = |text: String| text.trim().rsplit('@').next().unwrap_or_default().to_owned();
         Self {
-            here: crate::platform::host::name(),
+            here: north_base::platform::host::name(),
             ledger: std::fs::read_to_string(home.join(".config/threads/remote")).ok().map(name).filter(|host| !host.is_empty()),
             lander: harness.and_then(|root| lander_host(&root)),
         }

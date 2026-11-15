@@ -1,10 +1,10 @@
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Refusal, State, Store};
 use rusqlite::{OptionalExtension, Row, params};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::gate_lifecycle::{GateLife, GatePhase};
-use crate::fleet::gates::{Answerer, Closure, Gate, GateBook, GateRequest};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::gate_lifecycle::{GateLife, GatePhase};
+use north_fleet_supervisor::fleet::gates::{Answerer, Closure, Gate, GateBook, GateRequest};
 
 use super::{Ledger, millis, sql};
 

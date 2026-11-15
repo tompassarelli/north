@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::claim_releases;
 use crate::fleet::claims::{self, Rows, Taken};
 use crate::fleet::model::{LaunchRequest, SessionRecord, Status};

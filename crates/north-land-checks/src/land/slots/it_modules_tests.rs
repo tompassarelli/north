@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use super::*;
 use super::super::tree_wide_units;
 
@@ -8,7 +8,7 @@ fn root() -> &'static Path {
 
 fn graph_stub(directory: &Path, name: &str, body: &str) -> std::path::PathBuf {
     let path = directory.join(name);
-    north_base::foundation::shim::write_script(&path, &format!("{body}\n"));
+    north_foundation::foundation::shim::write_script(&path, &format!("{body}\n"));
     path
 }
 

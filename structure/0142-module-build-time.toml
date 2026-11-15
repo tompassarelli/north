@@ -2,5 +2,5 @@
 name = "build_time"
 paths = ["crates/north-code-health/src/build_time/**"]
 responsibility = "Measured Rust edit-to-result times per workspace, their ledger and the 10 s leaf-edit cap."
-may_use = ["foundation", "crate-roots", "lifecycle", "build_system"]
+may_use = ["foundation", "crate-roots", "lifecycle", "build_system", "platform.github", "platform.host"]
 

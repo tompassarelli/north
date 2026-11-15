@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::router::pricing::PriceTable;
+use north_pace::router::pricing::PriceTable;
 
 pub const FIRST: u64 = 250_000;
 pub const STEP: u64 = 50_000;
@@ -43,7 +43,7 @@ impl Answer {
     }
 }
 
-fn price(prices: &PriceTable, model: Option<&str>) -> crate::router::pricing::Price {
+fn price(prices: &PriceTable, model: Option<&str>) -> north_pace::router::pricing::Price {
     model.and_then(|model| prices.price(model)).or_else(|| prices.price(PRICED_AS)).expect("the price table prices the fallback tier")
 }
 

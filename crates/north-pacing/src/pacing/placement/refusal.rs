@@ -1,7 +1,7 @@
 //! Why placement does not start a launch: a saturated host may take it once its admission queue,
 //! disk or load eases, a spend refusal once a window resets (docs/rationale/spend-rule.md), and a
 //! landing line over the wait bar once a build host's line is under it, while anything else needs a different launch.
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 use north_strategy_types::placement as record;
 
 #[derive(Debug, PartialEq)]

@@ -8,7 +8,7 @@ use north_base::platform::process::child_within;
 
 use crate::land::telemetry::epoch;
 use super::route;
-use crate::platform::land_notice;
+use north_base::platform::land_notice;
 use crate::land::trace::{self, AFTER, Category, PHASE, Span};
 
 const SEND_WAIT: Duration = Duration::from_secs(60);

@@ -3,7 +3,7 @@ use super::super::live::Swap;
 use super::exits::RESTART_S;
 use super::{Verdict, Window, capacity_parked, judge, launch_failures, lasting_host_exits, named, risen};
 use std::collections::HashSet;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Liveness, Owner, State, Store};
 use std::time::Duration;
 

@@ -15,11 +15,11 @@ use serde_json::Value;
 use toml_edit::DocumentMut;
 
 use crate::agent_contain;
-use crate::pacing::placement::{config, gate};
-use crate::platform::ssh;
-use crate::threads::client::shell_quote;
-use crate::platform::process::run_within;
-use crate::shell::shlex_split;
+use north_pacing::pacing::placement::{config, gate};
+use north_base::platform::ssh;
+use north_calibration::threads::client::shell_quote;
+use north_base::platform::process::run_within;
+use north_base::shell::shlex_split;
 
 const LAPTOP_WAIT: Duration = Duration::from_secs(15);
 const PROBE_WAIT: Duration = Duration::from_secs(60);
@@ -79,7 +79,7 @@ impl Inputs {
             runtime: set("XDG_RUNTIME_DIR").map_or_else(|| "/tmp".into(), PathBuf::from),
             logs: set("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("laptop-runner"),
             power_supply: set("AGENT_LOAD_POWER_SUPPLY").map_or_else(|| "/sys/class/power_supply".into(), PathBuf::from),
-            ledgers: ledgers(shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default(), config().ok().as_ref(), &crate::platform::host::name(), "ssh", &std::env::vars().collect()),
+            ledgers: ledgers(shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default(), config().ok().as_ref(), &north_base::platform::host::name(), "ssh", &std::env::vars().collect()),
             north,
         }
     }
@@ -161,7 +161,7 @@ pub fn drain(inputs: &Inputs) -> u8 {
         eprintln!("laptop-runner: {}: {error}", inputs.logs.display());
         return 1;
     }
-    let me = crate::laptop::hostname();
+    let me = north_pacing::laptop::hostname();
     let mut ran = 0;
     for ledger in &inputs.ledgers {
         while let Some(places) = inputs.places() {
@@ -191,7 +191,7 @@ fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
     let (errors, output) = match opened {
         Ok(files) => files,
         Err(error) => {
-            let message = format!("rc=1 log={}:{}\ncannot open the log: {error}", crate::laptop::hostname(), log.display());
+            let message = format!("rc=1 log={}:{}\ncannot open the log: {error}", north_pacing::laptop::hostname(), log.display());
             let _ = ledger.threads(&["queue", "msg", &id, "failed", &message]);
             return;
         }
@@ -214,7 +214,7 @@ fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
         }
     };
     let status = if stopped { "requeued" } else if code == 0 { "done" } else { "failed" };
-    let message = format!("rc={code} log={}:{}\n{}", crate::laptop::hostname(), log.display(), tail(&log));
+    let message = format!("rc={code} log={}:{}\n{}", north_pacing::laptop::hostname(), log.display(), tail(&log));
     let _ = ledger.threads(&["queue", "msg", &id, status, &message]);
 }
 

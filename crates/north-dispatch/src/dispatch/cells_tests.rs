@@ -7,7 +7,7 @@ fn every_category_routes_to_a_cell_the_arm_table_keeps() {
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     let unread = BTreeMap::<String, Evidence>::new();
     let empty = BTreeMap::new();
-    for category in crate::router::brief::CATEGORIES {
+    for category in north_pace::router::brief::CATEGORIES {
         let facet = |key: &str| if key == "Category" { category.to_owned() } else { facets::default(key).to_owned() };
         let seed = seed_cell(category);
         assert!(cells::allowed(category).contains(&seed), "{category} seeds on {}, which the arm table excludes", seed.name());
@@ -21,7 +21,7 @@ fn every_category_routes_to_a_cell_the_arm_table_keeps() {
         assert_eq!(live.iter().find(|live| live.cell == cell).map(|live| live.role), route.cell_role.map(|role| if role == "leader" { Role::Leader } else { Role::Challenger }));
     }
 
-    for category in crate::router::brief::CATEGORIES {
+    for category in north_pace::router::brief::CATEGORIES {
         for scope in ["cross-module", "cross-repo"] {
             let facet = |key: &str| match key {
                 "Category" => category.to_owned(),
@@ -38,7 +38,7 @@ fn every_category_routes_to_a_cell_the_arm_table_keeps() {
     }
     assert!(cells::excluded(cells::Shape { category: "tooling", scope: "module", verify: "live-run" }, "haiku", "high").is_none());
 
-    let boxes = |usd: f64| vec![crate::router::settle::Outcome { usd, closed: true, kept: true }; 15];
+    let boxes = |usd: f64| vec![north_pace::router::settle::Outcome { usd, closed: true, kept: true }; 15];
     let outcomes = BTreeMap::from([("sonnet-high".to_owned(), boxes(10.0))]);
     let live = cells::live("feature", seed_cell("feature"), &outcomes);
     assert_eq!(live.iter().map(|live| live.cell.name()).collect::<Vec<_>>(), ["sonnet-high", "haiku-high", "opus-high"], "one evidenced cell brings in the two nearest untried cells, never a fourth");

@@ -3,8 +3,8 @@ use std::process::{Command, Stdio};
 
 use base64::Engine as _;
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::attachments;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::attachments;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClipImage {

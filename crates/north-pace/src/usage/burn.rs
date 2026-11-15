@@ -3,7 +3,7 @@ use rusqlite::{Connection, params};
 
 use super::py;
 use super::store::Row;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const HOURS_BACK: i64 = 3 * 3600;
 

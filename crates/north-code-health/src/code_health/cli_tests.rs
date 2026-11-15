@@ -1,7 +1,7 @@
 use super::cli::{Io, run_with as run};
 use super::state::State;
 use std::path::PathBuf;
-use north_base::test_inputs::git::git_in;
+use north_foundation::test_inputs::git::git_in;
 
 struct Repo {
     _root: tempfile::TempDir,

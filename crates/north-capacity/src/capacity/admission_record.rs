@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::admission::{Admission, Facts};
 use super::native_hold::PairLease;
-use crate::platform::decision_log::{self, Entry};
+use north_base::platform::decision_log::{self, Entry};
 
 /// The facts as gathered before admission derives its holds, with the pair leases the queue directory holds.
 pub struct Gathered {

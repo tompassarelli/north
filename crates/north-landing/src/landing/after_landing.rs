@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::issue_body::Ledger;
-use crate::platform::rolling_issue::{self, Tracker};
+use north_base::platform::rolling_issue::{self, Tracker};
 
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD
 

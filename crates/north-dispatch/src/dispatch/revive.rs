@@ -5,8 +5,8 @@
 use super::issues::IssueRef;
 use super::plan::{self, Capacity};
 use super::slots::Pools;
-use crate::fleet::resume::REVIVED;
-use crate::fleet::stranded::{Stop, Stranded};
+use north_fleet_supervisor::fleet::resume::REVIVED;
+use north_fleet_supervisor::fleet::stranded::{Stop, Stranded};
 use std::collections::BTreeMap;
 
 /// A stranded session and the host whose registry holds it.

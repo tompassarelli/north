@@ -79,7 +79,7 @@ fn now_ms() -> u64 {
 
 fn record(charge: &Charge, options: &Options, measured: &Measured, started_ms: u64) -> Result<(), String> {
     let ledger = north_providers::ledger::Ledger::open_default().map_err(|error| error.to_string())?;
-    let tokens = north_providers::router::pricing::TokenUse {
+    let tokens = north_pace::router::pricing::TokenUse {
         input: i64::try_from(measured.input_tokens).unwrap_or(i64::MAX),
         output: i64::try_from(measured.output_tokens).unwrap_or(i64::MAX),
         cache_read: i64::try_from(measured.cache_read_tokens).unwrap_or(i64::MAX),

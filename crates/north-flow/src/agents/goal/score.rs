@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::actual::actual_row;
 use super::plan::{calibration_rows, goal_issues, north_binary, record, snapshot};
 use super::{plus_minutes, read_config, snapshot_path, state_dir, stamp};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 static CHECKBOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[([ xX])\]").expect("checkbox pattern"));
 

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use north_base::test_inputs::git::git_in;
+use north_foundation::test_inputs::git::git_in;
 
 use super::*;
 

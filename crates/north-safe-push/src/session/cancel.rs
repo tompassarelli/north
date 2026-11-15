@@ -1,4 +1,4 @@
-use north_base::foundation::step::{CancelOrigin, CancelSender, request_cancel_from};
+use north_foundation::foundation::step::{CancelOrigin, CancelSender, request_cancel_from};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::SignalsInfo;
 use signal_hook::iterator::exfiltrator::WithOrigin;

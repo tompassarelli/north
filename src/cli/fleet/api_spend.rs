@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use north_core::credit::{self, Snapshot, marks};
+use north_pace::credit::{self, Snapshot, marks};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;

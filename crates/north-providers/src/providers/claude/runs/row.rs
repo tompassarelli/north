@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::{activity, int, number, present, stop};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 static ETA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b").unwrap());
@@ -131,7 +131,7 @@ fn woken(line: &Value, said: &str) -> bool {
     line["origin"]["kind"] == "task-notification"
         || said.starts_with("<task-notification>")
         || NOTIFIED.captures(said).is_some_and(|found| found.get(2).is_some())
-        || crate::fleet::resume::WAITS.iter().any(|opener| said.contains(opener))
+        || north_fleet_supervisor::fleet::resume::WAITS.iter().any(|opener| said.contains(opener))
 }
 
 /// The transcript cut at each human line, and whether a background command still runs at its end.

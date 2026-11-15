@@ -78,5 +78,5 @@ fn sampled(sha: &str) -> bool {
 /// The effort the Sonnet reviewer of DeepSeek session `session` runs at: medium or high by an even seeded draw on the
 /// session name, so the ledger compares the two on the same reviews.
 pub fn reviewer_effort(session: &str) -> &'static str {
-    REVIEWER_EFFORTS[crate::router::settle::pick(&[1.0, 1.0], session)]
+    REVIEWER_EFFORTS[north_pace::router::settle::pick(&[1.0, 1.0], session)]
 }

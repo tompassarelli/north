@@ -1,7 +1,7 @@
 use super::gh_write::{self, GhWrite};
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::betterleaks;
-use crate::platform::private_text::{self, Finding};
+use north_base::platform::betterleaks;
+use north_base::platform::private_text::{self, Finding};
 use north_base::platform::shared_config;
 use std::collections::BTreeSet;
 use std::path::PathBuf;

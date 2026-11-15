@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::platform::process::child_within;
+use north_base::platform::process::child_within;
 
 const STOP_POLL: Duration = Duration::from_millis(100);
 

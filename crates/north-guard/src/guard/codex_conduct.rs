@@ -26,7 +26,7 @@ impl Ctx {
         Self {
             state_root: std::env::var_os("CODEX_BEHAVIOR_STATE").map_or_else(|| runtime.join("codex-behavior"), PathBuf::from),
             code_root: std::env::var_os("CODEX_CONDUCT_CODE_ROOT").map_or_else(|| home.join("code"), PathBuf::from),
-            now: north_base::foundation::clock::Timestamp::now().unix_seconds_f64(),
+            now: north_foundation::foundation::clock::Timestamp::now().unix_seconds_f64(),
         }
     }
 }
@@ -99,7 +99,7 @@ pub(super) fn minutes(seconds: f64) -> String {
 }
 
 pub(super) fn clock(at: f64) -> String {
-    north_base::foundation::clock::Timestamp::from_unix_seconds_f64(at).local_hour_minute()
+    north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(at).local_hour_minute()
 }
 
 pub(super) fn chars(text: &str, limit: usize) -> &str {

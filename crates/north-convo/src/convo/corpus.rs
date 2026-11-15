@@ -14,8 +14,8 @@ use super::failure::{Failure, Result};
 use super::index;
 use super::speaker::speaker;
 use super::text::clip;
-use crate::fleet::sender::{Sender, urgent_text};
-use crate::fleet::store::delivered_by;
+use north_fleet::fleet::sender::{Sender, urgent_text};
+use north_fleet::fleet::store::delivered_by;
 
 pub(super) const CLAUDE_FILE: &str = "claude.jsonl";
 

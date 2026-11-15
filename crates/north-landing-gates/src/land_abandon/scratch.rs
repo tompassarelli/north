@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::autoland_status::git_output;
+use north_base::autoland_status::git_output;
 
 const IDLE_SECONDS: u64 = 86_400;
 

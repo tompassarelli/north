@@ -2,9 +2,9 @@
 //! should move, the predicted direction and bar, the windows compared, its review date and its owner.
 use serde::Deserialize;
 
-use crate::foundation::clock::parse_day_number;
-use crate::platform::toml_json;
-use crate::threads::calibration::rework::REWORK_WINDOW_S;
+use north_foundation::foundation::clock::parse_day_number;
+use north_base::platform::toml_json;
+use north_calibration::threads::calibration::rework::REWORK_WINDOW_S;
 
 pub const PATH: &str = "docs/rationale/experiments.toml";
 const DAY_S: i64 = 86_400;
@@ -26,7 +26,7 @@ impl Day {
     }
 
     pub fn text(self) -> String {
-        crate::foundation::clock::Timestamp::from_unix_seconds(self.unix()).iso_date()
+        north_foundation::foundation::clock::Timestamp::from_unix_seconds(self.unix()).iso_date()
     }
 }
 

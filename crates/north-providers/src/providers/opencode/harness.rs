@@ -2,10 +2,10 @@ use std::process::Command;
 
 use serde_json::Value;
 
-use crate::fleet::model::{Effort, EntryKind, UsageLimit};
-use crate::foundation::clock::rfc3339_seconds;
-use crate::fleet::runtime::summarize;
-use crate::router::pricing::{PriceTable, TokenUse};
+use north_fleet_supervisor::fleet::model::{Effort, EntryKind, UsageLimit};
+use north_foundation::foundation::clock::rfc3339_seconds;
+use north_fleet_supervisor::fleet::runtime::summarize;
+use north_pace::router::pricing::{PriceTable, TokenUse};
 
 use super::config;
 use super::relay::Relay;

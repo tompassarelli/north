@@ -2,7 +2,7 @@
 //! grounded or the plain arm in seeded equal shares, and its first prompt opens with a `Grounding:` line
 //! naming the arm, so the prompt the ledger keeps for the run records it. What the grounded arm adds to the
 //! prompt branches on the arm [`drawn`] returns.
-use crate::router::settle;
+use north_pace::router::settle;
 
 const GROUNDED: &str = "grounded";
 const PLAIN: &str = "plain";

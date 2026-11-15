@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::gate_lifecycle::GatePhase;
 
 use super::*;

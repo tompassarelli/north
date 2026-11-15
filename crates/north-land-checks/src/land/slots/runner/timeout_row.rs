@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::platform::push_ledger;
+use north_base::platform::push_ledger;
 
 pub struct Timeout<'a> {
     pub base: &'a str,

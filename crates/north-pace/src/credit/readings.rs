@@ -5,7 +5,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const CONSOLE: &str = "console";
 const PROVIDER: &str = "provider";

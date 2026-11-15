@@ -2,8 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 use super::closed::ClosedReport;
 use super::closed_source::{ClosedIssue, Listing, github_closed, github_open, report_over, threads_database, window_bounds, within};

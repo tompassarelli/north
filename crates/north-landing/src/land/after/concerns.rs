@@ -4,7 +4,7 @@ use std::path::Path;
 use north_concerns::attribute::{self, Answer, first_red};
 use north_concerns::oracle::Fault;
 use north_concerns::registry::{self, Concern, Reads};
-use north_base::foundation::pair::{self, Compared, Pair, Reading};
+use north_foundation::foundation::pair::{self, Compared, Pair, Reading};
 
 use super::super::candidate::{self, git};
 use super::super::lander::{Lander, state_home};

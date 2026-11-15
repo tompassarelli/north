@@ -7,8 +7,8 @@ use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_iter};
 
 use super::row::Row;
-use crate::foundation::clock::Timestamp;
-use crate::platform::usage_table;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::usage_table;
 use crate::threads::verb::{Failure, immediate};
 
 const COLUMNS: [&str; 10] = ["ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source"];

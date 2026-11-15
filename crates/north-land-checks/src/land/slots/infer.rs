@@ -1,4 +1,4 @@
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 
 const CARGO_TEST: &str = "cargo test --locked --offline";
 const CARGO_CLIPPY: &str = "cargo clippy --all-targets --locked --offline -- -D warnings";

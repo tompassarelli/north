@@ -49,7 +49,7 @@ impl Client {
         let (Some(token), Some(expires_at)) = (text("token"), text("expires_at")) else {
             return Err("the broker's answer holds no token".to_owned());
         };
-        let left = crate::foundation::clock::Timestamp::parse_rfc3339(&expires_at).map(|at| at.unix_seconds() - crate::foundation::clock::Timestamp::now().unix_seconds());
+        let left = north_foundation::foundation::clock::Timestamp::parse_rfc3339(&expires_at).map(|at| at.unix_seconds() - north_foundation::foundation::clock::Timestamp::now().unix_seconds());
         if valid_for > 0 && left.is_some_and(|left| left + 60 < i64::try_from(valid_for).unwrap_or(i64::MAX)) {
             return Err(format!("the broker returned a token that expires at {expires_at}, sooner than the {valid_for} s asked for; that broker predates --valid-for, so stop it and ask again"));
         }

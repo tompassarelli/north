@@ -3,7 +3,7 @@ use super::lifecycle::{self, Canarying, Canary};
 use north_runtime_records::failure::DEFERRED;
 use super::pin::{self, Event};
 use super::update;
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_base::platform::ssh_retry::Rerun;
 use std::time::{Duration, Instant};
 
@@ -329,7 +329,7 @@ impl Machine for Live<'_> {
 
     fn launchable_providers(&self) -> Vec<String> {
         let name = self.host.name().rsplit_once('@').map_or(self.host.name(), |(_, name)| name);
-        if crate::platform::orchestration::read().is_ok_and(|config| !probes::takes_sessions(&config, name)) {
+        if north_base::platform::orchestration::read().is_ok_and(|config| !probes::takes_sessions(&config, name)) {
             return Vec::new();
         }
         match self.host.run(&probes::launchable_script()) {
@@ -340,12 +340,12 @@ impl Machine for Live<'_> {
 
     fn sessions_reach_hub(&self, host: &str) -> bool {
         let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
-        crate::platform::orchestration::read().map_or(true, |config| probes::sessions_reach_hub(&config, name))
+        north_base::platform::orchestration::read().map_or(true, |config| probes::sessions_reach_hub(&config, name))
     }
 
     fn offloads_to_hub(&self, host: &str) -> bool {
         let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
-        crate::platform::orchestration::read().map_or(true, |config| probes::offloads_to_hub(&config, name))
+        north_base::platform::orchestration::read().map_or(true, |config| probes::offloads_to_hub(&config, name))
     }
 
     fn settles_fleet(&self, _host: &str) -> bool {

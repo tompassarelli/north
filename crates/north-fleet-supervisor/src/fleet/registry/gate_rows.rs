@@ -1,4 +1,4 @@
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::gates::{self, Answerer, GateRequest};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::{new_uuid, now_ms};

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use super::super::lane_grant::Host;
 use super::record_request::ask;
 use super::{OPEN_SCOPE, git};
-use crate::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 
 const SESSION: &str = "w-landed-1485";
 

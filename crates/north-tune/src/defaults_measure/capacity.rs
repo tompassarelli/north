@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 use super::row::Row;
-use crate::threads::calibration::quantile;
+use north_calibration::threads::calibration::quantile;
 
 type Series = Vec<Vec<f64>>;
 

@@ -5,7 +5,7 @@ use rusqlite::Connection;
 
 use super::forward::{Figure, Row};
 use super::read::every_run;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const ACCOUNT_RATE_HOURS: usize = 20;
 const POOLED: &str = "pooled";

@@ -15,7 +15,7 @@ pub(super) const EVENT_ORDER: [&str; 7] = [
     "SubagentStop",
     "SessionStart",
 ];
-const HOOK_TIMEOUT: u32 = north_base::foundation::hook_deadline::HOOK_TIMEOUT_SECS;
+const HOOK_TIMEOUT: u32 = north_foundation::foundation::hook_deadline::HOOK_TIMEOUT_SECS;
 const RUNTIME: &str = "/etc/codex/hooks/runtime";
 const SEARCH_PATH: &str = "PATH=/etc/codex/hooks/runtime:/home/tom/.local/share/firn/bin:/home/tom/.local/share/north/bin:/home/tom/.local/share/south/bin:/run/current-system/sw/bin";
 const CODEX_HEADER: &str = "allow_managed_hooks_only = true

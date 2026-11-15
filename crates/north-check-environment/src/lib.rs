@@ -5,7 +5,7 @@ pub mod credential;
 use std::path::Path;
 use std::time::Duration;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, State, Store};
 
 /// How long a fallback to this host holds before the placement is tried again.

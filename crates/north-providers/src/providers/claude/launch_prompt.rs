@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, LaunchRequest, Role};
-use crate::fleet::remote;
-use crate::fleet::runtime::Seen;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::model::{Account, LaunchRequest, Role};
+use north_fleet_supervisor::fleet::remote;
+use north_fleet_supervisor::fleet::runtime::Seen;
 
 const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
 const WORKER_TOOLS: &str = "Bash,Read,Edit,Write,Grep,Glob,TaskStop";
@@ -25,14 +25,14 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
         return Ok(args);
     }
     let (settings, policy, repository) = std::thread::scope(|scope| {
-        let reads = crate::fleet::remote::ProfileReads::shared();
+        let reads = north_fleet_supervisor::fleet::remote::ProfileReads::shared();
         let (policy_reads, repository_reads) = (reads.clone(), reads);
         let policy = scope.spawn(|| {
-            let _reads = policy_reads.map(crate::fleet::remote::LaunchReads::enter);
+            let _reads = policy_reads.map(north_fleet_supervisor::fleet::remote::LaunchReads::enter);
             where_it_runs(request, &account.home.join(POLICY_FILE))
         });
         let repository = scope.spawn(|| {
-            let _reads = repository_reads.map(crate::fleet::remote::LaunchReads::enter);
+            let _reads = repository_reads.map(north_fleet_supervisor::fleet::remote::LaunchReads::enter);
             repository_instructions(request)
         });
         let settings = worker_settings(account, request, prefix);

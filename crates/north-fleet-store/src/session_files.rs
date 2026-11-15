@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::session_lifecycle::{ARCHIVE, Phases};
 use serde_json::Value;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::session::SessionRecord;
 
 const RECORD: &str = "session.json";

@@ -76,7 +76,7 @@ pub fn clear(dir: &Path, id: &str, at: i64) -> io::Result<bool> {
     let Ok(mark) = std::fs::read_to_string(dir.join(id)) else { return Ok(false) };
     let cleared = dir.join(CLEARED);
     std::fs::create_dir_all(&cleared)?;
-    let stamp = crate::foundation::clock::Timestamp::from_unix_seconds(at).iso();
+    let stamp = north_foundation::foundation::clock::Timestamp::from_unix_seconds(at).iso();
     std::fs::write(cleared.join(id), format!("{stamp}\n{}\n", mark.trim_end()))?;
     std::fs::remove_file(dir.join(id))?;
     Ok(true)

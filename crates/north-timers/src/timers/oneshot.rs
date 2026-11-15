@@ -2,14 +2,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-use north_base::foundation::limit_clock;
+use north_foundation::foundation::limit_clock;
 
 use super::{env_or, home, north_program, text};
-use crate::fleet::model::Account;
-use crate::platform::process;
-use crate::fleet::runtime::Invocation;
+use north_fleet_supervisor::fleet::model::Account;
+use north_base::platform::process;
+use north_fleet_supervisor::fleet::runtime::Invocation;
 use crate::runtime_access::RuntimeAccess;
-use crate::spend::billing;
+use north_pace::spend::billing;
 
 pub(crate) const QUIET: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC";
 const QUIET_WORD: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1";
@@ -194,13 +194,13 @@ pub(crate) fn ask_claude_answered(question: &Ask, limit: Duration, access: &Runt
 
 fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>, pinned: Option<&str>) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
-    let accounts = crate::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
+    let accounts = north_fleet_supervisor::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
     let listed = match claude_accounts() {
         Ok(listed) => listed,
         Err(reason) => return Asked::Failed(reason),
     };
     let shared: Vec<String> = listed.into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api.is_some())).collect();
-    let reserve = crate::platform::orchestration::read().map(|policy| crate::spend::operational::declared(&policy)).unwrap_or_default();
+    let reserve = north_base::platform::orchestration::read().map(|policy| north_pace::spend::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
     let subscription = match subscription_order(pinned, shared, &profiles, &reserve, answered.as_deref()) {
         Ok(subscription) => subscription,
@@ -230,7 +230,7 @@ fn subscription_order(pinned: Option<&str>, shared: Vec<String>, profiles: &Path
     match pinned {
         Some(label) if shared.iter().any(|held| held == label) && profiles.join(format!("claude-{label}")).is_dir() => Ok(vec![label.to_owned()]),
         Some(label) => Err(format!("claude account {label} has no subscription profile here")),
-        None => Ok(answered_first(crate::spend::operational::order(reserve, shared), reserve, answered.map(str::trim))),
+        None => Ok(answered_first(north_pace::spend::operational::order(reserve, shared), reserve, answered.map(str::trim))),
     }
 }
 

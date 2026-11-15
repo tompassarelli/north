@@ -1,6 +1,6 @@
 use super::search_words::{self, Located, MAX_NESTING, expand_home, is_dir, join, normpath};
 use crate::hook_input::{HookInput, Verdict};
-use crate::shell;
+use north_base::shell;
 use regex::Regex;
 use std::sync::LazyLock;
 

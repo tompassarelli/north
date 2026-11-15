@@ -7,8 +7,8 @@ use serde_json::Value;
 
 use super::alerts::{Action, Node, Record, State, deliver};
 use super::host::{Host, Places};
-use crate::capacity::admission::default_mib;
-use crate::capacity::saturation;
+use north_capacity_host::capacity::admission::default_mib;
+use north_capacity_host::capacity::saturation;
 
 const QUEUED_LIMIT: u64 = saturation::QUEUED_LIMIT as u64;
 const HOLD_SECONDS: f64 = 600.0;

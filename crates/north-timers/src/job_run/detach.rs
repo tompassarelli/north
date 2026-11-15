@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 use super::Job;
 use super::records::{find, north, search_path};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) const LOG: &str = "JOB_RUN_LOG";
 

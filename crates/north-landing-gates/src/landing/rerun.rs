@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use north_base::foundation::check_log::Failure;
+use north_foundation::foundation::check_log::Failure;
 
 fn quote(word: &str) -> String {
     format!("'{}'", word.replace('\'', r"'\''"))

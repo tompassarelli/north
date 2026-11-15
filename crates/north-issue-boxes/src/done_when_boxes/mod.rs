@@ -7,12 +7,12 @@ use north_base::platform::north_binary::north_binary;
 use tempfile::TempDir;
 use toml_edit::Item;
 use clap::Parser;
-use north_base::foundation::arguments::parse as parse_arguments;
+use north_foundation::foundation::arguments::parse as parse_arguments;
 
-use north_base::error::{NorthError, NorthResult};
-use north_base::foundation::check_lane;
-use north_base::foundation::offload::WORKER_REQUEST_ENV;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::check_lane;
+use north_foundation::foundation::offload::WORKER_REQUEST_ENV;
+use north_foundation::foundation::clock::Timestamp;
 use north_providers::ledger::{CheckRun, Ledger};
 use north_base::platform::rolling_issue::{Gh, Tracker};
 use north_base::platform::{git, github, process};

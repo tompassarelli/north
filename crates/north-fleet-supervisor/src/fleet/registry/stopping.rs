@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use north_base::platform::attribution::{self, Cause, Harness};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::super::builds;
 use super::super::claims;
@@ -190,7 +190,7 @@ mod tests {
     use super::super::fixtures::{fleet, live};
     use super::super::HandedIn;
     use super::*;
-    use crate::error::NorthError;
+    use north_foundation::error::NorthError;
     use crate::fleet::sender::Sender;
     use crate::fleet::store::{FleetRow, RowKind};
 
@@ -381,7 +381,7 @@ mod tests {
         let bin = fleet.root.join(".bin");
         fs::create_dir_all(&bin).unwrap();
         for (program, body) in [("systemd-run", "case \" $* \" in *' --user --scope '*) echo $$ > \"$0.scoped\";; esac\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n"), ("north", "echo host > \"$0.trace\"\nwhile [ ! -e \"$0.tick-ended\" ]; do sleep 0.05; done\necho brief >> \"$0.trace\"\n")] {
-            north_base::foundation::shim::write_script(&bin.join(program), body);
+            north_foundation::foundation::shim::write_script(&bin.join(program), body);
         }
         let trace = || fs::read_to_string(bin.join("north.trace")).unwrap_or_default();
         Fleet { starts: scoped, ..fleet.clone() }.deliver_row(&asking(&launch, "outlives-tick", "--name n870-new --task north#870 brief")).unwrap();

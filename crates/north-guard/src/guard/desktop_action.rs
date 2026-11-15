@@ -1,6 +1,6 @@
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::hook_input::{HookInput, Verdict};
-use crate::shell;
+use north_base::shell;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};

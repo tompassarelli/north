@@ -1,4 +1,4 @@
-use crate::platform::gh_broker_route::source_config;
+use north_base::platform::gh_broker_route::source_config;
 
 const TOKEN_ENVIRONMENT: [&str; 4] = ["NORTH_FLEET_SESSION", "GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR"];
 
@@ -10,7 +10,7 @@ pub struct Limit {
 }
 
 pub fn read(token: Option<&str>) -> Result<Vec<Limit>, String> {
-    let gh = crate::platform::gh_shim::real_on_path(&std::env::var("PATH").unwrap_or_default()).ok_or("no gh on PATH apart from the north shim")?;
+    let gh = north_base::platform::gh_shim::real_on_path(&std::env::var("PATH").unwrap_or_default()).ok_or("no gh on PATH apart from the north shim")?;
     let mut command = std::process::Command::new(gh);
     command.args(["api", "rate_limit"]);
     for name in TOKEN_ENVIRONMENT {

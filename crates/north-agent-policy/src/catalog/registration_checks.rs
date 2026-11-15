@@ -6,7 +6,7 @@ use std::process::Command;
 
 use serde_json::Value;
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::owner_modules::{STRUCTURE_FILE, collect_owner_paths, resolve_owner_modules, valid_owner_repo};
 use super::{configuration, read_json};
@@ -442,7 +442,7 @@ pub(super) fn canonical(root: &Path) -> NorthResult<String> {
 }
 
 pub(super) fn fetch_main(root: &Path) -> NorthResult<String> {
-    if let Some(pinned) = pinned_beside(root, env::var_os(north_base::foundation::offload::BESIDE_ENV).map(PathBuf::from).as_deref()) {
+    if let Some(pinned) = pinned_beside(root, env::var_os(north_foundation::foundation::offload::BESIDE_ENV).map(PathBuf::from).as_deref()) {
         return pinned;
     }
     static FETCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

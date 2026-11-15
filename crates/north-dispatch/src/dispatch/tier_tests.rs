@@ -9,7 +9,7 @@ fn uncategorised(repo: &str, number: u64, body: &str, labels: &[&str]) -> super:
 #[test]
 fn a_brief_with_three_bad_facets_is_refused_once_naming_all_three() {
     let brief = super::facets::launch_header(&["Item: north#1484\nCategory: install\nSpec: open\nScope: crate\nSurface: ts\nVerify: local-test\n\nDo the box."]);
-    let refused = crate::router::brief::facet_refusal(&brief).unwrap_or_default();
+    let refused = north_pace::router::brief::facet_refusal(&brief).unwrap_or_default();
     for (bad, allowed) in [("Category: install", "bug-known-cause"), ("Spec: open", "exact, measured, judged"), ("Scope: crate", "module")] {
         assert!(refused.contains(bad) && refused.contains(allowed), "{bad} is named with its allowed values: {refused:?}");
     }
@@ -33,27 +33,27 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     let challengers = routes.iter().filter(|route| route.cell_role == Some("challenger")).count();
     assert!(leaders > 0 && challengers > 0, "a category draws its leader and its challengers: {leaders} leaders, {challengers} challengers");
     assert_eq!(routes, draw("review"), "the draw is seeded by the item and its launch count");
-    use crate::fleet::model::Effort;
+    use north_fleet_supervisor::fleet::model::Effort;
     use north_providers::providers::claude::fleet::Claude;
-    for category in crate::router::brief::CATEGORIES {
+    for category in north_pace::router::brief::CATEGORIES {
         for cell in super::cells::allowed(category) {
             let effort = Effort::parse(cell.effort).expect("an effort word");
             assert!(
-                crate::fleet::registry::efforts::taken(&Claude, Some(cell.model), Some(effort), "seed").is_ok(),
+                north_fleet_supervisor::fleet::registry::efforts::taken(&Claude, Some(cell.model), Some(effort), "seed").is_ok(),
                 "{category}: dispatch may draw {} but the launcher refuses it",
                 cell.name()
             );
         }
     }
-    assert!(crate::fleet::registry::efforts::taken(&Claude, Some("claude-sonnet-5-5"), Some(Effort::Medium), "seed").is_ok_and(|effort| effort == Some(Effort::Medium)));
-    assert!(crate::fleet::registry::efforts::taken(&Claude, Some("claude-sonnet-5-5"), Some(Effort::Xhigh), "seed").is_err(), "Sonnet xhigh stays excluded");
+    assert!(north_fleet_supervisor::fleet::registry::efforts::taken(&Claude, Some("claude-sonnet-5-5"), Some(Effort::Medium), "seed").is_ok_and(|effort| effort == Some(Effort::Medium)));
+    assert!(north_fleet_supervisor::fleet::registry::efforts::taken(&Claude, Some("claude-sonnet-5-5"), Some(Effort::Xhigh), "seed").is_err(), "Sonnet xhigh stays excluded");
     let item = "north#7";
     let mut history = History::default();
     let first = route_for(item, &facet("review"), &history, &unread).unwrap();
     history.launched(item, "first", &first);
     assert!(first.why.contains(&format!("seeded cell:{item}#0")) && route_for(item, &facet("review"), &history, &unread).unwrap().why.contains(&format!("seeded cell:{item}#1")));
 
-    let boxes = |usd: f64| vec![crate::router::settle::Outcome { usd, closed: true, kept: true }; 15];
+    let boxes = |usd: f64| vec![north_pace::router::settle::Outcome { usd, closed: true, kept: true }; 15];
     let evidence = |medium: f64, high: f64| Evidence { cell_boxes: BTreeMap::from([("opus-medium".to_owned(), boxes(medium)), ("opus-high".to_owned(), boxes(high))]), ..Evidence::default() };
     let ledger = |evidence: Evidence| BTreeMap::from([("review".to_owned(), evidence)]);
     let cheaper_high = route_for("north#1", &facet("review"), &History::default(), &ledger(evidence(12.0, 9.0))).unwrap();
@@ -67,7 +67,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     let draw = || (1..=4000).map(|n| context_arm(&format!("north#{n}"), "docs-policy", &History::default(), &Evidence::default()).0).collect::<Vec<_>>();
     let arms = draw();
     for window in CONTEXT_WINDOWS {
-        let arm = crate::fleet::compaction::arm(window);
+        let arm = north_fleet_supervisor::fleet::compaction::arm(window);
         let share = arms.iter().filter(|drawn| **drawn == arm).count();
         assert!((850..=1150).contains(&share), "{arm}: {share} of 4000");
     }
@@ -81,7 +81,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     let lines: Vec<&str> = launch.brief.lines().collect();
     let tier = lines.iter().position(|line| line.starts_with("Tier: ")).unwrap();
     assert_eq!(lines[tier + 1], stamp, "{}", launch.brief);
-    assert_eq!(crate::fleet::compaction::window(&launch.brief).map(crate::fleet::compaction::arm), Some(stamp.trim_start_matches("Arm: ").to_owned()));
+    assert_eq!(north_fleet_supervisor::fleet::compaction::window(&launch.brief).map(north_fleet_supervisor::fleet::compaction::arm), Some(stamp.trim_start_matches("Arm: ").to_owned()));
     use super::manual::{Ask, start};
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     let sonnet = super::tier::Route {
@@ -141,7 +141,7 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     let ask = Ask { item: "north#706", brief, prompt: brief, model: Some("claude-opus-5-5"), reason: Some("the coordinator staffs this box on Opus"), worker: true, places: false };
     let launched = start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
     assert_eq!(launched.prompt.lines().filter(|line| line.starts_with("Arm: ")).count(), 1, "{}", launched.prompt);
-    assert!(crate::fleet::compaction::window(&launched.prompt).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{}", launched.prompt);
+    assert!(north_fleet_supervisor::fleet::compaction::window(&launched.prompt).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{}", launched.prompt);
     assert!(untasked_window("the-coordinator", "feature", &History::default(), &BTreeMap::new()).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)));
     assert!(launched.overridden.is_some() && launched.route.tier == Tier::Sonnet, "{:?}", launched.route);
     let head: Vec<&str> = launched.prompt.lines().take_while(|line| !line.is_empty()).collect();
@@ -153,10 +153,10 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
         assert!(head.contains(&facet), "{facet} missing: {head:?}");
     }
     let open = super::facets::launch_header(&["\n", "Item: north#706\nCategory: feature\nSpec: open\n\nDo the box.", ""]);
-    let refused = crate::router::brief::facet_refusal(&open).unwrap_or_default();
+    let refused = north_pace::router::brief::facet_refusal(&open).unwrap_or_default();
     assert!(refused.contains("Spec: open") && refused.contains("exact, measured, judged"), "a hand launch whose Spec is outside the vocabulary is refused naming it, though its system prompt and named brief are empty: {refused:?}");
     let bug = super::facets::launch_header(&["\n", "Item: north#706\nCategory: bug\nSpec: exact\n\nDo the box.", ""]);
-    let refused = crate::router::brief::facet_refusal(&bug).unwrap_or_default();
+    let refused = north_pace::router::brief::facet_refusal(&bug).unwrap_or_default();
     assert!(refused.contains("Category: bug") && refused.contains("bug-known-cause"), "a hand launch whose Category is outside the vocabulary is refused naming it: {refused:?}");
     let fable = Ask { model: Some("claude-fable-5-2"), reason: Some("the coordinator staffs this box on Fable"), ..ask };
     let sized = start(&fable, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();

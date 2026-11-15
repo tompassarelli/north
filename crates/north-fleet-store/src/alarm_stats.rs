@@ -4,7 +4,7 @@ use std::fmt::Write;
 use toml_edit::DocumentMut;
 
 use crate::alarms::Alarm;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const LABELS: &str = include_str!("alarm_labels.toml");
 pub const SOURCES: &[&str] = &["north-health", "north-land-watch", "ops-flow", "promise-checker"];

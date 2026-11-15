@@ -9,7 +9,7 @@ use regex::Regex;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::threads::verb::{Args, Context, Failure, Outcome, event, immediate, integer, is_native_ref, item_ref, open, table, text_or_null};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::{Value, json};
 
 const POLL: &str = "queue-poll:";

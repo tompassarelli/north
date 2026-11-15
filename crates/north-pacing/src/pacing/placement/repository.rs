@@ -10,7 +10,7 @@ pub fn repository(text: &str) -> String {
 fn canonical(source: &str) -> String {
     let last = source.trim_end_matches('/').rsplit('/').next().unwrap_or_default();
     let name = last.trim_end_matches(".git").trim().to_lowercase();
-    crate::threads::catalog::CATALOG.canonical(&name).to_owned()
+    north_calibration::threads::catalog::CATALOG.canonical(&name).to_owned()
 }
 
 /// The `REPO` of an `[OWNER/]REPO#N` reference at the start of `text`; prose has none.

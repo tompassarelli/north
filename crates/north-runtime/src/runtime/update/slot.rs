@@ -6,7 +6,7 @@ use super::super::review_hold::{self, Screen};
 use super::sync::send_alert;
 use super::{ahead, ancestor, built, named_lock, trusted_store, usable};
 use north_offload::land_offload;
-use crate::platform::host;
+use north_base::platform::host;
 use rustix::fs::FlockOperation;
 use std::path::Path;
 

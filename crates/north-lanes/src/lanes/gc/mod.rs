@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::live_process::open_paths;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::host;
 use evidence::{IssueLedger, IssueState};
 use liveness::{Hosts, Trees};

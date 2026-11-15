@@ -5,7 +5,7 @@ mod reason;
 
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::Value;
-use crate::shell;
+use north_base::shell;
 use commands::{DYNAMIC_UNIT, SHELLS, Script, Systemd, full_pattern, kill, killall, pkill, shell_script, ssh};
 use reason::reason;
 use regex::Regex;

@@ -1,6 +1,6 @@
 use super::{ASSIGNMENT, BLOCK_CLOSE, BLOCK_OPEN, CONTROL_WORDS, Env, Policy, TEMPORARY, TEMPORARY_DIRECTORY};
 use crate::guard::paths;
-use crate::shell::{self, basename, shell_substitutions, unquoted_mask, whitespace};
+use north_base::shell::{self, basename, shell_substitutions, unquoted_mask, whitespace};
 use regex::Regex;
 use std::path::Path;
 use std::sync::LazyLock;

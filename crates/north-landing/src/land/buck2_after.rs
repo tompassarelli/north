@@ -14,8 +14,8 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use north_base::foundation::check_log::log_text;
-use north_base::foundation::offload::{AFTER_LANDING_OWNER, OWNER_ENV};
+use north_foundation::foundation::check_log::log_text;
+use north_foundation::foundation::offload::{AFTER_LANDING_OWNER, OWNER_ENV};
 use north_base::platform::harness::{DEFAULTS, document};
 
 use super::after::follow;

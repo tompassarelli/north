@@ -21,8 +21,8 @@ use std::time::{Duration, SystemTime};
 
 use toml_edit::DocumentMut;
 
-use crate::platform::disk_budget::DiskBudget;
-use crate::platform::shared_target;
+use north_base::platform::disk_budget::DiskBudget;
+use north_base::platform::shared_target;
 
 static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 
@@ -74,7 +74,7 @@ impl Inputs {
             evidence: state.join("makgora/evidence"),
             capture_queue: state.join("makgora/capture-queue"),
             disk_budget: DiskBudget::local(),
-            host: crate::platform::land_queue::local_host(),
+            host: north_base::platform::land_queue::local_host(),
             open_issue_text: evidence_budget::open_issue_text,
             uid: rustix::process::getuid().as_raw(),
             now: SystemTime::now(),
@@ -205,7 +205,7 @@ pub fn before_disk_defer_here() -> Option<f64> {
     if env::var_os("AGENT_CAPACITY_DISK_FREE_GIB").is_some() {
         return None;
     }
-    before_disk_defer(&crate::capacity::agent_load::capacity_root().join("disk-reclaim.stamp"), crate::capacity::enrich::root_disk_free_gib)
+    before_disk_defer(&north_capacity_host::capacity::agent_load::capacity_root().join("disk-reclaim.stamp"), north_capacity_host::capacity::enrich::root_disk_free_gib)
 }
 
 /// Every reclaim sweep once, with no cooldown: the disk pass reaches idle lane build output, which evicting offload slots alone leaves standing.

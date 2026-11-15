@@ -25,8 +25,9 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-calibration:north-calibration",
-        "//crates/north-dispatch:north-dispatch",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-github-mirror:north-github-mirror",
+        "//crates/north-pacing:north-pacing",
         "//crates/north-providers:north-providers",
         "//third-party:clap",
         "//third-party:regex",
@@ -50,8 +51,9 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-calibration:north-calibration",
-        "//crates/north-dispatch:north-dispatch",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-github-mirror:north-github-mirror",
+        "//crates/north-pacing:north-pacing",
         "//crates/north-providers:north-providers",
         "//third-party:clap",
         "//third-party:regex",

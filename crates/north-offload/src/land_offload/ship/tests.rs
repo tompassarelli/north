@@ -1,4 +1,4 @@
-pub(super) use north_base::test_inputs::git::git_in as git;
+pub(super) use north_foundation::test_inputs::git::git_in as git;
 use super::script::{VERIFY, run_part};
 use super::{CommitId, Land, WRONG_TREE, bundle, carried, job_ref};
 use std::fs;
@@ -42,7 +42,7 @@ fn lander_runtime(home: &Path) {
     let marker = runtime.join(north_runtime_follow::layout::tree_marker());
     fs::create_dir_all(marker.parent().unwrap()).unwrap();
     fs::write(marker, "").unwrap();
-    north_base::foundation::shim::write_script(&runtime.join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&runtime.join("north"), NORTH_SHIM);
 }
 
 fn remote_run_flake(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>) -> String {
@@ -60,8 +60,8 @@ fn remote_run_after(command: &str, flake: Option<&str>, caller: &[(&str, &str)],
         fs::write(slot.path().join("flake.nix"), text).unwrap();
     }
     let nix = bin.path().join("nix");
-    north_base::foundation::shim::write_script(&nix, NIX_SHIM);
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&nix, NIX_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let fresh_home = tempfile::tempdir().unwrap();
     lander_runtime(home.unwrap_or(fresh_home.path()));
@@ -210,7 +210,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
         north.map(|north| shell.env("AGENT_CAPACITY_NORTH", north));
         shell.output().unwrap()
     };
-    let records = home.path().join(north_base::foundation::offload::SLOT_RECORDS);
+    let records = home.path().join(north_foundation::foundation::offload::SLOT_RECORDS);
     let record = records.join("code-p-main");
     let read = home.path().join("read-by-the-job");
     let output = ship(None);
@@ -222,7 +222,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     fs::remove_dir_all(&records).unwrap();
     fs::write(&records, "").unwrap();
     let north = home.path().join("north");
-    north_base::foundation::shim::write_script(&north, "printf '%s|%s\\n' \"$PWD\" \"$*\" >>\"$HOME/asked\"\n");
+    north_foundation::foundation::shim::write_script(&north, "printf '%s|%s\\n' \"$PWD\" \"$*\" >>\"$HOME/asked\"\n");
     let output = ship(Some(&north));
     let told = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{told}");
@@ -230,10 +230,10 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     assert!(asked.lines().any(|line| line == format!("{}|capacity offload slot record code-p-main", repo.display())), "a script that could not write its slot's record, as one run inside a session's domain cannot, asked north for no record from the main checkout, so the broker refuses every request its job makes: north was asked {asked:?}; {told}");
     assert!(!told.contains("cannot record"), "{told}");
     let older = home.path().join("older");
-    north_base::foundation::shim::write_script(&older, "echo 'usage: north capacity offload' >&2\nexit 2\n");
+    north_foundation::foundation::shim::write_script(&older, "echo 'usage: north capacity offload' >&2\nexit 2\n");
     let current = home.path().join(".local/state/north/current/north");
     fs::create_dir_all(current.parent().unwrap()).unwrap();
-    north_base::foundation::shim::write_script(&current, "printf '%s|%s\\n' \"$PWD\" \"$*\" >>\"$HOME/asked-current\"\n");
+    north_foundation::foundation::shim::write_script(&current, "printf '%s|%s\\n' \"$PWD\" \"$*\" >>\"$HOME/asked-current\"\n");
     let output = ship(Some(&older));
     let told = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{told}");
@@ -283,7 +283,7 @@ pub(crate) struct Queued {
 pub(crate) fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let log = home.path().join("order.log");
     let children: Vec<std::process::Child> = jobs
@@ -359,7 +359,7 @@ fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, Strin
     lander_runtime(slot.path());
     let script = format!("set -eu\nslot={} command={} limit=10 ran={} runtime={LANDER_RUNTIME} proof=secret proved_tree={PROVED}\nproved() {{ :; }}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let output = Command::new("sh").args(["-c", &script]).env("HOME", slot.path()).env("TMPDIR", slot.path()).env("PATH", path).output().unwrap();
     let mut shown = Vec::new();
@@ -401,12 +401,12 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "second"]);
     let other = git(&repo, &["rev-parse", "HEAD"]);
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let inner = home.path().join("inner.sh");
     fs::write(&inner, &script).unwrap();
-    let nested = |head: &str, ran: &Path, then: &str| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}{then}' refs/land-offload/job '' '' {LANDER_RUNTIME} '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
+    let nested = |head: &str, ran: &Path, then: &str| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}{then}' refs/land-offload/job '' '' {LANDER_RUNTIME} '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = north_foundation::foundation::offload::SLOT_ENV);
     let job = |command: &str, cap: &str, log: &str| {
         let mut outer = Command::new("setsid")
             .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", LANDER_RUNTIME])
@@ -414,7 +414,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
             .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
             .env("NORTH_OFFLOAD_MAX_JOBS", cap)
-            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .env_remove(north_foundation::foundation::offload::SLOT_ENV)
             .env_remove("NORTH_OFFLOAD_ROOT")
             .stdin(fs::File::open(&bundle).unwrap())
             .stdout(fs::File::create(home.path().join(format!("{log}.out"))).unwrap())
@@ -440,7 +440,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let lingering = home.path().join("lingering-ran");
     let ended = home.path().join("lingering-ended");
     let said = home.path().join("lingering.err");
-    let linger = format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}; sleep 30; : >{ended}' refs/land-offload/job '' '' {LANDER_RUNTIME} '' north-offload-ran:linger <{bundle} >/dev/null 2>{said} & until [ -e {ran} ]; do sleep 0.05; done", inner = inner.display(), ran = lingering.display(), ended = ended.display(), said = said.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
+    let linger = format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}; sleep 30; : >{ended}' refs/land-offload/job '' '' {LANDER_RUNTIME} '' north-offload-ran:linger <{bundle} >/dev/null 2>{said} & until [ -e {ran} ]; do sleep 0.05; done", inner = inner.display(), ran = lingering.display(), ended = ended.display(), said = said.display(), bundle = bundle.display(), slot_env = north_foundation::foundation::offload::SLOT_ENV);
     let (passed, err) = job(&linger, "", "caller");
     assert!(passed && north_base::platform::wait::until(std::time::Duration::from_secs(10), || lingering.exists()), "the caller did not start its nested job: {err} {}", fs::read_to_string(&said).unwrap_or_default());
     let free = || fs::File::open(home.path().join(".cache/land-offload/code-p-main.nested")).is_ok_and(|busy| rustix::fs::flock(&busy, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_ok());
@@ -449,10 +449,10 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let logged = fs::read_to_string(home.path().join(".cache/land-offload/nested.log")).unwrap_or_default();
     assert!(logged.contains("the check that started the nested job") && logged.contains("has ended, so the job ends with it"), "the watcher records why it ended the nested job: {logged}");
     let taker = home.path().join("taker-ran");
-    let (passed, err) = job(&format!("printf %s \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, taker.display()), "", "taker");
+    let (passed, err) = job(&format!("printf %s \"${}\" >{}", north_foundation::foundation::offload::SLOT_ENV, taker.display()), "", "taker");
     assert!(passed, "the next job did not run: {err}");
     assert_eq!(fs::read_to_string(&taker).unwrap(), slot("code-p-main"), "the next job takes the slot the ended nested job left");
-    let slot_env = north_base::foundation::offload::SLOT_ENV;
+    let slot_env = north_foundation::foundation::offload::SLOT_ENV;
     let on_host = |limit: &str, header: &[u8], lander_slot: &str| {
         super::on_host("", &script, &["code/p/main", "", &head, limit, "code-p-main", "", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", lander_slot, &header.len().to_string()], &[])
             .env("HOME", home.path())
@@ -514,7 +514,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
     let (home, head, _) = host_with_a_shipped_bundle();
     let repo = home.path().join("code/p/main");
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let started = home.path().join("started");
@@ -533,7 +533,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "30")
                 .env("PATH", &path)
-                .env_remove(north_base::foundation::offload::SLOT_ENV)
+                .env_remove(north_foundation::foundation::offload::SLOT_ENV)
                 .env_remove("NORTH_OFFLOAD_ROOT")
                 .stdin(fs::File::open(&bundle).unwrap())
                 .stdout(std::process::Stdio::null())
@@ -554,7 +554,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
 
 fn slot_run(slot: &Path, (base, head): (&str, &str), command: &str) -> Output {
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let home = tempfile::tempdir().unwrap();
     lander_runtime(home.path());
     let land = Land { ssh: "", checkout: slot, base: Some(CommitId(base.to_owned())), head: CommitId(head.to_owned()), timeout_seconds: 10, command, outputs: &[], class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
@@ -607,7 +607,7 @@ fn a_run_keeps_its_verdict_when_its_build_rewrites_a_declared_generated_file_and
 fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slot_and_refuses_a_live_daemon_or_an_output_it_cannot_remove() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let job = |command: &str| {
@@ -617,7 +617,7 @@ fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slo
             .env("PATH", &path)
             .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
             .env_remove("NORTH_OFFLOAD_ROOT")
-            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .env_remove(north_foundation::foundation::offload::SLOT_ENV)
             .stdin(fs::File::open(&bundle).unwrap())
             .output()
             .unwrap()
@@ -627,11 +627,11 @@ fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slo
     assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
     let second = job(&format!("test ! -e {state}"));
     assert!(second.status.success(), "the second job in a slot found the Buck2 daemon state the first left, so its buck2 would reach whatever daemon that state names, in the first job's domain: {}", String::from_utf8_lossy(&second.stderr));
-    let slot = home.path().canonicalize().unwrap().join(north_base::foundation::offload::ROOT_DEFAULT).join("code-p-main");
+    let slot = home.path().canonicalize().unwrap().join(north_foundation::foundation::offload::ROOT_DEFAULT).join("code-p-main");
     let daemon_state = home.path().join(".buck/buckd").join(slot.strip_prefix("/").unwrap()).join("v2");
     fs::create_dir_all(&daemon_state).unwrap();
     let programs = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&programs.path().join("buck2d"), "while :; do sleep 1; done\n");
+    north_foundation::foundation::shim::write_script(&programs.path().join("buck2d"), "while :; do sleep 1; done\n");
     let mut daemon = Command::new(programs.path().join("buck2d")).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     fs::write(daemon_state.join("buckd.pid"), format!("{}\n", daemon.id())).unwrap();
     let alive = job("echo ran >&2");
@@ -651,7 +651,7 @@ fn a_job_finds_none_of_the_buck2_daemon_state_the_job_before_it_left_for_its_slo
 fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the_expected_wait_and_a_job_it_admits_records_its_line_history() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let job = |carried: &str| {
@@ -662,7 +662,7 @@ fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the
             .env("PATH", &path)
             .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
             .env_remove("NORTH_OFFLOAD_ROOT")
-            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .env_remove(north_foundation::foundation::offload::SLOT_ENV)
             .stdin(fs::File::open(&bundle).unwrap())
             .output()
             .unwrap()
@@ -676,7 +676,7 @@ fn a_job_whose_host_line_would_keep_it_past_its_deadline_leaves_at_once_with_the
     assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).map(|entries| entries.count()).unwrap_or(0), 0, "a refused job left its ticket in the line");
     assert!(!home.path().join("line-calls").exists(), "a refused job recorded line events for a ticket it never took");
     fs::remove_file(home.path().join("line-full")).unwrap();
-    let admitted = job(&format!("SAFE_PUSH_LANDING='1' {}='45'", north_base::foundation::carry::LINE_WITHIN));
+    let admitted = job(&format!("SAFE_PUSH_LANDING='1' {}='45'", north_foundation::foundation::carry::LINE_WITHIN));
     assert!(admitted.status.success(), "{}", String::from_utf8_lossy(&admitted.stderr));
     let asks = fs::read_to_string(home.path().join("line-asks")).unwrap();
     assert!(asks.lines().last().unwrap().starts_with("--rank 2 --ticket ") && asks.lines().last().unwrap().ends_with(&format!(" --name code-p-main --slots {} --within 45", super::SLOTS - 1)), "a job other than the lander's waits for one of the slots its reserved one leaves: {asks}");
@@ -708,7 +708,7 @@ fn same_host_job(home: &Path, head: &str, bundle: &Path, path: &str) -> Output {
         .env("NORTH_OFFLOAD_MAX_JOBS", "1")
         .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
         .env_remove("NORTH_OFFLOAD_ROOT")
-        .env_remove(north_base::foundation::offload::SLOT_ENV)
+        .env_remove(north_foundation::foundation::offload::SLOT_ENV)
         .stdin(fs::File::open(bundle).unwrap())
         .output()
         .unwrap()
@@ -731,7 +731,7 @@ fn a_job_for_this_host_started_with_a_lanes_git_variables_leaves_that_lane_on_it
     fs::write(lane.path().join("kept"), "uncommitted\n").unwrap();
     fs::write(lane.path().join("untracked"), "new\n").unwrap();
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let placed = same_host_job(home.path(), &head, &bundle, &path);
     assert!(placed.status.success(), "{}", String::from_utf8_lossy(&placed.stderr));
@@ -764,9 +764,9 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let root = home.path().join(".cache/land-offload");
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let connection = bin.path().join("sshd-session");
-    north_base::foundation::shim::write_script(&connection, "cat | \"$@\"\n");
+    north_foundation::foundation::shim::write_script(&connection, "cat | \"$@\"\n");
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let bundled = fs::metadata(&bundle).unwrap().len();
@@ -796,7 +796,7 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
             .env("NORTH_OFFLOAD_TETHER_SECONDS", "3")
             .env("NORTH_OFFLOAD_DROPPED_SECONDS", "12")
             .env("PATH", &path)
-            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .env_remove(north_foundation::foundation::offload::SLOT_ENV)
             .env_remove("NORTH_OFFLOAD_ROOT")
             .stdin(Stdio::from(client.stdout.take().unwrap()))
             .stdout(Stdio::null())
@@ -848,7 +848,7 @@ fn a_job_whose_client_is_killed_leaves_its_slot_and_its_ticket_whether_it_holds_
 fn an_offload_header_word_that_would_run_a_command_is_refused_without_running_it_north_1041() {
     let (home, head, bundle_path) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    north_foundation::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = remote_script(super::SlotClass::LandCheck);
     let bundled = fs::metadata(&bundle_path).unwrap().len();
@@ -872,7 +872,7 @@ fn an_offload_header_word_that_would_run_a_command_is_refused_without_running_it
         output
     };
     let steered = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&steered.path().join("north"), &format!("#!/bin/sh\ntouch {}\n", planted("path").display()));
+    north_foundation::foundation::shim::write_script(&steered.path().join("north"), &format!("#!/bin/sh\ntouch {}\n", planted("path").display()));
     let command = format!("touch {}", ran.display());
     let headers = [
         ("proof", format!("command={}\nproof=$(touch {})\n", super::quote(&command), planted("proof").display()).into_bytes()),

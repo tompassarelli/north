@@ -38,7 +38,7 @@ order = ["gex45", "anthropic-cloud", "nexus", "laptop", "codex-cloud"]
 "#;
 
 fn script(path: &Path, body: &str) {
-    north_core::foundation::shim::write_script(path, body);
+    north_foundation::foundation::shim::write_script(path, body);
 }
 
 fn planted(root: &Path, job_source: bool) -> (String, bool) {

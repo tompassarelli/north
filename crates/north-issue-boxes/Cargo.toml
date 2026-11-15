@@ -13,7 +13,6 @@ doctest = false
 north-base = { path = "../north-base" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-calibration = { path = "../north-calibration" }
-north-dispatch = { path = "../north-dispatch" }
 north-providers = { path = "../north-providers" }
 clap.workspace = true
 regex.workspace = true
@@ -22,6 +21,9 @@ serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-pacing = { path = "../north-pacing" }
+
 
 [lints]
 workspace = true

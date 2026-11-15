@@ -1,7 +1,7 @@
 use super::super::storage::load;
 use super::super::{process, storage};
 use super::{line_wait, local};
-use crate::capacity::saturation::{self, Saturation};
+use north_capacity_host::capacity::saturation::{self, Saturation};
 use serde_json::{Value, json};
 use super::gate::Machine;
 use north_base::platform::agent_runtime;
@@ -165,7 +165,7 @@ pub(in crate::pacing) fn hold_spares(arguments: &[String]) -> u8 {
 fn ssh_words(destination: &str, command: &[&str]) -> Vec<String> {
     let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
     let options = [&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", destination][..], command].concat();
-    let argv = crate::platform::ssh::argv(&["ssh".into()], &env, &options);
+    let argv = north_base::platform::ssh::argv(&["ssh".into()], &env, &options);
     let mut words: Vec<String> = argv.iter().map(|word| word.to_string_lossy().into_owned()).collect();
     if let Some(at) = words.iter().position(|word| word == "-F") {
         words.drain(at..at + 2);
@@ -347,7 +347,7 @@ fn shared(records: &Path, name: &str, now: f64) -> Option<Facts> {
 /// both, so launches placing work read an answer under `SHARED_SECONDS` old instead of asking it themselves.
 /// Refreshes every build host the orchestration file names, side by side.
 pub(super) fn refresh_every_host() {
-    let Ok(text) = std::fs::read_to_string(crate::platform::orchestration::path()) else { return };
+    let Ok(text) = std::fs::read_to_string(north_base::platform::orchestration::path()) else { return };
     let Ok(cfg) = text.parse::<toml_edit::DocumentMut>() else { return };
     let machines = super::gate::machines(&cfg);
     std::thread::scope(|scope| {
@@ -463,7 +463,7 @@ pub(super) fn refresh_every_line() {
     if !line_wait::enabled() {
         return;
     }
-    let Ok(text) = std::fs::read_to_string(crate::platform::orchestration::path()) else { return };
+    let Ok(text) = std::fs::read_to_string(north_base::platform::orchestration::path()) else { return };
     let Ok(cfg) = text.parse::<DocumentMut>() else { return };
     let hosts = every_build_host(&cfg, super::gate::machines(&cfg));
     std::thread::scope(|scope| {
@@ -519,7 +519,7 @@ impl Machine {
 }
 
 fn staged(name: &str, login: &Login<'_>, directory: &str) -> String {
-    let machine = crate::fleet::model::Machine { name: name.to_owned(), ssh: String::new(), agent_ssh: login.agent.then(|| login.destination.to_owned()) };
+    let machine = north_fleet_supervisor::fleet::model::Machine { name: name.to_owned(), ssh: String::new(), agent_ssh: login.agent.then(|| login.destination.to_owned()) };
     let operator = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     machine.session_path(Path::new(directory), &operator).to_string_lossy().into_owned()
 }

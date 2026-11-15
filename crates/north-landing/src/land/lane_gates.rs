@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use super::after::gates::{self, Landed};
 use super::scans::{git, incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
 use super::slots::select::Config;
-use crate::advisory_gate;
-use crate::dep_gate::{self, Registry};
+use north_diff_gates::advisory_gate;
+use north_diff_gates::dep_gate::{self, Registry};
 
 pub struct Lane<'a> {
     pub worktree: &'a Path,

@@ -8,7 +8,7 @@ use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
 use tokio::process::Command;
 use tokio::signal::unix::{Signal as Incoming, SignalKind, signal};
-use north_base::foundation::exit::{KILLED, NO_VERDICT, TIMED_OUT};
+use north_foundation::foundation::exit::{KILLED, NO_VERDICT, TIMED_OUT};
 use super::lease_lifecycle::{Ledger, Phase};
 use north_base::platform::attribution::{self, Cause, Harness};
 

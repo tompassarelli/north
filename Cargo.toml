@@ -133,6 +133,14 @@ toml_edit.workspace = true
 tokio.workspace = true
 tui-markdown.workspace = true
 tui-textarea-2.workspace = true
+north-diff-gates = { path = "crates/north-diff-gates" }
+north-fleet-supervisor = { path = "crates/north-fleet-supervisor" }
+north-foundation = { path = "crates/north-foundation" }
+north-pace = { path = "crates/north-pace" }
+north-pacing = { path = "crates/north-pacing" }
+north-graph = { path = "crates/north-graph" }
+
+
 
 [build-dependencies]
 north-registries = { path = "crates/north-registries" }

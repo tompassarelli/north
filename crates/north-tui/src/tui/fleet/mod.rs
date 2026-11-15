@@ -35,9 +35,9 @@ use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_ra
 use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Status, Transcript};
-use crate::fleet::registry::Fleet;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::model::{Status, Transcript};
+use north_fleet_supervisor::fleet::registry::Fleet;
 
 pub use desk::{AccountRoom, Reads};
 pub use scorecard::{Comparison, FirstTry, Scorecard};

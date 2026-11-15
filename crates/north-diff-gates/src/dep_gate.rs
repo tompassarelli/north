@@ -80,7 +80,7 @@ fn required<'a>(value: &'a Value, key: &str) -> Parsed<&'a Value> {
 }
 
 pub(crate) fn parse_toml(text: &str) -> Parsed<Value> {
-    crate::platform::toml_json::parse(text).map_err(|_| "TOMLDecodeError")
+    north_base::platform::toml_json::parse(text).map_err(|_| "TOMLDecodeError")
 }
 
 fn parse_json(text: &str) -> Parsed<Value> {

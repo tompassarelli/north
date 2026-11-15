@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::host::{Host, Places, write_atomic};
 use super::lander::Reading;
-use crate::platform::rolling_issue::{Gh, settle};
+use north_base::platform::rolling_issue::{Gh, settle};
 
 pub const TITLE: &str = "landing is stalled";
 const FILE: &str = "lander-stalls.json";

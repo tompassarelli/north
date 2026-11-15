@@ -12,7 +12,7 @@ fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject
     let named = scoped.as_std().get_envs().find(|(name, _)| *name == crate::capacity::subject_start::ENV).and_then(|(_, value)| value.map(std::path::PathBuf::from));
     assert_eq!(named.as_deref(), Some(witness.as_path()), "the scope names the lease's start witness to the wrappers inside it");
     let program = root.join("systemd-run");
-    north_base::foundation::shim::write_script(&program, &format!("{launcher}\n"));
+    north_foundation::foundation::shim::write_script(&program, &format!("{launcher}\n"));
     crate::capacity::subject_start::arm(&witness);
     let began = super::machine::now_ms() / 1000.0;
     let status = std::process::Command::new(&program).env(crate::capacity::subject_start::ENV, &witness).stderr(std::process::Stdio::null()).status().unwrap();
@@ -25,7 +25,7 @@ fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject
 fn a_lease_whose_scope_never_started_its_subject_exits_no_verdict_not_the_launchers_failure() {
     let root = tempfile::tempdir().unwrap();
     let (exit, line, _) = launched(root.path(), "echo 'Failed to start transient scope unit: Remote peer disconnected' >&2; exit 1");
-    assert_eq!(exit.code(), north_base::foundation::exit::NO_VERDICT_STATUS);
+    assert_eq!(exit.code(), north_foundation::foundation::exit::NO_VERDICT_STATUS);
     let line = line.expect("a decision line");
     assert_eq!((line["decision"].as_str(), line["launcherExitCode"].as_i64()), (Some("SUBJECT_NOT_STARTED"), Some(1)));
     let (exit, line, start) = launched(root.path(), "printf 'gc root nan\\nnix develop 1\\n' >\"$NORTH_SUBJECT_STARTED.steps\"; touch -d @1 \"$NORTH_SUBJECT_STARTED\"; exit 1");

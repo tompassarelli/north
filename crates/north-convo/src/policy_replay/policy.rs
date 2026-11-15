@@ -6,7 +6,7 @@ use serde_json::Value;
 use toml_edit::{DocumentMut, Item, Table};
 
 use super::pyfmt::{list_repr, lstrip, splitlines, str_repr, strip};
-use crate::error::NorthError;
+use north_foundation::error::NorthError;
 
 fn refusal(message: String) -> NorthError {
     NorthError::Usage(format!("policy-replay: {message}"))

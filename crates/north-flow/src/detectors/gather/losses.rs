@@ -8,7 +8,7 @@ use toml_edit::{DocumentMut, Item};
 
 use super::Gatherer;
 use crate::detectors::mechanism_discovery::{self, Evidence, Facts, Mechanism, Turn};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const LOSSES_WINDOW: &str = "7d";
 const LOSSES_LIMIT: Duration = Duration::from_secs(60);

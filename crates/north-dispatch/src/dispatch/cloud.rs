@@ -3,8 +3,8 @@
 //! `claude --cloud` started from it.
 use super::issues::{IssueRef, OWNER};
 use super::record::{self, Record};
-use crate::platform::process::status_within;
-use crate::platform::terminal;
+use north_base::platform::process::status_within;
+use north_base::platform::terminal;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,7 +28,7 @@ pub struct Launched {
     pub directory: PathBuf,
 }
 
-pub use crate::pacing::placement::cloud::{autoland, branch};
+pub use north_pacing::pacing::placement::cloud::{autoland, branch};
 
 pub fn checkout_steps(repo: &str, directory: &Path, fresh: bool) -> Vec<Vec<String>> {
     let dir = directory.to_string_lossy();
@@ -127,7 +127,7 @@ pub fn launches(directory: &Path) -> Vec<Launch> {
 }
 
 pub fn run(directory: &Path, program: &str, args: &[String]) -> Result<String, String> {
-    run_from(directory, program, &crate::fleet::runtime::binary(program), args)
+    run_from(directory, program, &north_fleet_supervisor::fleet::runtime::binary(program), args)
 }
 
 pub fn run_from(directory: &Path, program: &str, path: &Path, args: &[String]) -> Result<String, String> {
@@ -171,8 +171,8 @@ pub fn current_login() -> Result<Login, String> {
 
 /// Writes the launched session's running row with its brief, so the ledger holds the cloud run from its start.
 pub fn record_run(launched: &Launched, brief: &str, at: f64) {
-    let row = north_providers::providers::claude::runs::cloud::launched(&launched.session, brief, crate::foundation::clock::Timestamp::from_unix_seconds_f64(at));
-    if let Err(error) = crate::threads::client::ingest(format!("{row}\n").as_bytes()) {
+    let row = north_providers::providers::claude::runs::cloud::launched(&launched.session, brief, north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(at));
+    if let Err(error) = north_calibration::threads::client::ingest(format!("{row}\n").as_bytes()) {
         eprintln!("north cloud launch: the run row for {} went unrecorded: {error}", launched.session);
     }
 }

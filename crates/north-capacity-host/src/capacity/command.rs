@@ -98,11 +98,11 @@ pub fn run(arguments: &[String], host: Host) -> u8 {
 
 /// `north capacity disk-share SHARE`: the GiB this host's `[hosts.NAME.disk_budget_gib]` gives the store, or nothing when it names none.
 fn disk_share(name: &str) -> u8 {
-    let Some(share) = crate::platform::disk_budget::Share::parse(name) else {
+    let Some(share) = north_base::platform::disk_budget::Share::parse(name) else {
         eprintln!("north capacity: disk-share is one of cargo_target, map_store, makgora_evidence, mutant_cargo, capture_batches");
         return 64;
     };
-    if let Some(gib) = crate::platform::disk_budget::DiskBudget::local().gib(share) {
+    if let Some(gib) = north_base::platform::disk_budget::DiskBudget::local().gib(share) {
         println!("{gib}");
     }
     0
@@ -110,7 +110,7 @@ fn disk_share(name: &str) -> u8 {
 
 /// `north capacity disk`: every store of this host's disk ledger with its kind, bytes, budget and trim, the home's unregistered folders, and the used bytes no store explains.
 fn disk_account() -> u8 {
-    let Some(account) = crate::platform::disk_ledger::local() else {
+    let Some(account) = north_base::platform::disk_ledger::local() else {
         eprintln!("north capacity: cannot read the root disk under HOME");
         return 1;
     };

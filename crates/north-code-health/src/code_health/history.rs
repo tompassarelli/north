@@ -60,7 +60,7 @@ fn tally(changes: &[Vec<String>]) -> Vec<(String, usize)> {
 
 pub(super) fn history(repo: &Path, rev: &str) -> Result<History, String> {
     let at: i64 = git(repo, &["log", "-1", "--format=%ct", rev])?.trim().parse().map_err(|error| format!("commit time of {rev}: {error}"))?;
-    let since = north_base::foundation::clock::Timestamp::from_unix_seconds(at - WINDOW_DAYS * 86_400).iso();
+    let since = north_foundation::foundation::clock::Timestamp::from_unix_seconds(at - WINDOW_DAYS * 86_400).iso();
     let out = git(repo, &["log", &format!("-n{WINDOW_COMMITS}"), &format!("--since={since}"), "--no-renames", "--no-merges", "--format=%x1e%H%x1f%b%x1f", "--name-only", rev])?;
     let mut changes: Vec<Vec<String>> = Vec::new();
     let mut shas: Vec<&str> = Vec::new();

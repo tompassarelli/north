@@ -170,7 +170,7 @@ mod tests {
         git(&origin, &["init", "-q", "-b", "main"]);
         commit(&origin, "one");
         let home = root.join("home");
-        let checkout = crate::platform::shared_config::checkout(&home);
+        let checkout = north_base::platform::shared_config::checkout(&home);
         std::fs::create_dir_all(checkout.parent().expect("parent")).expect("code");
         let status = Command::new("git").args(["clone", "-q"]).arg(&origin).arg(&checkout).status().expect("clone");
         assert!(status.success());
@@ -187,7 +187,7 @@ mod tests {
     fn an_uncommitted_change_or_a_branch_other_than_main_is_named_and_left_alone() {
         let scratch = tempfile::tempdir().expect("scratch");
         let (origin, home) = host(scratch.path());
-        let checkout = crate::platform::shared_config::checkout(&home);
+        let checkout = north_base::platform::shared_config::checkout(&home);
         std::fs::write(checkout.join("one"), "edited").expect("edit");
         commit(&origin, "two");
         let before = git(&checkout, &["rev-parse", "HEAD"]);

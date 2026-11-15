@@ -3,7 +3,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use super::infer::infer;
-use north_base::foundation::exit::SLOTS_BUSY_STATUS;
+use north_foundation::foundation::exit::SLOTS_BUSY_STATUS;
 use north_base::build_inputs::{ENQUEUE_PATTERN, LANE_PATTERN, rust_build_input};
 use north_base::store_pins::{pinned_entries, store_input};
 

@@ -1,8 +1,8 @@
 //! The shares an experiment's arms hold of a category's next boxes, read off the ledger's closed-box
 //! report: what `north dash --closed` prints and what every dispatched or hand launch draws from.
 use super::tier::CONTEXT_WINDOWS;
-use crate::ledger::closed::ClosedReport;
-use crate::router::settle::{self, Outcome};
+use north_providers::ledger::closed::ClosedReport;
+use north_pace::router::settle::{self, Outcome};
 use std::collections::BTreeMap;
 
 pub const PACK: &str = "context-pack";
@@ -39,7 +39,7 @@ impl Shares {
 /// empty for an experiment dispatch does not draw.
 pub fn experiment_arms(family: &str) -> Vec<String> {
     let mut arms: Vec<String> = match family {
-        "context" => CONTEXT_WINDOWS.map(crate::fleet::compaction::arm).to_vec(),
+        "context" => CONTEXT_WINDOWS.map(north_fleet_supervisor::fleet::compaction::arm).to_vec(),
         "pack" => vec![PACK.to_owned(), NO_PACK.to_owned()],
         _ => Vec::new(),
     };

@@ -51,7 +51,7 @@ impl AccountReadings for UsageTable {
 }
 
 fn credits(now_ms: u64) -> BTreeMap<String, Credit> {
-    let credits = north_core::credit::standing(&crate::platform::orchestration::path(), &watch::state_home(), Timestamp::from_unix_millis(now_ms as i64));
+    let credits = north_pace::credit::standing(&crate::platform::orchestration::path(), &watch::state_home(), Timestamp::from_unix_millis(now_ms as i64));
     credits
         .orgs
         .iter()

@@ -296,7 +296,7 @@ pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u6
         .filter(|entry| entry.path().join(north_base::platform::harness::TREE).join("bin/north").is_file())
         .map(|entry| format!("runtimes/{}", entry.file_name().to_string_lossy()))
         .collect();
-    let refused = fs::read_to_string(home.join(crate::REFUSED)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
+    let refused = fs::read_to_string(home.join(north_lander::land::promote::REFUSED)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
     Some(LinkFacts { home: home.to_owned(), green_since_link: green_since(&post_land::ledger_path(), now.saturating_sub(link_set)), lander, current, behind, lag, refused, builds, units, unreached: link_hold::unreached_of(home), review_hold })
 }
 

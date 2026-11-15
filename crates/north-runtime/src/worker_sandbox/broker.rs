@@ -391,8 +391,8 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     }
     variables = speaking_as(variables, asker);
     if let Some(commit) = viewed {
-        variables.retain(|(name, _)| name != north_base::foundation::carry::LAND_STORE_VIEW);
-        variables.push((north_base::foundation::carry::LAND_STORE_VIEW.to_owned(), commit));
+        variables.retain(|(name, _)| name != north_foundation::foundation::carry::LAND_STORE_VIEW);
+        variables.push((north_foundation::foundation::carry::LAND_STORE_VIEW.to_owned(), commit));
     }
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
@@ -429,7 +429,7 @@ fn run_finish_check(north: &Path, asked: Result<finish_request::Check, String>, 
 
 /// The command that starts `north ARGUMENTS` for the caller `peer`: inside the caller's capacity lease scope when it runs in one, so a leased build's depbox and the compiles it forks count against that lease and its host's admission. Started in the broker's own service, a leased land check's clippy and a session's depbox compiles ran outside every lease, and admission read 0.05 cores for a lease whose compiles held 7 (gex45, 2026-11-10, north#1036).
 pub(super) fn brokered(north: &Path, arguments: Vec<String>, peer: &Peer) -> Command {
-    let Some(scope) = peer.cgroup().and_then(crate::capacity::gate::lease_cgroup) else {
+    let Some(scope) = peer.cgroup().and_then(north_capacity_host::capacity::gate::lease_cgroup) else {
         let mut command = Command::new(north);
         command.args(arguments);
         return command;

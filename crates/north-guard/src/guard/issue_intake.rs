@@ -1,4 +1,4 @@
-use crate::router::brief::CATEGORIES;
+use north_pace::router::brief::CATEGORIES;
 
 /// The brief of the Haiku pass that completes an issue its filing left without a type label, category, box or command.
 pub(super) fn intake_brief(repo: &str, number: u64, gaps: &[String]) -> String {

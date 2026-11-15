@@ -212,7 +212,7 @@ fn citation_check(arguments: &[String]) -> u8 {
 fn subscription_admitted(account: &str) -> Result<(), String> {
     let fleet = super::fleet::open_fleet().map_err(|error| error.user_message())?;
     let view = super::fleet::spend_now(&fleet, &fleet.roster())?;
-    view.admit(&format!("claude:{account}"), north_runtime::spend::Starter::Worker).map_err(|refusal| refusal.to_string())
+    view.admit(&format!("claude:{account}"), north_pace::spend::Starter::Worker).map_err(|refusal| refusal.to_string())
 }
 
 const CHECK: &[(&str, Run)] = &[

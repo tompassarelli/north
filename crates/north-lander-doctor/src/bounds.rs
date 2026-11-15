@@ -6,7 +6,7 @@ use crate::facts::{Facts, LinkFacts, Place, PlaceFacts, QueueFacts, SlotHold};
 use north_base::platform::disk_budget::DiskBudget;
 use north_base::platform::disk_line::Line;
 use north_check_environment::Environment;
-use north_lander::landing::check_timings::CEILING;
+use north_landing::landing::check_timings::CEILING;
 
 pub const OLDEST_QUEUED_SECS: u64 = 20 * 60;
 pub const SINCE_LANDING_SECS: u64 = 30 * 60;

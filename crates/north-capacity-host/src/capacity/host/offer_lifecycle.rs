@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Delivery, Effect, Leased, Lifecycle, State, Store};
 use serde_json::json;
 
@@ -72,7 +72,7 @@ fn open(root: &Path) -> Option<Store> {
     Store::open(&root.join(DATABASE)).map_err(|error| eprintln!("machine-capacity: the offload offer lifecycle store is unreadable: {}", error.user_message())).ok()
 }
 
-fn moved(outcome: north_base::error::NorthResult<north_base::lifecycle::Moved<Offer>>, id: &str) -> bool {
+fn moved(outcome: north_foundation::error::NorthResult<north_base::lifecycle::Moved<Offer>>, id: &str) -> bool {
     match outcome {
         Ok(Ok(_)) => true,
         Ok(Err(refusal)) => {

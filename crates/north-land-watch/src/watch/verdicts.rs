@@ -3,7 +3,7 @@
 //! means no build host answers, and the page names the newest such run's own line.
 use super::{Alert, Detail, Severity, WatchContext};
 
-pub use crate::landing::pipe_verdicts::{Outcome, gather};
+pub use north_landing_gates::landing::pipe_verdicts::{Outcome, gather};
 
 const NO_VERDICT_SECONDS: f64 = 120.0;
 const RECENT: f64 = 3600.0;

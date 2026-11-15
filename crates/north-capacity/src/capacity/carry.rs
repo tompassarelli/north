@@ -1,6 +1,6 @@
-//! The list of variables a run carries across a boundary lives in `north_base::foundation::carry`, which the lander's reuse key reads too; this file is the `north capacity carry` command over it.
+//! The list of variables a run carries across a boundary lives in `north_foundation::foundation::carry`, which the lander's reuse key reads too; this file is the `north capacity carry` command over it.
 
-pub use north_base::foundation::carry::*;
+pub use north_foundation::foundation::carry::*;
 
 const USAGE: &str = "usage: north capacity carry --list [--into sandbox|fetch|offload]";
 

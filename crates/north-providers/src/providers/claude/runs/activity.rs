@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const GAP_CAP_MS: i64 = 600_000;
 

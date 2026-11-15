@@ -4,14 +4,14 @@ use std::time::{Duration, UNIX_EPOCH};
 use rusqlite::Connection;
 use rusqlite::types::Value as Cell;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 use super::super::tiers::Tier;
 
 pub(super) struct Ledger(pub Option<Connection>);
 
 pub(super) fn run_tier(tier: &Tier) -> String {
-    crate::router::tier::run_label(&tier.key).map_or_else(|| format!("{} {}", tier.model, tier.effort), str::to_owned)
+    north_pace::router::tier::run_label(&tier.key).map_or_else(|| format!("{} {}", tier.model, tier.effort), str::to_owned)
 }
 
 pub(super) fn instant(text: &str) -> Option<Timestamp> {

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use north_github_mirror::store::{CLOSED_ISSUES, OPEN_ISSUES, REPOS, key};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_graph::{Atom, Term};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;

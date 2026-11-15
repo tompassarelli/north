@@ -10,8 +10,8 @@ use super::predictions::{self, Source};
 use super::read::{escalated, raw_runs};
 use super::recommend::{Eta, asked_of, expected_line, recommend, recommend_eta, recommend_expected, recommend_usd};
 use super::{Knobs, Pick, median, provider, scaled, tier_key, tier_rank};
-use crate::foundation::clock::Timestamp;
-use crate::router::brief::CATEGORIES;
+use north_foundation::foundation::clock::Timestamp;
+use north_pace::router::brief::CATEGORIES;
 use crate::threads::runs::brief::Fields;
 use crate::threads::verb::{Args, Context, Failure, Family, Outcome, immediate, open, report};
 
@@ -161,7 +161,7 @@ fn pick_report(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, r
     }
     text += &format!("success threshold {}%  rule {}\n", knobs.success_threshold, pick.rule);
     if let Some((tier, stat)) = pick.tier.as_deref().and_then(|tier| pick.stats.iter().find(|(key, _)| key == tier)) {
-        text += &format!("success {tier} {:.0}% shrunk (n={}, {} ok, toward the category's pooled {:.0}% with a prior of {} runs)\n", stat.shrunk * 100.0, stat.n, stat.ok, pick.pooled * 100.0, crate::router::policy::ARM_RUNS);
+        text += &format!("success {tier} {:.0}% shrunk (n={}, {} ok, toward the category's pooled {:.0}% with a prior of {} runs)\n", stat.shrunk * 100.0, stat.n, stat.ok, pick.pooled * 100.0, north_pace::router::policy::ARM_RUNS);
     } else if let Some(tier) = &pick.tier {
         text += &format!("success {tier} unmeasured in this cell (n=0)\n");
     }

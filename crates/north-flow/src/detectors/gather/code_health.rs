@@ -30,7 +30,7 @@ fn marker(state: &std::path::Path, repo: &str) -> String {
 
 impl Gatherer<'_> {
     fn code_health_repos(&self) -> Vec<String> {
-        let set_aside = crate::platform::orchestration::read().map(|document| crate::platform::orchestration::set_aside_repos(&document)).unwrap_or_default();
+        let set_aside = north_base::platform::orchestration::read().map(|document| north_base::platform::orchestration::set_aside_repos(&document)).unwrap_or_default();
         default_list("detector_code_health_repos").into_iter().filter(|repo| !set_aside.contains(repo)).collect()
     }
 

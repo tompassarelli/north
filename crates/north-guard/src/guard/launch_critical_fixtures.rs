@@ -1,6 +1,6 @@
 use serde_json::Value;
 use serde_json::json;
-use crate::platform::git as platform_git;
+use north_base::platform::git as platform_git;
 use std::path::Path;
 
 pub struct Fixture {

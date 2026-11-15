@@ -8,10 +8,10 @@ use north_strategy_types::brief::CATEGORIES;
 
 use super::brief::{Fields, Source};
 use super::costs::Touched;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use super::row::{Row, bind, python_repr, text, truthy, value};
 use serde_json::{Value, json};
-use crate::platform::run_roles;
+use north_base::platform::run_roles;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::Moved as ClaimMoved;
 use crate::threads::claims::{box_slug, key};

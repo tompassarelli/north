@@ -1,9 +1,9 @@
 //! The skill switch's daily reading: the tick runs experiment L1's walk-forward backtest over the ledger and tells each
 //! decision's reading to the graph, so a learned value that loses to its constant stops driving its decision until it
 //! wins again, and prints one line per decision.
-use crate::foundation::clock::Timestamp;
-use crate::ledger::threads_database;
-use crate::threads::calibration::backtest::{Reading, backtest_in};
+use north_foundation::foundation::clock::Timestamp;
+use north_providers::ledger::threads_database;
+use north_calibration::threads::calibration::backtest::{Reading, backtest_in};
 use north_graph_loops::skill::{Skill, decision, tell_skills};
 
 pub fn skill(reading: &Reading) -> Option<Skill> {
@@ -33,7 +33,7 @@ pub fn judge(dry_run: bool) -> Vec<String> {
     lines.extend(skills.iter().map(|(skill, reading)| line(reading, skill)));
     if !dry_run {
         let told: Vec<Skill> = skills.into_iter().map(|(skill, _)| skill).collect();
-        if let Err(error) = tell_skills(&north_graph_loops::graph_path(), &told, now) {
+        if let Err(error) = tell_skills(&north_graph::default_path(), &told, now) {
             lines.push(format!("skill switch: untold, so every learned value keeps its last verdict: {error}"));
         }
     }

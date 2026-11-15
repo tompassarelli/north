@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::threads::{board, causes, claims, control_plane, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, runs, schema, snapshot, staffing, verb};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 mod process;
 mod proxy;
@@ -256,7 +256,7 @@ impl Client {
             ingest_hold: INGEST_HOLD,
             ingest_chunk_rows: INGEST_CHUNK_ROWS,
             spool_drain: SPOOL_DRAIN,
-            background: Some(vec![crate::platform::north_binary::north_binary().into(), "threads".into()]),
+            background: Some(vec![north_base::platform::north_binary::north_binary().into(), "threads".into()]),
             clock: Arc::new(Timestamp::now),
             families: &[],
         }
@@ -286,10 +286,10 @@ impl Client {
     }
 
     fn vet_follows(&self, argv: &[String], brief: &[u8]) -> Result<(), String> {
-        let Some(follows) = crate::platform::follows::follows_line(&String::from_utf8_lossy(brief)) else { return Ok(()) };
+        let Some(follows) = north_base::platform::follows::follows_line(&String::from_utf8_lossy(brief)) else { return Ok(()) };
         let repo = argv.iter().skip_while(|arg| *arg != "--repo").nth(1).map(String::as_str).or_else(|| argv.get(2).and_then(|item| item.split_once('#')).map(|(repo, _)| repo));
         let root = self.var("FOLLOWS_RELEASE_ROOT").map_or_else(|| self.home.join("code"), PathBuf::from);
-        crate::platform::follows::vet(&follows, repo.map(|repo| root.join(repo).join("main")).as_deref())
+        north_base::platform::follows::vet(&follows, repo.map(|repo| root.join(repo).join("main")).as_deref())
     }
 
     fn route(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write, replay: Option<&[u8]>) -> NorthResult<i32> {

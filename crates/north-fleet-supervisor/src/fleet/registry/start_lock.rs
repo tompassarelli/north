@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use rustix::fs::{FlockOperation, flock};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::Fleet;
 

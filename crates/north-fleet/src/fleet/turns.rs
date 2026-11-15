@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::NorthResult;
-use crate::router::pricing::TokenUse;
+use north_foundation::error::NorthResult;
+use north_pace::router::pricing::TokenUse;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Tokens {

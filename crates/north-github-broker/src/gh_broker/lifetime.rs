@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::server;
-use crate::platform::gh_broker_route::Place;
+use north_base::platform::gh_broker_route::Place;
 
 const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 

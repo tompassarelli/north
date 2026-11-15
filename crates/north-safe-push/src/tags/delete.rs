@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use north_base::foundation::step::{Refused, Step, cancelled, refuse};
+use north_foundation::foundation::step::{Refused, Step, cancelled, refuse};
 
 use super::name::release_tag;
 use crate::session::identity::Identity;

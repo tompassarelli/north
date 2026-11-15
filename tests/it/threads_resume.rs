@@ -1,8 +1,8 @@
 //! A claim past its ETA stays held while its exact holder session is alive and frees when it stops,
 //! here and through the ledger host.
 use std::fs;
-use north_core::foundation::shim;
-use north_core::fleet::model::{Launch, Phase, Phases};
+use north_foundation::foundation::shim;
+use north_fleet_supervisor::fleet::model::{Launch, Phase, Phases};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

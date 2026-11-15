@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
-use north_base::error::NorthResult;
+use north_foundation::error::NorthResult;
 use north_base::lifecycle::{Lifecycle, State};
 
 mod chart;

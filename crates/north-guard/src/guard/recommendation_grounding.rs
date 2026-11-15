@@ -4,8 +4,8 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let session = std::env::var(crate::runtime::SESSION_ENV).unwrap_or_default();
-    let now = crate::foundation::clock::Timestamp::now().unix_seconds_f64();
+    let session = std::env::var(north_fleet_store::runtime::SESSION_ENV).unwrap_or_default();
+    let now = north_foundation::foundation::clock::Timestamp::now().unix_seconds_f64();
     decide(input, &session, &|paragraph| crate::guard::host::recorded_decisions(paragraph, now))
 }
 

@@ -5,10 +5,10 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use time::Date;
 
-use crate::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Status, Transcript, UsageLimit};
-use crate::fleet::prompt::PromptMode;
-use crate::fleet::runtime::{Opening, Runtime};
-use crate::fleet::turns::{TurnExit, TurnSignal};
+use north_fleet_supervisor::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Status, Transcript, UsageLimit};
+use north_fleet_supervisor::fleet::prompt::PromptMode;
+use north_fleet_supervisor::fleet::runtime::{Opening, Runtime};
+use north_fleet_supervisor::fleet::turns::{TurnExit, TurnSignal};
 
 use super::route::{self, Route, Visibility};
 use super::harness::{Harness, OPENCODE};
@@ -79,7 +79,7 @@ fn day(text: &str) -> Date {
 
 fn fake(directory: &Path) -> PathBuf {
     let program = directory.join("opencode");
-    north_base::foundation::shim::write_script(&program, FAKE.trim_start_matches("#!/bin/sh\n"));
+    north_foundation::foundation::shim::write_script(&program, FAKE.trim_start_matches("#!/bin/sh\n"));
     program
 }
 
@@ -113,7 +113,7 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     let spec = runtime.host(&account(home.path()), &request(home.path()), Opening::Fresh(Some("ses_x")), "").unwrap();
     assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("go"));
     assert!(spec.argv.iter().all(|word| !word.contains("key-material")), "{:?}", spec.argv);
-    let drawn = crate::fleet::registry::efforts::taken(&runtime, None, None, "worker").unwrap().unwrap();
+    let drawn = north_fleet_supervisor::fleet::registry::efforts::taken(&runtime, None, None, "worker").unwrap().unwrap();
     assert_eq!(drawn, Effort::Low);
     let armed = runtime.host(&account(home.path()), &LaunchRequest { effort: Some(drawn), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "").unwrap();
     assert_eq!(argument(&armed.argv, "--effort").as_deref(), Some(drawn.label()));
@@ -243,7 +243,7 @@ fn the_launched_config_lists_only_the_one_chosen_provider_and_model() {
 
 #[test]
 fn a_child_the_client_starts_sees_no_go_key() {
-    let guarded = |command: &str| north_base::shell::started(command, &crate::fleet::claude_only::DEEPSEEK_PROVIDERS);
+    let guarded = |command: &str| north_base::shell::started(command, &north_fleet_supervisor::fleet::claude_only::DEEPSEEK_PROVIDERS);
 
     let home = tempfile::tempdir().unwrap();
     let runtime = seeing(Visibility::Private, day("2026-11-10"));
@@ -264,7 +264,7 @@ fn a_child_the_client_starts_sees_no_go_key() {
         let key = home.path().join("go.key");
         std::fs::write(&key, "key-material\n").unwrap();
         let program = home.path().join("client");
-        north_base::foundation::shim::write_script(&program, "sh -c env > \"$(dirname \"$0\")/child.env\"\n");
+        north_foundation::foundation::shim::write_script(&program, "sh -c env > \"$(dirname \"$0\")/child.env\"\n");
         let host = turns::Host { harness, route: Route::Go, effort: None, session: "ses_x".into(), scratch: home.path().join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program, cwd: home.path().into() };
         turns::serve(&host, Cursor::new(r#"{"type":"user","uuid":"u0","text":"hi"}"#), &mut Vec::new()).unwrap();
         let child = std::fs::read_to_string(home.path().join("child.env")).unwrap();
@@ -339,7 +339,7 @@ fn an_ended_opencode_host_leaves_its_conversation_but_not_its_tmp_and_cache() {
 fn deepseek_v4_1_flash_is_dispatched_at_low_effort() {
     let drawing = Deepseek::reading(&OPENCODE, Arc::new(|_| Visibility::Private), Arc::new(|| day("2026-11-10")));
     for index in 0..16 {
-        let drawn = crate::fleet::registry::efforts::taken(&drawing, None, None, &format!("worker-{index}")).unwrap().unwrap();
+        let drawn = north_fleet_supervisor::fleet::registry::efforts::taken(&drawing, None, None, &format!("worker-{index}")).unwrap().unwrap();
         assert_eq!(drawn, Effort::Low, "worker-{index}");
     }
 }

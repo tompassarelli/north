@@ -1,5 +1,5 @@
 use super::World;
-use crate::platform::process::run_command_within;
+use north_base::platform::process::run_command_within;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -46,7 +46,7 @@ impl World for Live {
     }
 
     fn billed(&self, provider: &str) -> Option<String> {
-        crate::usage::billed_account(provider).map(|label| format!("{provider}:{label}"))
+        north_pace::usage::billed_account(provider).map(|label| format!("{provider}:{label}"))
     }
 
     fn cpus(&self) -> f64 {
@@ -54,7 +54,7 @@ impl World for Live {
     }
 
     fn today(&self) -> String {
-        let today = crate::foundation::clock::local_today();
+        let today = north_foundation::foundation::clock::local_today();
         format!("{:04}/{:02}/{:02}", today.year(), u8::from(today.month()), today.day())
     }
 }

@@ -7,7 +7,7 @@ use super::plan::{Candidate, Launch, Ready};
 use super::record::Record;
 use super::fleets::{self, PROBE};
 use super::slots::Pools;
-use crate::fleet::claude_only::{ClaudeOnly, SETTINGS};
+use north_fleet_supervisor::fleet::claude_only::{ClaudeOnly, SETTINGS};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use toml_edit::{DocumentMut, Item};
@@ -35,7 +35,7 @@ pub struct Settings {
 
 impl Settings {
     pub fn read() -> Self {
-        Self::parse(crate::platform::harness::document(SETTINGS))
+        Self::parse(north_base::platform::harness::document(SETTINGS))
     }
 
     pub fn parse(document: &DocumentMut) -> Self {
@@ -60,7 +60,7 @@ pub struct Seen {
     /// The Go plan's limit, read from the sessions it stopped.
     pub limit: limit::Limit,
     /// Spend's provider-limit refusal while that limit holds, which places no opencode box.
-    pub held: Option<crate::spend::Refusal>,
+    pub held: Option<north_pace::spend::Refusal>,
 }
 
 /// One box of one item, as `tried` keys it.

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::digest::provenance;
 use super::files::read_current;

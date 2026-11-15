@@ -12,7 +12,6 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-capacity-host = { path = "../north-capacity-host" }
-north-dispatch = { path = "../north-dispatch" }
 north-providers = { path = "../north-providers" }
 regex.workspace = true
 percent-encoding.workspace = true
@@ -22,6 +21,11 @@ sha2.workspace = true
 tempfile.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
+north-calibration = { path = "../north-calibration" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
+north-foundation = { path = "../north-foundation" }
+north-pace = { path = "../north-pace" }
+
 
 [lints]
 workspace = true

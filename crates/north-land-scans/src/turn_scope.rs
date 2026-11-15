@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use north_base::foundation::offload::{ONE_LANE_ENV, TIPS_ENV};
+use north_foundation::foundation::offload::{ONE_LANE_ENV, TIPS_ENV};
 
 use crate::{Range, git, holdlist, lanes};
 

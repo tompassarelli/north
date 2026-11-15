@@ -17,6 +17,8 @@ rusqlite.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [lints]
 workspace = true

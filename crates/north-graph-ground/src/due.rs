@@ -3,7 +3,7 @@
 //! Dispatch and `north graph ready` both hold a box until a date comes due, so a box whose only remaining check is a measurement over time is not staffed before then (north#706).
 use std::sync::LazyLock;
 
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use regex::Regex;
 
 static DATED: LazyLock<Regex> = LazyLock::new(|| {

@@ -2,11 +2,11 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::link::quote;
-use crate::fleet::model::Machine;
-use crate::fleet::runtime::binary;
-use crate::platform::process::try_run_command_within;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::link::quote;
+use north_fleet_supervisor::fleet::model::Machine;
+use north_fleet_supervisor::fleet::runtime::binary;
+use north_base::platform::process::try_run_command_within;
 
 use super::archive;
 use super::lane::Planned;

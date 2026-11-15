@@ -97,7 +97,7 @@ fn corrected_prompt(prompt: &str, changes: &mut Vec<String>) -> String {
         }
     }
     let mut fixed = lines.join("\n");
-    if crate::router::brief::landing_refusal(&fixed).is_some_and(|why| why.starts_with("Verify: native needs")) {
+    if north_pace::router::brief::landing_refusal(&fixed).is_some_and(|why| why.starts_with("Verify: native needs")) {
         let verify = Regex::new(r"(?m)^[ \t]*Verify:[^\n]*").unwrap();
         if let Some(end) = verify.find(&fixed).map(|found| found.end()) {
             fixed.insert_str(end, "\nLands-before: native");

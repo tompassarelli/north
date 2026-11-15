@@ -1,4 +1,4 @@
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{FaultKind, Liveness, Owner, Store};
 
 use super::{AfterLandingRun, Run, journal, misses, moved, retire_unadopted, settled, take};

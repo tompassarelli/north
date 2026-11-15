@@ -1,9 +1,9 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::PathBuf;
-use north_core::fleet::sender::Sender;
-use north_core::fleet::store::{FarSpools, FleetRow, OverSsh, RowKind, Spool};
-use north_core::foundation::shim;
+use north_fleet_supervisor::fleet::sender::Sender;
+use north_fleet_supervisor::fleet::store::{FarSpools, FleetRow, OverSsh, RowKind, Spool};
+use north_foundation::foundation::shim;
 
 struct Hosts {
     root: tempfile::TempDir,

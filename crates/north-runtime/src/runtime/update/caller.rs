@@ -1,5 +1,5 @@
 use north_runtime_records::failure::{Failure, failed};
-use north_base::foundation::carry::REMOTE_MARK;
+use north_foundation::foundation::carry::REMOTE_MARK;
 
 const ROLE: &str = "NORTH_FLEET_ROLE";
 const WORKER: &str = "worker";

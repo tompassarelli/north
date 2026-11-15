@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child as Running, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use north_base::foundation::step::{Refused, Step, cancelled};
+use north_foundation::foundation::step::{Refused, Step, cancelled};
 use north_base::platform::process::{exit_status, on_path};
 use rustix::io::dup;
 use rustix::process::{Pid, Signal, kill_process_group};

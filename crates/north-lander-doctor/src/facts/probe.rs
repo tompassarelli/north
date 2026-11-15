@@ -37,7 +37,7 @@ done
 
 /// The probe script that reads a host's disk, held slots, prunable worktree entries and stray land queues.
 pub fn probe() -> String {
-    PROBE.replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH).replace("@ORPHANS@", &orphan_scan(None))
+    PROBE.replace("@SLOT_HELD@", north_foundation::foundation::offload::SLOT_HELD_SH).replace("@ORPHANS@", &orphan_scan(None))
 }
 
 /// The script that names each land queue directly under `root` (the host's land-queue when `None`) that holds no ticket in any area, no lander lock and no file touched in the last hour, so a queue a test or a stray write left on an offload host is found and removed while a live outbox is left alone.

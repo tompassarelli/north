@@ -31,10 +31,10 @@ use alone::checked_alone;
 pub use facts::Facts;
 use refuse::{DiffOnly, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
 use super::scans::outgoing;
-use crate::landing::lane_squash::{self, Squash};
+use north_landing::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen};
 use crate::land::slots::runner::{self, STOPPED, Stop};
-use crate::landing_refusals;
+use north_diff_gates::landing_refusals;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
 pub const REFUSALS: &str = "north/enqueue-refusals.jsonl";
@@ -261,7 +261,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     timings.stage("nothing to land", || refuse_nothing_to_land(&root, &base, &destination))?;
     timings.stage("conflict", || refuse_conflict(&root, &base, &destination))?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    let folded = timings.stage("merge fold", || crate::landing::merge_continue::fold(&root, &root.join(crate::landing::merge_set::DEFAULT_CONFIG), &base))?;
+    let folded = timings.stage("merge fold", || north_landing::landing::merge_continue::fold(&root, &root.join(north_landing::landing::merge_set::DEFAULT_CONFIG), &base))?;
     if !folded.is_empty() {
         println!("safe-push: sorted {} and folded the result into the lane", folded.join(", "));
     }

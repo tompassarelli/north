@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::fs;
 use std::io::Write;
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -85,7 +85,7 @@ fn has(text: &str, pattern: &str) -> bool {
 }
 
 fn eventually(done: impl Fn() -> bool) -> bool {
-    north_core::platform::wait::until(crate::support::HANG, done)
+    north_base::platform::wait::until(crate::support::HANG, done)
 }
 
 struct Remote<'a> {

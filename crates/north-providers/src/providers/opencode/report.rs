@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use north_base::land_ticket::{self, Phase};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::ledger::{Ledger, Run, Task};
 
 const USAGE: &str = "usage: north ledger opencode [--since 7d|YYYY-MM-DD]";
@@ -26,7 +26,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
-            "--since" => match words.next().and_then(|date| Timestamp::parse_loose(&crate::threads::calibration::since_start(date, Timestamp::now()))).map(Timestamp::unix_millis) {
+            "--since" => match words.next().and_then(|date| Timestamp::parse_loose(&north_calibration::threads::calibration::since_start(date, Timestamp::now()))).map(Timestamp::unix_millis) {
                 Some(at) => since = Some(at),
                 None => {
                     eprintln!("{USAGE}");
@@ -54,7 +54,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let tasks: BTreeMap<&str, &Task> = tasks.iter().map(|task| (task.task_ref.as_str(), task)).collect();
-    let lanes = land_ticket::lanes_by_session(&crate::platform::land_queue::queues(&crate::platform::records_mirror::state_home())).unwrap_or_default();
+    let lanes = land_ticket::lanes_by_session(&north_base::platform::land_queue::queues(&north_base::platform::records_mirror::state_home())).unwrap_or_default();
     print(&tally(&runs, &tasks, &lanes, since));
     0
 }

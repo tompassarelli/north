@@ -2,8 +2,8 @@
 
 use std::env;
 
-use crate::fleet::model::Status;
-use crate::fleet::runtime::SESSION_ENV;
+use north_fleet_supervisor::fleet::model::Status;
+use north_fleet_supervisor::fleet::runtime::SESSION_ENV;
 
 use super::super::form::LaunchForm;
 use super::{Command, Dialog, Notice, Screen};

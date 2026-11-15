@@ -3,7 +3,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::http::{Request, Response, status_code};
-use crate::platform::process;
+use north_base::platform::process;
 
 pub const GITHUB_API: &str = "https://api.github.com";
 const API_HOST: &str = "api.github.com";

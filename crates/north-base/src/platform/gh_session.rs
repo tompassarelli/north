@@ -7,8 +7,8 @@ use std::process::Command;
 use super::gh_origin::{self, Kind};
 use super::gh_pool::{self, Pool};
 use super::github_app;
-use crate::foundation::clock::Timestamp;
-use crate::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north gh-session REAL_GH [ARGS...]
 

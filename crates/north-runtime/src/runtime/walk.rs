@@ -7,7 +7,7 @@ use super::cadence;
 use super::pin::{Event, note, now};
 use super::probe::Shell;
 use super::review_hold::Screen;
-use crate::platform::host;
+use north_base::platform::host;
 use north_offload::land_offload::{self, Deployment};
 use std::fs;
 use std::process::Command;

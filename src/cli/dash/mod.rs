@@ -46,7 +46,7 @@ pub struct Screen {
     pub billing: Result<billing::Billing, String>,
     pub infra: Result<(Vec<crate::cli::infra::report::Resource>, Vec<String>), String>,
     /// Each api organization's credit, as `north fleet usage`, `north fleet accounts --plan` and the fleet screen print it.
-    pub credit: Vec<north_core::credit::Standing>,
+    pub credit: Vec<north_pace::credit::Standing>,
     /// The fleet store's sessions, gates, landings and held messages, the Work part of the snapshot.
     pub work: Result<board::Work, String>,
     /// The tickets waiting in the landing queue, read from the queue directory the lander reads.
@@ -177,8 +177,8 @@ fn colored() -> bool {
     std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()) && std::env::var("TERM").is_ok_and(|term| term != "dumb")
 }
 
-fn credit() -> Vec<north_core::credit::Standing> {
-    north_core::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), Timestamp::now()).orgs
+fn credit() -> Vec<north_pace::credit::Standing> {
+    north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), Timestamp::now()).orgs
 }
 
 fn accounts() -> Result<Vec<AccountOutlook>, String> {

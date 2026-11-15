@@ -275,7 +275,7 @@ pub fn wrapper_identity() -> (u64, Option<String>) {
 }
 
 pub fn now_ms() -> f64 {
-    crate::foundation::clock::Timestamp::now().unix_millis() as f64
+    north_foundation::foundation::clock::Timestamp::now().unix_millis() as f64
 }
 
 pub fn uuid() -> String {

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::profile::{Profile, Split, leaves, percentile};
 use super::{Category, Span};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::landing::check_timings::outcomes::{Outcome, Record};
 
 pub struct Finish {

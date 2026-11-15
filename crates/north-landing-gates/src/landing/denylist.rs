@@ -3,10 +3,10 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use crate::foundation::exit::NO_VERDICT;
-use crate::platform::betterleaks::{Finding, Scanner};
-use crate::platform::git as platform_git;
-use crate::platform::private_text;
+use north_foundation::foundation::exit::NO_VERDICT;
+use north_base::platform::betterleaks::{Finding, Scanner};
+use north_base::platform::git as platform_git;
+use north_base::platform::private_text;
 
 #[path = "denylist_archive.rs"]
 mod archive;

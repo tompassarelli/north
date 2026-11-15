@@ -5,7 +5,7 @@ use std::time::Duration;
 use north_capacity::capacity::runner_alarm::{self, HostReading, LeaseUse, State};
 use serde_json::Value;
 
-use crate::platform::process::run_command_within;
+use north_base::platform::process::run_command_within;
 
 const STATE_FILE: &str = "runner-alarm.json";
 const SENDER: &str = "service:capacity-runners";
@@ -22,7 +22,7 @@ fn reading() -> HostReading {
     let mut systemctl = Command::new("systemctl");
     systemctl.args(["list-units", "--state=active", "--plain", "--no-legend", "--no-pager", "buildbarn-runner-*"]);
     let runners = run_command_within(systemctl, None, READ_WAIT).filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.contains(".service")).count());
-    HostReading { host: crate::platform::host::name(), runners, land_checks: land_checks(&north_capacity::capacity::local_machine::runtime_root().join("leases")) }
+    HostReading { host: north_base::platform::host::name(), runners, land_checks: land_checks(&north_capacity::capacity::local_machine::runtime_root().join("leases")) }
 }
 
 fn land_checks(leases: &Path) -> Vec<LeaseUse> {
@@ -48,11 +48,11 @@ fn remote(host: &str, destination: &str) -> HostReading {
 }
 
 fn grid() -> Option<Vec<HostReading>> {
-    let cfg = crate::platform::orchestration::read().ok()?;
-    let here = crate::platform::host::name();
+    let cfg = north_base::platform::orchestration::read().ok()?;
+    let here = north_base::platform::host::name();
     let mut hosts = vec![reading()];
-    for name in crate::platform::orchestration::ssh_hosts(&cfg).into_iter().filter(|name| *name != here) {
-        if let Some(destination) = crate::platform::orchestration::operator_login(&cfg, &name) {
+    for name in north_base::platform::orchestration::ssh_hosts(&cfg).into_iter().filter(|name| *name != here) {
+        if let Some(destination) = north_base::platform::orchestration::operator_login(&cfg, &name) {
             hosts.push(remote(&name, &destination));
         }
     }

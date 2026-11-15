@@ -4,7 +4,7 @@
 //! first, and that failure is the host's, never the subject's verdict.
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 
 pub const ENV: &str = "NORTH_SUBJECT_STARTED";
 

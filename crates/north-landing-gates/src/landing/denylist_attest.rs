@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use super::denylist;
-use crate::platform::git as platform_git;
-use crate::platform::github::{BranchTip, CommitStatuses, Gh, PostError};
+use north_base::platform::git as platform_git;
+use north_base::platform::github::{BranchTip, CommitStatuses, Gh, PostError};
 
 const USAGE: &str = "usage: north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
 const CONTEXT: &str = "denylist";

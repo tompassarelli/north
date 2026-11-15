@@ -7,7 +7,7 @@ use rusqlite::{Connection, Row};
 use super::boxes::{BoxRun, box_groups, moment};
 use super::read::{attempts, escalated_with};
 use super::rework::{Cause, Rework, Sources};
-use crate::platform::run_roles::ROLE_SQL;
+use north_base::platform::run_roles::ROLE_SQL;
 use super::{GROUPS, Knobs, cell_value, median, tier_rank};
 use crate::threads::board::issues::Board;
 use crate::threads::catalog::CATALOG;

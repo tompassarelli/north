@@ -24,6 +24,7 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-land-scans:north-land-scans",
         "//crates/north-landing-gates:north-landing-gates",
         "//third-party:rustix",
@@ -44,6 +45,7 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
+        "//crates/north-foundation:north-foundation",
         "//crates/north-land-scans:north-land-scans",
         "//crates/north-landing-gates:north-landing-gates",
         "//third-party:rustix",

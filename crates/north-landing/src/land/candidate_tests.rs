@@ -1,5 +1,5 @@
 use super::*;
-use north_base::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 
 const PASS_JAILED: &str = "if [ \"$1\" = --worker-sandbox ]; then shift 3; exec \"$@\"; fi\n";
 
@@ -131,7 +131,7 @@ fn rebase_compile_scenario(dir: &Path) {
     assert!(rebase_compile::judge(&unmoved, &north, &logs, "lane").unwrap().is_none() && !dir.join("asked").exists(), "a lane checked on the main it is picked onto compiles nothing");
     let rebased = Rebased { tree: &tree, checked_on: Some(&checked_on), picked_onto: &moved, head: &head, shipped_from: &moved };
     let refused = rebase_compile::judge(&rebased, &north, &logs, "lane").unwrap().expect("the lane rebased onto the moved main does not compile, its manifest read in the candidate jail from outside its tree, where neither the lane's cargo config, which cargo cannot parse, nor its flake's dev shell applies");
-    assert_eq!(refused.gates, crate::landing_refusals::REBASE_COMPILE);
+    assert_eq!(refused.gates, north_diff_gates::landing_refusals::REBASE_COMPILE);
     assert!(refused.verdict.contains("error[E0063]: missing field `user_runtime`") && refused.verdict.contains("--> crates/b/src/lib.rs:1:35"), "on 2026-11-13 80b143969c, checked on an older main, was pushed onto 68f3121884 without a compile and main stayed red with E0063: {}", refused.verdict);
     assert!(fs::read_to_string(dir.join("asked")).unwrap().contains("cargo check --all-targets --locked --offline -p a -p b"), "the base changed crate a, which the lane's crate b depends on, so both are checked");
     assert!(fs::read_to_string(dir.join("asked")).unwrap().contains("1 capacity offload run --host build-host-one"), "on 2026-11-13 four of nine compiles after a rebase waited in the build host's line behind worker builds until the 110 s limit and landed with no verdict; the lander's compile takes its first-in-line slot");

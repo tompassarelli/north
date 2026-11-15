@@ -11,7 +11,7 @@ use super::exec::{api, git, git_slow, in_dir, verified};
 use super::remote_boxes::{append_box, archived_as, box_line, cited_open, named_in_open_box, superseding, tell_unboxed};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::RemoteStale;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const BASE: &str = "refs/remotes/origin/main";
 const LANDING: &str = "claude/land-";

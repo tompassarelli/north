@@ -4,7 +4,7 @@ use rusqlite::{Connection, params_from_iter};
 use serde_json::{Map, Value};
 
 use super::database::{capacity_database, sql};
-use crate::platform::orchestration;
+use north_base::platform::orchestration;
 
 pub(super) fn run_columns(db: &Connection) -> Vec<String> {
     db.prepare("PRAGMA table_info(capacity_runs)")
@@ -95,7 +95,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    let local = crate::platform::host::name();
+    let local = north_base::platform::host::name();
     let policy = std::fs::read_to_string(orchestration::path()).unwrap_or_default();
     let mut db = match open_fleet_database(&local) {
         Ok(db) => db,

@@ -6,7 +6,7 @@ use crate::fleet::held::Held;
 use crate::fleet::model::Status;
 use crate::fleet::runtime::summarize;
 use crate::fleet::store::{LAUNCH_GRACE_MS, SessionRow};
-use crate::router::moment::Moment;
+use north_pace::router::moment::Moment;
 
 pub const STALL_AFTER_MS: u64 = 2 * 60 * 60 * 1000;
 const HELD_CHARS: usize = 300;
@@ -86,7 +86,7 @@ pub fn render(facts: &Facts) -> String {
 fn repeats(held: &[Held]) -> Vec<(&Held, usize)> {
     let mut folded: Vec<(&Held, usize, String)> = Vec::new();
     for one in held {
-        let key = north_base::foundation::cause::key(one.text.lines().next().unwrap_or_default());
+        let key = north_foundation::foundation::cause::key(one.text.lines().next().unwrap_or_default());
         match folded.iter_mut().find(|(seen, _, seen_key)| seen.to == one.to && seen.from == one.from && *seen_key == key) {
             Some((newest, count, _)) => (*newest, *count) = (one, *count + 1),
             None => folded.push((one, 1, key)),

@@ -287,7 +287,7 @@ pub fn cpu_split(total: u32, game: u32) -> (String, String) {
 }
 
 fn clock(at: u64) -> String {
-    crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(at).unwrap_or(i64::MAX)).local_twelve_hour()
+    north_foundation::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(at).unwrap_or(i64::MAX)).local_twelve_hour()
 }
 
 pub fn now() -> u64 {

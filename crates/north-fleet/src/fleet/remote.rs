@@ -23,9 +23,9 @@ use std::time::Duration;
 
 use north_session_host::held::{HOLD, PRUNE, RETIRE, unit};
 
-use crate::error::{NorthError, NorthResult};
-use crate::platform::process::try_run_command_within;
-use crate::platform::session_host_files::{BOUND_CONVERSATION, HELD};
+use north_foundation::error::{NorthError, NorthResult};
+use north_base::platform::process::try_run_command_within;
+use north_base::platform::session_host_files::{BOUND_CONVERSATION, HELD};
 
 use super::link::{Link, channel, quote, standing_master};
 use super::model::{Account, Machine, SessionRecord};

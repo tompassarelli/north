@@ -3,7 +3,7 @@ use std::path::Path;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) fn iso_stamp(text: &str) -> Option<String> {
     let at = Timestamp::parse_python_datetime(text)?;

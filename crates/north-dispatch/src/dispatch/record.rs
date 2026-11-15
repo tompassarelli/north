@@ -1,7 +1,7 @@
 //! The dispatch record: one JSON line per launch attempt in ~/.local/state/agents/dispatch/, which
 //! holds a fresh launch until its session shows, and hands an item that keeps failing to the coordinator.
 use super::issues::IssueRef;
-use crate::pacing::placement;
+use north_pacing::pacing::placement;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -91,14 +91,14 @@ impl FailurePage {
 
     /// The fleet store's condition key for this cause, so every dispatch run that still sees it repeats one condition.
     pub fn condition(&self) -> String {
-        format!("launch-failure:{}", north_base::foundation::cause::key(&self.cause))
+        format!("launch-failure:{}", north_foundation::foundation::cause::key(&self.cause))
     }
 }
 
 pub fn failure_pages(records: &[Record], at: f64) -> Vec<FailurePage> {
     let mut groups: BTreeMap<String, Vec<&Record>> = BTreeMap::new();
     for record in records.iter().filter(|record| !record.launched && !record.hand && at - record.at <= FAILURE_WINDOW_S && at >= record.at) {
-        groups.entry(north_base::foundation::cause::key(&record.detail)).or_default().push(record);
+        groups.entry(north_foundation::foundation::cause::key(&record.detail)).or_default().push(record);
     }
     groups
         .into_values()
@@ -134,7 +134,7 @@ pub fn contested(records: &[Record], at: f64) -> Vec<&Record> {
     let mut started: BTreeMap<(IssueRef, Option<String>), Vec<&Record>> = BTreeMap::new();
     for record in records.iter().filter(|record| record.launched && !record.cloud && !record.hand && at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
-            started.entry((item, record.box_text.as_deref().and_then(crate::threads::claims::box_slug))).or_default().push(record);
+            started.entry((item, record.box_text.as_deref().and_then(north_calibration::threads::claims::box_slug))).or_default().push(record);
         }
     }
     started.into_values().filter(|tried| tried.len() >= RETRIES).flatten().collect()
@@ -145,7 +145,7 @@ pub fn contested(records: &[Record], at: f64) -> Vec<&Record> {
 pub fn box_retries(records: &[Record], at: f64, unspent: &BTreeMap<String, String>) -> BoxHolds {
     let mut tries: BTreeMap<(IssueRef, String), Vec<&str>> = BTreeMap::new();
     for record in records.iter().filter(|record| record.launched && !record.hand && !unspent.contains_key(&record.name) && at - record.at < RETRY_WINDOW_S) {
-        let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
+        let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(north_calibration::threads::claims::box_slug)) else { continue };
         tries.entry((item, slug)).or_default().push(&record.name);
     }
     let mut held = BoxHolds::new();
@@ -203,7 +203,7 @@ pub fn launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BTreeM
 pub fn box_launching(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, gone: &BTreeSet<String>) -> BoxHolds {
     let mut held = BoxHolds::new();
     for record in records.iter().filter(|record| !record.hand && box_hold(record, unspent, gone).is_some_and(|window| at - record.at < window)) {
-        let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
+        let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(north_calibration::threads::claims::box_slug)) else { continue };
         let what = if record.launched { "launch" } else { "failed launch" };
         held.entry(item).or_default().insert(slug, format!("north fleet dispatch {what} {} on {} {:.0} min ago", record.name, record.host, (at - record.at) / 60.0));
     }

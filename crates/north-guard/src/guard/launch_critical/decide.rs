@@ -4,7 +4,7 @@ use super::shell::{record_assignments, redirect_targets, resolve, tokens, union}
 use super::writes::cargo_target_paths;
 use super::{INTERPRETERS, MUTATING_GIT, Policy, SHELLS, TEMPORARY, TEMPORARY_DIRECTORY};
 use crate::hook_input::HookInput;
-use crate::shell::{basename, heredoc_bodies, shell_substitutions, strip_heredoc_bodies};
+use north_base::shell::{basename, heredoc_bodies, shell_substitutions, strip_heredoc_bodies};
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;

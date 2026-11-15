@@ -1,16 +1,16 @@
 use std::fs;
 use std::path::Path;
 
-use crate::session::Role;
-use crate::session_files::{past_records, read_record};
-use crate::runtime::SESSION_ENV;
+use north_fleet_store::session::Role;
+use north_fleet_store::session_files::{past_records, read_record};
+use north_fleet_store::runtime::SESSION_ENV;
 use crate::hook_input::{HookInput, Verdict};
 
 pub const TIMER_TOOLS: [&str; 2] = ["ScheduleWakeup", "CronCreate"];
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     let session = std::env::var(SESSION_ENV).ok().filter(|session| !session.is_empty());
-    let Some(root) = session.as_ref().and_then(|_| crate::home::root_here().ok()) else {
+    let Some(root) = session.as_ref().and_then(|_| north_fleet_store::home::root_here().ok()) else {
         return Verdict::Allow;
     };
     match refusal(input, session.as_deref(), &root) {

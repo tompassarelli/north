@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::carry;
+use north_foundation::foundation::carry;
 use north_base::platform::session_scope;
 use north_base::store_pins;
 
@@ -94,7 +94,7 @@ mod tests {
         let fleet = root.path().join("fleet/n1");
         std::fs::create_dir_all(&fleet).unwrap();
         std::fs::write(north_base::platform::session_host_files::scope_path(&fleet), "north-session-lane-0e0e0e0e-n1.scope\n").unwrap();
-        std::fs::write(crate::fleet::records::record_file(&fleet), serde_json::json!({ "name": "n1", "cwd": lane }).to_string()).unwrap();
+        std::fs::write(north_fleet_supervisor::fleet::records::record_file(&fleet), serde_json::json!({ "name": "n1", "cwd": lane }).to_string()).unwrap();
         let host = Host { fleet: root.path().join("fleet"), code: vec![home.join("code")], home: home.clone(), environment: environment.clone(), cgroups: root.path().join("cgroup") };
         let lane_only = Peer::from(Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-lane-0e0e0e0e-n1.scope\n"));
         let ask = |plan: &Path, directory: &Path, peer: &Peer| named_file_readable(&["home".to_owned(), "move".to_owned(), plan.display().to_string()], directory, &environment, peer, &host);

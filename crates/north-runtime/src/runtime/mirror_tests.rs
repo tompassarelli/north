@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn an_accept_recorded_on_the_reviewers_host_counts_on_a_build_host_before_the_reviewer_is_told() {
-    use crate::platform::review_accept::{Accept, Accepts};
+    use north_base::platform::review_accept::{Accept, Accepts};
     let patch = "0123456789abcdef0123456789abcdef01234567";
     let (laptop, build) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let stamp = Stamp { host: "whiterabbit".into(), state: laptop.path().to_owned(), at: 1.0 };

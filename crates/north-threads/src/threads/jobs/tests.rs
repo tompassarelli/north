@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use super::run;
 use crate::threads::fake::Recorded;
 use crate::threads::verb::Context;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const SCHEMA: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;
 CREATE TABLE job_runs(name TEXT NOT NULL, host TEXT NOT NULL, started TEXT NOT NULL, finished TEXT, rc INTEGER, PRIMARY KEY(name, host, started)) STRICT;

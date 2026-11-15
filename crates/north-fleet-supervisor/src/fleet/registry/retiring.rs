@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use north_graph_loops::Retirement;
 use serde_json::json;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::forget;
 use crate::fleet::jobs::Lease;
 use crate::fleet::model::{Role, SessionRecord, Status};

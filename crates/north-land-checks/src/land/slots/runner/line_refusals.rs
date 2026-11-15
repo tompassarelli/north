@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use super::say;
-use north_base::foundation::offload::LAND_LINE_DEADLINE_SECONDS;
+use north_foundation::foundation::offload::LAND_LINE_DEADLINE_SECONDS;
 
 /// The longest one hold lasts once every build host's line has refused a run, before it asks again.
 const HOLD: Duration = Duration::from_secs(60);

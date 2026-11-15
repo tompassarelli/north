@@ -76,7 +76,7 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         let logged = fs::read_to_string(log.path()).unwrap_or_default();
         publication_notice(layout, target, unpublished.map(|status| (status, logged.as_str())), notify);
         refill_spares(&layout.runtime(target).join("north"));
-        return Ok(logged.lines().map(|line| crate::foundation::redact::redact(line) + "\n").collect());
+        return Ok(logged.lines().map(|line| north_foundation::foundation::redact::redact(line) + "\n").collect());
     };
     match previous {
         Some(previous) => swap_back(layout, previous)?,
@@ -168,12 +168,12 @@ pub(super) fn held_cause(logged: &str) -> String {
         .iter()
         .find(|line| line.starts_with("agents sync: ") && !line.contains("generation not published"))
         .or_else(|| lines[..unpublished?].last())
-        .map_or_else(|| "agents sync: the policy gate refused the generation".to_owned(), |line| crate::foundation::redact::redact(line))
+        .map_or_else(|| "agents sync: the policy gate refused the generation".to_owned(), |line| north_foundation::foundation::redact::redact(line))
 }
 
 fn log_tail(logged: &str) -> Vec<String> {
     let lines: Vec<&str> = logged.lines().filter(|line| !line.trim().is_empty()).collect();
-    lines[lines.len().saturating_sub(LOG_TAIL)..].iter().map(|line| crate::foundation::redact::redact(line)).collect()
+    lines[lines.len().saturating_sub(LOG_TAIL)..].iter().map(|line| north_foundation::foundation::redact::redact(line)).collect()
 }
 
 fn health_check(layout: &Layout) -> Command {

@@ -4,8 +4,8 @@ use super::issues::IssueRef;
 use super::scope::{Scope, provider_of};
 use super::slots::{Account, Charge, Pools};
 use super::tier::Route;
-use crate::pacing::placement::room::Rank;
-use crate::spend::{Refusal, Starter, View};
+use north_pacing::pacing::placement::room::Rank;
+use north_pace::spend::{Refusal, Starter, View};
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]

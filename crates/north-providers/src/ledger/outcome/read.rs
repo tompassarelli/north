@@ -7,10 +7,10 @@ use serde::Deserialize;
 
 use super::attention::{Bug, Correction, Typed, detector, messages};
 use super::{Landed, Outcome, Staffed, WEEK_S, Week, join, lines, weeks};
-use crate::foundation::clock::Timestamp;
-use crate::platform::run_roles::worker_where;
-use crate::router::pricing::PriceTable;
-use crate::threads::calibration::rework::{Rework, Sources};
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::run_roles::worker_where;
+use north_pace::router::pricing::PriceTable;
+use north_calibration::threads::calibration::rework::{Rework, Sources};
 
 pub const LOOKBACK_S: i64 = 3 * WEEK_S;
 
@@ -27,7 +27,7 @@ impl Places {
         let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
         Self {
             ledger: ledger.to_path_buf(),
-            convo: var("CONVO_STATE").unwrap_or_else(|| state.join("convo")).join(north_base::foundation::convo_index::FILE),
+            convo: var("CONVO_STATE").unwrap_or_else(|| state.join("convo")).join(north_foundation::foundation::convo_index::FILE),
             grounding: var("NORTH_GROUNDING_STATE").unwrap_or_else(|| state.join("north/grounding")).join("ledger.jsonl"),
             rework: Sources::live(),
         }

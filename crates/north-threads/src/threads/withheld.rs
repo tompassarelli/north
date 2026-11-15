@@ -2,7 +2,7 @@
 //! the last week or the time-gated label. `threads ready`, `threads unowned` and dispatch share it.
 use serde_json::Value as Json;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::staffing::branches::python_lines;
 
 const BLOCK_DAYS: i64 = 7;

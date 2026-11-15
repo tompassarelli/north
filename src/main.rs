@@ -5,10 +5,11 @@ mod run_time_readers_tests;
 use north_calibration::threads;
 use north_capacity_host::capacity;
 use north_agent_policy::{agent_catalog, agent_config_check, agent_policy_contract};
-use north_core::{
-    autoland_status, contract_probe, error, fleet, foundation, land_ticket,
-    grounding, platform::{self, entry_points::{self, EntryPoint}}, coordinator, router, run_time_data, usage,
-};
+use north_core::{contract_probe, grounding, coordinator};
+use north_base::{autoland_status, land_ticket, platform::{self, entry_points::{self, EntryPoint}}, run_time_data};
+use north_foundation::{error, foundation};
+use north_fleet_supervisor::{fleet};
+use north_pace::{router, usage};
 use north_health::health;
 use north_providers::{ledger, providers};
 use north_code_health::code_health;
@@ -16,14 +17,18 @@ use north_guard::{guard, hook, hook_input::Evidence, nix_explain};
 use north_lanes::lanes;
 use north_lander::land;
 use north_land_watch::watch;
-use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land_abandon, landing, language_gate, provenance};
+use north_landing::{landing};
+use north_diff_gates::{build_cache_gate, dep_gate, language_gate, provenance};
+use north_landing_gates::{follows_release, issue_box_lint, land_abandon};
 use north_github_mirror as github_mirror;
 use north_tui::tui;
 use north_ci::{ci_watch, private_check};
 use north_github_broker::gh_broker;
 use north_desktop::{agent_capture, private_desktop, warcraft_close, wc3_login_field};
 use north_runtime::{agent_contain, laptop_runner, runtime, worker_sandbox};
-use north_dispatch::{dispatch, laptop, pacing, resident_cap, spend};
+use north_dispatch::{dispatch};
+use north_pacing::{laptop, pacing, resident_cap};
+use north_pace::{spend};
 use north_tune::{loops, tune};
 use north_flow::{agents, experiments, flow, tempo, tool_mine};
 use north_convo::{context_audit, convo, policy_replay};

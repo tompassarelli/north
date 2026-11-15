@@ -5,10 +5,10 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::{Entry, base};
-use crate::platform::process::run_command_within;
+use north_base::platform::process::run_command_within;
 
 pub fn this_host() -> String {
-    let name = crate::platform::host::name();
+    let name = north_base::platform::host::name();
     if ["nexus", "gex45", "cpx62", "cpx62b"].contains(&name.as_str()) { name } else { "laptop".to_owned() }
 }
 

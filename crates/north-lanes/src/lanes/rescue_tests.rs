@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use super::rescue::{Finished, Rescue, apply_diff};
-use north_base::test_inputs::git::{git_in, init_repo};
+use north_foundation::test_inputs::git::{git_in, init_repo};
 
 struct Project {
     root: tempfile::TempDir,

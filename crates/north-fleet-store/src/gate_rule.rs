@@ -1,5 +1,5 @@
 use crate::ask_once;
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::gates::GateRequest;
 
 impl GateRequest {

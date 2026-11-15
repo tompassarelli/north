@@ -236,7 +236,7 @@ fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_cod
     assert_eq!(recorded(directory.path()), ["one", "two"]);
     let lock = directory.path().join("ingest.lock");
     let mut wrapper = std::process::Command::new("flock").arg("-o").arg(&lock).args(["sleep", "30"]).spawn().unwrap();
-    assert!(crate::platform::wait::until(Duration::from_secs(10), || ingest_lock::holder(&lock).is_some_and(|holder| holder.held >= Duration::from_secs(1))), "the wrapper never held the lock");
+    assert!(north_base::platform::wait::until(Duration::from_secs(10), || ingest_lock::holder(&lock).is_some_and(|holder| holder.held >= Duration::from_secs(1))), "the wrapper never held the lock");
     client.ingest_wait = Duration::from_millis(100);
     let mut err = Vec::new();
     assert_eq!(client.main(&["ingest".to_owned()], &mut &batch("three")[..], &mut err).unwrap(), ingest_lock::RETRY);

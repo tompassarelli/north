@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::{CHECKED, FLAG, lane_grant};
-use crate::capacity::gate::{class_of, compiles_rust};
+use north_capacity_host::capacity::gate::{class_of, compiles_rust};
 
 /// How long a check that compiles may wait for and hold its capacity lease: what the capacity gate gives a compile the session starts itself.
 const SECONDS: &str = "3600";

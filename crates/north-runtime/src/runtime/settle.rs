@@ -14,7 +14,7 @@ use super::follow;
 use super::probe::{self, Shell};
 use super::update;
 use north_offload::land_offload;
-use crate::platform::{host, process};
+use north_base::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
 use serde_json::json;
 use std::fs::{self, File};

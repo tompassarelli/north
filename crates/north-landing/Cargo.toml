@@ -29,6 +29,8 @@ tempfile.workspace = true
 time.workspace = true
 tokio.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [lints]
 workspace = true

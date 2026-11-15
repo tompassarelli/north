@@ -24,7 +24,7 @@ pub fn run_patiently(args: &[String], who: &str) -> Result<String, String> {
             let verb = args.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(" ");
             return Err(format!("gh {verb}: {}", err.trim()));
         }
-        let jitter = crate::foundation::clock::Timestamp::now().unix_seconds_f64().fract() * 0.4 + 0.8;
+        let jitter = north_foundation::foundation::clock::Timestamp::now().unix_seconds_f64().fract() * 0.4 + 0.8;
         let pause = delay * jitter;
         eprintln!("{who}: GitHub rate limit, waiting {pause:.0} s");
         std::thread::sleep(std::time::Duration::from_secs_f64(pause));

@@ -3,8 +3,8 @@
 //! launches hold, which `north fleet launch --task` refuses to staff twice.
 use super::issues::{self, IssueRef};
 use super::record;
-use crate::pacing::placement::{self, gate};
-use crate::platform::process::run_within;
+use north_pacing::pacing::placement::{self, gate};
+use north_base::platform::process::run_within;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -176,7 +176,7 @@ pub fn predicted_writes(sessions: &[(Session, String)]) -> BTreeMap<String, Vec<
 pub fn box_tally(sessions: &[(Session, String)]) -> record::BoxHolds {
     let mut held = record::BoxHolds::new();
     for (session, registry) in sessions {
-        let (Some(item), Some(slug)) = (session.items.first(), session.claim_box.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
+        let (Some(item), Some(slug)) = (session.items.first(), session.claim_box.as_deref().and_then(north_calibration::threads::claims::box_slug)) else { continue };
         held.entry(item.clone()).or_default().insert(slug, format!("fleet session {} on {registry}", session.name));
     }
     held
@@ -196,7 +196,7 @@ pub fn holder(task: &str, local: Value, notes: &mut Vec<String>) -> Option<(Issu
     if items.is_empty() {
         return None;
     }
-    let here = crate::platform::host::name();
+    let here = north_base::platform::host::name();
     let at = placement::now();
     let mut fleets = vec![(here.clone(), local)];
     let mut copies = BTreeMap::new();
@@ -279,7 +279,7 @@ const SHARED_SECONDS: f64 = 30.0;
 
 pub(super) fn shared_read(records: &Path, key: &str, read: impl FnOnce() -> Result<Value, String>) -> Result<Value, String> {
     let path = records.join(format!("{key}.json"));
-    let fresh = || crate::pacing::placement::now() - SHARED_SECONDS;
+    let fresh = || north_pacing::pacing::placement::now() - SHARED_SECONDS;
     if let Some(listing) = shared_listing(&path, fresh()) {
         return Ok(listing);
     }
@@ -293,7 +293,7 @@ pub(super) fn shared_read(records: &Path, key: &str, read: impl FnOnce() -> Resu
 }
 
 pub(super) fn record_shared(path: &Path, listing: &Value) {
-    let taken = crate::pacing::placement::now();
+    let taken = north_pacing::pacing::placement::now();
     let written = path.with_extension(format!("{}.part", std::process::id()));
     let _ = std::fs::write(&written, serde_json::json!({"at": taken, "listing": listing}).to_string()).and_then(|()| std::fs::rename(&written, path));
 }
@@ -315,7 +315,7 @@ pub fn refresh_shared(cfg: &DocumentMut, here: &str, command: &[&str], kind: &st
 fn shared_listing(path: &Path, since: f64) -> Option<Value> {
     let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
     let taken = recorded["at"].as_f64()?;
-    (taken >= since && taken <= crate::pacing::placement::now()).then(|| recorded["listing"].clone())
+    (taken >= since && taken <= north_pacing::pacing::placement::now()).then(|| recorded["listing"].clone())
 }
 
 fn turn(records: &Path, key: &str) -> Option<std::fs::File> {
@@ -440,8 +440,8 @@ pub fn every_fleet(cfg: &DocumentMut, here: &str, at: f64, limit: Duration) -> O
 
 /// Each account's working sessions and the worker sessions working across every registry, read within ten seconds; none when a
 /// registry does not answer.
-pub fn workers(cfg: &DocumentMut, here: &str, at: f64) -> Option<crate::pacing::Workers> {
+pub fn workers(cfg: &DocumentMut, here: &str, at: f64) -> Option<north_pacing::pacing::Workers> {
     let fleet = every_fleet(cfg, here, at, Duration::from_secs(10))?;
     let sessions: Vec<_> = fleet.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
-    Some(crate::pacing::Workers { by_account: working_by_account(&sessions), active: active_workers(&sessions) })
+    Some(north_pacing::pacing::Workers { by_account: working_by_account(&sessions), active: active_workers(&sessions) })
 }

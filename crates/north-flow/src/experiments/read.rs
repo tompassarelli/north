@@ -2,7 +2,7 @@
 //! over one window for the runs in an entry's scope, or one incident class's rows per 7 days.
 use super::registry::{Metric, Scope, Window};
 use super::verdict::Reading;
-use crate::ledger::outcome::{Outcome, cohorts};
+use north_providers::ledger::outcome::{Outcome, cohorts};
 
 const WEEK_DAYS: f64 = 7.0;
 

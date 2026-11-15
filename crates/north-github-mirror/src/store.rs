@@ -144,7 +144,7 @@ fn paged(repo: &str, query: &str, connection: &str) -> Result<Vec<Value>, String
         if let Some(after) = &after {
             args.extend(["-F", after]);
         }
-        let answer = crate::platform::github::json(&args)?;
+        let answer = north_base::platform::github::json(&args)?;
         let page = &answer["data"]["repository"][connection];
         let nodes = page["nodes"].as_array().filter(|_| answer.get("errors").is_none()).ok_or_else(|| format!("GitHub {connection} page for {repo} is incomplete"))?;
         found.extend(nodes.iter().cloned());

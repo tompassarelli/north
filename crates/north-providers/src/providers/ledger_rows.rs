@@ -5,8 +5,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 use crate::providers::claude::runs::landing::MainIndex;
 use crate::providers::claude::runs::telemetry::Prices;
 

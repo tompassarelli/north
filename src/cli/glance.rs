@@ -27,7 +27,7 @@ pub struct Snapshot {
     bars: Result<Vec<String>, String>,
     goals_red: Result<usize, String>,
     accounts: Result<Vec<outlook::AccountOutlook>, String>,
-    credit: Vec<north_core::credit::Standing>,
+    credit: Vec<north_pace::credit::Standing>,
     gates: Result<usize, String>,
 }
 
@@ -98,8 +98,8 @@ fn accounts(now: Timestamp) -> Result<Vec<outlook::AccountOutlook>, String> {
     outlook::claude_accounts(&db, &crate::platform::orchestration::path(), now)
 }
 
-fn credit(now: Timestamp) -> Vec<north_core::credit::Standing> {
-    north_core::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), now).orgs
+fn credit(now: Timestamp) -> Vec<north_pace::credit::Standing> {
+    north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), now).orgs
 }
 
 fn gates(now: Timestamp) -> Result<usize, String> {
@@ -138,8 +138,8 @@ fn span(minutes: f64) -> String {
     }
 }
 
-fn credit_left(orgs: &[north_core::credit::Standing]) -> String {
-    let open: Vec<&north_core::credit::Standing> = orgs.iter().filter(|org| !org.exhausted).collect();
+fn credit_left(orgs: &[north_pace::credit::Standing]) -> String {
+    let open: Vec<&north_pace::credit::Standing> = orgs.iter().filter(|org| !org.exhausted).collect();
     let left: f64 = open.iter().map(|org| org.left).sum();
     let mut text = match (orgs.len(), open.len()) {
         (0, _) => "no api credit".to_owned(),

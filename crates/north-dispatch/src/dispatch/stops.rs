@@ -8,8 +8,8 @@ use super::record::Record;
 use super::spin::{self, Evidence, Signal};
 use super::work::did_work;
 use super::tier::Rung;
-use crate::fleet::records::RetiredReport;
-use crate::platform::land_notice::Notice;
+use north_fleet_supervisor::fleet::records::RetiredReport;
+use north_base::platform::land_notice::Notice;
 use serde_json::Value;
 use std::collections::BTreeMap;
 

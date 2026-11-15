@@ -4,7 +4,7 @@ use super::brief::CLASSES;
 use super::lane::{git, north, Worktree};
 use super::super::sampling::{self, Kind, Verdict};
 use super::super::super::record;
-use crate::pacing::placement;
+use north_pacing::pacing::placement;
 use std::path::Path;
 
 /// `north fleet dispatch verdict --session NAME --category C --sha SHA --lane LANE [--effort medium|high] clean | defect CLASS`: a reviewer's

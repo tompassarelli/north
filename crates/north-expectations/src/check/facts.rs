@@ -1,7 +1,7 @@
 use super::expectations::Expectation;
-use crate::ledger;
-use crate::dispatch::launch_records;
-use crate::platform::process::run_within;
+use north_providers::ledger;
+use north_dispatch::dispatch::launch_records;
+use north_base::platform::process::run_within;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -40,7 +40,7 @@ impl Machine {
         Ok(((self.now() - at) / 60.0).max(0.0))
     }
 
-    fn launches(&self, expectation: &Expectation, counted: impl Fn(&crate::dispatch::LaunchRecord) -> bool) -> f64 {
+    fn launches(&self, expectation: &Expectation, counted: impl Fn(&north_dispatch::dispatch::LaunchRecord) -> bool) -> f64 {
         let since = self.now() - expectation.window_seconds;
         launch_records(&self.directory.join("dispatch")).iter().filter(|record| record.at >= since && counted(record)).count() as f64
     }
@@ -54,7 +54,7 @@ impl Machine {
     pub fn measure(&self, expectation: &Expectation) -> Result<f64, String> {
         match expectation.measure.as_str() {
             "cloud_launches" => Ok(self.launches(expectation, |record| record.launched && record.cloud)),
-            "launch_failures" => Ok(self.launches(expectation, crate::dispatch::LaunchRecord::failed)),
+            "launch_failures" => Ok(self.launches(expectation, north_dispatch::dispatch::LaunchRecord::failed)),
             "closed_boxes" => ledger::closed_report(&expectation.window).map(|report| report.closed as f64).map_err(|error| error.user_message()),
             "heartbeat_age_minutes" => self.heartbeat_age_minutes(expectation),
             other => Err(format!("no measure named {other}")),

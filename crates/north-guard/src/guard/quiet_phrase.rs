@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::capacity::mode::{self, Limits, strings};
+use north_capacity::capacity::mode::{self, Limits, strings};
 use crate::hook_input::{HookInput, Verdict};
 
 #[derive(Clone, Debug)]
@@ -126,7 +126,7 @@ pub fn decide(prompt: &str, table: &Table, limits: &Limits, dir: &Path, now: u64
 fn leased(dir: &Path, held: &mode::State, phrase: &str) -> Option<String> {
     mode::write(dir, held).ok()?;
     let hold = held.hold.as_ref()?;
-    let until = crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(hold.until).unwrap_or(i64::MAX)).local_twelve_hour();
+    let until = north_foundation::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(hold.until).unwrap_or(i64::MAX)).local_twelve_hour();
     Some(format!(
         "capacity mode: playtest lease from \"{phrase}\" until {until} (game CPUs reserved, native and gpu batch held, other agent work confined to the agent CPUs); it returns by itself, \"more\" adds {} min and \"done testing\" ends it now",
         hold.minutes
@@ -151,7 +151,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let teardown = || {
         let proc = Path::new("/proc");
         let grace = Duration::from_secs(mode::number("capacity_teardown_grace_sec") as u64);
-        crate::capacity::teardown::run(proc, &crate::capacity::teardown::Names::bundled(), &mut crate::capacity::teardown::Live { proc }, grace)
+        north_capacity::capacity::teardown::run(proc, &north_capacity::capacity::teardown::Names::bundled(), &mut north_capacity::capacity::teardown::Live { proc }, grace)
     };
     decide(prompt, &Table::bundled(), &Limits::bundled(), &mode::state_dir(), mode::now(), teardown).map_or(Verdict::Allow, Verdict::Advise)
 }

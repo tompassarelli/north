@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use sha2::{Digest, Sha256};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::attachments;
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::attachments;
 
 use super::clipboard::{ClipImage, Clipboard};
 
@@ -17,7 +17,7 @@ pub struct Attachments {
 
 impl Attachments {
     pub fn system() -> Self {
-        let root = crate::fleet::registry::root_here().unwrap_or_else(|_| std::env::temp_dir().join("north-fleet"));
+        let root = north_fleet_supervisor::fleet::registry::root_here().unwrap_or_else(|_| std::env::temp_dir().join("north-fleet"));
         Self::new(root.join(attachments::DIR))
     }
 

@@ -1,6 +1,6 @@
-use crate::claude_only::DEEPSEEK_PROVIDERS;
+use north_fleet_store::claude_only::DEEPSEEK_PROVIDERS;
 use crate::hook_input::{HookInput, Verdict};
-use crate::shell::{blank_quotes, strip_heredocs};
+use north_base::shell::{blank_quotes, strip_heredocs};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -26,7 +26,7 @@ fn refuses<'a>(text: &'a str, pattern: &Regex) -> Option<&'a str> {
 /// The tool a command runs in command position that no agent may start itself: a non-Claude model as a reviewer, or
 /// opencode or pi outside the launcher that owns them.
 pub(super) fn refused_tool(command: &str) -> Option<String> {
-    if let Some(tool) = crate::shell::started(command, &DEEPSEEK_PROVIDERS) {
+    if let Some(tool) = north_base::shell::started(command, &DEEPSEEK_PROVIDERS) {
         return Some(tool);
     }
     let text = strip_heredocs(command);

@@ -202,7 +202,7 @@ fn first_sentence(text: &str) -> &str {
 }
 
 fn blank(text: &str) -> String {
-    crate::foundation::cause::key(text)
+    north_foundation::foundation::cause::key(text)
 }
 
 #[cfg(test)]

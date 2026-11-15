@@ -19,7 +19,7 @@ impl State {
     pub(super) fn from_env() -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         let root = std::env::var_os("XDG_STATE_HOME").filter(|root| !root.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from);
-        Self { root, home, graph: north_graph_loops::graph_path() }
+        Self { root, home, graph: north_graph::default_path() }
     }
 
     pub(super) fn repo_name(&self, repo: &Path) -> String {

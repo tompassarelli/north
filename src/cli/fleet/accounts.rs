@@ -20,7 +20,7 @@ fn reading(account: &str, usd: &str) -> NorthResult<()> {
     let usd: f64 = usd.trim_start_matches('$').parse().map_err(|_| NorthError::Usage(format!("{usd} is not a dollar amount")))?;
     let (home, _) = places();
     let state = home.join(".local/state");
-    let line = north_core::credit::readings::record_console(&policy(), &state, account, usd, Timestamp::now().unix_seconds()).map_err(NorthError::State)?;
+    let line = north_pace::credit::readings::record_console(&policy(), &state, account, usd, Timestamp::now().unix_seconds()).map_err(NorthError::State)?;
     println!("{line}; the reading is kept in {}", state.join("north/api-readings").display());
     Ok(())
 }

@@ -9,7 +9,7 @@ mod safe_push;
 mod transfer;
 
 use crate::hook_input::{HookInput, Verdict};
-use crate::shell::{tripwire_tokens, tripwire_word};
+use north_base::shell::{tripwire_tokens, tripwire_word};
 use regex::Regex;
 use std::collections::BTreeMap;
 
@@ -168,7 +168,7 @@ impl<'a> State<'a> {
                 .iter()
                 .any(|s| cmd.contains(s)),
             hold,
-            deadline: crate::autoland_status::hook_deadline(),
+            deadline: north_base::autoland_status::hook_deadline(),
         }
     }
     fn expand(&self, text: &str) -> String {
@@ -322,7 +322,7 @@ fn pushed(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Opti
 }
 
 pub fn check(input: &HookInput) -> Verdict {
-    decide(input, &env, &crate::autoland_status::origin_branches_hold)
+    decide(input, &env, &north_base::autoland_status::origin_branches_hold)
 }
 
 pub(crate) fn decide(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Verdict {

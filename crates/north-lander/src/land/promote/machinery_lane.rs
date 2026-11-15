@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use super::{Repository, Runtime, base_of, readable, recorded, run_replay};
 use crate::land::candidate::git;
 use crate::land::replay::{self, Replayed};
-use crate::landing::red_check::Failure;
-use north_base::foundation::exit::NO_VERDICT;
+use north_landing::landing::red_check::Failure;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_base::platform::land_queue::ROUND;
 use north_base::platform::trust_boundary;
 

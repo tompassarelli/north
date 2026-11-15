@@ -7,11 +7,11 @@ use std::path::Path;
 
 use super::Fleet;
 use super::stopping::Halt;
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Delivery, Phase, Role, SessionRecord};
 use crate::fleet::runtime::COORDINATOR;
 use crate::fleet::sender::Sender;
-use crate::spend::hold::{self, Hold};
+use north_pace::spend::hold::{self, Hold};
 
 /// What the policy declares of the accounts a start may not draw: the operational reserve's labels as a session records them (`api:ORG` or a plan label), and the owner's hold on every API organization.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -30,7 +30,7 @@ impl Reserve {
 /// What the policy at `policy` declares; a policy that cannot be read holds every API organization.
 pub fn declared(policy: &Path) -> Reserve {
     match hold::read(policy) {
-        Ok(document) => Reserve { labels: crate::spend::operational::declared(&document), held: hold::declared(&document) },
+        Ok(document) => Reserve { labels: north_pace::spend::operational::declared(&document), held: hold::declared(&document) },
         Err(held) => Reserve { labels: Vec::new(), held: Some(held) },
     }
 }
@@ -46,7 +46,7 @@ pub fn refusal(reserve: &Reserve, account: &Account, role: Role, parent: Option<
     if let Some(held) = reserve.held.as_ref().filter(|_| account.api.is_some() || hold::api(&resolved)) {
         return Some(held.line(&resolved));
     }
-    if account.api.is_none() && account.provider.label() == "claude" && let Some(why) = crate::spend::billing::settings_refusal(&account.home) {
+    if account.api.is_none() && account.provider.label() == "claude" && let Some(why) = north_pace::spend::billing::settings_refusal(&account.home) {
         return Some(format!("{resolved} is refused: {why}"));
     }
     (caller.is_none() && kept_off(role, parent) && reserve.labels.iter().any(|held| *held == resolved || *held == account.label))

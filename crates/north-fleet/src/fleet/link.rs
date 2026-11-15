@@ -17,11 +17,11 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::hops::{self, Hop, Span};
 use super::runtime::{binary, now_ms};
-use north_base::foundation::exit::TRANSPORT_FAILED_STATUS;
+use north_foundation::foundation::exit::TRANSPORT_FAILED_STATUS;
 pub use north_fleet_store::ssh::quote;
 
 const USAGE: &str = "Usage: north session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND --session NAME --trace FILE";

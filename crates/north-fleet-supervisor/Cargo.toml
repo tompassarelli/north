@@ -23,6 +23,9 @@ serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-pace = { path = "../north-pace" }
+
 
 [features]
 test-support = ["north-fleet/test-support"]

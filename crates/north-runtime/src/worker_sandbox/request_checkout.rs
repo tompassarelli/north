@@ -75,7 +75,7 @@ pub(super) struct Slots {
 
 impl Slots {
     pub(super) fn of(environment: &[(String, String)], home: &Path) -> Self {
-        use north_base::foundation::offload::{ROOT_DEFAULT, ROOT_ENV, SLOT_RECORDS};
+        use north_foundation::foundation::offload::{ROOT_DEFAULT, ROOT_ENV, SLOT_RECORDS};
         let root = environment.iter().find(|(name, value)| name == ROOT_ENV && !value.is_empty()).map_or_else(|| home.join(ROOT_DEFAULT), |(_, root)| PathBuf::from(root));
         Self { root, records: home.join(SLOT_RECORDS), home: home.to_owned() }
     }

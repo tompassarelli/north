@@ -5,9 +5,9 @@ use std::path::Path;
 
 use crate::detectors::{machine_fix, machine_refusal};
 use crate::flow::{Host, SSH, remote_hosts};
-use crate::health::flows::facts;
-use crate::health::flows::probe::REMOTE_FACTS;
-use crate::health::flows::{HostFacts, Lifecycles};
+use north_health::health::flows::facts;
+use north_health::health::flows::probe::REMOTE_FACTS;
+use north_health::health::flows::{HostFacts, Lifecycles};
 
 use super::{Gatherer, owner_line};
 
@@ -24,9 +24,9 @@ impl Gatherer<'_> {
     }
 
     pub fn machine_refusals(&self) -> machine_refusal::Facts {
-        let here = crate::platform::host::name();
+        let here = north_base::platform::host::name();
         let local = (here.clone(), facts::lifecycles(&self.places.home));
-        let remote = remote_lifecycles(self.host, &crate::platform::orchestration::path(), &here);
+        let remote = remote_lifecycles(self.host, &north_base::platform::orchestration::path(), &here);
         let faults = std::iter::once(local).chain(remote).flat_map(|(host, lifecycles)| host_faults(host, lifecycles)).collect();
         machine_refusal::Facts { owner: self.machine_owner(), faults }
     }

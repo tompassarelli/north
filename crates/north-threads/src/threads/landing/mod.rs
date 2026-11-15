@@ -7,7 +7,7 @@ use rusqlite::{Connection, params};
 
 use super::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 use super::catalog::CATALOG;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const VERBS: [&str; 1] = ["land-train"];
 

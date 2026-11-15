@@ -20,6 +20,12 @@ sha2.workspace = true
 tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
+north-diff-gates = { path = "../north-diff-gates" }
+north-foundation = { path = "../north-foundation" }
+north-landing = { path = "../north-landing" }
+north-graph = { path = "../north-graph" }
+
+
 
 [lints]
 workspace = true

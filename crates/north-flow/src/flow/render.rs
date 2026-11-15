@@ -2,8 +2,8 @@
 use serde_json::Value;
 
 use super::host::iso;
-use crate::router::choose::missed_target;
-use crate::router::moment::compact_number;
+use north_pace::router::choose::missed_target;
+use north_pace::router::moment::compact_number;
 
 fn plain(value: &Value) -> String {
     value.as_str().map_or_else(|| value.to_string(), str::to_owned)

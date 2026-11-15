@@ -3,7 +3,7 @@
 
 use super::done::{mark, Done, Found};
 use super::super::super::record;
-use crate::pacing::placement;
+use north_pacing::pacing::placement;
 use std::process::Command;
 
 /// The `north` words of the review job for `done`.

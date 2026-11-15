@@ -116,7 +116,7 @@ impl Ticket {
     }
 }
 
-pub use crate::platform::land_queue::{DECIDED, OUTBOX, confined, directory, key, slug};
+pub use north_base::platform::land_queue::{DECIDED, OUTBOX, confined, directory, key, slug};
 
 pub const QUARANTINE: &str = "quarantine";
 pub const ASKS: &str = "asks";

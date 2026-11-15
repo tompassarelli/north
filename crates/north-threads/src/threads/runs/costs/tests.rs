@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::platform::usage_table;
+use north_base::platform::usage_table;
 
 fn ledger() -> Connection {
     let db = Connection::open_in_memory().unwrap();

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_base::foundation::main_run_verdict::{judge, kept};
+use north_foundation::foundation::main_run_verdict::{judge, kept};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -176,7 +176,7 @@ fn mark_environment_failures(runs: &mut [Run], slug: &str) {
             newest.insert(run.name.clone(), index);
         }
     }
-    let timings = crate::landing::check_timings::Timings::standard();
+    let timings = north_landing_gates::landing::check_timings::Timings::standard();
     for index in newest.into_values() {
         runs[index].unjudged = timings.buck2_unjudged(&runs[index].head_sha, runs[index].id) || buck2_not_judged(runs, index, slug);
         let jobs = output("gh", None, &["api", &format!("repos/{slug}/actions/runs/{}/jobs?per_page=100", runs[index].id)]);
@@ -263,7 +263,7 @@ pub fn mark_stale_bases(events: &mut [Event], checkout: impl Fn(&str) -> PathBuf
 }
 
 pub fn failing_tests(log: &str) -> Vec<String> {
-    crate::landing::red_check::failures(log).iter().map(|failure| failure.label().to_owned()).collect()
+    north_landing_gates::landing::red_check::failures(log).iter().map(|failure| failure.label().to_owned()).collect()
 }
 
 pub fn parse_stages(text: &str) -> Vec<StageSample> {

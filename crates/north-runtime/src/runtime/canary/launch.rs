@@ -1,7 +1,7 @@
 use north_runtime_records::failure::{DEFERRED, Failure, failed};
-use crate::platform::process;
-use north_providers::threads::{client, schema, verb::Failure as LedgerFailure};
-use crate::providers::opencode::Shared;
+use north_base::platform::process;
+use north_calibration::threads::{client, schema, verb::Failure as LedgerFailure};
+use north_providers::providers::opencode::Shared;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::io::Read;
@@ -78,7 +78,7 @@ fn published() -> Option<String> {
 
 /// OpenCode and Pi get the policy appended to their first turn by `deliver`, from the generation `NORTH_AGENT_STATE_ROOT` names, so their probe plants a fresh token in a scratch generation holding the published policy and asks for the token back. Claude reads the policy from its profile, which a probe must not touch, so its probe names the opening of one sentence of the published policy and asks for the whole sentence, which no worker completes from its own instructions: on 2026-11-13 a Pi worker asked for any heading of the policy answered "Evidence", a heading of the fleet's worker instructions, and runtime df343034 was rolled back on the laptop.
 pub(super) fn evidence(provider: &str, published: Option<String>, scratch: &Path) -> Result<(Evidence, Option<PathBuf>), Failure> {
-    if crate::providers::harness_named(provider).is_none() {
+    if north_providers::providers::harness_named(provider).is_none() {
         let quoted = published.as_deref().and_then(quoted);
         return Ok((quoted.map_or(Evidence::Nothing, |(opening, sentence)| Evidence::Sentence { opening, whole: vec![sentence] }), None));
     }

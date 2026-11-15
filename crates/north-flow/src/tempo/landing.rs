@@ -4,7 +4,7 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const WINDOW: f64 = 86_400.0;
 const DAY: i64 = 86_400;

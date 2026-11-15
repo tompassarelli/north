@@ -1,4 +1,4 @@
-use north_base::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 
 use super::super::arguments::{Environment, off_host};
 use super::super::line_refusals::Refusals;

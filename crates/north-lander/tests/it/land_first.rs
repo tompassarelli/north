@@ -33,7 +33,7 @@ exit 1
 
 pub(super) fn checker(world: &World) -> std::path::PathBuf {
     let path = world.path().join("bin/checker");
-    north_base::foundation::shim::write_executable(&path, COUNTED);
+    north_foundation::foundation::shim::write_executable(&path, COUNTED);
     world.path().join("bin/checker.calls")
 }
 
@@ -83,7 +83,7 @@ fn three_queued_lanes_land_in_one_push_with_no_check_of_their_merged_tree_before
 fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts_exactly_the_culprits() {
     let world = World::new();
     let north = world.repository("north");
-    north_base::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
+    north_foundation::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
     north.lane_with("bad-plan", "origin/main", ("bad.txt", "bad\n"), ("bad-plan (north#360)", None));
     for branch in ["a", "b", "c", "d", "e", "f"] {
         north.lane(branch);
@@ -114,7 +114,7 @@ fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts
 fn a_one_lane_batch_is_blamed_only_on_a_rerun_of_its_prefix() {
     let world = World::new();
     let north = world.repository("north");
-    north_base::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
+    north_foundation::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
     north.lane_with("flaky", "origin/main", ("flaky.txt", "flaky\n"), ("flaky (north#1257)", None));
     let journal = serve(&world, &north);
     assert!(!subjects(&north).iter().any(|subject| subject == "Revert flaky (north#1257)"), "a one-lane batch its rerun did not reproduce was blamed: {journal}");
@@ -123,7 +123,7 @@ fn a_one_lane_batch_is_blamed_only_on_a_rerun_of_its_prefix() {
 
     let world = World::new();
     let north = world.repository("north");
-    north_base::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
+    north_foundation::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
     north.lane_with("bad-plan", "origin/main", ("bad.txt", "bad\n"), ("bad-plan (north#360)", None));
     let journal = serve(&world, &north);
     assert!(subjects(&north).iter().any(|subject| subject == "Revert bad-plan (north#360)"), "a one-lane batch its rerun reproduced was not blamed: {journal}");
@@ -149,7 +149,7 @@ fn wait_for(what: &str, ready: impl FnMut() -> bool) {
 fn the_after_landing_run_offloads_to_a_build_host() {
     let world = World::new();
     let north = world.repository("north");
-    north_base::foundation::shim::write_executable(&world.path().join("bin/north"), HELD_AFTER_RUNNER);
+    north_foundation::foundation::shim::write_executable(&world.path().join("bin/north"), HELD_AFTER_RUNNER);
     let calls_file = checker(&world);
     let recorded = world.path().join("bin/north.argv");
     north.lane("first");
@@ -228,13 +228,13 @@ fn a_lane_whose_private_kind_judge_exits_75_is_queued_without_an_alone_pass_and_
     let world = World::new();
     let north = world.repository("north");
     let bin = world.path().join("bin");
-    north_base::foundation::shim::write_executable(&bin.join("judge"), JUDGE_OUT_ONCE);
-    north_base::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
-    north_base::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
+    north_foundation::foundation::shim::write_executable(&bin.join("judge"), JUDGE_OUT_ONCE);
+    north_foundation::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
+    north_foundation::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
     fs::write(world.path().join("denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
     fs::write(world.path().join("private-kinds.toml"), "[[kind]]\nid = \"address\"\n").unwrap();
     let checker = format!("#!/bin/sh\n{} || exit $?\necho 'safe-push: verdict green'\n", bin.join("judge").display());
-    north_base::foundation::shim::write_executable(&bin.join("checker"), &checker);
+    north_foundation::foundation::shim::write_executable(&bin.join("checker"), &checker);
 
     let lane = north.checkout.parent().unwrap().join("worktrees").join("prose");
     git(&north.checkout, &["worktree", "add", "-q", "-b", "prose", lane.to_str().unwrap(), "origin/main"]);
@@ -267,9 +267,9 @@ fn a_lane_whose_private_kind_judge_is_still_asking_is_queued_at_once_and_the_lan
     let release = Release(world.path().join("judge-release"));
     let north = world.repository("north");
     let bin = world.path().join("bin");
-    north_base::foundation::shim::write_executable(&bin.join("judge"), JUDGE_ASKS_A_MODEL_ONCE_A_TEXT);
-    north_base::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
-    north_base::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
+    north_foundation::foundation::shim::write_executable(&bin.join("judge"), JUDGE_ASKS_A_MODEL_ONCE_A_TEXT);
+    north_foundation::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
+    north_foundation::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
     fs::write(world.path().join("denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
     fs::write(world.path().join("private-kinds.toml"), "[[kind]]\nid = \"address\"\n").unwrap();
     checker(&world);

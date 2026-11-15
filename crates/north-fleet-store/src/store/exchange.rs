@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use rusqlite::{Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-use crate::error::NorthResult;
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::Timestamp;
 
 use super::schema::sql;
 use super::waits::{self, WaitKey, WaitRow};

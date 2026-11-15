@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::Fleet;
 use super::stopping::Halt;
@@ -191,7 +191,7 @@ mod tests {
 
     use serde_json::Value;
 
-    use crate::error::NorthError;
+    use north_foundation::error::NorthError;
     use crate::fleet::fakes::{Paper, Stream};
     use crate::fleet::model::{Account, LaunchRequest, ProviderName, Quota, Role, Transcript};
     use crate::fleet::roster::Roster;

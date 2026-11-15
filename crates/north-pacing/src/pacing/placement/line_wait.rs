@@ -11,7 +11,7 @@ const BAR: &str = "launch_line_wait_s";
 pub(super) const ASK: &str = ".local/state/north/current/tree/bin/north capacity offload line wait --rank 2 2>&1";
 
 fn setting(name: &str) -> Option<i64> {
-    crate::platform::harness::document(crate::platform::harness::DEFAULTS)[name]["value"].as_integer()
+    north_base::platform::harness::document(north_base::platform::harness::DEFAULTS)[name]["value"].as_integer()
 }
 
 pub fn enabled() -> bool {

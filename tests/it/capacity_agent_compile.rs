@@ -17,7 +17,7 @@ fn host() -> Host {
     fs::write(host.path("self-cgroup"), "0::/user.slice/user-1000.slice/session-1.scope\n").unwrap();
     let marker = host.path("compiled-here");
     let real = format!("#!/bin/sh\necho \"$@\" >>{}\n", marker.display());
-    north_core::foundation::shim::write_executable(&host.path("real/cargo"), &real);
+    north_foundation::foundation::shim::write_executable(&host.path("real/cargo"), &real);
     host
 }
 
@@ -126,7 +126,7 @@ fn refused_inside_depbox(host: &Host) {
 
 fn refused_through_the_hook(host: &Host) {
     for program in ["rustc", "cargo-nextest"] {
-        north_core::foundation::shim::write_executable(&host.path(&format!("real/{program}")), format!("#!/bin/sh\necho {program} \"$@\" >>{}\n", host.path("compiled-here").display()));
+        north_foundation::foundation::shim::write_executable(&host.path(&format!("real/{program}")), format!("#!/bin/sh\necho {program} \"$@\" >>{}\n", host.path("compiled-here").display()));
     }
     fs::write(host.path("activation.active"), "hook heavy-command-guard\n").unwrap();
     for typed in ["rustc src/main.rs -o main", "cargo-nextest nextest run"] {

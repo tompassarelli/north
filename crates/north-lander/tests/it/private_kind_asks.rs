@@ -10,9 +10,9 @@ fn three_lanes_handed_in_together_land_while_one_of_them_still_waits_for_its_pri
     let world = World::new();
     let north = world.repository("north");
     let bin = world.path().join("bin");
-    north_base::foundation::shim::write_executable(&bin.join("judge"), JUDGE_HOLDS_ONE_LANE);
-    north_base::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
-    north_base::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
+    north_foundation::foundation::shim::write_executable(&bin.join("judge"), JUDGE_HOLDS_ONE_LANE);
+    north_foundation::foundation::shim::write_executable(&bin.join("betterleaks"), NO_SECRETS);
+    north_foundation::foundation::shim::write_executable(&bin.join("gh"), PUBLIC_REPO);
     fs::write(world.path().join("denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
     fs::write(world.path().join("private-kinds.toml"), "[[kind]]\nid = \"address\"\n").unwrap();
     checker(&world);

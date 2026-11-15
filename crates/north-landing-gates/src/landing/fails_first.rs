@@ -9,7 +9,7 @@ use regex::Regex;
 
 use north_mutants::env::{Env, Lease, Stop, git_bytes, git_text};
 use north_mutants::trees::{self, RunDir};
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north land fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
 pub const MARK: &str = "Behavior: unchanged";

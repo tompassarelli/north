@@ -1,6 +1,6 @@
 use north_runtime_records::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, Layout};
-use crate::capacity::game_reserve::Confinement;
+use north_capacity_host::capacity::game_reserve::Confinement;
 use north_build_system::{Build, Profile, Resolution, Shell};
 use std::fs::{self, File};
 use std::io;

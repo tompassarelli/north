@@ -31,7 +31,7 @@ pub(super) fn print(survey: &Survey, dry_run: bool) {
 }
 
 fn cells(survey: &Survey) {
-    for category in crate::router::brief::CATEGORIES {
+    for category in north_pace::router::brief::CATEGORIES {
         let seed = super::tier::seed_cell(category);
         let outcomes = survey.ledger.get(category).map(|evidence| &evidence.cell_boxes).cloned().unwrap_or_default();
         let live = cells::live(category, seed, &outcomes);

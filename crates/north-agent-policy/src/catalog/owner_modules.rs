@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::paths::repo_root;
 use super::{configuration, string_field};

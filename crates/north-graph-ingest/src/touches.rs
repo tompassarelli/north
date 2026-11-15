@@ -12,7 +12,7 @@ const WINDOW_DAYS: u64 = 30;
 const COMMIT_MARK: &str = "\u{1e}";
 
 pub fn read(places: &Places) -> Result<Telling, String> {
-    let now_ms = north_base::foundation::clock::Timestamp::now().unix_seconds_f64() as u64 * 1_000;
+    let now_ms = north_foundation::foundation::clock::Timestamp::now().unix_seconds_f64() as u64 * 1_000;
     let from_ms = now_ms.saturating_sub(WINDOW_DAYS * 86_400_000);
     let mut landed: HashMap<String, HashSet<String>> = HashMap::new();
     for push in north_fleet::fleet::landings::pushes(&places.pushes).into_iter().filter(|push| !push.landed.is_empty() && push.at_ms >= from_ms) {

@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use north_pace::credit::Grant;
-use north_pace::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_pace::router::pricing::{PriceTable, TokenUse};
 use serde::Deserialize;
 use serde_json::Value;

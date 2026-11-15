@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::foundation::clock::parse_day_number;
+use north_foundation::foundation::clock::parse_day_number;
 
 use super::log::Read;
 

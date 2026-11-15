@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::Account;
-use crate::fleet::runtime::{LiveWindow, WindowInbox};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::model::Account;
+use north_fleet_supervisor::fleet::runtime::{LiveWindow, WindowInbox};
 
 const SESSIONS: &str = "sessions";
 const DEADLINE: Duration = Duration::from_secs(5);

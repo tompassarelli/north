@@ -4,7 +4,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use north_base::platform::harness;
 
 use super::paths::{operator_catalog_path, owner_path, repo_root};

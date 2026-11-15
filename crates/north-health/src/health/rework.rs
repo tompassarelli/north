@@ -4,7 +4,7 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags};
 
 use super::Verdict;
-use crate::threads::calibration::rework::{Rework, Sources, alarm_pct};
+use north_calibration::threads::calibration::rework::{Rework, Sources, alarm_pct};
 
 const WEEK_S: i64 = 7 * 86_400;
 

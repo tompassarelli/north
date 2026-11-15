@@ -6,7 +6,7 @@ use std::path::Path;
 
 use super::graph_selection::Away;
 use super::verdict_key::lane_environment;
-use crate::platform::north_binary::land_north;
+use north_base::platform::north_binary::land_north;
 
 const USAGE: &str = "north land selection --host HOST --base BASE --head HEAD -- COMMAND";
 

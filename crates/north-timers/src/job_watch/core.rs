@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) const GRACE: i64 = 30 * 60;
 pub(super) const REPEAT: f64 = 24.0 * 3600.0;

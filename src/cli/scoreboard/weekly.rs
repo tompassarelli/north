@@ -122,13 +122,13 @@ fn write(relative: &str, text: &str) -> Result<(), String> {
 pub fn record(sources: &Sources, now: i64) -> Result<(Record, Weekly), String> {
     let report = measure(sources, now)?;
     let record = Record::of(&report.measures, now);
-    scoreboard::tell(&north_graph_loops::graph_path(), &record.readings(), now)?;
+    scoreboard::tell(&north_graph::default_path(), &record.readings(), now)?;
     write(SCORE, &format!("{}\n", record.score()))?;
     Ok((record, report))
 }
 
 fn stored() -> Result<Option<Record>, String> {
-    let graph = north_graph_loops::graph_path();
+    let graph = north_graph::default_path();
     if !graph.exists() {
         return Ok(None);
     }

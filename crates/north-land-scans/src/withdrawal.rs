@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::platform::{land_queue, records_mirror};
+use north_base::platform::{land_queue, records_mirror};
 use serde_json::{Value, json};
 
 use super::git;

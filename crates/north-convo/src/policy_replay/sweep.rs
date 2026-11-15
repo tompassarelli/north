@@ -14,9 +14,9 @@ use super::pyfmt::float_repr;
 use super::rows::{RunRow, summary, variant_row};
 use super::run::{Item, Pick, run_plan, run_row, state_dir};
 use super::stats::operating_point;
-use crate::error::NorthError;
-use crate::foundation::clock::Timestamp;
-use crate::platform::pystats::wilson;
+use north_foundation::error::NorthError;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::pystats::wilson;
 
 pub struct Common {
     pub scenarios: Vec<PathBuf>,

@@ -35,7 +35,7 @@ fn an_agent_build_path_reads_no_credential_reaches_no_network_and_refuses_a_remo
     assert!(Command::new("git").args(["init", "-q"]).current_dir(&crate_dir).status().unwrap().success());
     let shims = home.join(".cargo/bin");
     link(Path::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), &shims.join("north"));
-    north_core::foundation::shim::copy_executable(crate::support::manifest_dir().join("bin/cargo"), shims.join("cargo"));
+    north_foundation::foundation::shim::copy_executable(crate::support::manifest_dir().join("bin/cargo"), shims.join("cargo"));
     if let Some(rustup) = std::env::var_os("HOME").map(|real| Path::new(&real).join(".rustup")).filter(|rustup| rustup.exists()) {
         link(&rustup, &home.join(".rustup"));
     }
@@ -58,7 +58,7 @@ fn an_agent_build_path_reads_no_credential_reaches_no_network_and_refuses_a_remo
     let fake = crate_dir.join("fake-bin");
     fs::create_dir_all(&fake).unwrap();
     let ran = crate_dir.join("buck2-ran");
-    north_core::foundation::shim::write_script(&fake.join("buck2"), &format!("echo \"$*\" >>'{}'\n", ran.display()));
+    north_foundation::foundation::shim::write_script(&fake.join("buck2"), &format!("echo \"$*\" >>'{}'\n", ran.display()));
     let land_shell = crate::support::manifest_dir().join("bin/land-shell");
     let land = |words: &[&str]| {
         Command::new(&land_shell)

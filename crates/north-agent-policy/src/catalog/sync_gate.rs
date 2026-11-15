@@ -2,7 +2,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_base::error::NorthResult;
+use north_foundation::error::NorthResult;
 use north_base::platform::{git, harness, shared_config};
 
 use super::{home, operator_dir, repo_root};
@@ -55,7 +55,7 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
             say(format!("agents sync: {line}; its goals are read from the checkout as it stands"));
         }
     }
-    let harness = harness::harness_root().map_err(north_base::error::NorthError::Configuration)?;
+    let harness = harness::harness_root().map_err(north_foundation::error::NorthError::Configuration)?;
     if !policy_gate(&nixos_config, &operator) {
         eprintln!("{NOT_PUBLISHED}; the last published generation stays live");
         return Ok(north_base::agents_sync::POLICY_HELD);

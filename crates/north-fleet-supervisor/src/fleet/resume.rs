@@ -2,7 +2,7 @@ use std::time::UNIX_EPOCH;
 
 use north_base::platform::attribution::Cause;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::model::{Delivery, Phase, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::sender::Sender;

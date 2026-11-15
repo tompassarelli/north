@@ -1,4 +1,4 @@
-use crate::threads::catalog::CATALOG;
+use north_calibration::threads::catalog::CATALOG;
 
 use super::{Grants, Jobs, Plan, Refusal};
 

@@ -214,7 +214,7 @@ fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
 
 fn await_aperture() -> io::Result<Option<u8>> {
     use north_capacity_host::capacity::desktop_aperture::DesktopAperture;
-    let margin = north_dispatch::pacing::placement::local_bar1_margin_mib();
+    let margin = north_pacing::pacing::placement::local_bar1_margin_mib();
     let deadline = Instant::now() + ADMISSION_WAIT;
     let mut said = String::new();
     loop {

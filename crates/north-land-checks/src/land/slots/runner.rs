@@ -51,10 +51,10 @@ pub use spawn::{confined_step, under_capacity};
 pub use stop::{STOPPED, Stop};
 pub use steps::taken as queue_steps;
 pub use steps::{LINE_WAIT, SANDBOX_START, Window, windows as queue_windows};
-use crate::platform::north_binary::land_north;
+use north_base::platform::north_binary::land_north;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
-use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
+use north_foundation::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
 
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const BASE_FAILS: &str = "and also fails on base tree";

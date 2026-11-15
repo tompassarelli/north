@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use north_base::platform::entry_points;
 
 use super::{Range, git, peer_invocations, stranded_boxes};
-use crate::platform::records_mirror;
+use north_base::platform::records_mirror;
 
 const CORE_TOOLS: [&str; 2] = ["agents", "threads"];
 

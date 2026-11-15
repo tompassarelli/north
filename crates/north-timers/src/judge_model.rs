@@ -51,16 +51,16 @@ fn first_answer<'a>(judges: &[Judge<'a>]) -> Result<(String, &'a str), String> {
 
 /// Asks `model` on each api organization the pool would launch on, soonest-expiring credit first; under the owner's API hold it is refused before any key is read.
 fn ask_api_pool(model: &Model, prompt: &str) -> Result<String, String> {
-    if let Some(held) = crate::spend::hold::at(&crate::platform::orchestration::path()) {
+    if let Some(held) = north_pace::spend::hold::at(&north_base::platform::orchestration::path()) {
         return Err(held.line("api"));
     }
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let state = home.join(".local/state/north");
     let profile = std::env::var_os("NORTH_PROFILES").map_or_else(|| state.join("profiles"), PathBuf::from).join("claude-api");
-    let (policy, here) = (crate::platform::orchestration::path(), crate::platform::host::name());
+    let (policy, here) = (north_base::platform::orchestration::path(), north_base::platform::host::name());
     let mut skipped: Vec<String> = Vec::new();
     let mut refused: Vec<String> = Vec::new();
-    while let Some((id, key)) = crate::providers::claude::api_pool::next_key(&policy, &home, &state, &here, &skipped) {
+    while let Some((id, key)) = north_providers::providers::claude::api_pool::next_key(&policy, &home, &state, &here, &skipped) {
         skipped.push(id);
         match ask_on_key(model, prompt, &key.org, &key.file, &profile) {
             Ok(answer) => return Ok(answer),
@@ -76,12 +76,12 @@ fn ask_on_key(model: &Model, prompt: &str, org: &str, file: &std::path::Path, pr
         _ => return Err(format!("{}: key unreadable", org)),
     };
     let mut command = std::process::Command::new(north_base::platform::private_text::claude_program());
-    for name in crate::spend::billing::EXTERNAL {
+    for name in north_pace::spend::billing::EXTERNAL {
         command.env_remove(name);
     }
     command.env("ANTHROPIC_API_KEY", secret).env("CLAUDE_CONFIG_DIR", profile).env("CLAUDE_CODE_DISABLE_FAST_MODE", "1").env(oneshot::QUIET, "1");
     command.args(oneshot::lean_flags(&oneshot::Ask { model: model.model, effort: model.effort, system: model.system, input: prompt }));
-    match crate::platform::process::run_command_within(command, Some(prompt.as_bytes()), ATTEMPT_LIMIT) {
+    match north_base::platform::process::run_command_within(command, Some(prompt.as_bytes()), ATTEMPT_LIMIT) {
         Some(output) if output.status.success() && !output.stdout.is_empty() => Ok(String::from_utf8_lossy(&output.stdout).into_owned()),
         Some(output) => Err(format!("{}: exited {:?}: {}{}", org, output.status.code(), String::from_utf8_lossy(&output.stdout).trim(), String::from_utf8_lossy(&output.stderr).trim())),
         None => Err(format!("{}: did not finish", org)),

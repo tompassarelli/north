@@ -52,7 +52,7 @@ pub(super) fn reaches_unreadable(context: &Context, reader: Reader, real: &Path)
 
 /// The login files of every account the roster declares, wherever it puts them: a client profile's credentials and token files and each other provider's stored login (north#1485).
 fn rostered_logins(context: &Context, state: &Path) -> Vec<PathBuf> {
-    use north_providers::fleet::runtime::Runtime;
+    use north_fleet_supervisor::fleet::runtime::Runtime;
     use north_providers::providers::{claude::fleet::Claude, codex::fleet::Codex};
     let policy = north_base::platform::orchestration::path_in(&context.home, None, None);
     let accounts = Claude.roster(state, &context.home, &policy).accounts.into_iter().chain(Codex.roster(state, &context.home, &policy).accounts);

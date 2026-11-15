@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::broker::{Broker, Source};
 use super::calls::{Caller, token_kind};
 use super::http::{Request, Response};
-use crate::platform::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER;
-use crate::platform::github_app;
+use north_base::platform::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER;
+use north_base::platform::github_app;
 
 type Mint = Box<dyn Fn() -> Option<String> + Send + Sync>;
 

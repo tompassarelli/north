@@ -1,4 +1,4 @@
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{ControlVerb, FleetRow, RowKind, cached_sessions};
 
@@ -98,7 +98,7 @@ mod tests {
     fn a_forget_of_a_session_whose_host_left_placement_releases_the_claims_it_holds() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
-        let policy = crate::platform::orchestration::under(home.path());
+        let policy = north_base::platform::orchestration::under(home.path());
         fs::create_dir_all(policy.parent().unwrap()).unwrap();
         fs::write(&policy, "[hosts.here]\n").unwrap();
         let owned = BTreeSet::from(["n870-gone".to_owned()]);

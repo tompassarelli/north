@@ -147,7 +147,7 @@ pub fn file(issues: &dyn Issues, filed: &mut Filed, entry: &Experiment, line: &s
 pub struct GitHub;
 
 fn gh(args: &[&str]) -> Result<String, String> {
-    let output = crate::platform::github::run(args).map_err(|why| format!("cannot run gh: {why}"))?;
+    let output = north_base::platform::github::run(args).map_err(|why| format!("cannot run gh: {why}"))?;
     if !output.status.success() {
         return Err(format!("gh {}: {}", args.iter().take(2).copied().collect::<Vec<_>>().join(" "), String::from_utf8_lossy(&output.stderr).trim()));
     }

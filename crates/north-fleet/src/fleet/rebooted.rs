@@ -4,9 +4,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::stage::{Late, detach};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 /// How a rebooted host's sessions are run again and told so.
 pub trait Resumer: Send + Sync {

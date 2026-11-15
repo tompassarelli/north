@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::{Departed, Effect, Fault, FaultKind, Lifecycle, Liveness, Lost, Move, Moved, Owner, Proc, Record, Refusal, State};
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 mod expiry;
 mod outbox;

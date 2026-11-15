@@ -10,8 +10,8 @@ use north_strategy_types::placement::{Case, Decision, Outcome};
 use north_strategy_types::{Envelope, Kind};
 use serde::de::IgnoredAny;
 
-use crate::capacity::admission::default_mib;
-use crate::platform::decision_log;
+use north_capacity_host::capacity::admission::default_mib;
+use north_base::platform::decision_log;
 
 const WINDOW: &str = "placement_reserve_seconds";
 const SESSION_CORES: &str = "placement_session_cores";

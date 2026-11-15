@@ -6,7 +6,7 @@ use serde_json::Value;
 use toml_edit::{DocumentMut, Item};
 
 use super::{Account, Rules, View, Window};
-use crate::foundation::clock::rfc3339_seconds;
+use north_foundation::foundation::clock::rfc3339_seconds;
 
 /// What the caller knows of an account beyond its sampled windows: its week in Max 5x weeks.
 pub struct Size {
@@ -23,7 +23,7 @@ pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, size: impl Fn
 }
 
 pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working: usize, at: f64, signed_in: impl Fn(&str) -> bool) -> View {
-    let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
+    let catalog = north_base::platform::harness::document(north_base::platform::harness::MODEL_CATALOG);
     View { held: super::hold::declared(cfg), ..view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name) }, signed_in, operational_reserve(cfg)) }
 }
 

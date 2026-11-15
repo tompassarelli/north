@@ -9,7 +9,7 @@ mod tests;
 
 pub use harness::{KEY_ENV, PI, PROVIDER};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 pub fn run(arguments: &[String]) -> NorthResult<u8> {
     super::opencode::turns::run(&PI, arguments)

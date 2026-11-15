@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::{SESSION_ENV, SPOOLED_ENV, binary, new_uuid};
 use crate::fleet::sender::Sender;

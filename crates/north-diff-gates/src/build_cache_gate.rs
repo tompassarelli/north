@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::platform::git as platform_git;
+use north_base::platform::git as platform_git;
 
 type Result<T> = std::result::Result<T, String>;
 

@@ -1,6 +1,6 @@
 use super::commands::{Systemd, kill, killall, pkill};
 use super::{Hit, REDIRECTION};
-use crate::shell;
+use north_base::shell;
 use regex::Regex;
 use std::sync::LazyLock;
 

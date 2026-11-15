@@ -3,7 +3,7 @@ use serde_json::Value;
 use super::boxes::{GoalBox, parse_boxes};
 use super::schedule::{Task, schedule, serial};
 use super::{plus_minutes, span, stamp};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub struct Estimate {
     pub project: String,

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use north_base::test_inputs::git::git_in;
+use north_foundation::test_inputs::git::git_in;
 
 use super::{manifests_key, no_deps_in};
 

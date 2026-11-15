@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::fleet::model::EntryKind;
+use north_fleet_supervisor::fleet::model::EntryKind;
 
 use super::super::opencode::harness::{Harness, Tally};
 use super::super::opencode::relay::Relay;

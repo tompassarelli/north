@@ -1,12 +1,12 @@
 //! After a compaction, a fleet session starts again with what the summary may have dropped: its brief, its lane, the
 //! open boxes of its Item and its registered waits. Claude Code runs SessionStart with source `compact` at that point.
 
-use crate::session::SessionRecord;
-use crate::session_files::read_record;
-use crate::runtime::SESSION_ENV;
-use crate::waits::Waits;
+use north_fleet_store::session::SessionRecord;
+use north_fleet_store::session_files::read_record;
+use north_fleet_store::runtime::SESSION_ENV;
+use north_fleet_store::waits::Waits;
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::{process, repo_names};
+use north_base::platform::{process, repo_names};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,7 +25,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         return Verdict::Allow;
     }
     let name = std::env::var(SESSION_ENV).unwrap_or_default();
-    let Some(root) = crate::home::root_here().ok().filter(|_| !name.is_empty()) else { return Verdict::Allow };
+    let Some(root) = north_fleet_store::home::root_here().ok().filter(|_| !name.is_empty()) else { return Verdict::Allow };
     let Ok(record) = read_record(&root.join(&name)) else { return Verdict::Allow };
     let transcript = input.data["transcript_path"].as_str().map(PathBuf::from);
     let cwd = input.data["cwd"].as_str().map_or_else(|| record.cwd.clone(), PathBuf::from);

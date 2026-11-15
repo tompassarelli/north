@@ -11,7 +11,7 @@ use super::FIRST_PULL_RETRY;
 use super::pages::{hash_pages, invalid, manifest_bytes};
 use super::receive::{publish, receive};
 use super::sidecar::suffixed;
-use crate::platform::process::child_within;
+use north_base::platform::process::child_within;
 
 /// Whether this caller pulls now, which it does once the snapshot and its last try are older than `within` (always for zero); it marks its try first, so callers racing it do not pull again.
 pub fn take_turn(snapshot: &Path, within: Duration) -> io::Result<bool> {

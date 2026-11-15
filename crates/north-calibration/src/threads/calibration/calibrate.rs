@@ -8,7 +8,7 @@ use super::{Knobs, Run};
 use super::boxes::box_chains;
 use super::rates::{calibrate_rates, method_stamp};
 use super::forward::{calibrate_box, calibrate_eta, calibrate_eta_pred, calibrate_tier, calibrate_usd};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, table};
 
 const GOAL_KINDS: [&str; 2] = ["goal_eta", "goal_actual"];

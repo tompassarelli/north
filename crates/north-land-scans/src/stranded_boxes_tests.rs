@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_base::test_inputs::git::git_in;
+use north_foundation::test_inputs::git::git_in;
 use north_github_mirror::read;
 use north_github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use serde_json::json;

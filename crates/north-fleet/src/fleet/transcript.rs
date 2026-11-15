@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::model::SessionRecord;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub const WINDOW_SIZE: u64 = 1 << 20;
 const SESSION_STREAMS: &str = "session-streams";

@@ -20,6 +20,8 @@ regex.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+
 
 [dev-dependencies]
 north-graph-ground = { path = "../north-graph-ground" }

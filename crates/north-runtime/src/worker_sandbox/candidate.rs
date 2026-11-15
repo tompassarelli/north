@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use crate::capacity::depbox;
+use north_capacity_host::capacity::depbox;
 use crate::runtime::layout;
 use crate::runtime::update::pull_held;
 

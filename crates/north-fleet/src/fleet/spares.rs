@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
-use crate::error::{NorthError, NorthResult};
-use crate::platform::process::try_run_command_within;
+use north_foundation::error::{NorthError, NorthResult};
+use north_base::platform::process::try_run_command_within;
 
 use super::link::quote;
 use super::model::{LaunchRequest, Machine, Role};
@@ -168,7 +168,7 @@ exit 1"#,
         quote(fingerprint),
         quote(name),
         quote(binding),
-        quote(&place.far_home().join(crate::platform::session_host_files::HELD).to_string_lossy()),
+        quote(&place.far_home().join(north_base::platform::session_host_files::HELD).to_string_lossy()),
         quote(&lane),
         quote(&common),
         remote::UNREGISTERED.as_secs(),
@@ -294,7 +294,7 @@ done"#,
 
 /// Starts the spare `spare` of `kind` and `fingerprint` from `spec` (see [`spare_spec`]) with `conversation`, and enters it in the pool once its unit runs.
 pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spare: &str, conversation: &str) -> NorthResult<()> {
-    let held = place.far_home().join(crate::platform::session_host_files::HELD);
+    let held = place.far_home().join(north_base::platform::session_host_files::HELD);
     let unit = unit(spare);
     let dir = remote::held_dir(&place.far_home(), &unit).to_string_lossy().into_owned();
     let pool = pool(&place.far_home());

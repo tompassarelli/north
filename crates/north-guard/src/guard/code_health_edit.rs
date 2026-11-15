@@ -1,5 +1,5 @@
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::process;
+use north_base::platform::process;
 use serde_json::Value;
 use regex::Regex;
 use std::path::{Component, Path, PathBuf};
@@ -142,11 +142,11 @@ fn findings(path: &Path, cwd: &Path, limit: Duration) -> (Vec<String>, Vec<Strin
         .collect();
     let relative = path.strip_prefix(&top).ok().and_then(Path::to_str).filter(|name| name.ends_with(".rs"));
     let habits = relative.map(|relative| habit_notes(&top, relative)).unwrap_or_default();
-    (lines, habits, relative.and_then(|relative| crate::code_health::crate_headroom(&top, relative)))
+    (lines, habits, relative.and_then(|relative| north_code_health::code_health::crate_headroom(&top, relative)))
 }
 
 fn habit_notes(top: &Path, relative: &str) -> Vec<String> {
-    let mut notes: Vec<String> = crate::code_health::habit_suggestions(top, relative)
+    let mut notes: Vec<String> = north_code_health::code_health::habit_suggestions(top, relative)
         .iter()
         .map(|suggestion| {
             format!(
@@ -155,7 +155,7 @@ fn habit_notes(top: &Path, relative: &str) -> Vec<String> {
             )
         })
         .collect();
-    let open = crate::code_health::habit_warnings(top, relative);
+    let open = north_code_health::code_health::habit_warnings(top, relative);
     if !open.is_empty() {
         notes.push(format!("{HABIT_WARNING}\n{}", open.join("\n")));
     }

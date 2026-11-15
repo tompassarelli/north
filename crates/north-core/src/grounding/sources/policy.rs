@@ -462,7 +462,7 @@ pub(super) fn file_docs(
     vec![]
 }
 pub fn iter_docs() -> Vec<Doc> {
-    let south = crate::platform::shared_config::operator_root(&home());
+    let south = north_base::platform::shared_config::operator_root(&home());
     let mut out = repo_docs(north_dir(), south);
     out.extend(handoff_docs());
     out

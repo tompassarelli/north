@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, PoisonError};
 
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 use north_build_system::{Resolution, Selection, Shell, Step};
 
 use serde::{Deserialize, Serialize};
@@ -120,7 +120,7 @@ impl Away<'_> {
         let mut command = Command::new(self.program);
         command.args(["capacity", "offload", "run", "--host", self.host, "--base", self.base, "--head", self.tree, "--timeout", &AWAY_SECONDS.to_string(), "--", line]).current_dir(root);
         if let Some(hold) = self.hold {
-            command.env(north_base::foundation::offload::HOLD_ENV, hold).env(north_base::foundation::carry::LANDING, "1");
+            command.env(north_foundation::foundation::offload::HOLD_ENV, hold).env(north_foundation::foundation::carry::LANDING, "1");
         }
         command
     }

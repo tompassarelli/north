@@ -14,12 +14,12 @@
 //! closed-box rate and cost against matched boxes that did not load it, and flags the installed
 //! skills no run loaded and those whose boxes did worse. Before the loop check it runs the skill switch's backtest (`switch`) and tells each
 //! decision's reading to the graph; `--backtest` prints that table alone and tells nothing.
-use crate::foundation::clock::Timestamp;
-use crate::ledger::{self, ClosedReport, rises};
-use crate::dispatch::tuned::{WRITER, directory};
-use crate::dispatch::LEDGER_WINDOW;
-use crate::threads::calibration::predictions::Brier;
-use crate::platform::github;
+use north_foundation::foundation::clock::Timestamp;
+use north_providers::ledger::{self, ClosedReport, rises};
+use north_dispatch::dispatch::tuned::{WRITER, directory};
+use north_dispatch::dispatch::LEDGER_WINDOW;
+use north_calibration::threads::calibration::predictions::Brier;
+use north_base::platform::github;
 use cells::{Cells, Change};
 use north_graph_loops::Learned;
 use costs::Cost;
@@ -219,7 +219,7 @@ pub fn failing(tick: Tick, loops: &Result<crate::loops::Checked, String>) -> Tic
 fn tune(dry_run: bool) -> Result<Tick, String> {
     let (week, before) = ledger::closed_report_and_previous(LEDGER_WINDOW).map_err(|error| error.user_message())?;
     let estimates = estimated_runs();
-    let root = crate::foundation::activation::activation_paths(&|name: &str| std::env::var(name).ok().filter(|value| !value.is_empty())).0.with_file_name("skills/shared");
+    let root = north_foundation::foundation::activation::activation_paths(&|name: &str| std::env::var(name).ok().filter(|value| !value.is_empty())).0.with_file_name("skills/shared");
     let skills = skills::installed(&root).unwrap_or_else(|error| {
         eprintln!("north tune: installed skills unread, so none is flagged unused: {error}");
         Vec::new()
@@ -257,7 +257,7 @@ impl Files {
     }
 
     fn learned(&self) -> Result<Learned, String> {
-        let graph = north_graph_loops::graph_path();
+        let graph = north_graph::default_path();
         if !graph.exists() {
             return Ok(Learned::default());
         }
@@ -304,7 +304,7 @@ impl Files {
         let mut readings = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("dividends.jsonl")).map_err(failed)?;
         tick.readings.iter().try_for_each(|record| writeln!(readings, "{record}")).map_err(failed)?;
         std::fs::write(self.dir.join("alarms.json"), serde_json::to_string(&tick.alarms).map_err(|error| error.to_string())? + "\n").map_err(failed)?;
-        north_graph_loops::tell(&north_graph_loops::graph_path(), WRITER, prior, &tick.cells, Timestamp::now().unix_seconds())
+        north_graph_loops::tell(&north_graph::default_path(), WRITER, prior, &tick.cells, Timestamp::now().unix_seconds())
     }
 }
 

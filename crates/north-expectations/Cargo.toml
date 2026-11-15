@@ -20,6 +20,9 @@ rustix.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-pacing = { path = "../north-pacing" }
+
 
 [lints]
 workspace = true

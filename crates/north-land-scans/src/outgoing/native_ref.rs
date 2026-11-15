@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::landing::step::refuse;
-use crate::landing::step::{Step, git_quiet};
+use north_landing_gates::landing::step::refuse;
+use north_landing_gates::landing::step::{Step, git_quiet};
 
 const NATIVE_REFS: [&str; 4] = ["life#", "accounts#", "travel#", "ops#"];
 

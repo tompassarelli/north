@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::{Phase, SessionRecord};
 use crate::fleet::reaper::reported_done;
 use crate::fleet::records::write_record;

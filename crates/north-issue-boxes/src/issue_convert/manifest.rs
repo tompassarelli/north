@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::boxes::{self, Checkbox};
-use north_dispatch::pacing::placement::needs::declared;
+use north_pacing::pacing::placement::needs::declared;
 use north_base::platform::box_oracles::done_when_command;
 use north_calibration::threads::claims;
 

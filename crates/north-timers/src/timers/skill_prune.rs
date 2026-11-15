@@ -8,7 +8,7 @@ use serde_json::Value;
 use toml_edit::{DocumentMut, Value as TomlValue};
 
 use super::{child_failure, date, env_or, home, north_program, text};
-use crate::platform::process;
+use north_base::platform::process;
 
 const SESSION_LIMIT: Duration = Duration::from_secs(5400);
 
@@ -21,7 +21,7 @@ pub(super) struct Paths {
 pub fn run(arguments: &[String]) -> u8 {
     let paths = Paths {
         handoffs: env_or("AGENTS_HANDOFFS", || home().join(".local/state/agents/handoffs")),
-        operator: env_or("AGENTS_OPERATOR_DIR", || crate::platform::shared_config::operator_root(&home()).join("agents")),
+        operator: env_or("AGENTS_OPERATOR_DIR", || north_base::platform::shared_config::operator_root(&home()).join("agents")),
         home: home(),
     };
     match arguments.first().map(String::as_str) {

@@ -1,7 +1,7 @@
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-use crate::platform::process;
+use north_base::platform::process;
 
 use super::archive_extension;
 

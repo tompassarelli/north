@@ -15,7 +15,7 @@ use super::watch::Watch;
 use super::heartbeat::{self, Step};
 use super::watchdog;
 use super::repositories;
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_runtime_follow::Follow;
 use options::{Options, lander_for, parse};
 
@@ -261,8 +261,8 @@ fn targets(options: &Options) -> (Vec<PathBuf>, Vec<String>) {
 }
 
 fn has_own_lander(checkout: &Path) -> bool {
-    let own_by_name = |origin: String| crate::platform::land_queue::unit_declared(&format!("north-land@{}.service", crate::platform::land_queue::repo_name(&origin)));
-    crate::platform::land_queue::lander_declared(checkout) || repositories::origin(checkout).is_ok_and(own_by_name)
+    let own_by_name = |origin: String| north_base::platform::land_queue::unit_declared(&format!("north-land@{}.service", north_base::platform::land_queue::repo_name(&origin)));
+    north_base::platform::land_queue::lander_declared(checkout) || repositories::origin(checkout).is_ok_and(own_by_name)
 }
 
 fn reap_offloads(lander: &Lander) {

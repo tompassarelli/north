@@ -5,9 +5,9 @@ use std::process::Stdio;
 
 use super::process::{Input, code_of, execute, execute_capturing_stderr, python_json};
 use super::{Client, FORWARDED, shell_quote};
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::exit::TIMED_OUT_STATUS;
-use crate::platform::ssh_retry::{Link, Reply, Rerun, retried};
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::exit::TIMED_OUT_STATUS;
+use north_base::platform::ssh_retry::{Link, Reply, Rerun, retried};
 
 const LEDGER_IDENTITY_ENV: &str = "NORTH_LEDGER_IDENTITY";
 const LEDGER_DESTINATION_ENV: &str = "NORTH_LEDGER_DESTINATION";
@@ -134,9 +134,9 @@ impl Client {
     pub(super) fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
         let mut options = Vec::new();
         if let Some(identity) = self.env.get(LEDGER_IDENTITY_ENV).filter(|identity| !identity.is_empty()) {
-            options.extend(["-o", crate::platform::ssh::OWN_CONNECTION, "-F", "/dev/null", "-i", identity.as_str(), "-o", "IdentitiesOnly=yes"]);
+            options.extend(["-o", north_base::platform::ssh::OWN_CONNECTION, "-F", "/dev/null", "-i", identity.as_str(), "-o", "IdentitiesOnly=yes"]);
         }
         options.extend_from_slice(arguments);
-        crate::platform::ssh::argv(&self.ssh, &self.env, &options)
+        north_base::platform::ssh::argv(&self.ssh, &self.env, &options)
     }
 }

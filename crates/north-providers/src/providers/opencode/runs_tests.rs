@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::json;
 
 use super::{Sources, rows};
-use crate::fleet::landings::Push;
+use north_fleet_supervisor::fleet::landings::Push;
 use crate::ledger::Run;
 use crate::providers::claude::runs::landing::MainIndex;
 use crate::providers::claude::runs::telemetry::Prices;
@@ -62,7 +62,7 @@ fn a_finished_deepseek_session_is_a_worker_run_that_its_reviewers_landing_joins(
     assert!(run["brief"].as_str().is_some_and(|brief| brief.contains("Category: feature")), "{run}");
     assert_eq!((run["brief_text"].as_str(), run["active_min"].as_f64(), run["wait_min"].as_f64()), (prompts.get("ds-done").map(String::as_str), Some(2.0), Some(1.0)), "on 2026-11-13 every opencode and pi run of the day lacked brief text and active minutes: {run}");
     assert_eq!((run["tool_calls"].as_i64(), run["compactions"].as_i64(), run["cost_usd"].as_f64()), (Some(8), Some(0), Some(0.5)), "on 2026-11-14 a third of the day's runs, the opencode and pi ones, lacked tool calls, compactions and cost: {run}");
-    assert_eq!(run["ended"].as_str(), Some(crate::foundation::clock::Timestamp::from_unix_millis(AT + 180_000).iso().as_str()));
+    assert_eq!(run["ended"].as_str(), Some(north_foundation::foundation::clock::Timestamp::from_unix_millis(AT + 180_000).iso().as_str()));
     let landed: Vec<&str> = out[1..].iter().filter(|row| row["push_join"] == 1 && row["fleet_name"] == "ds-done").filter_map(|row| row["landed_sha"].as_str()).collect();
     assert_eq!(landed, ["def", "landed-head"]);
 }

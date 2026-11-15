@@ -182,8 +182,8 @@ fn a_runtime_whose_depbox_cannot_exec_north_is_rolled_back_by_the_canary() {
     fs::create_dir_all(home.path().join(".local/state")).unwrap();
     fs::create_dir(home.path().join("tmp")).unwrap();
     symlink(&host.layout.state, home.path().join(".local/state/north")).unwrap();
-    north_base::foundation::shim::write_executable(&host.layout.runtime(PROMOTED).join("north"), HIDDEN);
-    north_base::foundation::shim::write_executable(&host.layout.runtime(PREVIOUS).join("north"), "#!/bin/sh\nexit 0\n");
+    north_foundation::foundation::shim::write_executable(&host.layout.runtime(PROMOTED).join("north"), HIDDEN);
+    north_foundation::foundation::shim::write_executable(&host.layout.runtime(PREVIOUS).join("north"), "#!/bin/sh\nexit 0\n");
     let fleet = Fleet { depbox_host: Some(home.path().to_path_buf()), ..host.fleet(None) };
 
     assert_eq!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::RolledBack, "on 2026-11-10 a runtime whose depbox hid the north it execs for a worker command went live on whiterabbit and refused every landing through it for about an hour");
@@ -308,12 +308,12 @@ fn a_canary_that_cannot_place_its_probe_is_not_judged() {
     let judged = home.path().join(".local/state/north/runtimes").join(PROMOTED);
     fs::create_dir_all(&judged).unwrap();
     let ran = home.path().join("ran");
-    north_base::foundation::shim::write_executable(&judged.join("verify-north"), format!("#!/bin/sh\necho \"$@\" > {}\n", ran.display()));
+    north_foundation::foundation::shim::write_executable(&judged.join("verify-north"), format!("#!/bin/sh\necho \"$@\" > {}\n", ran.display()));
     let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, false, true, None);
     let walk = plan.probes.iter().find(|probe| probe.name.contains("verify-north")).unwrap();
     let run = |listing: &str| {
         let (first, rest) = listing.split_once('\n').unwrap();
-        north_base::foundation::shim::write_executable(&judged.join("north"), format!("#!/bin/sh\ncat <<'EOF'\n{first}\nEOF\nsleep 1\ncat <<'EOF'\n{rest}\nEOF\n"));
+        north_foundation::foundation::shim::write_executable(&judged.join("north"), format!("#!/bin/sh\ncat <<'EOF'\n{first}\nEOF\nsleep 1\ncat <<'EOF'\n{rest}\nEOF\n"));
         Command::new(bash_program()).arg("-c").arg(&walk.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap()
     };
     let unread = run("  claude:a available: 5h unread, week 40% (60% headroom)\nwr.md: target whiterabbit claude:a");

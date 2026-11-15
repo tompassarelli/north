@@ -1,6 +1,6 @@
 //! The planning call of `north work split` and `north graph split` for a confined caller (north#1599): a worker's domain reads no model account's login, so the one-shot call the planner makes has no subscription to ask. The request is the words `planner-ask MODEL EFFORT SYSTEM SECONDS` and the planning input on the caller's standard input. The broker checks the words against the asking session's own record (north-fleet-store), then runs `north check oneshot` outside every domain with its own environment, pinned to the session's own account, and relays only the answer, as JSON with its token counts, and the exit code. The request names no program or path the broker would run.
 
-use north_dispatch::usage::decide::world::ModelFamily;
+use north_pace::usage::decide::world::ModelFamily;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;

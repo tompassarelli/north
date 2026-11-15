@@ -1,6 +1,6 @@
 use std::io::{BufRead, Write};
 
-use north_base::foundation::offload::{HOLD_ENV, RUN_SECONDS_CEILING};
+use north_foundation::foundation::offload::{HOLD_ENV, RUN_SECONDS_CEILING};
 
 use north_capacity_host::capacity::carry;
 

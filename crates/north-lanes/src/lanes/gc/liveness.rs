@@ -9,7 +9,7 @@ use super::evidence::item_ref;
 use super::exec::{api, command, git, in_dir, real, text, verified};
 use north_github_mirror::read;
 use north_github_mirror::store::{self, Mirror};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct Trees {

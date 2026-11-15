@@ -26,6 +26,10 @@ sha2.workspace = true
 tempfile.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-graph = { path = "../north-graph" }
+
+
 
 [dev-dependencies]
 north-capacity = { path = "../north-capacity", features = ["test-support"] }

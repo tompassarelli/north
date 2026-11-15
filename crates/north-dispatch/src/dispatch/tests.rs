@@ -2,7 +2,7 @@ use super::issues::Issue;
 use super::slots::{Account, Host, PlanSize, Room};
 use super::survey::Survey;
 use super::decide;
-use crate::spend::{self, Rules, View, Window};
+use north_pace::spend::{self, Rules, View, Window};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const CONFIG: &str = r#"
@@ -85,7 +85,7 @@ pub(super) fn survey(issues: Vec<Issue>, hosts: Vec<Host>, accounts: Vec<Account
         here: "nexus".into(),
         home: Some("/home/tom".into()),
         cfg: CONFIG.parse().unwrap(),
-        projects: crate::threads::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap(),
+        projects: north_calibration::threads::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap(),
         hosts,
         spend: view(&accounts),
         rules: rules(),
@@ -184,7 +184,7 @@ fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one() {
     let plans = vec![sized("claude:a", &["nexus"], MAX_5X, low), sized("claude:b", &["gex45"], MAX_5X, low)];
     let policy: toml_edit::DocumentMut = "[accounts.claude]\napi_beside_plans = true\n\n[accounts.claude.api_orgs.zenith]\nid = \"org\"\nkeys = { nexus = [\"/run/secrets/key\"], gex45 = [\"/run/secrets/key\"] }\n".parse().unwrap();
     let source = north_strategy_types::placement::GrantSource { account: "claude:api:zenith".into(), left_usd: 500.0, deadline_h: 200.0, urgent: true, line: String::new() };
-    let grants = super::survey::grants(&policy, &crate::fleet::roster::Roster::default(), "nexus", vec![source]);
+    let grants = super::survey::grants(&policy, &north_fleet_supervisor::fleet::roster::Roster::default(), "nexus", vec![source]);
     assert_eq!(grants.iter().map(|grant| (grant.name.as_str(), grant.hosts.clone())).collect::<Vec<_>>(), [("claude:api:zenith", vec!["gex45".to_owned()])], "nexus dispatch dropped every grant because its own roster holds no api key (north#723)");
 
     let mut surveyed = survey(vec![issue("makgora", 7, "- [ ] a", &[])], hosts, plans.iter().cloned().chain(grants).collect());
@@ -202,7 +202,7 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_a_windowed
     let body = format!("- [ ] {first}\n- [ ] holds in crates/north-dispatch/src/dispatch/hotspots.rs\n- [ ] the tip merges into origin/main\n- [ ] the tag sits on origin/main\n- [ ] harness/skills/workers/SKILL.md says so\n- [ ] the ready list in `crates/north-dispatch/src/dispatch` names each box\n- [ ] Over 3 h no launch is refused (not before 2099-01-01T00:00Z)");
     let surveyed = |tried: &[&str]| {
         let mut survey = survey(vec![issue("north", 835, &body, &[])], hosts.clone(), accounts.clone());
-        survey.box_tries.insert(super::issues::IssueRef::new("north", 835), tried.iter().filter_map(|text| Some((crate::threads::claims::box_slug(text)?, "tried twice".to_owned()))).collect());
+        survey.box_tries.insert(super::issues::IssueRef::new("north", 835), tried.iter().filter_map(|text| Some((north_calibration::threads::claims::box_slug(text)?, "tried twice".to_owned()))).collect());
         decide(&survey, "test")
     };
     let boxes = |outcome: &super::Outcome| outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect::<Vec<_>>();

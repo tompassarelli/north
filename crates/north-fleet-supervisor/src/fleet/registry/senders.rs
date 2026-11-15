@@ -1,7 +1,7 @@
 use std::fmt;
 use std::time::Duration;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::model::{Delivery, LastSender, Role, SessionRecord};
 use crate::fleet::records::{read_record, write_record};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};

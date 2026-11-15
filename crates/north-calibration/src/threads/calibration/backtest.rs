@@ -10,9 +10,9 @@ use rusqlite::Connection;
 
 use super::predictions::score_with;
 use super::read::escalated;
-use crate::foundation::clock::Timestamp;
-use crate::platform::run_roles::worker_where;
-use crate::router::settle::{self, Outcome};
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::run_roles::worker_where;
+use north_pace::router::settle::{self, Outcome};
 
 const DAY: i64 = 86_400;
 const SCORED_DAYS: i64 = 14;

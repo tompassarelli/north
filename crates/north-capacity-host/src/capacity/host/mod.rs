@@ -375,7 +375,7 @@ fn lander_owner(owner: &str) -> bool {
 
 /// Whether a run is the lander's own, so its record counts toward its command's charge: a lander owner's run that carries the lander's offload owner, which the lander sets on its checks, the offload script hands on from the lander's word and the worker broker drops from every request and that is not the Buck2 run after a landing, started from a cgroup that is neither a fleet session's scope nor the worker broker's service. The `--owner` word alone never makes one.
 fn lander_lease(owner: &str, offload_owner: Option<&str>, cgroup: Option<&str>) -> bool {
-    lander_owner(owner) && offload_owner.is_some_and(|owner| !owner.is_empty() && !owner.ends_with(crate::foundation::offload::AFTER_LANDING_OWNER)) && cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::worker_cgroup(cgroup))
+    lander_owner(owner) && offload_owner.is_some_and(|owner| !owner.is_empty() && !owner.ends_with(north_foundation::foundation::offload::AFTER_LANDING_OWNER)) && cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::worker_cgroup(cgroup))
 }
 
 /// Whether a landing run is the runtime canary's check, admitted from its reserve of one: the offload script hands on a reserve caller's unit as its red-fix word, and the run starts from a cgroup that is neither a fleet session's scope nor the worker broker's service, so the word alone never makes one.
@@ -450,8 +450,8 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
     }
     request.landing = landing_run(operation, owner, &request.name, machine::env("SAFE_PUSH_LAND_HEAD").as_deref(), machine::env("SAFE_PUSH_LANDING").as_deref());
     let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok();
-    request.canary = request.landing && canary_lease(machine::env(crate::foundation::offload::RED_FIX_ENV).as_deref(), cgroup.as_deref());
-    request.lander = request.landing && !request.canary && lander_lease(owner, machine::env(crate::foundation::offload::OWNER_ENV).as_deref(), cgroup.as_deref());
+    request.canary = request.landing && canary_lease(machine::env(north_foundation::foundation::offload::RED_FIX_ENV).as_deref(), cgroup.as_deref());
+    request.lander = request.landing && !request.canary && lander_lease(owner, machine::env(north_foundation::foundation::offload::OWNER_ENV).as_deref(), cgroup.as_deref());
     let deadline = options.get("--timeout-seconds").and_then(|text| text.parse::<f64>().ok());
     let records = |heavy| deadline.and_then(|deadline| policy::landing_charge(&sizing::landing_runs(command), heavy, deadline));
     let day = request.landing.then(|| policy::host_landing_charge(&sizing::host_landing_runs(), land_check_cpus())).flatten();
@@ -477,7 +477,7 @@ fn run_or_session(root: &Path, argv: &[String], host: &Host) -> u8 {
         fail("session requires --class", 2);
     }
     let owner = options.owner("--owner");
-    let subject = shape::script_subject(command, machine::env(crate::foundation::offload::SUBJECT_ENV).as_deref(), offload_script);
+    let subject = shape::script_subject(command, machine::env(north_foundation::foundation::offload::SUBJECT_ENV).as_deref(), offload_script);
     let mut request = requested(&options, operation, &owner, subject.as_deref().unwrap_or(command), signals.cores);
     request.subject = subject;
     // A session without one takes its class's default deadline; native sessions have none.

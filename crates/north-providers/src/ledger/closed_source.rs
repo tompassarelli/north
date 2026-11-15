@@ -6,19 +6,19 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
-use crate::platform::run_roles::ROLE_SQL;
-use crate::platform::sqlite::{self, Access};
-use crate::platform::github;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::run_roles::ROLE_SQL;
+use north_base::platform::sqlite::{self, Access};
+use north_base::platform::github;
 
-use crate::threads::calibration::predictions::{self, Brier};
-use crate::threads::calibration::rework::{Rework, Sources};
-use crate::threads::catalog::{CATALOG, Catalog};
+use north_calibration::threads::calibration::predictions::{self, Brier};
+use north_calibration::threads::calibration::rework::{Rework, Sources};
+use north_calibration::threads::catalog::{CATALOG, Catalog};
 
 use super::closed::{ClosedReport, SpendRun, summarize};
 use super::leaf::{Closed, apart, creators};
-use crate::router::pricing::PriceTable;
+use north_pace::router::pricing::PriceTable;
 
 const OWNER: &str = "tompassarelli";
 const ISSUE_LIMIT: usize = 1000;
@@ -44,10 +44,10 @@ fn usage(window: &str) -> NorthError {
 
 /// The walk-forward `eta_pred` calibration of `tier` in the threads ledger: its scale when calibrated, and its label.
 pub fn eta_calibration(tier: &str) -> NorthResult<(Option<f64>, String)> {
-    crate::threads::calibration::eta_pred_scale(&threads_database(), Timestamp::now(), tier).map_err(NorthError::State)
+    north_calibration::threads::calibration::eta_pred_scale(&threads_database(), Timestamp::now(), tier).map_err(NorthError::State)
 }
 
-pub use crate::threads::client::threads_database;
+pub use north_calibration::threads::client::threads_database;
 
 fn text(row: &Value, key: &str) -> String {
     row[key].as_str().unwrap_or_default().to_owned()
@@ -418,7 +418,7 @@ pub fn run_ends_in(database: &Path) -> NorthResult<BTreeMap<String, RunEnd>> {
     let failed = |why: rusqlite::Error| NorthError::Configuration(format!("run ends in {}: {why}", database.display()));
     let db = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
     db.busy_timeout(Duration::from_secs(5)).map_err(failed)?;
-    let (outcome, cause) = (crate::threads::attribution::outcome_column(&db), crate::threads::attribution::recorded_column(&db));
+    let (outcome, cause) = (north_calibration::threads::attribution::outcome_column(&db), north_calibration::threads::attribution::recorded_column(&db));
     let sql = format!("SELECT runs.fleet_name, {outcome}, {cause} FROM runs WHERE runs.role = 'worker' AND coalesce(runs.fleet_name, '') != '' AND runs.outcome NOT IN ('running', 'idle') ORDER BY runs.started");
     let mut statement = db.prepare(&sql).map_err(failed)?;
     let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?))).map_err(failed)?;

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use north_base::lifecycle::Owner;
 use rustix::process::{Pid, Signal, kill_process};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::records::write_record;

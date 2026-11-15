@@ -1,11 +1,11 @@
 use super::shell::{resolve, shell_c_script, tokens};
 use super::{Env, Policy};
 use crate::guard::paths;
-use crate::shell::{self, basename, shell_substitutions, whitespace};
+use north_base::shell::{self, basename, shell_substitutions, whitespace};
 use std::path::Path;
 
 pub(super) fn git_output(args: &[&str]) -> Option<std::process::Output> {
-    crate::platform::git::run_within(args, std::time::Duration::from_secs(5))
+    north_base::platform::git::run_within(args, std::time::Duration::from_secs(5))
 }
 pub(super) fn tracks_nothing(path: &str) -> bool {
     let parent = if Path::new(path).is_dir() {
@@ -95,7 +95,7 @@ impl Policy {
         let path = resolve(&self.substitute(paths.first()?, &call.env), &call.target)?;
         let container = format!("{}/{project}", self.root);
         let placed = ["worktrees", "pins"].iter().any(|kind| path.strip_prefix(&format!("{container}/{kind}/")).is_some_and(|leaf| !leaf.is_empty()));
-        if placed || crate::platform::lane_layout::exempt(Path::new(&self.root), Path::new(&self.home), Path::new(&path)) {
+        if placed || north_base::platform::lane_layout::exempt(Path::new(&self.root), Path::new(&self.home), Path::new(&path)) {
             return None;
         }
         Some(format!(

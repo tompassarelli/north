@@ -7,7 +7,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use super::decide::world::{Label, LimitEvent, ModelFamily, Percent, Reading, RowId, Source as Via, Unix};
 use super::meter;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) const COLUMNS: [&str; 10] =
     ["ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source"];

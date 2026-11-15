@@ -135,7 +135,7 @@ pub fn run(arguments: &[String]) -> u8 {
     if arguments.first().is_some_and(|first| first == "tree-policy") {
         return tree_policy_command(&arguments[1..]);
     }
-    let Ok(Options { local, policy_only, verbose }) = north_base::foundation::arguments::parse(arguments) else {
+    let Ok(Options { local, policy_only, verbose }) = north_foundation::foundation::arguments::parse(arguments) else {
         return usage();
     };
     let roots = Roots::from_env();

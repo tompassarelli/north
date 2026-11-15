@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::record::Reading;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::usage::py;
 
 const COMMAND: &str = "agy -p /usage --output-format json";

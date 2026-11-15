@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use crate::landing::step::refuse;
-use crate::landing::step::{Refused, Step};
-use crate::platform::betterleaks;
+use north_landing_gates::landing::step::refuse;
+use north_landing_gates::landing::step::{Refused, Step};
+use north_base::platform::betterleaks;
 
 pub fn history_secret_scan(dir: &Path, revisions: &[String]) -> Step {
     let clean = betterleaks::command("betterleaks")

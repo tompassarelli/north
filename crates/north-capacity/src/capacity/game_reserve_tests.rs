@@ -30,7 +30,7 @@ pub(super) fn settings(root: &Path) -> Settings {
     for tool in ["systemctl", "busctl"] {
         let script = root.join(tool);
         let body = if tool == "systemctl" { kernel.as_str() } else { "" };
-        crate::foundation::shim::write_script(&script, &format!("echo \"{tool} $*\" >> '{}'\n{body}", log.display()));
+        north_foundation::foundation::shim::write_script(&script, &format!("echo \"{tool} $*\" >> '{}'\n{body}", log.display()));
     }
     let _ = fs::remove_file(&log);
     Settings {

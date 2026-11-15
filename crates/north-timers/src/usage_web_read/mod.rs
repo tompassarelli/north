@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use toml_edit::DocumentMut;
 
-use crate::foundation::clock::{Timestamp, parse_python_date};
+use north_foundation::foundation::clock::{Timestamp, parse_python_date};
 
 const TIMEOUT: Duration = Duration::from_secs(90);
 const FAILED: &str = "usage-web-read: Chrome read failed or returned invalid data; previous cache kept";
@@ -33,7 +33,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(env::var("HOME").unwrap_or_default());
     let set = |name: &str| env::var(name).ok().filter(|value| !value.is_empty());
     let state = set("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
-    let orchestration = crate::platform::orchestration::path();
+    let orchestration = north_base::platform::orchestration::path();
     let program = set("USAGE_WEB_READ_CHROME").unwrap_or_else(|| "automation-chrome".to_owned());
     match read(&state.join("agents/usage/claude-web.json"), &orchestration, run_chrome(&program, TIMEOUT)) {
         Ok(()) => {

@@ -1,7 +1,7 @@
-use north_base::foundation::limit_clock::limit_reply;
+use north_foundation::foundation::limit_clock::limit_reply;
 use serde_json::Value;
 
-use crate::fleet::model::UsageLimit;
+use north_fleet_supervisor::fleet::model::UsageLimit;
 
 pub(super) fn stop_text(text: &str) -> bool {
     limit_reply(text).is_some()

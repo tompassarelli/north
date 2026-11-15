@@ -1,7 +1,4 @@
-pub use north_base::platform;
-pub use north_diff_gates::{build_cache_gate, dep_gate, language_gate};
 use north_diff_gates::language_gate::EMPTY_TREE;
-pub use north_landing_gates::landing;
 
 pub mod alarm_definitions;
 pub mod doc_links;
@@ -86,7 +83,7 @@ fn dep_gate(directory: &Path, range: &str) -> u8 {
         return 1;
     };
     match git::text(directory, &["rev-parse", "--show-toplevel"]) {
-        Some(root) => crate::dep_gate::run_at(
+        Some(root) => north_diff_gates::dep_gate::run_at(
             Path::new(root.trim_end_matches('\n')),
             range.base,
             range.head,
@@ -146,7 +143,7 @@ fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
 pub fn run(arguments: &[String]) -> u8 {
     let directory = PathBuf::from(".");
     match arguments {
-        [name, lock] if name == "dep-floor" => crate::dep_gate::floor_run(Path::new(lock)),
+        [name, lock] if name == "dep-floor" => north_diff_gates::dep_gate::floor_run(Path::new(lock)),
         [name, rest @ ..] if name == "language" => language::run(rest),
         [name, rest @ ..] if name == "dropped-commits" => dropped_commits::run(&directory, rest),
         [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),

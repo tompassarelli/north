@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::landing::step::refuse;
-use crate::landing::step::{Step, git_quiet, git_read};
+use north_landing_gates::landing::step::refuse;
+use north_landing_gates::landing::step::{Step, git_quiet, git_read};
 
 pub fn commit_email_scan(dir: &Path, revisions: &[String]) -> Step {
     match outgoing_email_refusal(dir, revisions) {

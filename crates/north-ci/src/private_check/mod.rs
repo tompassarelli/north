@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::platform::github::{CommitStatuses, Gh};
+use north_base::platform::github::{CommitStatuses, Gh};
 use config::{Check, Step};
 use judge::{Finished, Outcome, Overrides, Places, StatusRequest, Statuses};
 

@@ -1,7 +1,7 @@
 use super::decide;
 use super::revive::{Step, Strand};
 use super::tests::{fleet, survey};
-use crate::fleet::stranded::{Lane, Stop, Stranded};
+use north_fleet_supervisor::fleet::stranded::{Lane, Stop, Stranded};
 
 fn strand(name: &str, stop: Stop, machine: Option<&str>, resumed: bool) -> Strand {
     let lane = Lane { path: format!("/work/{name}").into(), branch: Some(name.into()), ahead: 1, dirty: false, landed: false };

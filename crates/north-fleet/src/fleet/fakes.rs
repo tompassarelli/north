@@ -7,8 +7,8 @@ use std::sync::Mutex;
 use serde_json::Value;
 
 use north_claude_stream::{encode_interrupt, encode_user_message};
-use crate::error::{NorthError, NorthResult};
-use crate::router::pricing::{PriceTable, TokenUse};
+use north_foundation::error::{NorthError, NorthResult};
+use north_pace::router::pricing::{PriceTable, TokenUse};
 
 use super::books::{Books, Landing, SessionSpend};
 use super::gate_lifecycle::GatePhase;

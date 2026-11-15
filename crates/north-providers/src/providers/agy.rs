@@ -9,7 +9,7 @@ use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::providers::claude::runs::landing::{tally, utc};
 use crate::providers::claude::runs::row::{FLAWS, SPACE, eta, prefix};
 use crate::providers::claude::runs::telemetry::Tokens;

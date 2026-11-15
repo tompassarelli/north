@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 pub type Making = dyn Fn(&Path, &str) -> Result<(), String> + Send + Sync;
 

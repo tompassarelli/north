@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use north_base::foundation::offload;
+use north_foundation::foundation::offload;
 
 const READY_WITHIN: Duration = Duration::from_secs(10);
 const READY_POLL: Duration = Duration::from_millis(100);

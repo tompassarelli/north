@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 use toml_edit::DocumentMut;
 
 use super::{int, truthy};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 static HANDOFF: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:Your context is \d+k tokens, past the \d+k handoff point\.|You have run \d+ minutes\. Land anything that passes now)").unwrap()

@@ -1,6 +1,6 @@
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::guard::gh_cli::gh;
-use crate::platform::{north_binary::north_binary, process};
+use north_base::platform::{north_binary::north_binary, process};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;

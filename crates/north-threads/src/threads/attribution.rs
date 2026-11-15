@@ -7,9 +7,9 @@ use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
-pub use crate::platform::attribution::{Cause, Harness};
-use crate::foundation::clock::Timestamp;
-use crate::platform::run_roles::worker_where;
+pub use north_base::platform::attribution::{Cause, Harness};
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::run_roles::worker_where;
 
 /// What an attribution rests on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

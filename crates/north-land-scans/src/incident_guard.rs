@@ -11,7 +11,7 @@ use regex::Regex;
 use super::test_file::is_test_file;
 use super::test_modules;
 use super::{Range, git};
-use crate::platform::land_queue::{ROUND, slug};
+use north_base::platform::land_queue::{ROUND, slug};
 use crate::slug::slug_of;
 use north_base::platform::records_mirror::state_home;
 

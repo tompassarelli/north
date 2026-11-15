@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicU64;
 
 use north_base::land_ticket;
 use north_base::platform::wait;
-use north_core::fleet::store::Spool;
+use north_fleet_supervisor::fleet::store::Spool;
 use north_lander::land::heartbeat::Heartbeat;
 use north_lander::land::jobs::Chores;
 use north_lander::land::lander::Lander;

@@ -7,7 +7,7 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags};
 
 use super::HUMANS;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::verb::{Args, Context, Failure, Outcome, open};
 
 pub const WEEK: f64 = 7.0 * 86_400.0;

@@ -2,8 +2,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::platform::disk_budget::DiskBudget;
-use crate::platform::shared_target;
+use north_base::platform::disk_budget::DiskBudget;
+use north_base::platform::shared_target;
 
 const USAGE: &str = "usage: north land clean LANE_ROOT | --sweep";
 const MIB: u64 = 1 << 20;

@@ -1,4 +1,4 @@
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::gate_lifecycle::GatePhase;
 
 use super::request::GateRequest;

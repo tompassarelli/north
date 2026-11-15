@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::platform::process;
+use north_base::platform::process;
 
 const LIMIT: Duration = Duration::from_secs(20);
 
@@ -83,7 +83,7 @@ impl Places {
             || state.join("threads").join(if home.join(".config/threads/remote").exists() { "snapshot.db" } else { "threads.db" }),
             PathBuf::from,
         );
-        Self { home, state, ledger, graph: north_graph_loops::graph_path() }
+        Self { home, state, ledger, graph: north_graph::default_path() }
     }
 
     pub fn flow(&self) -> PathBuf {
@@ -91,7 +91,7 @@ impl Places {
     }
 
     pub fn checkout(&self, repo: &str) -> PathBuf {
-        self.home.join("code").join(crate::threads::catalog::checkout(repo)).join("main")
+        self.home.join("code").join(north_calibration::threads::catalog::checkout(repo)).join("main")
     }
 }
 
@@ -115,11 +115,11 @@ pub fn read_json(path: &Path) -> Option<Value> {
 }
 
 pub fn seconds(text: &str) -> Option<f64> {
-    crate::foundation::clock::Timestamp::parse_python_datetime(text).map(|at| at.unix_seconds_f64())
+    north_foundation::foundation::clock::Timestamp::parse_python_datetime(text).map(|at| at.unix_seconds_f64())
 }
 
 pub fn iso(at: f64) -> String {
-    crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso()
+    north_foundation::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso()
 }
 
 pub fn median(samples: &[f64]) -> Option<f64> {

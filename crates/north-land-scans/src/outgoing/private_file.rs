@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 use sha2::{Digest, Sha256};
 
-use crate::landing::step::{Refused, Step};
+use north_landing_gates::landing::step::{Refused, Step};
 
 pub const PREFIX: &str = "private-file: ";
 const APPROVED: &str = "agents/approved-moves.toml";

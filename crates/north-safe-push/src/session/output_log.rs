@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::step::{Refused, Step};
+use north_foundation::foundation::step::{Refused, Step};
 
 use crate::shell::Shell;
 use crate::shell::files::Lock;

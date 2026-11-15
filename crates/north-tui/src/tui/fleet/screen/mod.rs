@@ -13,10 +13,10 @@ use std::path::PathBuf;
 use ratatui::style::{Modifier, Style};
 use tui_textarea::{TextArea, WrapMode};
 
-use crate::fleet::books::Digest;
-use crate::fleet::gates::Decision;
-use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, Role, Status};
-use crate::fleet::registry::Choices;
+use north_fleet_supervisor::fleet::books::Digest;
+use north_fleet_supervisor::fleet::gates::Decision;
+use north_fleet_supervisor::fleet::model::{Account, Delivery, Effort, LaunchRequest, Role, Status};
+use north_fleet_supervisor::fleet::registry::Choices;
 
 use super::attach::Attachments;
 use super::clipboard::Clipboard;
@@ -214,7 +214,7 @@ impl Screen {
         self.scroll = self.scroll.min(limit);
     }
 
-    pub fn fail(&mut self, error: &crate::error::NorthError) {
+    pub fn fail(&mut self, error: &north_foundation::error::NorthError) {
         self.notice = Some(Notice::Error(error.user_message()));
     }
 }

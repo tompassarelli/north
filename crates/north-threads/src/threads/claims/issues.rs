@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use super::Issue;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
 /// The fields a standing reads of each issue.
@@ -28,7 +28,7 @@ pub struct GitHub;
 impl GitHub {
     fn ask(items: &BTreeSet<(String, u64)>, fields: &str) -> Value {
         let query = format!("query={}", query(items, fields));
-        let output = crate::platform::github::run_owned(&["api".into(), "graphql".into(), "-f".into(), query]);
+        let output = north_base::platform::github::run_owned(&["api".into(), "graphql".into(), "-f".into(), query]);
         output.ok().and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok()).unwrap_or(Value::Null)
     }
 }

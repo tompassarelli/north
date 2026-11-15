@@ -1,6 +1,6 @@
 use super::allowlist::{Allowlist, Class, Entry, classify, covered_by};
 use super::{ALLOWLIST, ALTERNATIVE, EMPTY_TREE, LIBRARY_GAP, Result};
-use crate::platform::git as platform_git;
+use north_base::platform::git as platform_git;
 use std::path::{Component, Path};
 
 pub(super) fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {

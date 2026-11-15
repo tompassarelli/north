@@ -4,8 +4,8 @@
 use super::issues::IssueRef;
 use super::pause;
 use super::survey;
-use crate::pacing::placement::{self, gate};
-use crate::platform::process::run_within;
+use north_pacing::pacing::placement::{self, gate};
+use north_base::platform::process::run_within;
 use std::time::Duration;
 
 const REMOTE_WAIT: Duration = Duration::from_secs(20);
@@ -74,7 +74,7 @@ pub fn serve(arguments: &[String]) -> u8 {
         return 2;
     };
     let item = queued.item.to_string();
-    match decide(queued, &crate::platform::host::name(), &Live) {
+    match decide(queued, &north_base::platform::host::name(), &Live) {
         Err(reason) => {
             println!("north fleet dispatch queued: dropped {item}: {reason}");
             0

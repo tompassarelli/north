@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags, ToSql, TransactionBehavior, params};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use serde_json::Value;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::issues::Issues;

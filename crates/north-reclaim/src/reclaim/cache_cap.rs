@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use super::held::Held;
 use super::{Inputs, Policy, Removal, hours, removed};
-use crate::platform::shared_target::tree;
+use north_base::platform::shared_target::tree;
 
 const GIB: u64 = 1 << 30;
 const CACHE_IDLE: Duration = Duration::from_secs(4 * 3600);

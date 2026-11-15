@@ -4,7 +4,7 @@ use self::neutralize::{neutralize, restore};
 use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::sync::LazyLock;
-use crate::shell::{ShellToken, basename, heredoc_bodies, operator_tokens, strip_heredocs};
+use north_base::shell::{ShellToken, basename, heredoc_bodies, operator_tokens, strip_heredocs};
 
 const DENIAL: &str = "No. `sops` decrypt output must not reach the terminal: a multi-line value such as a PEM key slips past a line-by-line redaction. Pull one value with `--extract '[\"key\"]'` into a pipe to its consumer, or send the output to a file.";
 const INERT: &[&str] = &[

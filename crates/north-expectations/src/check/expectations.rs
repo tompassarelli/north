@@ -1,4 +1,4 @@
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use toml_edit::{DocumentMut, Item, Table};
 
 pub const MEASURES: [&str; 4] = ["cloud_launches", "launch_failures", "closed_boxes", "heartbeat_age_minutes"];

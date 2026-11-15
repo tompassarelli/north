@@ -1,13 +1,13 @@
 use super::issues::{self, Issue, World};
 use super::record;
 use super::spin::Evidence;
-use crate::platform::land_notice::Notice;
+use north_base::platform::land_notice::Notice;
 use super::tests::issue;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[test]
 fn a_box_due_by_a_date_or_after_landings_is_held_beside_a_plain_one_north_722() {
-    let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
+    let at = |written: &str| north_foundation::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
     let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
     let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
     let held = |body: &str, landings: usize| issues::readiness(&Issue { landings, ..issue("north", 706, body, &[]) }, &world("2026-11-07T04:50Z"));

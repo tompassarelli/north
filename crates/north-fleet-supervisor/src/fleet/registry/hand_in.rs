@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use north_session_host::row_delivery::{Phase, RowDelivery, instance};
 use rustix::fs::{FlockOperation, flock};
 
-use crate::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::FleetRow;
 use crate::fleet::transcript::stream_path;

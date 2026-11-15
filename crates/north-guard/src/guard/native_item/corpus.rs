@@ -1,4 +1,4 @@
-use crate::platform::sqlite::{self, Access};
+use north_base::platform::sqlite::{self, Access};
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::LazyLock;

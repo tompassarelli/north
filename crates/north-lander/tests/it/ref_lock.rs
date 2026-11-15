@@ -1,7 +1,7 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::fs;
 
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_landing::land::checks::Verdict;
 use north_landing::land::post_land::{Landed, Run, settle};
 
@@ -37,6 +37,6 @@ fn refused(refusal: &str) {
     assert_eq!(fs::read_to_string(&runs).unwrap().lines().count(), 2, "the check ran once more before main was judged");
 
     fs::write(&log, format!("{refusal}\n")).unwrap();
-    let judged = north_lander::landing::red_check::run(&["--main".into(), head, "--log".into(), log.display().to_string(), "--lane".into(), "lane".into()]);
+    let judged = north_landing::landing::red_check::run(&["--main".into(), head, "--log".into(), log.display().to_string(), "--lane".into(), "lane".into()]);
     assert_eq!(judged, NO_VERDICT, "red-check answers environment rather than blaming the lane");
 }

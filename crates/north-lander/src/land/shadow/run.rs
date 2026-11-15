@@ -13,9 +13,9 @@ use super::super::slots::graph_selection::Away;
 use super::super::slots::verdict_key;
 use super::check_phase::{Phase, ShadowCheck};
 use super::{OWNER, Settings};
-use north_base::foundation::clock::Timestamp;
-use north_base::foundation::exit::{NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
-use north_base::foundation::offload::OWNER_ENV;
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::exit::{NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
+use north_foundation::foundation::offload::OWNER_ENV;
 use north_base::lifecycle::{Owner, Refusal, Store};
 use north_offload::check_offload::{detached_scope, launch_detached, pid_file};
 

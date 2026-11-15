@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::fleet::install;
-use crate::fleet::model::Account;
-use crate::platform::process::run_command_within;
+use north_fleet_supervisor::fleet::install;
+use north_fleet_supervisor::fleet::model::Account;
+use north_base::platform::process::run_command_within;
 
 const LIMIT: Duration = Duration::from_secs(120);
 const PROMPT: &str = "Reply with the single word ok.";

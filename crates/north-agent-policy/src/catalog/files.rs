@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{FlockOperation, flock};
 use serde_json::Value;
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::configuration;
 use super::paths::agents_root;

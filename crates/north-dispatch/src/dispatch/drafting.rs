@@ -32,7 +32,7 @@ fn qualifies(issue: &Issue, box_text: &str, category: &str) -> Result<String, St
 }
 
 pub(super) fn box_sha256(box_text: &str) -> String {
-    crate::platform::decision_log::sha256_hex(box_text.trim().as_bytes())
+    north_base::platform::decision_log::sha256_hex(box_text.trim().as_bytes())
 }
 
 fn recent<'a>(drafts: &'a [Draft], item: &str, sha: &str, now: f64) -> Option<&'a Draft> {
@@ -52,7 +52,7 @@ struct Bound {
 
 impl Bound {
     fn configured() -> Self {
-        let number = crate::platform::harness::default_number;
+        let number = north_base::platform::harness::default_number;
         Self { count: number("draft_daily_count") as usize, tokens: number("draft_daily_tokens") as u64, usd: number("draft_daily_usd") }
     }
 
@@ -131,7 +131,7 @@ pub(super) fn pass(survey: &Survey, outcome: &super::Outcome, pools: &mut Pools,
     let accounts: Vec<Account> = survey.accounts.iter().filter(|account| plan_account(account)).cloned().collect();
     let capacity = Capacity { accounts: &accounts, charge: survey.rules.charge, ceiling: survey.rules.money_ceiling, claude_sessions: survey.rules.claude_sessions, spend: &survey.spend, scope: &scope };
     let directory = record::directory();
-    let spent = crate::ledger::session_spend(SPENT_DAYS);
+    let spent = north_providers::ledger::session_spend(SPENT_DAYS);
     let mut lines: Vec<String> = spent.as_ref().err().map(|error| format!("draft spend unread from the runs ledger, so only the count bounds drafts: {error}")).into_iter().collect();
     let spent = spent.unwrap_or_default();
     let mut kept: Vec<Draft> = drafts::read(&directory).iter().map(|draft| with_spend(draft, spent.get(&draft.name).copied())).collect();
@@ -185,8 +185,8 @@ fn place(survey: &Survey, capacity: &Capacity, issue: &Issue, text: &str, routed
 }
 
 fn draft_name(item: &IssueRef, text: &str) -> String {
-    let slug = crate::threads::claims::box_slug(text).unwrap_or_default();
-    format!("draft-{}-{}-{slug}", crate::threads::catalog::checkout(&item.repo), item.number)
+    let slug = north_calibration::threads::claims::box_slug(text).unwrap_or_default();
+    format!("draft-{}-{}-{slug}", north_calibration::threads::catalog::checkout(&item.repo), item.number)
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
@@ -202,7 +202,7 @@ fn start(survey: &Survey, launch: &Launch, issue: &Issue, text: &str, check: &st
         return Ok((format!("would {line}"), None));
     }
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
-    let container = PathBuf::from(&home).join("code").join(crate::threads::catalog::checkout(&item.repo));
+    let container = PathBuf::from(&home).join("code").join(north_calibration::threads::catalog::checkout(&item.repo));
     let checkout = container.join("main");
     git(&checkout, &["fetch", "-q", "origin", "main"])?;
     let base = git(&checkout, &["rev-parse", "refs/remotes/origin/main"])?;
@@ -216,7 +216,7 @@ fn start(survey: &Survey, launch: &Launch, issue: &Issue, text: &str, check: &st
     }
     let mut draft = Draft {
         name: name.clone(),
-        at: crate::pacing::placement::now(),
+        at: north_pacing::pacing::placement::now(),
         item: item.to_string(),
         box_text: text.to_owned(),
         box_sha256: sha.to_owned(),
@@ -258,8 +258,8 @@ fn read_mark(cfg: &DocumentMut, here: &str, draft: &Draft) -> Option<serde_json:
     let text = if draft.host == here {
         std::fs::read_to_string(&path).ok()?
     } else {
-        let ssh = crate::pacing::placement::gate::machines(cfg).into_iter().find(|machine| machine.name == draft.host)?.ssh;
-        let output = crate::platform::process::run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &ssh, "cat", &path.to_string_lossy()], std::time::Duration::from_secs(15))?;
+        let ssh = north_pacing::pacing::placement::gate::machines(cfg).into_iter().find(|machine| machine.name == draft.host)?.ssh;
+        let output = north_base::platform::process::run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &ssh, "cat", &path.to_string_lossy()], std::time::Duration::from_secs(15))?;
         output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())?
     };
     serde_json::from_str(&text).ok()
@@ -267,7 +267,7 @@ fn read_mark(cfg: &DocumentMut, here: &str, draft: &Draft) -> Option<serde_json:
 
 pub fn listed(cfg: &DocumentMut, here: &str) -> Vec<(Draft, Ground)> {
     let directory = record::directory();
-    let spent = crate::ledger::session_spend(SPENT_DAYS).unwrap_or_default();
+    let spent = north_providers::ledger::session_spend(SPENT_DAYS).unwrap_or_default();
     drafts::read(&directory)
         .iter()
         .map(|draft| {

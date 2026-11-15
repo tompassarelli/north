@@ -1,7 +1,7 @@
 use super::{Reading, move_spent, next_subscription, settle, today};
-use crate::fleet::handover::{AccountReadings, Observed};
-use crate::fleet::model::{Machine, SessionRecord};
-use crate::credit::Grant;
+use north_fleet_supervisor::fleet::handover::{AccountReadings, Observed};
+use north_fleet_supervisor::fleet::model::{Machine, SessionRecord};
+use north_pace::credit::Grant;
 use crate::providers::claude::fleet::Claude;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -19,8 +19,8 @@ fn low_credit_turn(uuid: &str) -> [serde_json::Value; 3] {
     ]
 }
 
-fn refused_session(fleet: &crate::fleet::registry::Fleet, home: &Path, name: &str, ended: bool, turn: &[serde_json::Value]) {
-    use crate::fleet::registry::fixtures;
+fn refused_session(fleet: &north_fleet_supervisor::fleet::registry::Fleet, home: &Path, name: &str, ended: bool, turn: &[serde_json::Value]) {
+    use north_fleet_supervisor::fleet::registry::fixtures;
     fixtures::live(fleet, name);
     let dir = home.join(".local/state/north/fleet").join(name);
     let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
@@ -28,17 +28,17 @@ fn refused_session(fleet: &crate::fleet::registry::Fleet, home: &Path, name: &st
     std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
     std::fs::write(dir.join("g1/stream.jsonl"), turn.iter().map(|frame| frame.to_string() + "\n").collect::<String>()).unwrap();
     if ended {
-        fleet.phases().unwrap().moved(fleet.session(name).unwrap().launch(), crate::fleet::model::Phase::HostEnded, "its host ended").unwrap();
+        fleet.phases().unwrap().moved(fleet.session(name).unwrap().launch(), north_fleet_supervisor::fleet::model::Phase::HostEnded, "its host ended").unwrap();
     }
 }
 
 fn pool_tick(open: &[&str], subscription: Option<(String, Option<u64>)>, sessions: &[(&str, bool, Vec<serde_json::Value>)]) -> Vec<(String, String, bool, Option<u64>)> {
-    use crate::fleet::registry::Fleet;
+    use north_fleet_supervisor::fleet::registry::Fleet;
     let home = tempfile::tempdir().unwrap();
-    let here = crate::platform::host::name();
+    let here = north_base::platform::host::name();
     let policy = home.path().join("orchestration.toml");
     std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[accounts.claude.api_orgs.ember]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n")).unwrap();
-    let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+    let fleet = Fleet::at(home.path().into(), north_fleet_supervisor::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(north_fleet_supervisor::fleet::fakes::Paper::default())).unwrap();
     for (name, ended, turn) in sessions {
         refused_session(&fleet, home.path(), name, *ended, turn);
     }
@@ -64,7 +64,7 @@ fn with_no_api_org_open_a_refused_session_goes_to_the_subscription_account_that_
     let moved = pool_tick(&[], Some(("b".to_owned(), Some(1_800_000_000_000))), &[("n730-arms", true, refusal("n730-arms"))]);
     assert_eq!(moved, [("n730-arms".to_owned(), "b".to_owned(), true, Some(1_800_000_000_000))]);
 
-    use crate::usage::decide::world::{Label, LimitEvent, Unix, Window};
+    use north_pace::usage::decide::world::{Label, LimitEvent, Unix, Window};
     let full = |account: &str, resets_at: i64| LimitEvent { account: Label(account.to_owned()), window: Window::FiveHour, resets_at: Some(Unix(resets_at)), at: Unix(0) };
     let limits = [full("a", 2_000_000), full("a", 3_000_000), full("b", 2_500_000), full("c", 3_500_000)];
     assert_eq!(next_subscription(["a", "b", "c"], &limits, 1_000_000), Some(("b", Some(2_500_000_000))));
@@ -82,7 +82,7 @@ impl AccountReadings for Quiet {
 
 #[test]
 fn a_session_placed_before_its_host_set_an_agent_login_revives_and_settles_under_the_login_it_was_placed_with() {
-    use crate::fleet::registry::Fleet;
+    use north_fleet_supervisor::fleet::registry::Fleet;
     let home = tempfile::tempdir().unwrap();
     let far = home.path().join("far.toml");
     std::fs::write(&far, "[accounts.claude.profiles.a]\n\"far\" = { path = \"~/.claude-main\", token_file = \"~/a.token\" }\n[hosts.far]\nagent_ssh = \"agent@far\"\n").unwrap();
@@ -92,14 +92,14 @@ fn a_session_placed_before_its_host_set_an_agent_login_revives_and_settles_under
         "machine": {"name": "far", "ssh": "far"}
     }))
     .unwrap();
-    let account = crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]).account(&home.path().join(".local/state/north"), home.path(), &far, &crate::fleet::model::LaunchRequest::relaunching(&placed)).unwrap();
+    let account = north_fleet_supervisor::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]).account(&home.path().join(".local/state/north"), home.path(), &far, &north_fleet_supervisor::fleet::model::LaunchRequest::relaunching(&placed)).unwrap();
     assert_eq!(account.home, home.path().join(".claude-main"));
     assert_eq!(account.token_file, Some(home.path().join("a.token")));
 
-    let here = crate::platform::host::name();
+    let here = north_base::platform::host::name();
     let policy = home.path().join("orchestration.toml");
     std::fs::write(&policy, format!("[accounts.claude.api_orgs.zenith]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[hosts.\"{here}\"]\nagent_ssh = \"agent@{here}\"\n")).unwrap();
-    let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+    let fleet = Fleet::at(home.path().into(), north_fleet_supervisor::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(north_fleet_supervisor::fleet::fakes::Paper::default())).unwrap();
     refused_session(&fleet, home.path(), "n-placed", true, &refusal("n-placed"));
     let dir = home.path().join(".local/state/north/fleet/n-placed");
     let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();

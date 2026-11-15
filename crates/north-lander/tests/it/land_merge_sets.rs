@@ -2,10 +2,10 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use north_base::foundation::shim::write_script;
+use north_foundation::foundation::shim::write_script;
 use north_lander::land::candidate::{self, Pick, git};
 use north_lander::land::queue::Ticket;
-use north_lander::landing::merge_set;
+use north_landing::landing::merge_set;
 
 const DRIVER: &str = "NORTH_MERGE_SETS_DRIVER";
 const HOME: &str = "NORTH_MERGE_SETS_HOME";

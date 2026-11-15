@@ -5,14 +5,14 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
-use north_base::foundation::offload::LANDER_SLOT_ENV;
+use north_foundation::foundation::offload::LANDER_SLOT_ENV;
 use north_base::platform::harness::{DEFAULTS, document};
 use north_base::platform::process;
 
 use super::cargo_manifest::{self, Read};
 use super::lane_gates::Refused;
 use super::slots::affected::{self, Scope};
-use crate::landing_refusals::REBASE_COMPILE;
+use north_diff_gates::landing_refusals::REBASE_COMPILE;
 
 const SWITCH: &str = "rebase_compile";
 const CAP_SECONDS: u64 = 90;

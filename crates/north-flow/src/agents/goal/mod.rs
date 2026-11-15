@@ -8,7 +8,7 @@ mod quote;
 mod schedule;
 mod score;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub use plan::plan_lines;
 pub use quote::run as quote;
@@ -39,5 +39,5 @@ pub(super) fn snapshot_path() -> std::path::PathBuf {
 pub fn read_config(path: &std::path::Path) -> Result<serde_json::Value, String> {
     let text = std::fs::read_to_string(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let document: toml_edit::DocumentMut = text.parse().map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    Ok(crate::router::policy::json_value(document.as_item()))
+    Ok(north_pace::router::policy::json_value(document.as_item()))
 }

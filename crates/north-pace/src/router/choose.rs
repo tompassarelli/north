@@ -25,7 +25,7 @@ pub(super) fn brief(item: &WorkBox) -> &str {
 }
 
 fn costs_file() -> Option<Vec<Value>> {
-    let document: toml_edit::DocumentMut = std::fs::read_to_string(crate::platform::orchestration::policy_file("costs.toml"))
+    let document: toml_edit::DocumentMut = std::fs::read_to_string(north_base::platform::orchestration::policy_file("costs.toml"))
         .ok()?
         .parse()
         .ok()?;

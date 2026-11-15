@@ -6,9 +6,9 @@ use std::time::{Duration, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 use super::source::Case;
-use crate::error::NorthError;
-use crate::fleet::prompt;
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::NorthError;
+use north_fleet::fleet::prompt;
+use north_foundation::foundation::clock::Timestamp;
 
 const OWN: &str = "own";
 const CURRENT: &str = "current";
@@ -235,7 +235,7 @@ fn repo_root(repo: &str) -> Result<PathBuf, NorthError> {
         return Ok(PathBuf::from(path));
     }
     if repo == "north" {
-        return crate::platform::harness::harness_root().map_err(refusal);
+        return north_base::platform::harness::harness_root().map_err(refusal);
     }
     Ok(PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code").join(repo).join("main"))
 }

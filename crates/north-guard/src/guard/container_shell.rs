@@ -4,9 +4,9 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::json;
 
-use crate::session_files::read_record;
-use crate::runtime::SESSION_ENV;
-use crate::foundation::clock::Timestamp;
+use north_fleet_store::session_files::read_record;
+use north_fleet_store::runtime::SESSION_ENV;
+use north_foundation::foundation::clock::Timestamp;
 use crate::hook_input::{HookInput, Verdict};
 
 const RECORDS: &str = "agents/hooks/container-shell.jsonl";
@@ -14,7 +14,7 @@ const RECORDS: &str = "agents/hooks/container-shell.jsonl";
 /// The session of this hook when its launch declared `--container-shell`, so its shell tool runs in a task container and a command it runs there touches nothing of this host. The session's record says so, which its launch writes and no worker command can; nothing in the command or its environment does.
 pub fn declared() -> Option<ContainerSession> {
     let session = std::env::var(SESSION_ENV).ok().filter(|session| !session.is_empty() && !session.contains('/'));
-    session.zip(crate::home::root_here().ok()).and_then(|(session, root)| declared_in(&root, &session))
+    session.zip(north_fleet_store::home::root_here().ok()).and_then(|(session, root)| declared_in(&root, &session))
 }
 
 pub(crate) fn declared_in(root: &Path, session: &str) -> Option<ContainerSession> {

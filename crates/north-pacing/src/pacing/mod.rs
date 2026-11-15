@@ -1,5 +1,5 @@
-use crate::error::NorthResult;
-use crate::fleet::roster::Roster;
+use north_foundation::error::NorthResult;
+use north_fleet_supervisor::fleet::roster::Roster;
 use std::collections::BTreeMap;
 use std::io::Write;
 
@@ -66,7 +66,7 @@ pub fn answer(value: &serde_json::Value) -> Result<serde_json::Value, String> {
     if let Some(answer) = command::operation(value)? {
         return Ok(answer);
     }
-    if let Some(answer) = crate::router::ops::answer(value) {
+    if let Some(answer) = north_pace::router::ops::answer(value) {
         return answer;
     }
     Err(format!("unknown op {}", value["op"].as_str().unwrap_or_default()))

@@ -86,7 +86,7 @@ pub fn signed_in_emails(cfg: &Value, host: &str, home: &Path) -> Vec<String> {
 
 /// The sign-in emails of every Claude account this host runs, from the policy at the orchestration path.
 pub fn signed_in_here() -> Vec<String> {
-    signed_in_emails(&policy_value(&crate::platform::orchestration::path()), &crate::platform::host::name(), &home())
+    signed_in_emails(&policy_value(&north_base::platform::orchestration::path()), &north_base::platform::host::name(), &home())
 }
 
 pub fn label_of(cfg: &Value, uuid: &str) -> Option<String> {

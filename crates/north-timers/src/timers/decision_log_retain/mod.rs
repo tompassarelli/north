@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::foundation::clock::Timestamp;
-use crate::platform::decision_log;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::decision_log;
 
 #[cfg(test)]
 mod tests;

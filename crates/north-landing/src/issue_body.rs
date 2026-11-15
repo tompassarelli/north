@@ -7,10 +7,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::issue_box_lint;
+use north_landing_gates::issue_box_lint;
 use crate::box_tick as landing;
 use crate::atomic_write;
-use crate::platform::process;
+use north_base::platform::process;
 
 pub const DIRECTORY: &str = "issue-bodies";
 pub const REFUSED: &str = "refused";

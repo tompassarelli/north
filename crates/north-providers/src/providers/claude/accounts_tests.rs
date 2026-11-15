@@ -4,8 +4,8 @@ use std::path::Path;
 use serde_json::json;
 
 use super::{Profiles, discover};
-use crate::error::NorthError;
-use crate::fleet::model::ProviderName;
+use north_foundation::error::NorthError;
+use north_fleet_supervisor::fleet::model::ProviderName;
 
 fn login(home: &Path, account: &str) {
     fs::create_dir_all(home).unwrap();
@@ -18,7 +18,7 @@ fn profile(state: &Path, label: &str, account: &str) {
     fs::write(home.join(".credentials.json"), "{}").unwrap();
 }
 
-fn labels(roster: &crate::fleet::roster::Roster) -> (Vec<&str>, Vec<(&str, &str)>) {
+fn labels(roster: &north_fleet_supervisor::fleet::roster::Roster) -> (Vec<&str>, Vec<(&str, &str)>) {
     let listed = roster.accounts.iter().map(|account| account.label.as_str()).collect();
     let duplicates = roster.duplicates.iter().map(|duplicate| (duplicate.account.label.as_str(), duplicate.of.as_str())).collect();
     (listed, duplicates)
@@ -51,9 +51,9 @@ fn an_account_its_client_refused_is_not_offered_and_its_launch_refused_with_the_
     profile(state.path(), "b", "account-b");
     profile(state.path(), "e", "account-e");
     let claude = ProviderName::new("claude");
-    let marks = crate::fleet::refusals::directory(state.path());
+    let marks = north_fleet_supervisor::fleet::refusals::directory(state.path());
     let text = "Your organization has disabled Claude subscription access for Claude Code";
-    crate::fleet::refusals::mark(&marks, "b", "ds-landerE", "2026-11-10T01:20:00Z", text).unwrap();
+    north_fleet_supervisor::fleet::refusals::mark(&marks, "b", "ds-landerE", "2026-11-10T01:20:00Z", text).unwrap();
 
     let roster = discover(&claude, state.path(), &Profiles::default());
 
@@ -63,6 +63,6 @@ fn an_account_its_client_refused_is_not_offered_and_its_launch_refused_with_the_
         other => panic!("launching the refused account was not refused: {other:?}"),
     }
     assert_eq!(roster.profile(&claude, "b").ok().map(|account| account.label), Some("b".to_owned()), "on 2026-11-13 a revive onto claude:a could not carry a session off claude:e while e's client refused it");
-    crate::fleet::refusals::clear(&marks, "b").unwrap();
+    north_fleet_supervisor::fleet::refusals::clear(&marks, "b").unwrap();
     assert_eq!(labels(&discover(&claude, state.path(), &Profiles::default())).0, vec!["b", "e"]);
 }

@@ -4,7 +4,7 @@ use super::review_hold::Screen;
 use super::scope::own_scope;
 use super::{deploy, update, walk};
 use north_offload::land_offload;
-use crate::platform::{host, process};
+use north_base::platform::{host, process};
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::process::CommandExt;
 use std::path::Path;

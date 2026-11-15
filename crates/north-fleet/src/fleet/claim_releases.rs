@@ -1,7 +1,7 @@
 //! The sweep that gives up the claims exited sessions left in the ledger.
 use std::collections::BTreeSet;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::claims::{Claims, Rows};
 

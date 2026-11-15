@@ -5,8 +5,8 @@ use serde_json::Value;
 
 use super::alerts::{Action, Node, Record, State, deliver};
 use super::host::{Host, Places};
-use crate::foundation::clock::Timestamp;
-use crate::usage::STALE_SECONDS;
+use north_foundation::foundation::clock::Timestamp;
+use north_pace::usage::STALE_SECONDS;
 
 const STATE_FILE: &str = "sampler.json";
 

@@ -9,7 +9,7 @@ use super::issues::{Issues, box_of_issue};
 use super::ledger::{self, Taken};
 use super::lifecycle::{self, Moved};
 use super::{Claim, Issue, OVERDUE_RATIO, Standing, box_slug, split_key};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
 pub const VERBS: [&str; 3] = ["claim", "list", HOLDER];

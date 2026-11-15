@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::clock::Timestamp;
-use north_base::foundation::step::{Refused, Step, cancelled, refuse};
+use north_foundation::foundation::clock::Timestamp;
+use north_foundation::foundation::step::{Refused, Step, cancelled, refuse};
 
 use crate::gates::run as gates;
 use crate::publication::outgoing::Outgoing;

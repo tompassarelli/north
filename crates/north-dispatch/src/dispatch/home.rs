@@ -1,6 +1,6 @@
 //! The dispatch host, South's `[placement] dispatch_host`: the one host whose dispatch records (launches, host needs,
 //! launch holds, wait stops) a plan reads, so a run elsewhere, dry or real, runs there instead of planning from stale copies.
-use crate::pacing::placement::gate;
+use north_pacing::pacing::placement::gate;
 use toml_edit::{DocumentMut, Item};
 
 /// The dispatch host and the ssh destination that reaches it, when it is not `here`.

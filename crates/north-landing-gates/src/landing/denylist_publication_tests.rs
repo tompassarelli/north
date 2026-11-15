@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::Command;

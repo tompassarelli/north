@@ -8,7 +8,7 @@ pub(super) fn money_refusal(world: &impl World, provider: &str) -> Result<Option
     let Some(all) = std::fs::read_to_string(state_dir(world).join("agents/usage-gate.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else {
         return Ok(None);
     };
-    crate::platform::reader_stamp::touch(&state_dir(world), "agents/usage-gate.json");
+    north_base::platform::reader_stamp::touch(&state_dir(world), "agents/usage-gate.json");
     let verdict = &all[provider];
     let refusals = &verdict["refusals"];
     if truthy(refusals) && !refusals.is_object() {

@@ -12,7 +12,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use super::rework::Commit;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const FORMAT: &str = "--format=%x1e%H%x1f%ct%x1f%s%x1f%b%x1f";
 

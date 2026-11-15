@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use super::closed_source::window_bounds;
 use super::threads_database;
-use crate::error::NorthResult;
-use crate::foundation::clock::Timestamp;
-use crate::platform::sqlite::{self, Access};
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::sqlite::{self, Access};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WorkerTurn {

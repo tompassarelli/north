@@ -82,7 +82,7 @@ static CALIBRATION_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub fn is_space(c: char) -> bool {
-    crate::shell::whitespace(c)
+    north_base::shell::whitespace(c)
 }
 
 pub fn trim(text: &str) -> &str {

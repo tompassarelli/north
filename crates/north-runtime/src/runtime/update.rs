@@ -15,7 +15,7 @@ use super::review_hold;
 use super::store;
 use north_offload::land_offload;
 use north_trusted_mirror::Mirror;
-use crate::platform::{host, process};
+use north_base::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
 use std::fs::{self, File};

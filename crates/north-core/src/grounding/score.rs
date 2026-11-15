@@ -9,11 +9,11 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::common::SQLITE_BUSY;
-use crate::platform::sqlite::{self, Access};
+use north_base::platform::sqlite::{self, Access};
 use super::compose::{retrieve, select, LIMIT_CHARS};
 use super::store::{self, Hit, Index};
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 const CANDIDATES: usize = 500;
 const REAL_LIMIT: usize = 80;
@@ -237,7 +237,7 @@ fn utf16_head(s: &str, units: usize) -> String {
 
 fn convo_db() -> PathBuf {
     env::var_os("NORTH_GROUNDING_CONVO_DB").map(PathBuf::from).unwrap_or_else(|| {
-        north_base::foundation::convo_index::default_path(&PathBuf::from(env::var_os("HOME").unwrap_or_default()))
+        north_foundation::foundation::convo_index::default_path(&PathBuf::from(env::var_os("HOME").unwrap_or_default()))
     })
 }
 

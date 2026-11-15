@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 use std::io::{self, Read, Write};
 use crate::guard::container_shell;
 use crate::hook_input::{Evidence, HookInput, INPUT_LIMIT, Verdict};
-use crate::runtime::Binding;
+use north_fleet_store::runtime::Binding;
 
 pub type GuardFn = fn(&HookInput) -> Verdict;
 
@@ -377,7 +377,7 @@ pub(crate) fn process(
         (event, _) => (guards, event),
     };
     let event = if event == "*" { provider(&input).unwrap_or("") } else { event };
-    let guards = spare_guards(guards, event, crate::runtime::binding(), || first_prompt(&input));
+    let guards = spare_guards(guards, event, north_fleet_store::runtime::binding(), || first_prompt(&input));
     let mut evidence = Vec::new();
     if let Some(output) = evaluate_here(&input, &guards, event, &mut evidence) {
         writer.write_all(output.to_string().as_bytes())?;
@@ -392,7 +392,7 @@ fn notice_invalid_input(bytes: &[u8], event: &str) {
     }
 }
 
-/// The guards `event` runs in a session standing at `binding` (crate::runtime::binding): none at the start of a spare no launch has taken, whose context would be the spare's, and at a taken spare's `first` prompt the session-start guards before the prompt's own, so the context its start owes is produced for the session it was bound to.
+/// The guards `event` runs in a session standing at `binding` (north_fleet_store::runtime::binding): none at the start of a spare no launch has taken, whose context would be the spare's, and at a taken spare's `first` prompt the session-start guards before the prompt's own, so the context its start owes is produced for the session it was bound to.
 fn spare_guards(guards: &[Guard], event: &str, binding: Binding, first: impl FnOnce() -> bool) -> Vec<Guard> {
     match (event, binding) {
         ("SessionStart", Binding::Awaited) => Vec::new(),

@@ -2,10 +2,10 @@
 //! provider and not Claude. Every other box keeps its Claude routing and waits, and no box on a private repository is in it.
 use super::facets;
 use super::issues::Issue;
-use crate::pacing::placement::gate;
+use north_pacing::pacing::placement::gate;
 use toml_edit::DocumentMut;
 
-pub use crate::fleet::proposal::{CATEGORIES, SCOPES, SPECS};
+pub use north_fleet_supervisor::fleet::proposal::{CATEGORIES, SCOPES, SPECS};
 
 /// Why `issue`'s box, routed in `category`, stays out of the band, or `None` when the outside provider may take it.
 pub fn outside(issue: &Issue, category: &str, cfg: &DocumentMut) -> Option<String> {

@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::platform::disk_budget::Share;
+use north_base::platform::disk_budget::Share;
 
 use super::held::Held;
 use super::{Inputs, Policy, Removal, hours, idle_for, removed, size};

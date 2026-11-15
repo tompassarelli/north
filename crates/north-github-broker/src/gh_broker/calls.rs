@@ -2,10 +2,10 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-use north_base::foundation::socket_peer;
+use north_foundation::foundation::socket_peer;
 
 use super::broker::Source;
-use crate::platform::session_scope;
+use north_base::platform::session_scope;
 use super::http::{Request, Response};
 
 const ROTATE_BYTES: u64 = 32 << 20;
@@ -87,7 +87,7 @@ fn keep_quota(directory: &Path, request: &Request, response: &Response) {
     let (Some(remaining), Some(resets_at), Some(resource)) = (number("x-ratelimit-remaining"), number("x-ratelimit-reset"), response.header("x-ratelimit-resource")) else {
         return;
     };
-    crate::platform::github_quota::record(directory, request.header("authorization").unwrap_or(""), resource, remaining, resets_at);
+    north_base::platform::github_quota::record(directory, request.header("authorization").unwrap_or(""), resource, remaining, resets_at);
 }
 
 pub fn token_kind(request: &Request) -> &'static str {

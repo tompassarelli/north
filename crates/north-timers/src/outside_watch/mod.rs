@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use north_base::platform::github_app;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north outside-watch run [--dry-run] [--days N] | status";
 const OVERLAP: i64 = 15 * 60;

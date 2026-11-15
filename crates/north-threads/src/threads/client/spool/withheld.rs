@@ -5,8 +5,8 @@ use std::time::Duration;
 use north_base::lifecycle::Record;
 
 use super::{COMMAND_NOT_FOUND_STATUS, NOT_EXECUTABLE_STATUS, Phase, Spool, SpooledWrite};
-use crate::error::NorthResult;
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) const WILL_NOT_RUN: &str = "the ledger host will not run `";
 /// How long the ledger host's refusal of a verb stands before one of the writes it withheld is sent again to ask.

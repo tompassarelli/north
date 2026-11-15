@@ -245,9 +245,9 @@ fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree
     let fleet = tempfile::tempdir().unwrap();
     for (session, container_shell) in [("task", true), ("host", false)] {
         let launch = json!({"verification": true, "created_ms": 1, "name": session, "provider": "claude", "account": "a", "cwd": "/app", "prompt_mode": "north", "container_shell": container_shell});
-        let record = serde_json::from_value::<crate::session::SessionRecord>(launch).unwrap();
+        let record = serde_json::from_value::<north_fleet_store::session::SessionRecord>(launch).unwrap();
         std::fs::create_dir(fleet.path().join(session)).unwrap();
-        crate::session_files::write_record(&fleet.path().join(session), &record).unwrap();
+        north_fleet_store::session_files::write_record(&fleet.path().join(session), &record).unwrap();
     }
     let app = fleet.path().join("app");
     std::fs::create_dir_all(app.join("john")).unwrap();
@@ -283,9 +283,9 @@ fn a_file_tool_path_under_a_container_sessions_container_directory_reaches_the_s
     std::os::unix::fs::symlink("/etc", own.join("outside")).unwrap();
     for (session, container_shell, container_dir) in [("task", true, Some("/app")), ("host", false, Some("/app")), ("undeclared", true, None)] {
         let launch = json!({"verification": true, "created_ms": 1, "name": session, "provider": "claude", "account": "a", "cwd": own, "prompt_mode": "north", "container_shell": container_shell, "container_dir": container_dir});
-        let record = serde_json::from_value::<crate::session::SessionRecord>(launch).unwrap();
+        let record = serde_json::from_value::<north_fleet_store::session::SessionRecord>(launch).unwrap();
         std::fs::create_dir(fleet.path().join(session)).unwrap();
-        crate::session_files::write_record(&fleet.path().join(session), &record).unwrap();
+        north_fleet_store::session_files::write_record(&fleet.path().join(session), &record).unwrap();
     }
     let guards = [guard("", |input| match input.tool_input["file_path"].as_str() {
         Some(path) if path.starts_with("/app") => Verdict::Deny(format!("outside the lane: {path}")),

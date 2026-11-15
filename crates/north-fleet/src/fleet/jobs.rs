@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 
 use super::model::Machine;
 use super::store::{FarSpools, FleetRow, RowKind, Spool};

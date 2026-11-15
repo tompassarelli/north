@@ -33,10 +33,12 @@ sha2.workspace = true
 tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
+north-foundation = { path = "../north-foundation" }
+north-graph = { path = "../north-graph" }
+
 
 [dev-dependencies]
 north-fleet-store = { path = "../north-fleet-store" }
-north-graph = { path = "../north-graph" }
 
 [lints]
 workspace = true

@@ -5,20 +5,20 @@ pub use super::waits::resume_message;
 use std::time::{Duration, SystemTime};
 
 use north_base::platform::attribution::{self, Cause, Harness};
-use north_base::foundation::limit_clock::reset_after;
+use north_foundation::foundation::limit_clock::reset_after;
 
 use super::model::{EntryKind, Phase, SessionRecord, Status, Transcript, UsageLimit};
 use super::registry::Fleet;
 use super::transcript::stream_path;
 use super::waits::{Registered, Run, Waits};
-use crate::error::NorthResult;
-use crate::usage::decide::world::{Label, Reading, Unix, Window};
+use north_foundation::error::NorthResult;
+use north_pace::usage::decide::world::{Label, Reading, Unix, Window};
 
 const RECENT: Duration = Duration::from_secs(48 * 3600);
 const UNREADABLE_RETRY_MS: u64 = 3_600_000;
 const LABEL: &str = "usage limit";
 const FIVE_HOURS_MS: u64 = 5 * 3_600_000;
-pub use crate::usage::FULL_PCT;
+pub use north_pace::usage::FULL_PCT;
 
 /// The reset of an account's usage window as `north fleet usage` reports it, for a limit whose turn named none.
 pub trait AccountResets {

@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::platform::land_notice::Notice;
-use crate::platform::push_ledger;
+use north_base::platform::land_notice::Notice;
+use north_base::platform::push_ledger;
 use super::candidate::git;
 use super::queue::{self, Ticket};
 use super::lander::{Lander, state_home};
@@ -117,7 +117,7 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
     let mut spans = trace::landing::shared(stages, head);
     for (path, ticket, tip) in tickets {
         let name = name_of(&path);
-        let queued = ticket.queued_micros.map(seconds_of).or_else(|| crate::platform::land_queue::rfc3339_seconds(&ticket.queued_at)).unwrap_or_else(|| stages.started_at());
+        let queued = ticket.queued_micros.map(seconds_of).or_else(|| north_base::platform::land_queue::rfc3339_seconds(&ticket.queued_at)).unwrap_or_else(|| stages.started_at());
         let hand_in = ticket.hand_in.as_ref().map(|hand_in| trace::landing::HandIn { called: seconds_of(hand_in.called_micros), gates: seconds_of(hand_in.gates_micros), asked: seconds_of(hand_in.asked_micros), verdict: hand_in.verdict_micros.map(seconds_of), judge: hand_in.judge.clone() });
         let ticket_name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
         spans.extend(trace::landing::spans(stages, &trace::landing::Landed { ticket: &ticket_name, branch: &ticket.branch, queued, landed: head, batch: batch_size, hand_in }));

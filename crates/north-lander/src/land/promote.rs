@@ -11,7 +11,7 @@ use super::lander::state_home;
 use super::{link_hold, queue, replay, repositories};
 use shadow::shadow;
 use tolerance::{Held, only_fixes, tolerated};
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 
 mod arrival;
 mod machinery_lane;

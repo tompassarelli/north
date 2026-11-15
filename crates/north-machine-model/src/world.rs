@@ -4,8 +4,8 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use north_base::error::NorthResult;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::error::NorthResult;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Liveness, Move, Owner, Record, State, Store};
 
 /// The scope's processes as host and pid: two share a host, so each can tell whether the other runs, and the third

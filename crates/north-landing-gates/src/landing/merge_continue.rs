@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::merge_set::{self, Kind};
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Operation {

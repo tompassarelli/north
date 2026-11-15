@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::fleet::model::EntryKind;
+use north_fleet_supervisor::fleet::model::EntryKind;
 
 use super::super::opencode::harness::{Tally, tool_text};
 

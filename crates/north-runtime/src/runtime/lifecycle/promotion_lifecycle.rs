@@ -1,5 +1,5 @@
 use super::{Promoting, Promotion};
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{FaultKind, Liveness, Owner, Refusal, Store};
 
 const SHA: &str = "2222222222222222222222222222222222222222";

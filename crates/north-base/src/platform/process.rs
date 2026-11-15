@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::foundation::step::{Refused, Step};
+use north_foundation::foundation::step::{Refused, Step};
 
 pub fn run<S: AsRef<OsStr>>(
     program: &str,

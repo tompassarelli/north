@@ -3,7 +3,7 @@
 //! host, and the one judgement settle makes of each landing.
 use north_runtime_records::failure::{Failure, failed};
 use super::layout::Layout;
-use north_base::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Record, Refusal, State, Store};
 use std::time::Duration;
 
@@ -178,7 +178,7 @@ pub(super) fn store(layout: &Layout) -> Result<Store, Failure> {
     Ok(store)
 }
 
-fn unreadable(error: north_base::error::NorthError) -> Failure {
+fn unreadable(error: north_foundation::error::NorthError) -> Failure {
     failed(1, error.to_string())
 }
 

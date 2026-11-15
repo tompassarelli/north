@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicU64;
 
-use north_base::foundation::shim::write_executable;
+use north_foundation::foundation::shim::write_executable;
 use north_lander::land::heartbeat::Heartbeat;
 use north_lander::land::jobs::Chores;
 use north_lander::land::lander::Lander;
@@ -254,7 +254,7 @@ fn hand_in_waiter() {
     let Ok(path) = std::env::var(WAITED) else { return };
     let path = PathBuf::from(path);
     let ticket = queue::read(&path).unwrap();
-    let queued = north_lander::land::enqueue::Queued { path, outbox: true, ticket: ticket.clone(), squash: north_lander::landing::lane_squash::Squash::Unchanged };
+    let queued = north_lander::land::enqueue::Queued { path, outbox: true, ticket: ticket.clone(), squash: north_landing::landing::lane_squash::Squash::Unchanged };
     std::process::exit(i32::from(north_lander::land::enqueue::hand_in(&ticket.root, &queued, &PathBuf::from(std::env::var("XDG_STATE_HOME").unwrap()))));
 }
 

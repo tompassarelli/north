@@ -4,16 +4,16 @@ use serde_json::Value;
 
 use north_base::platform::agent_runtime;
 use north_claude_stream::{encode_interrupt, encode_user_blocks, encode_user_message};
-use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, Machine, ProviderName, Quota, Status, Transcript, UsageLimit};
-use crate::fleet::attachments;
-use crate::fleet::roster::Roster;
-use crate::fleet::tickets::{FINISH_TOOL, HAND_IN_TOOL};
-use crate::fleet::turns::TurnSignal;
-use crate::fleet::runtime::{ClientRefusal, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
-use crate::fleet::install;
-use crate::fleet::link::quote;
-use crate::platform::attribution::{self, Cause, Harness};
+use north_foundation::error::{NorthError, NorthResult};
+use north_fleet_supervisor::fleet::model::{Account, Entry, EntryKind, LaunchRequest, Machine, ProviderName, Quota, Status, Transcript, UsageLimit};
+use north_fleet_supervisor::fleet::attachments;
+use north_fleet_supervisor::fleet::roster::Roster;
+use north_fleet_supervisor::fleet::tickets::{FINISH_TOOL, HAND_IN_TOOL};
+use north_fleet_supervisor::fleet::turns::TurnSignal;
+use north_fleet_supervisor::fleet::runtime::{ClientRefusal, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
+use north_fleet_supervisor::fleet::install;
+use north_fleet_supervisor::fleet::link::quote;
+use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::session_env::{self, claude_env};
 use super::{accounts, conversation_log, launch_prompt, limit, quota, tool_server, turns, user_text, window_inbox};
@@ -82,7 +82,7 @@ impl Runtime for Claude {
         }
         argv.extend(session_env::model_args(request));
         argv.extend(session_env::agent_args(request));
-        let programs = tool_server::launch_programs(request, &operator_home, crate::fleet::remote::answer_on)?;
+        let programs = tool_server::launch_programs(request, &operator_home, north_fleet_supervisor::fleet::remote::answer_on)?;
         argv.extend(tool_server::tool_server_args(&programs.north, &tool_server::configured_verbs()));
         argv.extend(launch_prompt::args(account, request, instructions, &programs.prefix)?);
         Ok(HostSpec {

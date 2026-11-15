@@ -5,7 +5,7 @@ use std::process::Command;
 
 use serde_json::json;
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::configuration;
 use super::paths::owner_path;

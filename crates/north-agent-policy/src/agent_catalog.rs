@@ -44,7 +44,7 @@ use clap::Parser;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use north_base::error::{NorthError, NorthResult};
+use north_foundation::error::{NorthError, NorthResult};
 
 pub use catalog_init::initial_catalog;
 use activation::{
@@ -435,7 +435,7 @@ pub fn config_check(arguments: &[String]) -> NorthResult<u8> {
         }
         _ => return Err(usage()),
     };
-    let options: GuideOptions = north_base::foundation::arguments::parse(rest).map_err(|_| usage())?;
+    let options: GuideOptions = north_foundation::foundation::arguments::parse(rest).map_err(|_| usage())?;
     if options.help {
         println!("{CONFIG_CHECK_USAGE}");
         return Ok(0);

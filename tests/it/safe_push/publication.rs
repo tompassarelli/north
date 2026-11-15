@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_core::foundation::shim;
+use north_foundation::foundation::shim;
 
 use super::{Fixture, git, write};
 

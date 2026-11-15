@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process, kill_process_group, test_kill_process};
 
-use crate::error::{NorthError, NorthResult};
-use crate::platform::{session_host_files, session_scope};
+use north_foundation::error::{NorthError, NorthResult};
+use north_base::platform::{session_host_files, session_scope};
 
 use super::detached::{self, Prior};
 use super::model::ProviderName;

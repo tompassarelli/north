@@ -1,4 +1,4 @@
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::model::{LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::records::{read_record, write_record};
 

@@ -1,5 +1,5 @@
 use super::argument_words::{is_redirect, is_redirect_operator};
-use crate::shell;
+use north_base::shell;
 use std::path::Path;
 
 pub(super) const MAX_NESTING: usize = 3;

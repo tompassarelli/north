@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::gates::{self, Gate};
 use crate::fleet::model::{SessionPhase, SessionRecord, Status};
 use crate::fleet::turns::TurnSignal;

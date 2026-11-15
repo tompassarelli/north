@@ -1,6 +1,6 @@
 use super::super::argument_words::{is_plain_argument, is_redirect_operator};
 use super::{Decision, refuse};
-use crate::platform::git::run_within;
+use north_base::platform::git::run_within;
 use std::path::Path;
 use std::time::Duration;
 

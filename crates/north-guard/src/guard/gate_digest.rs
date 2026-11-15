@@ -1,6 +1,6 @@
 use crate::guard::coordinator_role;
 use crate::hook_input::{HookInput, Verdict};
-use crate::platform::process;
+use north_base::platform::process;
 use std::process::Command;
 use std::time::Duration;
 

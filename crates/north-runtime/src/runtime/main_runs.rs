@@ -1,7 +1,7 @@
 //! The completed runs of main's Buck2 workflow (north#1115), read by the screen on the host that settles the fleet: the newest
 //! completed run on a head's ancestry decides whether that head is tripped (trip.rs, review_hold.rs `Screen`).
 
-use north_base::foundation::main_run_verdict;
+use north_foundation::foundation::main_run_verdict;
 use serde::Deserialize;
 
 pub(crate) use main_run_verdict::{Kept, Verdict, failed_cases, judge};

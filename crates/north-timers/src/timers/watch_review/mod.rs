@@ -3,7 +3,7 @@ mod system;
 use std::path::{Path, PathBuf};
 
 use super::fleet_session::{Launch, LaunchError, Placement};
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north watch-review [--dry-run]";
 

@@ -1,7 +1,7 @@
 use super::placement::gate::{self, Decision, Machine, Target, Verdict};
 use super::placement::room::Basis;
-use crate::fleet::model::{Account, ProviderName};
-use crate::fleet::roster::{Declared, Roster};
+use north_fleet_supervisor::fleet::model::{Account, ProviderName};
+use north_fleet_supervisor::fleet::roster::{Declared, Roster};
 use north_strategy_types::placement as record;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -29,7 +29,7 @@ fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
 }
 
 fn verdicts(quota: &Value, roster: &Roster) -> Vec<Verdict> {
-    let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
+    let at = north_foundation::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
     gate::verdicts(quota, roster, &Basis::new(&DocumentMut::new(), at))
 }
 
@@ -73,7 +73,7 @@ fn a_brief_with_no_surface_line_takes_its_repositorys_default_surfaces_and_a_rep
     }))
     .unwrap();
     let case = record::Case {
-        at: crate::foundation::clock::rfc3339_seconds("2026-10-16T12:00:00Z").unwrap(),
+        at: north_foundation::foundation::clock::rfc3339_seconds("2026-10-16T12:00:00Z").unwrap(),
         launch: record::Launch::default(),
         brief: brief.into(),
         config: surfaces,
@@ -96,7 +96,7 @@ fn a_brief_with_no_surface_line_takes_its_repositorys_default_surfaces_and_a_rep
 /// A replay of a coordinator launch on Fable with two accounts, each carrying its shared week and its
 /// own Fable meter, exactly as the decision log records them.
 fn coordinator_case(fable: [f64; 2], shared: [f64; 2]) -> record::Case {
-    let at = crate::foundation::clock::rfc3339_seconds("2026-11-10T12:00:00Z").unwrap();
+    let at = north_foundation::foundation::clock::rfc3339_seconds("2026-11-10T12:00:00Z").unwrap();
     let window = |name: &str, used: f64| record::Window { window: Some(name.into()), used_pct: Some(used), resets_at: None, reset_h: Some(100.0) };
     let account = |fable: f64, shared: f64| vec![window("5h", 0.0), window("week", shared), window("weekly_scoped/Fable", fable)];
     record::Case {
@@ -118,7 +118,7 @@ fn coordinator_case(fable: [f64; 2], shared: [f64; 2]) -> record::Case {
 #[test]
 fn the_declared_operational_reserve_is_never_offered_to_a_worker_and_neither_an_account_at_99_percent_of_its_week_nor_a_small_plan_resetting_sooner_is_picked_beside_a_roomy_account() {
     let cfg: DocumentMut = "[accounts.claude]\nreserve = [\"b\"]\n".parse().unwrap();
-    let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
+    let at = north_foundation::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
     let listed = roster(&[("a", None), ("b", None)]);
     let quota = gate(&[("claude:a", control((50.0, "2026-10-19T03:00:00Z"), 50.0)), ("claude:b", control((0.0, "2026-10-19T03:00:00Z"), 0.0))]);
     let decision = gate::decide(CODE_ONLY, &cfg, gate::verdicts(&quota, &listed, &Basis::new(&cfg, at)), (false, String::new()), &[], "here", false);
@@ -155,7 +155,7 @@ fn no_api_organization_is_picked_ahead_of_a_plan_account_unless_the_owner_settin
     let grant = record::GrantSource { account: "claude:api:zenith".into(), left_usd: 70.0, deadline_h: 200.0, urgent: true, line: "$70 left".into() };
     let placed = |weeks: &[(&str, f64)], beside_plans: bool| {
         let case = record::Case {
-            at: crate::foundation::clock::rfc3339_seconds("2026-11-13T12:00:00Z").unwrap(),
+            at: north_foundation::foundation::clock::rfc3339_seconds("2026-11-13T12:00:00Z").unwrap(),
             launch: record::Launch { name: "worker".into(), fresh: true, provider: "claude".into(), ..Default::default() },
             brief: "Item: north#1054 place a worker\n".into(),
             config: record::Config { api_beside_plans: beside_plans, ..Default::default() },

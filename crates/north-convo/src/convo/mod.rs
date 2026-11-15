@@ -89,7 +89,7 @@ fn upgrade(env: &Env, io: &mut Console) -> Result<()> {
     if env.db().exists() {
         return Ok(());
     }
-    let current = north_base::foundation::convo_index::FILE;
+    let current = north_foundation::foundation::convo_index::FILE;
     let Ok(entries) = std::fs::read_dir(&env.state) else { return Ok(()) };
     let older: Vec<std::path::PathBuf> = entries
         .flatten()

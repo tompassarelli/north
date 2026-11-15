@@ -19,7 +19,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
     head.push(format!("Repository: {OWNER}/{}", issue.repo));
     head.extend(FACETS.iter().map(|(key, _)| format!("{key}: {}", facet(issue, key))));
     head.extend(declared(issue, "Class").map(|class| format!("Class: {class}")));
-    head.extend(crate::router::brief::lands_before_native(&facet(issue, "Verify"), &facet(issue, "Category")).then(|| "Lands-before: native".to_owned()));
+    head.extend(north_pace::router::brief::lands_before_native(&facet(issue, "Verify"), &facet(issue, "Category")).then(|| "Lands-before: native".to_owned()));
     head.push(format!("Tier: {}", route.tier.name()));
     head.extend(route.stamp().map(|arm| format!("Arm: {arm}")));
     head.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
@@ -85,7 +85,7 @@ pub fn cloud(brief: &str, repo: &str, branch: &str, orders: &str) -> String {
 
 /// This host's standing orders as a fleet launch carries them.
 pub fn standing_orders() -> Result<String, String> {
-    crate::fleet::registry::orders_here().and_then(|orders| orders.read()).map_err(|error| error.to_string())
+    north_fleet_supervisor::fleet::registry::orders_here().and_then(|orders| orders.read()).map_err(|error| error.to_string())
 }
 
 /// `brief` with an `Arm: ARM` line after its `Tier:` line, for an arm drawn after placement.

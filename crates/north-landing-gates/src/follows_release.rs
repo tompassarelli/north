@@ -10,10 +10,10 @@ use std::time::Duration;
 
 use north_base::platform::process::child_within;
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
-use crate::platform::follows::{Predecessor, predecessor, subject_on_main};
-use crate::platform::git::run as git;
+use north_base::platform::follows::{Predecessor, predecessor, subject_on_main};
+use north_base::platform::git::run as git;
 fn text(output: std::io::Result<Output>) -> Result<String, String> {
     output
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())

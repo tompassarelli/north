@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use north_base::test_inputs::git::git_in;
+use north_foundation::test_inputs::git::git_in;
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::fleet::detached::Detached;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::gate_lifecycle::GatePhase;

@@ -2,5 +2,5 @@
 name = "ledger"
 paths = ["crates/north-providers/src/ledger/**"]
 responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
-may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle", "graph"]
+may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle", "graph", "platform", "platform.git", "platform.github", "platform.harness", "platform.host", "platform.store"]
 

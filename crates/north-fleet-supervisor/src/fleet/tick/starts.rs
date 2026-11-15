@@ -5,7 +5,7 @@ use north_agent_starts::{REQUEST, StartRequest};
 
 use super::Ticked;
 use crate::fleet::model::{Role, SessionRecord};
-use crate::platform::login::Login;
+use north_base::platform::login::Login;
 
 /// The one writer of start requests for the laptop's local agent sessions: the fleet tick, into the operator-owned request directory the starter reads.
 #[derive(Clone, Debug)]

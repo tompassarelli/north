@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde_json::{Value, json};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
-use crate::router::pricing::PriceTable;
+use north_pace::router::pricing::PriceTable;
 
 const LEADS: [&str; 2] = ["parent", "coordinator"];
 pub(super) const WORKER: &str = "worker";
@@ -228,24 +228,24 @@ impl SpendRun {
 
 pub fn checker_verified(body: &str) -> bool {
     let ticked: Vec<&str> = ticked(body).collect();
-    !ticked.is_empty() && ticked.iter().all(|line| crate::platform::box_oracles::own_command_passed(line))
+    !ticked.is_empty() && ticked.iter().all(|line| north_base::platform::box_oracles::own_command_passed(line))
 }
 
 /// Whether the ticked box of `body` that `box_text` names carries the checker's stamp. A box matches by the slug a claim keeps, so one stored shorter than the slug limit names every box it begins.
 pub fn box_verified(body: &str, box_text: &str) -> bool {
     let named = ticked_named(body, box_text);
-    !named.is_empty() && named.iter().all(|line| crate::platform::box_oracles::own_command_passed(line))
+    !named.is_empty() && named.iter().all(|line| north_base::platform::box_oracles::own_command_passed(line))
 }
 
 fn ticked_named<'a>(body: &'a str, box_text: &str) -> Vec<&'a str> {
-    let Some(wanted) = crate::threads::claims::box_slug(box_text) else { return Vec::new() };
-    ticked(body).filter(|line| crate::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| crate::threads::claims::same_box(&wanted, &slug))).collect()
+    let Some(wanted) = north_calibration::threads::claims::box_slug(box_text) else { return Vec::new() };
+    ticked(body).filter(|line| north_calibration::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| north_calibration::threads::claims::same_box(&wanted, &slug))).collect()
 }
 
 /// The box id of `node`'s box as the graph holds it: the whole box of `item`'s body that the short id extends, read the way the graph ingest reads it.
 fn whole_node(bodies: &HashMap<String, String>, item: &str, node: String) -> String {
-    let ids: Vec<String> = bodies.get(item).map_or_else(Vec::new, |body| crate::threads::claims::boxes(body).filter_map(|text| crate::threads::claims::box_node(item, &crate::threads::claims::box_head(text))).collect());
-    crate::threads::claims::whole_box_of(ids.iter().map(String::as_str), &node).map_or(node, str::to_owned)
+    let ids: Vec<String> = bodies.get(item).map_or_else(Vec::new, |body| north_calibration::threads::claims::boxes(body).filter_map(|text| north_calibration::threads::claims::box_node(item, &north_calibration::threads::claims::box_head(text))).collect());
+    north_calibration::threads::claims::whole_box_of(ids.iter().map(String::as_str), &node).map_or(node, str::to_owned)
 }
 
 fn ticked(body: &str) -> impl Iterator<Item = &str> {
@@ -273,7 +273,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, bodies: &HashMap<S
     let mut groups: BTreeMap<(&str, Option<String>), Vec<&SpendRun>> = BTreeMap::new();
     for run in runs.iter().filter(|run| run.role == WORKER) {
         if let Some(item) = run.item.as_deref() {
-            groups.entry((item, run.box_text.as_deref().and_then(crate::threads::claims::box_slug))).or_default().push(run);
+            groups.entry((item, run.box_text.as_deref().and_then(north_calibration::threads::claims::box_slug))).or_default().push(run);
         }
     }
     let counts = |item: &str, runs: &[&SpendRun]| {
@@ -289,7 +289,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, bodies: &HashMap<S
     let mut spent_boxes = Vec::new();
     let mut distinct_closed = 0;
     for ((item, slug), runs) in boxes.iter_mut() {
-        let unattributed = slug.is_none() && bodies.get(*item).map(String::as_str).is_some_and(crate::threads::claims::several_boxes);
+        let unattributed = slug.is_none() && bodies.get(*item).map(String::as_str).is_some_and(north_calibration::threads::claims::several_boxes);
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let reworked = runs.iter().any(|run| run.landed && run.reworked);
@@ -346,7 +346,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, bodies: &HashMap<S
         *loaded.entry(skill.clone()).or_default() += 1;
     }
     ClosedReport {
-        judge: crate::threads::calibration::rework::JUDGE_VERSION,
+        judge: north_calibration::threads::calibration::rework::JUDGE_VERSION,
         skipped: Vec::new(),
         closed: distinct_closed,
         cells,
@@ -367,7 +367,7 @@ impl ClosedReport {
             let body = bodies.get(&arm.item).filter(|_| arm.closed);
             arm.issue_verified = body.is_some_and(|body| checker_verified(body));
             arm.verified = match corroborated {
-                Some(boxes) => arm.closed && arm.box_text.as_deref().and_then(|text| crate::threads::claims::box_node(&arm.item, text)).is_some_and(|node| boxes.contains(&whole_node(bodies, &arm.item, node))),
+                Some(boxes) => arm.closed && arm.box_text.as_deref().and_then(|text| north_calibration::threads::claims::box_node(&arm.item, text)).is_some_and(|node| boxes.contains(&whole_node(bodies, &arm.item, node))),
                 None => body.is_some_and(|body| arm.box_text.as_deref().map_or(arm.issue_verified, |text| box_verified(body, text))),
             };
         }

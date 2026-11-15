@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::record::Reading;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::usage::decide::world::ModelFamily;
 use crate::usage::{meter, py, web};
 use crate::usage::profiles;
@@ -30,7 +30,7 @@ impl Settings {
         let home = profiles::home();
         let state = std::env::var_os("XDG_STATE_HOME").filter(|path| !path.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from);
         let configured = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
-        Self { cfg: profiles::policy_value(&crate::platform::orchestration::path()), host: crate::platform::host::name(), state, home, configured, refresh }
+        Self { cfg: profiles::policy_value(&north_base::platform::orchestration::path()), host: north_base::platform::host::name(), state, home, configured, refresh }
     }
 }
 
@@ -87,7 +87,7 @@ fn refresh(directory: Option<&Path>) {
     if let Some(directory) = directory {
         command.env("CLAUDE_CONFIG_DIR", directory);
     }
-    let Some(output) = crate::platform::process::run_command_within(command, None, REFRESH_LIMIT) else { return };
+    let Some(output) = north_base::platform::process::run_command_within(command, None, REFRESH_LIMIT) else { return };
     if !output.status.success() {
         let errors = String::from_utf8_lossy(&output.stderr).to_lowercase();
         let throttled = errors.contains("429") || errors.contains("rate limit");

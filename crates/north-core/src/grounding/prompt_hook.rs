@@ -1,5 +1,5 @@
 use super::{HookReply, hook_json, hook_reply};
-use crate::foundation::hook_deadline::{errors_file, record_error, within};
+use north_foundation::foundation::hook_deadline::{errors_file, record_error, within};
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -74,7 +74,7 @@ fn hook_error(file: &Path, kind: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::hook_deadline::{within_by, within_by_clocks};
+    use north_foundation::foundation::hook_deadline::{within_by, within_by_clocks};
 
     #[test]
     fn a_stuck_decider_is_abandoned_at_the_deadline_with_a_note_instead_of_hanging() {

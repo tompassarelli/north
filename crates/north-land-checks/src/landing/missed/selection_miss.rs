@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::foundation::clock::Timestamp;
-use crate::platform::records_mirror;
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::records_mirror;
 
 use super::responsible::{Blame, responsible};
 use super::{Conclusion, Landing, Run, ancestor, changed, git_lines, short};

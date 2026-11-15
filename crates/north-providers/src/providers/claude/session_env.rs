@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::fleet::model::{Account, LaunchRequest, Role};
-use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HAND_IN_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
-use crate::platform::git_credential;
+use north_fleet_supervisor::fleet::model::{Account, LaunchRequest, Role};
+use north_fleet_supervisor::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HAND_IN_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
+use north_base::platform::git_credential;
 
 use super::accounts::default_home;
 

@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use north_base::foundation::exit::NO_VERDICT;
+use north_foundation::foundation::exit::NO_VERDICT;
 use north_base::platform::private_text::{self, Finding};
 use north_base::platform::shared_config;
 
-use crate::landing::denylist::{self, Fault};
-use crate::landing::step::cancelled;
-use crate::landing::step::{Refused, Step};
+use north_landing_gates::landing::denylist::{self, Fault};
+use north_landing_gates::landing::step::cancelled;
+use north_landing_gates::landing::step::{Refused, Step};
 use super::private_file;
 use crate::slug::slug_of;
 

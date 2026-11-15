@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use time::Date;
 
-use crate::foundation::clock;
+use north_foundation::foundation::clock;
 
 const DEFAULT_WINDOW_MINUTES: u64 = 5;
 

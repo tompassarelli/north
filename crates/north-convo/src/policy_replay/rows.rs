@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::pyfmt::{round_int, round_to};
-use crate::platform::pystats::float_sum;
+use north_base::platform::pystats::float_sum;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct RunRow {
@@ -34,7 +34,7 @@ impl RunRow {
     }
 }
 
-pub use crate::platform::trials::Scenarios;
+pub use north_base::platform::trials::Scenarios;
 
 pub fn summary(rows: &[RunRow]) -> String {
     let mut cells: Vec<((&str, &str), Vec<&RunRow>)> = Vec::new();

@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::foundation::offload::{SUBJECT_DIRECTORY, SUBJECT_FILE};
+use north_foundation::foundation::offload::{SUBJECT_DIRECTORY, SUBJECT_FILE};
 
 const SHELL_COMMANDS: [&str; 4] = ["bash", "sh", "zsh", "dash"];
 const SHELL_BUILTINS: [&str; 10] = ["cd", "wait", "echo", "printf", "export", "set", "true", "exit", "source", "."];

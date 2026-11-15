@@ -1,4 +1,4 @@
-use crate::router::tier::Tier;
+use north_pace::router::tier::Tier;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;

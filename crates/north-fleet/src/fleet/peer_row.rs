@@ -1,7 +1,7 @@
 use super::sender::Sender;
 use super::store::{Addressee, Exchange, Exchanged, FleetRow, Registration, RowKind, SessionRow, WaitKey};
-use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
+use north_foundation::error::{NorthError, NorthResult};
+use north_foundation::foundation::clock::Timestamp;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Refusal {

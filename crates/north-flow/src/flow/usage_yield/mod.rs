@@ -10,10 +10,10 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use self::week::Week;
-use crate::foundation::clock::{Timestamp, parse_day_number};
-use crate::platform::run_roles::worker_where;
-use crate::router::pricing::PriceTable;
-use crate::threads::attribution::outcome_column;
+use north_foundation::foundation::clock::{Timestamp, parse_day_number};
+use north_base::platform::run_roles::worker_where;
+use north_pace::router::pricing::PriceTable;
+use north_calibration::threads::attribution::outcome_column;
 
 const DAY_S: i64 = 86_400;
 const HISTORY_DAYS: i64 = 9;

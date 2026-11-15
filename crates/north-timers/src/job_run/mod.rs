@@ -18,8 +18,8 @@ use std::env;
 use std::process::{Command, ExitStatus, Stdio};
 
 use self::records::{Recorder, Spooler};
-use crate::capacity::{dev_shell, gate};
-use crate::foundation::clock::Timestamp;
+use north_capacity_host::capacity::{dev_shell, gate};
+use north_foundation::foundation::clock::Timestamp;
 
 const HELP: &str = "usage: north job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...\nrecord a scheduled job's start and finish in NorthThreads' job_runs (name, host, started, finished, rc), run CMD and exit with its code.\n  --path DIRS  prepended to PATH for the records only (ssh, timeout)\n  --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger\n  --class CLASS  run CMD through capacity admission as a moderate, heavy or gpu lease held to its leased CPUs (a Rust compile is admitted without it)\n  --notify     detach CMD into its own session and log, return at once, and spool JOB-START, a JOB-BEAT every 60 s and JOB-EXIT to the fleet session $NORTH_FLEET_SESSION";
 const USAGE: &str = "usage: north job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...";
@@ -131,7 +131,7 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 fn serve(job: &Job) -> i32 {
-    let host = crate::platform::host::name();
+    let host = north_base::platform::host::name();
     let recorder = Recorder::new(job, &host);
     let spooler = Spooler::new(job);
     let notified = job.notify.as_deref().map(|session| {

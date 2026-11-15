@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use super::die::Die;
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 
 pub(super) fn iso(unix: i64) -> String {
     Timestamp::from_unix_seconds(unix).iso()

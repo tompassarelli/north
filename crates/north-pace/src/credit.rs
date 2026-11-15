@@ -5,7 +5,7 @@ use std::path::Path;
 
 use toml_edit::{DocumentMut, Item, Value};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::router::pricing::PriceTable;
 
 pub mod marks;
@@ -40,7 +40,7 @@ impl Balance {
 pub fn peers(policy: &Path) -> Vec<String> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
     let hosts = document.get("hosts").and_then(Item::as_table_like);
-    let here = crate::platform::host::name();
+    let here = north_base::platform::host::name();
     let declared = hosts.into_iter().flat_map(|hosts| hosts.iter());
     declared.filter(|(name, host)| *name != here && ["ssh", "deploy_ssh"].iter().any(|key| host.get(key).is_some_and(|destination| destination.as_str().is_some()))).map(|(name, _)| name.to_owned()).collect()
 }
@@ -286,7 +286,7 @@ pub fn sources(credits: &Credits) -> Vec<Source> {
         .orgs
         .iter()
         .filter_map(|credit| {
-            let expires_s = crate::foundation::clock::parse_day_number(&credit.balance.as_ref()?.grant.expires)? * 86_400;
+            let expires_s = north_foundation::foundation::clock::parse_day_number(&credit.balance.as_ref()?.grant.expires)? * 86_400;
             Some(Source { credit: credit.clone(), expires_s, burn_per_h })
         })
         .collect()

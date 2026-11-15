@@ -6,7 +6,7 @@ use serde_json::json;
 use super::admission::{self, Facts};
 use super::effects::Host;
 use super::{admission_record, agent_load, aperture, mode_tick, native_hold};
-use crate::platform::decision_log;
+use north_base::platform::decision_log;
 
 fn wisp_pair_queue() -> std::path::PathBuf {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
@@ -37,7 +37,7 @@ pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
     let queued_pairs = native_hold::queue_pair_leases(&wisp_pair_queue(), &super::local_machine::host_name());
     facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
     facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
-    facts.holds_offload_slot = std::env::var(north_base::foundation::offload::SLOT_ENV).is_ok_and(|slot| !slot.is_empty());
+    facts.holds_offload_slot = std::env::var(north_foundation::foundation::offload::SLOT_ENV).is_ok_and(|slot| !slot.is_empty());
     facts.build_host = (host.build_host)();
     let mut gathered = admission_record::gathered(&facts, &queued_pairs);
     facts.derive_native_holds();

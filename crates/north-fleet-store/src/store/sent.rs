@@ -3,7 +3,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags, params};
 
-use crate::error::NorthResult;
+use north_foundation::error::NorthResult;
 use crate::sender::Sender;
 
 use super::BUSY;

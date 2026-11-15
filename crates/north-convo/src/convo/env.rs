@@ -47,7 +47,7 @@ impl Env {
             corpus: set("CONVO_CORPUS").map_or_else(|| home.join("code/north-data/tom-corpus"), PathBuf::from),
             cold: set("CONVO_COLD").map(PathBuf::from),
             identity: set("CONVO_AGE_IDENTITY").map(PathBuf::from),
-            ledger: crate::threads::client::threads_database(),
+            ledger: north_threads::threads::client::threads_database(),
             self_ids: ["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"].iter().filter_map(|name| set(name)).collect(),
             lock_wait: Duration::from_millis(1500),
             home,
@@ -55,7 +55,7 @@ impl Env {
     }
 
     pub(super) fn db(&self) -> PathBuf {
-        north_base::foundation::convo_index::under(&self.state)
+        north_foundation::foundation::convo_index::under(&self.state)
     }
 
     pub(super) fn lock(&self) -> PathBuf {

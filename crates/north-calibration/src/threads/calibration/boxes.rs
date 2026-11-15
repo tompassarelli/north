@@ -2,8 +2,8 @@
 use std::collections::BTreeMap;
 
 use super::{Knobs, quantile};
-use crate::foundation::clock::Timestamp;
-use crate::router::brief::CATEGORIES;
+use north_foundation::foundation::clock::Timestamp;
+use north_pace::router::brief::CATEGORIES;
 
 /// A finished worker run on an item, as the runs table holds it.
 #[derive(Clone, Debug, Default)]

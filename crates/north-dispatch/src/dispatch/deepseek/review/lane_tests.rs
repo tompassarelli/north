@@ -1,6 +1,6 @@
 use super::lane::Worktree;
 use super::verdict::rejected_lane;
-use north_base::test_inputs::git::init_repo;
+use north_foundation::test_inputs::git::init_repo;
 use std::path::{Path, PathBuf};
 
 #[test]

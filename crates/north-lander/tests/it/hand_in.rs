@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
 
 use landlock::{AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
-use north_base::foundation::shim::write_executable;
+use north_foundation::foundation::shim::write_executable;
 use north_base::platform::wait;
 use north_lander::land::{enqueue, hand_in, queue};
 

@@ -7,13 +7,13 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use north_base::agents_sync::UNPUBLISHED;
 use north_base::dispatch_pause::{RECORD, TIMER};
-use north_base::error::NorthResult;
+use north_foundation::error::NorthResult;
 use north_base::lifecycle::{Fault, Retire, Store};
 use north_pace::usage::profiles;
 
 use super::{Dispatch, Held, HostFacts, Lifecycles};
-use crate::foundation::clock::Timestamp;
-use crate::platform::sqlite::{self, Access};
+use north_foundation::foundation::clock::Timestamp;
+use north_base::platform::sqlite::{self, Access};
 
 fn modified(path: &Path) -> Option<f64> {
     Some(fs::symlink_metadata(path).ok()?.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs_f64())
@@ -39,7 +39,7 @@ pub(super) fn newest_finished(fleet: &Path) -> Option<f64> {
 }
 
 fn host_running(session: &Path) -> bool {
-    let Some(pid) = crate::platform::session_host_files::pid(session) else { return false };
+    let Some(pid) = north_base::platform::session_host_files::pid(session) else { return false };
     let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).unwrap_or_default();
     stat.rsplit_once(')').is_some_and(|(_, rest)| !rest.trim_start().starts_with('Z'))
 }
@@ -156,13 +156,13 @@ fn spool_verb(path: &Path) -> Option<String> {
 pub fn gather(home: &Path) -> HostFacts {
     let state = home.join(".local/state/north");
     let runtime = fs::read_link(state.join("current")).ok().and_then(|link| link.file_name().map(|name| name.to_string_lossy().into_owned()));
-    let policy = profiles::policy_value(&crate::platform::orchestration::path());
+    let policy = profiles::policy_value(&north_base::platform::orchestration::path());
     HostFacts {
-        host: crate::platform::host::name(),
+        host: north_base::platform::host::name(),
         runtime,
         policy_held: held(&state.join(UNPUBLISHED)),
         policy_published: modified(&state.join("agents/current")),
-        unhooked: profiles::unhooked(&policy, &crate::platform::host::name(), home),
+        unhooked: profiles::unhooked(&policy, &north_base::platform::host::name(), home),
         dispatch: dispatch(&state),
         newest_run: newest_run(home),
         recording_interval_s: recording_interval(),

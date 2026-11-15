@@ -3,10 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::foundation::clock::Timestamp;
+use north_foundation::foundation::clock::Timestamp;
 use crate::land::slots::graph_selection::{SELECTED, Selected};
 use crate::land::slots::guard_suites::Suites;
-use crate::platform::records_mirror;
+use north_base::platform::records_mirror;
 
 mod base;
 mod flaky;

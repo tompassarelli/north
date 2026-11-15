@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::fleet::model::Account;
+use north_fleet_supervisor::fleet::model::Account;
 
 const PROJECTS: &str = "projects";
 

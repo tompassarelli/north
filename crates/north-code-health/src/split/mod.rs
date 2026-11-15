@@ -9,7 +9,7 @@ mod widen;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::platform::process;
+use north_base::platform::process;
 
 const USAGE: &str = "usage: north code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...";
 const CHECK_USAGE: &str = "usage: north code-health split check [--target-dir DIR] --crate CRATE";

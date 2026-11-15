@@ -7,9 +7,10 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use north_graph_loops::{CheckDeadline, check_deadline, check_key, graph_path, tell_check_deadline};
+use north_graph::default_path as graph_path;
+use north_graph_loops::{CheckDeadline, check_deadline, check_key, tell_check_deadline};
 
-pub const CEILING: u64 = north_base::foundation::offload::RUN_SECONDS_CEILING;
+pub const CEILING: u64 = north_foundation::foundation::offload::RUN_SECONDS_CEILING;
 const FLOOR: u64 = 300;
 const WINDOW: usize = 20;
 const MEASURED: usize = 5;

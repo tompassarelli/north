@@ -1,4 +1,4 @@
-use north_base::test_inputs::git::git_in as git;
+use north_foundation::test_inputs::git::git_in as git;
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::AsFd;
@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use north_base::lifecycle::Owner;
-use north_base::foundation::shim::write_executable;
+use north_foundation::foundation::shim::write_executable;
 use north_base::platform::gh_shim;
 
 use super::super::broker::{self, Request};
@@ -220,7 +220,7 @@ fn a_claude_workers_safe_push_runs_outside_with_its_own_environment_and_reads_on
     std::fs::create_dir_all(&held).unwrap();
     std::fs::create_dir_all(&placed).unwrap();
     std::fs::write(held.join(north_base::platform::session_host_files::BOUND_CONVERSATION), "c0ffee-n1094").unwrap();
-    std::fs::write(crate::fleet::records::record_file(&placed), serde_json::json!({ "name": "n1094-x", "provider": "claude" }).to_string()).unwrap();
+    std::fs::write(north_fleet_supervisor::fleet::records::record_file(&placed), serde_json::json!({ "name": "n1094-x", "provider": "claude" }).to_string()).unwrap();
     let own = vec![("HOME".to_owned(), fixture.host.home.display().to_string()), ("NORTH_FLEET_SESSION".to_owned(), "n1094-x".to_owned()), ("NORTH_WORKER_SANDBOXED".to_owned(), "1".to_owned())];
     let landed = fixture.ask_with(worker, &["safe-push", "--to", "main"], &fixture.lane, own.clone());
     assert_eq!(landed.code, 0, "{}", landed.stderr);
@@ -266,7 +266,7 @@ fn a_lane_path_a_retired_placed_session_used_is_not_its_live_owner_north_1352() 
     std::fs::create_dir_all(&held).unwrap();
     std::fs::create_dir_all(&placed).unwrap();
     std::fs::write(held.join(BOUND_CONVERSATION), "c0ffee-old-1352").unwrap();
-    std::fs::write(crate::fleet::records::record_file(&placed), serde_json::json!({ "name": "evalb-old", "cwd": lane, "status": null, "ended": null }).to_string()).unwrap();
+    std::fs::write(north_fleet_supervisor::fleet::records::record_file(&placed), serde_json::json!({ "name": "evalb-old", "cwd": lane, "status": null, "ended": null }).to_string()).unwrap();
     let record = serde_json::from_slice::<serde_json::Value>(&std::fs::read(live.join("session.json")).unwrap()).unwrap();
     let checkout = super::super::request_checkout::Checkout { top: lane.canonicalize().unwrap(), git_dir: PathBuf::new(), common: PathBuf::new() };
     let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-session-live-1352.scope\n";
@@ -330,16 +330,16 @@ fn a_reused_window_pid_is_not_the_adopted_window_and_a_held_service_inside_one_r
 
 #[test]
 fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
-    use crate::fleet::fakes::{Paper, Windows};
-    use crate::fleet::registry::Fleet;
-    use crate::fleet::runtimes::Runtimes;
+    use north_fleet_supervisor::fleet::fakes::{Paper, Windows};
+    use north_fleet_supervisor::fleet::registry::Fleet;
+    use north_fleet_supervisor::fleet::runtimes::Runtimes;
     let home = tempfile::tempdir().unwrap();
     let window = Owner::current();
     let runtime = std::sync::Arc::new(Windows { live: std::sync::Mutex::new(vec![("coordinator-conversation".to_owned(), window.pid)]) });
     let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
     let directory = fleet.session_dir("coordinator").unwrap();
     fleet.adopt("coordinator", "coordinator-conversation", home.path().into()).unwrap();
-    let record = crate::fleet::records::record_file(&directory);
+    let record = north_fleet_supervisor::fleet::records::record_file(&directory);
     let mut recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
     recorded.as_object_mut().unwrap().remove("window");
     std::fs::write(&record, recorded.to_string()).unwrap();
@@ -378,7 +378,7 @@ fn a_lane_grant_covers_a_second_project_lane_and_a_handed_over_lane_but_not_an_u
     assert_eq!(admitted(&fixture.other, 1), Ok(()), "a lane of a second project, made with north lane new after launch, was refused");
     let former = fixture.host.fleet.join("former-owner");
     std::fs::create_dir_all(&former).unwrap();
-    std::fs::write(former.join(crate::fleet::session_lifecycle::LANES_HANDED), serde_json::json!({ "to": NAME, "lanes": [fixture.other] }).to_string()).unwrap();
+    std::fs::write(former.join(north_fleet_supervisor::fleet::session_lifecycle::LANES_HANDED), serde_json::json!({ "to": NAME, "lanes": [fixture.other] }).to_string()).unwrap();
     assert_eq!(admitted(&fixture.other, later), Ok(()), "a lane handed over by fleet forget --to was refused");
 }
 

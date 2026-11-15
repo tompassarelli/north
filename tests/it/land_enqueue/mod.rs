@@ -81,7 +81,7 @@ impl Fixture {
 fn stub_gh(fixture: &Fixture, answer: &str) -> PathBuf {
     let bin = fixture.root.join("bin");
     fs::create_dir_all(&bin).unwrap();
-    north_core::foundation::shim::write_executable(&bin.join("gh"), format!("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{}\n{answer}\n", fixture.root.join("gh-calls").display()));
+    north_foundation::foundation::shim::write_executable(&bin.join("gh"), format!("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{}\n{answer}\n", fixture.root.join("gh-calls").display()));
     PathBuf::from(format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()))
 }
 
