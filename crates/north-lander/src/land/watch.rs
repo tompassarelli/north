@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-mod covered;
 mod hand_off;
 mod culprits;
 mod journal;
@@ -103,17 +102,17 @@ impl Pending {
     }
 
     fn add(&mut self, batch: Batch) {
-        match self.batches.last_mut() {
-            Some(last) if last.head == batch.base => last.absorb(batch),
-            _ => self.batches.push(batch),
+        match self.batches.iter_mut().find(|waiting| waiting.head == batch.base) {
+            Some(waiting) => waiting.absorb(batch),
+            None => self.batches.push(batch),
         }
     }
 
     fn retry(&mut self, mut batch: Batch) {
-        if self.batches.first().is_some_and(|next| next.base == batch.head) {
-            batch.absorb(self.batches.remove(0));
+        while let Some(at) = self.batches.iter().position(|next| next.base == batch.head) {
+            batch.absorb(self.batches.remove(at));
         }
-        self.batches.insert(0, batch);
+        self.batches.push(batch);
     }
 
     fn next(&mut self, now: f64) -> Option<Batch> {
@@ -296,23 +295,11 @@ impl Watch {
     }
 
     fn start_next(&mut self, lander: &Lander) {
-        let now = epoch();
-        let limit = after_runs(lander);
-        if self.running.len() >= limit || !self.pending.batches.iter().any(|batch| batch.retry_at <= now) {
+        if self.pending.batches.is_empty() {
             return;
         }
-        self.drop_covered(lander);
+        let limit = after_runs(lander);
         while self.running.len() < limit && self.start_one(lander) {}
-    }
-
-    fn drop_covered(&mut self, lander: &Lander) {
-        let Some(passed) = covered::passed(lander) else { return };
-        let (dropped, waiting): (Vec<Batch>, Vec<Batch>) = std::mem::take(&mut self.pending.batches).into_iter().partition(|batch| covered::covers(lander, &passed, batch));
-        self.pending.batches = waiting;
-        for batch in dropped {
-            println!("north land: the full test line passed at {passed}, which holds the {} landings the waiting after-landing run of {} covers, so that run is dropped", batch.heads.len(), batch.head);
-            retire(lander, &batch, &format!("covered by the full test line that passed at {passed}"));
-        }
     }
 
     fn start_one(&mut self, lander: &Lander) -> bool {
