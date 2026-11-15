@@ -9,6 +9,8 @@ const VERIFY_NORTH_LIMIT: Duration = Duration::from_secs(600);
 const SCRATCH_LANDING_LIMIT: Duration = Duration::from_secs(240);
 const LAND_CHECK_LIMIT: Duration = Duration::from_secs(180);
 const OFFLOADED_LAND_CHECK_PROBE: &str = "an offloaded land check placed on this host returns a verdict";
+pub(super) const WORKER_CARGO_RUN_PROBE: &str = "a worker cargo run through the capacity gate runs on this host";
+const WORKER_CARGO_RUN_LIMIT: Duration = Duration::from_secs(300);
 const DEPBOX_LIMIT: Duration = Duration::from_secs(60);
 const FETCH: &str = "for file in \"$HOME\"/code/*/main/.safe-push; do\n  [ -f \"$file\" ] || continue\n  git -C \"$(dirname \"$file\")\" ls-remote origin HEAD >/dev/null || { echo \"$file: fetch failed\" >&2; exit 1; }\ndone";
 pub(super) const PROVIDERS: [&str; 3] = ["claude", "opencode", "pi"];
@@ -121,6 +123,19 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
     }
     CoreLoop { probes: judging(sha, probes), not_applicable }
 }
+
+/// A worker's cargo run on a build host through its capacity gate, against the judged runtime: gex45 and cpx62b failed every one, and every offloaded land check, from 4:59 to 5:05 PM on 2026-11-15 on runtimes holding aea18d3b3e, which passed each other probe.
+pub(super) fn worker_cargo_run(sha: &str) -> Probe {
+    let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
+    let script = worker_shell(&format!("{runtime}/north"), WORKER_CARGO_RUN);
+    judging(sha, vec![probe(WORKER_CARGO_RUN_PROBE, script, WORKER_CARGO_RUN_LIMIT)]).remove(0)
+}
+
+const WORKER_CARGO_RUN: &str = r#"root=$(mktemp -d "${TMPDIR:-/tmp}/north-canary-cargo.XXXXXX")
+trap 'rm -rf "$root"' EXIT
+cd "$root" && mkdir src && printf '[package]\nname = "canary"\nversion = "0.0.0"\nedition = "2021"\n' > Cargo.toml && printf 'fn main() {}\n' > src/main.rs
+"$CANARY_NORTH" capacity gate -- cargo run --offline --quiet
+"#;
 
 /// A land check the judged runtime offloads onto `host` itself, in the host's own slots as the login the canary dials, run from one of the checkouts the host keeps; a host that cannot place and run it returns no verdict, as cpx62 returned none to any offloaded land check from 4:10 to 5:12 AM on 2026-11-13 after a runtime that passed its three probes.
 pub(super) fn offloaded_land_check(host: &str, sha: &str) -> Probe {

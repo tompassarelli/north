@@ -154,7 +154,7 @@ fn bash_program() -> std::path::PathBuf {
 }
 
 #[test]
-fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming_the_probe() {
+fn a_shipped_runtime_that_fails_a_worker_cargo_run_stays_off_the_host() {
     let host = Host::promoted();
     let fleet = host.fleet(Some(("reaches gex45 through", exited(255, "ssh: Could not resolve hostname gex45\n"))));
     assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::RolledBack);
@@ -176,6 +176,14 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     assert_eq!(host.current(), layout::link(PREVIOUS));
     let alarms = fleet.alarms.lock().unwrap();
     assert!(alarms[0].contains("probe `an offloaded land check placed on this host returns a verdict` exited 1"), "{}", alarms[0]);
+
+    let host = Host::promoted();
+    let failing = Fleet { builds: true, ..host.fleet(Some(("a worker cargo run", exited(1, "capacity gate: cannot run cargo\n")))) };
+    let refused = preflight(&host.layout, "gex45", PROMOTED, Some(PREVIOUS), &failing).unwrap_err();
+    assert!(refused.contains("probe `a worker cargo run through the capacity gate runs on this host` exited 1"), "on 2026-11-15 runtimes holding aea18d3b3e went live on gex45 and cpx62b and failed every worker cargo run: {refused}");
+
+    let deferred = Fleet { builds: true, ..host.fleet(Some(("a worker cargo run", Ran::Unrun("admission deferred the run".to_owned())))) };
+    assert_eq!(preflight(&host.layout, "cpx62b", PROMOTED, Some(PREVIOUS), &deferred), Ok(()), "a run admission defers is not run and holds no repair off the host");
 }
 
 #[test]

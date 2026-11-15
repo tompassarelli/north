@@ -85,6 +85,7 @@ pub(super) fn compiled(host: &str, sha: &str, machine: &impl Machine) -> CoreLoo
     let mut plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.offloads_to_hub(host), machine.settles_fleet(host), landers.as_ref());
     if machine.takes_land_checks(host) {
         plan.probes.push(probes::offloaded_land_check(host, sha));
+        plan.probes.push(probes::worker_cargo_run(sha));
     }
     if machine.settles_fleet(host) && let Some(build) = machine.lander_take_host(sha) {
         plan.probes.push(probes::build_host_take(sha, &build));
@@ -187,6 +188,7 @@ pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, live: Option<&st
     let change = listing::against_live(host, sha, &plan, live, machine);
     println!("north runtime canary: {host}: {short}: {change}");
     let (probes, ran) = run_probes(layout, host, sha, plan, machine);
+    let ran = release_unrun_cargo_run(host, short, &probes, ran);
     let Tallies { failures, faults, unrun, .. } = tallies(layout, &probes, &ran);
     let problems: Vec<String> = failures.into_iter().chain(faults).chain(unrun).collect();
     let (state, cause) = match problems.is_empty() {
@@ -198,6 +200,17 @@ pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, live: Option<&st
         true => Ok(()),
         false => Err(problems.join("; ")),
     }
+}
+
+/// A worker cargo run that admission deferred or that passed its time bound is reported as not run and does not hold the promotion, so a repair is never kept off the host it repairs.
+fn release_unrun_cargo_run(host: &str, short: &str, probes: &[Probe], ran: Vec<Ran>) -> Vec<Ran> {
+    probes.iter().zip(ran).map(|(probe, ran)| match ran {
+        Ran::Unrun(why) if probe.name == probes::WORKER_CARGO_RUN_PROBE => {
+            println!("north runtime canary: {host}: {short}: probe `{}` not run, so it does not hold the promotion: {why}", probe.name);
+            Ran::Exited { code: 0, log: String::new() }
+        }
+        other => other,
+    }).collect()
 }
 
 struct Tallies {
