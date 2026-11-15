@@ -645,6 +645,36 @@ Tom's next `north gate digest`, so the lift is never silent and never outlasts t
 
 The share of coordinator turns triggered only by a `Done:` report or landing notice was 13.8% over one frozen day, under the 25% stop bar, so closing them by rule is not built. See [close-by-rule-share.md](close-by-rule-share.md) (north#1266).
 
+## 9. Clean-up: the tests this work keeps
+
+Checked on 2026-11-15. The 64 commits on main that cite north#112 added 238 Rust tests and six fixtures. Six tests stay,
+whole or in part, each named for its guarantee and kept for the reason given here:
+
+- `a_message_from_tom_reaches_the_session_unprefixed_and_any_other_sender_is_named` and
+  `tom_on_another_host_is_still_unprefixed_where_a_service_names_its_host` in
+  `crates/north-fleet-supervisor/src/fleet/registry/messages.rs`, and
+  `a_command_line_sends_as_a_service_or_its_session_and_never_as_tom_or_nobody` in
+  `crates/north-fleet-store/src/sender.rs` (W1). Security: only Tom's messages arrive unprefixed, so no service, session,
+  timer or remote host reads as Tom. The north-fleet cull `5f0bdaeccb` (north#635) kept them for this.
+- `a_launch_naming_an_item_a_live_session_holds_is_refused_and_leaves_no_claim_behind` in
+  `crates/north-fleet/src/fleet/claims.rs`: two sessions never work one item. It alone kills the recorded mutant
+  `n112-refused-launch-keeps-earlier-claims` (`7840926ea6`).
+- The lane-worktree Edit, Write, MultiEdit and NotebookEdit cases of
+  `the_coordinator_cannot_build_test_or_edit_a_repository` in `crates/north-guard/src/guard/coordinator_role_tests.rs`
+  (G2): with `edit_under_code` returning `None`, every coordinator role test passed before them (`5d1fbf905f`).
+- The streak walk in `the_recorded_load_trace_is_counted_as_its_fixture_says` (`src/cli/hook_verb_tests.rs`) and the
+  `pre-other` row of `provider_events_select_matching_guard_list` (`crates/north-guard/src/hook_tests.rs`) (G1)
+  reproduce the bug `7a7f8722ec` fixed: once its read streak was refused, the coordinator kept reading through Read, Grep
+  and Glob, WebFetch and WebSearch reached no hook, and a ListAgents call reset the streak. The `ToolSearch` row the same
+  commit added to `a_coordinator_over_its_read_budget_is_refused_and_its_turn_continues` is the only test holding
+  ToolSearch among the harness loads of `crates/north-guard/src/guard/coordinator_loads.rs`, so a coordinator that loads
+  Monitor spends no look on it.
+
+Every other test is already gone, so none is deleted here: the north#635 culls of 2026-11-06 took most of them and the
+north#1583 batches B1 to B7 of 2026-11-14 and 2026-11-15 took the rest, the last being the tune tick's step-limit test
+(`e8e5838d23`). The six fixtures (five ops-check breach replays and the 2026-11-04 night incident log) went with their
+tests.
+
 ## Feature record "Launch claims", as written until 2026-11-13
 
 The feature record `0021-launch-claims.md` was cut to a short entry; this is its earlier text, kept for the reasons and dates it holds.
