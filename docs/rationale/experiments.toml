@@ -961,7 +961,7 @@ owner = "tompassarelli/north#1577"
 [[experiment]]
 id = "north-runtime-records"
 change = "the hold ledger, the after-landing record and the failure type move out of north-runtime into the new leaf crate north-runtime-records, so the worker sandbox reads them without the runtime tree (north#1487)"
-landed = "3b9cece335"
+landed = "69fb5c5be0"
 crates = ["north-runtime-records"]
 metric = "none"
 measure = "git log on origin/main over the 28 days after this move: commits that fold north-runtime-records back into north-runtime or move one of its three modules elsewhere; keep the crate when there are none, and record the count on north#1487"
