@@ -1712,10 +1712,10 @@ fallback = "any value but off reads as on"
 consumers = ["crates/north-base/src/platform/finish_record.rs"]
 
 [rebase_compile]
-value = "on"
+value = "off"
 allowed = { one_of = ["on", "off"] }
 unit = "on: when the lander picks a lane onto a main that moved since the lane's checks before queueing, and a crate the new main commits changed is one of the lane's crates or in their dependency closure either way, it runs `cargo check --all-targets --locked --offline` over those crates (the workspace when either side changes a manifest, the lock file or a build script) on a build host through the offload, capped at 90 s, and refuses the lane with the compile errors when cargo fails to compile it; any other end leaves the lane to land; the lander starts this compile while the lane waits in the queue, onto the main it last fetched, and the pick reuses that verdict when it is picked onto that main with the same tree; off skips the compile"
-source = "north#1036 (2026-11-13): main froze red when the lander pushed a lane that compiled against its old base and not against the moved one: one commit added a field to a struct and another, checked on the older main, built it without the field"
+source = "north#1036 (2026-11-13): main froze red when the lander pushed a lane that compiled against its old base and not against the moved one: one commit added a field to a struct and another, checked on the older main, built it without the field; turned off 2026-11-15 (north#1247): the compile returned no verdict on the lander host, where cargo is missing, so every Rust lane waited 122 to 279 s in the lander before the push (queued_at to push p50 156 s, p90 266 s over 60 min), and 5 of the gate's 8 refusals landed later with the same patch; a compile now runs after the landing, where a failure reverts the lane"
 fallback = "any value but off reads as on"
 consumers = ["crates/north-landing/src/land/rebase_compile.rs"]
 
