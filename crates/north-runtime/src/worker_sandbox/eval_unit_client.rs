@@ -3,7 +3,7 @@
 use super::broker;
 use super::eval_unit_request::{Ask, VERB};
 
-/// `north runtime eval-unit start finish-proof LABEL LEVEL | state LABEL | stop LABEL`; its exit code: the broker's (0 done, 126 refused), 2 for words that are no such request, 1 when the broker cannot be asked.
+/// `north runtime eval-unit start finish-proof LABEL LEVEL | start script DIR/NAME LABEL [ARGUMENT...] | build COMMIT | state LABEL | stop LABEL`; its exit code: the broker's (0 done, 126 refused), 2 for words that are no such request, 1 when the broker cannot be asked.
 pub fn command(arguments: &[String]) -> u8 {
     let words: Vec<String> = std::iter::once(VERB.to_owned()).chain(arguments.iter().cloned()).collect();
     if let Some(Err(why)) = Ask::asked(&words) {

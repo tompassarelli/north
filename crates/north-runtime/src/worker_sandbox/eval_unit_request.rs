@@ -1,4 +1,4 @@
-//! An evaluation run started and stopped through the outside broker for a lead whose domain reaches neither the user manager's bus nor the evaluation data directory (north#1414). The request is the words `eval-unit start finish-proof LABEL LEVEL`, `eval-unit state LABEL` or `eval-unit stop LABEL` and nothing else of the caller's: no command, path, environment or host. The broker answers only a fleet session whose own scope the caller runs in, whose record names the role `lead` and whose name the harness default `eval_unit_askers` lists. The unit's name is the eval prefix and the label, the commands are the closed list of `Form`, every path lies under the evaluation data directory, and the answer holds only the unit's name, state and result. The words `eval-unit start script DIR/NAME LABEL [ARGUMENT...]` start a registered evaluation script instead, for a lead or the coordinator (eval_start.rs, north#1439), and `state` and `stop` serve the start recorded for that label first.
+//! An evaluation run started and stopped through the outside broker for a lead whose domain reaches neither the user manager's bus nor the evaluation data directory (north#1414). The request is the words `eval-unit start finish-proof LABEL LEVEL`, `eval-unit state LABEL` or `eval-unit stop LABEL` and nothing else of the caller's: no command, path, environment or host. The broker answers only a fleet session whose own scope the caller runs in, whose record names the role `lead` and whose name the harness default `eval_unit_askers` lists. The unit's name is the eval prefix and the label, the commands are the closed list of `Form`, every path lies under the evaluation data directory, and the answer holds only the unit's name, state and result. The words `eval-unit start script DIR/NAME LABEL [ARGUMENT...]` start a registered evaluation script instead, for a lead or the coordinator (eval_start.rs, north#1439), and `state` and `stop` serve the start recorded for that label first. The words `eval-unit build COMMIT` build the runner of a landed commit on the build host for a lead or the coordinator and answer its file and sha256 (eval_build.rs, north#1439).
 
 use std::ops::RangeInclusive;
 use std::os::fd::OwnedFd;
@@ -8,6 +8,7 @@ use north_base::platform::harness::{DEFAULTS, document};
 use north_trusted_mirror::Mirror;
 use sha2::{Digest, Sha256};
 
+use super::eval_build::{self, Commit};
 use super::eval_start::{self, Start};
 use super::eval_units::{Label, Shown, Unit, UserManager, Units, plain, search_path};
 use super::lane_grant::{self, Host};
@@ -27,7 +28,7 @@ const ACCOUNT: &str = "a";
 const DATA: &str = "eval-data/eval-b";
 const SSH_AGENT: &str = "SSH_AUTH_SOCK";
 const LEVELS: RangeInclusive<u32> = 1..=60;
-const SHAPE: &str = "eval-unit start finish-proof LABEL LEVEL | eval-unit start script DIR/NAME LABEL [ARGUMENT...] | eval-unit state LABEL | eval-unit stop LABEL, with a LABEL of at most 40 lower-case letters, digits and hyphens that starts and ends with a letter or digit, a LEVEL from 1 to 60, a DIR/NAME of at most four plain path segments, and at most 16 ARGUMENTs of letters, digits and ._:/=,+-";
+const SHAPE: &str = "eval-unit start finish-proof LABEL LEVEL | eval-unit start script DIR/NAME LABEL [ARGUMENT...] | eval-unit build COMMIT | eval-unit state LABEL | eval-unit stop LABEL, with a LABEL of at most 40 lower-case letters, digits and hyphens that starts and ends with a letter or digit, a LEVEL from 1 to 60, a DIR/NAME of at most four plain path segments, at most 16 ARGUMENTs of letters, digits and ._:/=,+- and a COMMIT of 10 to 40 lower-case hex digits";
 
 /// A runner build the closed list runs: the full id of the landed commit whose `evals/b` it was built from, the name its file carries under `W/bin` and the sha256 of that file, so a new build is a new entry through review.
 pub(super) struct Pin<'a> {
@@ -58,6 +59,7 @@ pub(super) enum Form {
 pub(super) enum Ask {
     Start(Form),
     Script(Start),
+    Build(Commit),
     State(Label),
     Stop(Label),
 }
@@ -72,6 +74,7 @@ impl Ask {
         let ask = match rest {
             ["start", FINISH_PROOF, name, at] => label(name).zip(level(at)).map(|(label, level)| Ask::Start(Form::FinishProof { label, level })),
             ["start", SCRIPT, script, name, arguments @ ..] => Start::parse(script, name, arguments).map(Ask::Script),
+            ["build", commit] => Commit::parse(commit).map(Ask::Build),
             ["state", name] => label(name).map(Ask::State),
             ["stop", name] => label(name).map(Ask::Stop),
             _ => None,
@@ -88,13 +91,13 @@ fn named(word: &str) -> bool {
     !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// The name of the session the caller `peer` runs in, when it may ask: a lead or the coordinator for a registered `script` start, else a lead on the harness list.
+/// The name of the session the caller `peer` runs in, when it may ask: a lead or the coordinator for a registered `script` start or a runner build, else a lead on the harness list.
 fn asking(peer: &Peer, host: &Host, script: bool) -> Result<String, String> {
     let (directory, record) = lane_grant::own_session(peer, host, "an eval unit is asked for by a lead session, and this caller runs in no session's scope")?;
     let name = record["name"].as_str().filter(|name| named(name)).ok_or_else(|| format!("{} names no session", directory.display()))?;
     let role = record["role"].as_str();
     if script {
-        return if role == Some(LEAD) || role == Some(COORDINATOR) { Ok(name.to_owned()) } else { Err(format!("{name} may not start an evaluation script: only a lead session or the coordinator does")) };
+        return if role == Some(LEAD) || role == Some(COORDINATOR) { Ok(name.to_owned()) } else { Err(format!("{name} may not start an evaluation script or build a runner: only a lead session or the coordinator does")) };
     }
     if role == Some(LEAD) && askers().iter().any(|asker| asker == name) {
         return Ok(name.to_owned());
@@ -108,7 +111,7 @@ fn runner(host: &Host, data: &Path, pin: &Pin) -> Result<PathBuf, String> {
     let bytes = built.symlink_metadata().is_ok_and(|file| file.is_file()).then(|| std::fs::read(&built).ok()).flatten().ok_or_else(|| format!("{} is not a built runner", built.display()))?;
     let digest = format!("{:x}", Sha256::digest(&bytes));
     if digest != pin.digest {
-        return Err(format!("{} has the sha256 {digest}, not the {} the closed list pins; a runner build is a separate matter", built.display(), pin.digest));
+        return Err(format!("{} has the sha256 {digest}, not the {} the closed list pins; `eval-unit build COMMIT` builds a new runner", built.display(), pin.digest));
     }
     let main = host.code.iter().find_map(|root| request_checkout::registered(&host.code, &root.join("north/main")).ok()).ok_or_else(|| "this host keeps no north main checkout".to_owned())?;
     let mirror = Mirror::open(&main.top)?;
@@ -116,7 +119,7 @@ fn runner(host: &Host, data: &Path, pin: &Pin) -> Result<PathBuf, String> {
     let same = north_trusted_mirror::command(mirror.git_dir()).args(["diff", "--quiet", pin.commit, &head, "--", "evals/b"]).output().map_err(|error| format!("git diff: {error}"))?;
     match same.status.code() {
         Some(0) => {}
-        Some(1) => return Err(format!("evals/b changed since {}, so the runner there no longer stands for this head; a runner build is a separate matter", pin.commit)),
+        Some(1) => return Err(format!("evals/b changed since {}, so the runner there no longer stands for this head; `eval-unit build COMMIT` builds a new runner", pin.commit)),
         _ => return Err(format!("git diff {} {head} -- evals/b: {}", pin.commit, String::from_utf8_lossy(&same.stderr).trim())),
     }
     let copy = data.join("bin").join(format!("eval-b.{}", &head[..10]));
@@ -164,11 +167,12 @@ fn started(units: &dyn Units, label: &Label) -> Result<(String, Shown), String> 
 pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, units: &dyn Units, pin: &Pin) -> Result<String, String> {
     let recorded = match &ask {
         Ask::State(label) | Ask::Stop(label) => eval_start::recorded(label, host),
-        Ask::Start(_) | Ask::Script(_) => None,
+        Ask::Start(_) | Ask::Script(_) | Ask::Build(_) => None,
     };
-    let parent = asking(peer, host, matches!(ask, Ask::Script(_)) || recorded.is_some())?;
+    let parent = asking(peer, host, matches!(ask, Ask::Script(_) | Ask::Build(_)) || recorded.is_some())?;
     match (ask, recorded) {
         (Ask::Script(start), _) => eval_start::serve(start, &parent, host, units),
+        (Ask::Build(commit), _) => eval_build::serve(&commit, host, &host.home.join(DATA), BUILD_HOST),
         (Ask::State(_), Some(record)) => eval_start::state(&record, units),
         (Ask::Stop(_), Some(record)) => eval_start::stop(&record, units),
         (Ask::Start(form), _) => {

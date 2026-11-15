@@ -103,7 +103,7 @@ pub(in super::super) fn a_listed_lead_starts_reads_and_stops_only_the_finish_pro
     git(&main, &["update-ref", "refs/heads/main", &base]);
     git(&main, &["update-ref", "refs/remotes/origin/main", &base]);
     let refused = serve(ask(&["eval-unit", "start", "finish-proof", "next", "2"]), &Peer::from(Some(SCOPE)), &lead, &units, &pin).unwrap_err();
-    assert!(refused.contains("a runner build is a separate matter") && units.started.borrow().len() == 1, "a runner is labelled for the head origin sent, whatever head, origin/main or replace ref a worker writes into the main checkout's store (south#138): {refused}");
+    assert!(refused.contains("`eval-unit build COMMIT` builds a new runner") && units.started.borrow().len() == 1, "a runner is labelled for the head origin sent, whatever head, origin/main or replace ref a worker writes into the main checkout's store (south#138): {refused}");
 
     for words in [
         &["eval-unit", "start", "finish-proof", "../x", "2"][..],
