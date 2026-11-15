@@ -104,7 +104,7 @@ fn a_copy_interrupted_over_an_hour_ago_leaves_no_staging_directory_while_a_fresh
         fs::create_dir_all(layout.runtimes().join(name)).unwrap();
         fs::write(layout.runtimes().join(name).join("north"), "half").unwrap();
     }
-    let hours_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 60 * 60);
+    let hours_ago = fs::metadata(layout.runtimes().join(&fresh)).unwrap().modified().unwrap() - Duration::from_secs(2 * 60 * 60);
     File::open(layout.runtimes().join(&stale)).unwrap().set_modified(hours_ago).unwrap();
     collect(&layout, &"c".repeat(40), None).unwrap();
     assert!(!layout.runtimes().join(&stale).exists());
