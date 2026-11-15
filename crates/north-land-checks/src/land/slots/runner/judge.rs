@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS};
+use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 
 use crate::land::slots::select::{Config, changed};
 use crate::land::slots::unit_reuse;
@@ -71,12 +71,12 @@ impl Shared {
 
     async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {
         let (status, log) = (ran.status, ran.log.display());
-        if status == NO_VERDICT_STATUS {
-            let detail = format!("land check {command} reached no verdict (exit {NO_VERDICT_STATUS}: its host or connection failed before the check reported), which is not this lane's failure");
+        if matches!(status, NO_VERDICT_STATUS | SLOTS_BUSY_STATUS) {
+            let detail = format!("land check {command} reached no verdict (exit {status}: its host, its connection or the offload slot line ended it before the check reported), which is not this lane's failure");
             warn(&format!("safe-push: {detail}; log: {log}; NOT pushed."));
             self.outcome.record(&["skip", &detail]);
             self.outcome.record(&["event", "land check", "no verdict", &format!("{command}; log: {log}")]);
-            return NO_VERDICT_STATUS;
+            return status;
         }
         if let Some(judged) = self.judge_tests_against_base(command, leased, timeout, ran).await {
             return judged;
