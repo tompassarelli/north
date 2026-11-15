@@ -28,7 +28,8 @@ const UNSHARE: &str = "/run/current-system/sw/bin/unshare";
 const NORTH_HAND_OFF: &str = "/.north-hand-off";
 const WORKER_SANDBOX: &str = "--worker-sandbox";
 const HAND_OFF: &str = "--hand-off";
-pub const CACHES: [&str; 4] = [".bun/install/cache", ".cargo/registry", ".cargo/git", ".cache/nix"];
+const NIX_CACHE: &str = ".cache/nix";
+pub const CACHES: [&str; 4] = [".bun/install/cache", ".cargo/registry", ".cargo/git", NIX_CACHE];
 pub const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
 pub const CRATE_SOURCES: [&str; 2] = [".cargo/registry/src", ".cargo/git/checkouts"];
 pub const TRUSTED_BUILDS: &str = ".local/state/north/head-north";
@@ -170,14 +171,18 @@ impl Sandbox {
         Ok(box_)
     }
 
-    /// Binds the package caches writable, and in `run` the build caches too, with cargo's extracted crate sources read-only inside them, since only `fetch`, which runs no build script, extracts them and a later build outside depbox compiles them; and makes the directory of the north builds head-north trusts, so a sandbox binds it read-only among the reads and keeps its own builds in the shared cache instead.
+    /// Binds the package caches writable, except nix's in `run`, which is a scratch directory of its own because a dirty tree makes the dev shell evaluate inside the sandbox and a test that wrote the shared fetcher cache corrupted what every later dev shell reads (north#1628), and in `run` the build caches too, with cargo's extracted crate sources read-only inside them, since only `fetch`, which runs no build script, extracts them and a later build outside depbox compiles them; and makes the directory of the north builds head-north trusts, so a sandbox binds it read-only among the reads and keeps its own builds in the shared cache instead.
     fn bind_caches(&mut self) -> Result<(), (u8, String)> {
         let run = self.mode == Mode::Run;
         let (builds, sources): (&[&str], &[&str]) = if run { (&BUILD_CACHES, &CRATE_SOURCES) } else { (&[], &[]) };
         for (flag, directory) in CACHES.iter().chain(builds).map(|directory| ("--bind", directory)).chain(sources.iter().map(|directory| ("--ro-bind", directory))) {
             let directory = self.home.join(directory);
             std::fs::create_dir_all(&directory).map_err(|error| (1, format!("{}: {error}", directory.display())))?;
-            self.bind(flag, &directory, &directory);
+            if run && directory.ends_with(NIX_CACHE) {
+                self.arguments.extend([OsString::from("--tmpfs"), directory.clone().into()]);
+            } else {
+                self.bind(flag, &directory, &directory);
+            }
             self.binds.push(directory);
         }
         let _ = std::fs::create_dir_all(self.home.join(TRUSTED_BUILDS));
