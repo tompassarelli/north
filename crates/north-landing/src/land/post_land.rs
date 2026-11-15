@@ -63,6 +63,16 @@ pub struct Search {
     failing: BTreeSet<Failure>,
 }
 
+impl Search {
+    pub fn limit(&self) -> Duration {
+        let rounds = SEARCH_PASSES_PER_LANE * self.landed.tips.len() + WALK_BACK + SEARCH_FIXED_ROUNDS;
+        self.run.deadline * u32::try_from(rounds).unwrap_or(u32::MAX)
+    }
+}
+
+const SEARCH_PASSES_PER_LANE: usize = 2;
+const SEARCH_FIXED_ROUNDS: usize = 2;
+
 pub struct Found {
     pub culprits: Vec<usize>,
     pub span: (f64, f64),

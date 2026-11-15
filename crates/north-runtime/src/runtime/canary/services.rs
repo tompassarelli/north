@@ -63,6 +63,14 @@ fn listed(north: &Path) -> std::io::Result<String> {
     Command::new(north).args(LISTING).output().map(|listed| String::from_utf8_lossy(&listed.stdout).into_owned())
 }
 
+/// What a lander that is replaced waited for past its limit, so the report names it; empty for any other process or a wait still inside its limit.
+fn waited(layout: &Layout, process: &Process) -> String {
+    match north_runtime_follow::leaving::record(layout, process.pid) {
+        Some(record) if process.kind == LANDER && !record.open() => format!(", and it waited for {} past its limit", record.what),
+        _ => String::new(),
+    }
+}
+
 /// Judges the processes `north runtime lag --processes --json` listed against the promotion of `judged` on this host: the
 /// error names each host service on a runtime this host ran before the one `judged` replaces, but for the `draining` ones.
 pub(super) fn judge(layout: &Layout, judged: &str, listing: &str, draining: &[u32]) -> Result<String, Failure> {
@@ -73,8 +81,9 @@ pub(super) fn judge(layout: &Layout, judged: &str, listing: &str, draining: &[u3
         Some(went_live) => swapped[..went_live].iter().rev().find(|runtime| *runtime != judged).cloned(),
         None => live.clone().filter(|live| live != judged),
     };
-    let lander: Vec<String> = named(&layout.lander()).into_iter().chain(fs::read_to_string(layout.lander_rollback()).ok().and_then(|link| layout::linked_sha(Path::new(link.trim())).map(str::to_owned))).collect();
-    let follows = |process: &Process, runtime: &str| [Some(judged), live.as_deref(), replaced.as_deref()].into_iter().flatten().chain(lander.iter().map(String::as_str).filter(|_| process.kind == LANDER)).any(|followed| followed == runtime) || (process.kind == LANDER && north_runtime_follow::leaving::target(layout, process.pid).as_deref() == Some(judged));
+    let lander_link = named(&layout.lander());
+    let lander: Vec<String> = lander_link.iter().cloned().chain(fs::read_to_string(layout.lander_rollback()).ok().and_then(|link| layout::linked_sha(Path::new(link.trim())).map(str::to_owned))).collect();
+    let follows = |process: &Process, runtime: &str| [Some(judged), live.as_deref(), replaced.as_deref()].into_iter().flatten().chain(lander.iter().map(String::as_str).filter(|_| process.kind == LANDER)).any(|followed| followed == runtime) || (process.kind == LANDER && north_runtime_follow::leaving::target(layout, process.pid).is_some_and(|target| target == judged || lander_link.as_ref() == Some(&target)));
     let ran_here = |runtime: &str| swapped.iter().any(|swapped| swapped == runtime) || layout.runtime(runtime).is_dir();
     let behind: Vec<(&Process, &str)> = processes.iter().filter_map(|process| process.runtime.as_deref().filter(|runtime| !follows(process, runtime) && ran_here(runtime)).map(|runtime| (process, runtime))).collect();
     let (sessions, services): (Vec<_>, Vec<_>) = behind.iter().partition(|(process, _)| SESSION.contains(&process.kind.as_str()));
@@ -86,6 +95,6 @@ pub(super) fn judge(layout: &Layout, judged: &str, listing: &str, draining: &[u3
         let left: String = leaving.iter().map(|(process, runtime)| format!("; `{}` (pid {}) on {} takes no new client and leaves with its last one", process.process, process.pid, layout::short(runtime))).collect();
         return Ok(format!("none of {judged_services} host services runs a runtime older than {replaces}, and still takes a new client; {} session processes behind move with their sessions{left}", sessions.len()));
     }
-    let named: Vec<String> = services.iter().map(|(process, runtime)| format!("`{}` (pid {}) runs {}", process.process, process.pid, layout::short(runtime))).collect();
+    let named: Vec<String> = services.iter().map(|(process, runtime)| format!("`{}` (pid {}) runs {}{}", process.process, process.pid, layout::short(runtime), waited(layout, process))).collect();
     Err(failed(HOST_FAULT, format!("host service {}: older than {replaces}, so it follows no promotion", named.join(", "))))
 }

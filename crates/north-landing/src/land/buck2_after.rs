@@ -28,7 +28,7 @@ const RED_REVERTS_SWITCH: &str = "buck2_red_reverts";
 const GREEN: i32 = 0;
 const RED: i32 = 1;
 /// The slowest Buck2 workspace test line of a land check on 2026-11-13 took 1257 s (cpx62b).
-const TIMEOUT_SECONDS: u64 = 1800;
+pub const TIMEOUT_SECONDS: u64 = 1800;
 
 pub struct Finished {
     pub exit: i32,

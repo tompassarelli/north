@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::candidate::{self, git};
@@ -11,7 +12,7 @@ use super::credential;
 use super::post_land;
 use super::push_refusal::{self, Backoff, Pause, Refusal};
 use super::hold::{self, Hold};
-use super::watch::Watch;
+use super::watch::{Wait, Watch};
 use super::heartbeat::{self, Step};
 use super::watchdog;
 use super::repositories;
@@ -56,7 +57,25 @@ pub enum Pushed {
 
 struct Serving {
     lander: Arc<Lander>,
+    inbox: Receiver<Vec<Wait>>,
+    waits: Vec<Wait>,
     handle: std::thread::JoinHandle<u8>,
+}
+
+impl Serving {
+    fn refresh(&mut self) {
+        while let Ok(waits) = self.inbox.try_recv() {
+            self.waits = waits;
+        }
+    }
+}
+
+fn publish(outbox: &Sender<Vec<Wait>>, waits: Vec<Wait>) {
+    let _ = outbox.send(waits);
+}
+
+fn epoch_seconds() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
 }
 
 fn micros() -> u128 {
@@ -133,7 +152,7 @@ fn back_off(lander: &Lander, pause: Pause, reason: &str, retire: &AtomicBool) {
     pause.sit_out(retire);
 }
 
-fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
+fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool, outbox: &Sender<Vec<Wait>>) -> u8 {
     let wake = &lander.wake;
     let (_watchers, taken) = if once {
         let pulled = lander.pull_remote();
@@ -144,14 +163,14 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     } else {
         (Some((outbox::watch(lander, wake), tickets::watch(&lander.queue, wake), verdicts::watch(lander))), Vec::new())
     };
-    let code = heartbeat::watched(lander, || serve_loop(lander, once, retire));
+    let code = heartbeat::watched(lander, || serve_loop(lander, once, retire, outbox));
     for reason in lander.settle(&taken) {
         println!("north land: waiting: {reason}");
     }
     code
 }
 
-fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
+fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, outbox: &Sender<Vec<Wait>>) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     match super::queue::adopt(&lander.queue) {
         Ok(0) => {}
@@ -181,7 +200,9 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
             }
             watch.drain();
         }
+        publish(outbox, watch.waits());
         let round = Serve::new(lander).round(&mut watch);
+        publish(outbox, watch.waits());
         lander.heartbeat.enter(Step::Watchdog);
         watchdog::after_round(lander, &round);
         if let Some(note) = super::promote::watch_round(std::slice::from_ref(&lander.repo)) {
@@ -304,14 +325,22 @@ fn serve_once(options: &Options) -> u8 {
         }
     }
     let retire = AtomicBool::new(false);
+    let (outbox, _) = mpsc::channel();
     std::thread::scope(|scope| {
-        let handles: Vec<_> = landers.iter().map(|(lander, _)| scope.spawn(|| serve_repository(lander, true, &retire))).collect();
+        let handles: Vec<_> = landers.iter().map(|(lander, _)| scope.spawn(|| serve_repository(lander, true, &retire, &outbox))).collect();
         exit_code(handles.into_iter().map(|handle| handle.join().unwrap_or(1)))
     })
 }
 
-fn in_flight_bound(running: &HashMap<PathBuf, Serving>) -> u64 {
-    running.values().flat_map(|serving| post_land::adoptable(&serving.lander.queue)).map(|(_, record)| record.started + record.deadline as f64).fold(0.0, f64::max) as u64
+fn record_waits(layout: &Layout, pid: u32, next: &str, running: &mut HashMap<PathBuf, Serving>, leave_by: f64) {
+    running.values_mut().for_each(Serving::refresh);
+    let mut waits: Vec<Wait> = running.values().flat_map(|serving| post_land::adoptable(&serving.lander.queue)).map(|(_, record)| Wait { what: format!("the after-landing run of {}", record.head), until: record.started + record.deadline as f64 }).collect();
+    waits.extend(running.values().flat_map(|serving| serving.waits.iter().cloned()));
+    let until = waits.iter().map(|wait| wait.until).reduce(f64::min).unwrap_or(leave_by);
+    let what = if waits.is_empty() { "the serve loop".to_owned() } else { waits.iter().map(|wait| wait.what.as_str()).collect::<Vec<_>>().join(", ") };
+    if let Err(error) = leaving::write(layout, pid, &leaving::Record { target: next.to_owned(), until: until.ceil() as u64, what }) {
+        println!("north land: could not record that it waits to leave for {next}: {error}");
+    }
 }
 
 fn serve_forever(options: &Options) -> u8 {
@@ -327,23 +356,21 @@ fn serve_forever(options: &Options) -> u8 {
             handover::announce(&next);
             let layout = Layout::from_env();
             let pid = std::process::id();
-            let until = in_flight_bound(&running);
-            if until > 0 {
-                if let Err(error) = leaving::write(&layout, pid, &next, until) {
-                    println!("north land: could not record that it waits to leave for {next}: {error}");
-                }
-            }
+            let leave_by = epoch_seconds() + handover::BOUND.as_secs_f64();
+            record_waits(&layout, pid, &next, &mut running, leave_by);
             let deadline = Instant::now() + handover::BOUND;
             while let Some(held) = running.values().find(|serving| !serving.handle.is_finished()) {
                 if Instant::now() >= deadline && handover::landing(held.lander.heartbeat.current().0) {
                     break;
                 }
+                record_waits(&layout, pid, &next, &mut running, leave_by);
                 std::thread::sleep(TICK);
             }
             leaving::remove(&layout, pid);
             return 0;
         }
         running.retain(|_, serving| !serving.handle.is_finished());
+        running.values_mut().for_each(Serving::refresh);
         if scanned.is_none_or(|at| at.elapsed() >= DISCOVERY) {
             scanned = Some(Instant::now());
             let (repos, unserved) = targets(options);
@@ -361,11 +388,12 @@ fn serve_forever(options: &Options) -> u8 {
                         let retire = Arc::clone(&retire);
                         let lander = Arc::new(lander);
                         let serving = Arc::clone(&lander);
+                        let (outbox, inbox) = mpsc::channel();
                         let handle = std::thread::spawn(move || {
                             let _hold = hold;
-                            serve_repository(&serving, false, &retire)
+                            serve_repository(&serving, false, &retire, &outbox)
                         });
-                        running.insert(repo, Serving { lander, handle });
+                        running.insert(repo, Serving { lander, inbox, waits: Vec::new(), handle });
                     }
                     Ok(Opened::Held(reason)) => {
                         if reported.insert(reason.clone()) {
