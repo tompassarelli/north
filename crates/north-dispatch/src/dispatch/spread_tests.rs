@@ -83,16 +83,17 @@ fn laptop_at_the_0631z_round(measure: Option<super::measure::Measure>, reading: 
 #[test]
 fn one_round_charges_its_own_launches_against_host_headroom() {
     let accounts = vec![account("claude:a", &["whiterabbit"])];
-    let idle = super::measure::Measure { cores: 24.0, memory_total_mib: 65_536.0, memory_available_mib: 49_152.0, load: 1.0 };
+    let probe = "24\n31.20 30.10 29.00 5/900 1\nMemTotal: 67108864 kB\nMemAvailable: 50331648 kB\ncpu  0 0 0 0 0 0 0 0 0 0\ncpu  100 0 0 200 100 0 0 0 0 0\n";
+    let idle = super::measure::parse(probe).expect("the probe parses");
     let measured = laptop_at_the_0631z_round(Some(idle), Some(&Saturation { backlog: None, ..reading(900.0, 936.0, 0) }));
-    assert_eq!(measured.free(), Ok(46), "53 sessions of 768 MiB fit above the memory floor, and the 23 idle cores take 46 at half a core each, under the 184 the cap leaves");
+    assert_eq!(measured.free(), Ok(36), "53 sessions of 768 MiB fit above the memory floor, and the 18 idle cores take 36 at half a core each however high the load stands, under the 184 the cap leaves");
     let mut pools = super::slots::Pools::new(&[measured], &accounts);
     let mut taken = 0;
     while pools.host("whiterabbit") > 0 {
         pools.take("whiterabbit");
         taken += 1;
     }
-    assert_eq!(taken, 46, "a round of launches takes the slots of the headroom and no more");
+    assert_eq!(taken, 36, "a round of launches takes the slots of the headroom and no more");
 
     let unmeasured = laptop_at_the_0631z_round(None, None);
     assert_eq!(unmeasured.free(), Err("host whiterabbit has no memory reading".to_owned()), "16/200 resident is not headroom");

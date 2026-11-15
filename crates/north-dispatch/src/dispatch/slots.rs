@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 /// Cores of load one resident session is charged; a guess that the measured peak cores of a resident session settles.
 const SESSION_CORES_GUESS: f64 = 0.5;
 
-/// Sessions the cores the one-minute load leaves idle take, each charged `SESSION_CORES_GUESS`.
+/// Sessions the idle cores take, each charged `SESSION_CORES_GUESS`; a host without a CPU reading takes no more than its memory and cap allow.
 fn cpu_room(measure: super::measure::Measure) -> i64 {
     (((measure.cores - measure.load).max(0.0) / SESSION_CORES_GUESS).floor()) as i64
 }
@@ -59,11 +59,11 @@ impl Host {
         let running = self.running.clone()?;
         let room = self.room.ok_or_else(|| format!("host {} has no memory reading", self.name))?;
         let resident = self.cap.map_or(i64::MAX, |cap| (cap - running).max(0));
-        Ok(resident.min(room).min(self.measure.map_or(i64::MAX, cpu_room)))
+        Ok(resident.min(room).min(self.measure.and_then(|measure| measure.idle_cores).map_or(i64::MAX, cpu_room)))
     }
 
     pub fn line(&self) -> String {
-        let measured = self.measure.map_or_else(String::new, |measure| format!("; load {:.1} on {:.0} cores, {:.0} of {:.0} MiB available", measure.load, measure.cores, measure.memory_available_mib, measure.memory_total_mib));
+        let measured = self.measure.map_or_else(String::new, |measure| format!("; load {:.1} on {:.0} cores, {} idle, {:.0} of {:.0} MiB available", measure.load, measure.cores, measure.idle_cores.map_or_else(|| "no CPU reading".to_owned(), |idle| format!("{idle:.1} cores")), measure.memory_available_mib, measure.memory_total_mib));
         let running = self.running.as_ref().copied().unwrap_or_default();
         let state = match (self.free(), self.cap) {
             (Err(why), _) => format!("host {}: takes nothing: {why}", self.name),
