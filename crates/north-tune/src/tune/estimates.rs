@@ -13,11 +13,7 @@ use crate::tune::budgets::BUDGET_COVERAGE;
 use crate::threads::calibration::Knobs;
 use std::collections::BTreeMap;
 
-/// The band of actual-to-estimate ratios, read at the quantile the estimator covers, inside which it counts as calibrated.
-pub const CALIBRATED: (f64, f64) = (0.67, 1.5);
-/// Estimated runs a ratio needs before its drift counts, so one odd run files nothing; also the
-/// earlier runs a replayed estimate needs, and the replayed runs a replayed ratio needs.
-pub const DRIFT_MIN_RUNS: usize = 3;
+pub use crate::threads::calibration::{CALIBRATED, DRIFT_MIN_RUNS};
 const REPLAY_SECONDS: i64 = 7 * 86_400;
 
 /// The tier label prefix of runs on the opencode provider: free models whose spend the Claude price table cannot state, and whose briefs carry the Claude cells' estimates.

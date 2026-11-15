@@ -28,6 +28,12 @@ use toml_edit::DocumentMut;
 
 use crate::router::brief::CATEGORIES;
 
+/// The band of actual-to-estimate ratios, read at the quantile the estimator covers, inside which it counts as calibrated.
+pub const CALIBRATED: (f64, f64) = (0.67, 1.5);
+/// Estimated runs a ratio needs before its drift counts, so one odd run files nothing; also the
+/// earlier runs a replayed estimate needs, and the replayed runs a replayed ratio needs.
+pub const DRIFT_MIN_RUNS: usize = 3;
+
 pub use recommend::Pick;
 pub use verbs::{FAMILY, VERBS, eta_pred_scale, run, since_start};
 pub use box_eta::{box_durations, box_run};

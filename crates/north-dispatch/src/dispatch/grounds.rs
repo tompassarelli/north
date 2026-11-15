@@ -6,7 +6,7 @@ use super::tier::{Route, Tier};
 use super::tuned::{Figure, Tuned};
 use north_graph_loops::skill::{self, Decision};
 use crate::ledger::{self, ClosedReport, Figures, PriorReport, RunEnd, RunTime};
-use crate::threads::calibration::scaled;
+use crate::threads::calibration::{scaled, CALIBRATED, DRIFT_MIN_RUNS};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -179,6 +179,9 @@ impl Grounds {
     pub fn eta(&self, declared: Option<&str>, route: &Route) -> String {
         let aside = declared.map_or_else(String::new, |declared| format!("; declared {declared}"));
         if let Some(constant) = &self.set_aside.eta {
+            if let Some((own, runs)) = self.own_beside(constant) {
+                return format!("{own:.0} min (the p75 of this cell's own runs, n={runs}, ledger {WINDOW}, outside {}-{}x of the pooled p75 {:.0} min; {}{aside})", CALIBRATED.0, CALIBRATED.1, constant.value, constant.why);
+            }
             return format!("{:.0} min (the p75 of every worker run, ledger 7d; {}{aside})", constant.value, constant.why);
         }
         let (minutes, source) = match (&self.eta_cell, &self.figures) {
@@ -194,9 +197,16 @@ impl Grounds {
     /// by the tier's calibration.
     pub fn minutes(&self) -> Option<f64> {
         if let Some(constant) = &self.set_aside.eta {
-            return Some(constant.value);
+            return Some(self.own_beside(constant).map_or(constant.value, |(own, _)| own));
         }
         self.measured_minutes().map(|measured| self.scaled(measured))
+    }
+
+    /// The cell's own p75 and its runs, when the cell has enough runs and that p75 sits outside the band of the pooled constant: the constant drives every cell it fits.
+    fn own_beside(&self, constant: &Constant) -> Option<(f64, usize)> {
+        let figures = self.figures.as_ref().filter(|figures| figures.runs >= DRIFT_MIN_RUNS)?;
+        let own = eta_minutes(figures);
+        (!(CALIBRATED.0..=CALIBRATED.1).contains(&(own / constant.value))).then_some((own, figures.runs))
     }
 
     fn scaled(&self, measured: f64) -> f64 {
