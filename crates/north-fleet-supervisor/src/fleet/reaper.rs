@@ -342,7 +342,7 @@ impl Evidence for Here {
         let common = path.parent()?.parent()?.join("main/.git");
         let git_dir = common.join("worktrees").join(path.file_name()?);
         let git = format!("cd / && GIT_DIR='{}' GIT_COMMON_DIR='{}' git", git_dir.display(), common.display());
-        let probe = format!("{git} rev-list --count origin/main..HEAD && {git} rev-parse --short=10 HEAD");
+        let probe = format!("{git} rev-list --count --cherry-pick --right-only origin/main...HEAD && {git} rev-parse --short=10 HEAD");
         let bound = PROBE_SECS.to_string();
         let output = match &record.machine {
             Some(machine) => Command::new(binary("timeout")).args([bound.as_str(), "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, &probe]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?,
