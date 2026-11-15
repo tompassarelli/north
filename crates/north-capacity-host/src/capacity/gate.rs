@@ -7,7 +7,7 @@ use super::effects::Host;
 use super::build_offload;
 use super::build_host_command;
 use super::depbox_check;
-use super::depbox_mode::Mode;
+use super::depbox_mode::{Mode, in_sandbox};
 use crate::nix_command::{self, Inner};
 use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
@@ -309,7 +309,7 @@ fn script_file(path: &str) -> bool {
 
 /// The depbox mode a toolchain program runs in when a shim starts it outside depbox: `fetch` for the verbs that download, `run` for every other one that may run a dependency's code, and None for a call that runs none (a version, help, metadata or formatting query), inside depbox already, or a bun or node script that landed code ships.
 pub fn sandboxed(name: &str, args: &[String]) -> Option<Mode> {
-    if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) {
+    if in_sandbox(&std::env::var(SANDBOX).unwrap_or_default()) {
         return None;
     }
     sandbox_mode(name, args, &|script| landed(Path::new(script)))

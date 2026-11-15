@@ -21,3 +21,9 @@ impl Mode {
         }
     }
 }
+
+pub const INSIDE: &str = "/.north-depbox-inside";
+
+pub fn in_sandbox(marker: &str) -> bool {
+    !marker.is_empty() && std::path::Path::new(INSIDE).exists()
+}
