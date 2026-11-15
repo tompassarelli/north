@@ -2,5 +2,5 @@
 name = "north-git-locks"
 layer = 1
 paths = ["crates/north-git-locks/src/**"]
-may_use = []
+may_use = ["north-foundation"]
 

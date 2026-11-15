@@ -3,6 +3,8 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use north_foundation::test_inputs::git::git_in;
+
 use super::{Kept, clear_at};
 
 fn now() -> SystemTime {
@@ -43,29 +45,24 @@ fn only_a_lock_no_process_holds_and_older_than_a_minute_is_removed_north_937() {
     assert!(git.join("north-history.lock").exists());
 }
 
-fn git(directory: &Path, args: &[&str]) {
-    let status = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).status().unwrap();
-    assert!(status.success(), "git {args:?}");
-}
-
 #[test]
 fn worktrees_of_one_clone_fetching_a_moving_origin_at_once_all_succeed_north_1190() {
     let root = tempfile::tempdir().unwrap();
     let origin = root.path().join("origin");
     let clone = root.path().join("clone");
-    git(root.path(), &["init", "-q", "-b", "main", origin.to_str().unwrap()]);
-    git(&origin, &["commit", "-q", "--allow-empty", "-m", "first"]);
-    git(root.path(), &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+    git_in(root.path(), &["init", "-q", "-b", "main", origin.to_str().unwrap()]);
+    git_in(&origin, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    git_in(root.path(), &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()]);
     let lanes: Vec<_> = (0..4)
         .map(|index| {
             let lane = root.path().join(format!("lane{index}"));
-            git(&clone, &["worktree", "add", "-q", "--detach", lane.to_str().unwrap()]);
+            git_in(&clone, &["worktree", "add", "-q", "--detach", lane.to_str().unwrap()]);
             lane
         })
         .collect();
     let moving = std::thread::spawn(move || {
         for _ in 0..40 {
-            git(&origin, &["commit", "-q", "--allow-empty", "-m", "next"]);
+            git_in(&origin, &["commit", "-q", "--allow-empty", "-m", "next"]);
         }
     });
     let fetchers: Vec<_> = lanes

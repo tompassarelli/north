@@ -1561,6 +1561,7 @@ dependencies = [
 name = "north-git-locks"
 version = "0.1.0"
 dependencies = [
+ "north-foundation",
  "tempfile",
 ]
 

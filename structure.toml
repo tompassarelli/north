@@ -144,7 +144,7 @@ may_use = []
 name = "north-git-locks"
 layer = 1
 paths = ["crates/north-git-locks/src/**"]
-may_use = []
+may_use = ["north-foundation"]
 
 [[crate_dag.crate]]
 name = "north-runtime-follow"
@@ -527,7 +527,7 @@ may_use = ["runtime_records", "agent_starts", "strategy_types", "mutants", "cli"
 name = "git_locks"
 paths = ["crates/north-git-locks/src/**"]
 responsibility = "Stale git lock files: the one removal an agent may make in a primary checkout's git directory."
-may_use = []
+may_use = ["foundation"]
 
 [[module]]
 name = "build_system"
