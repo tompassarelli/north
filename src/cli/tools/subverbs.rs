@@ -198,6 +198,7 @@ pub(super) fn runtime(arguments: &[String]) -> u8 {
 const OPS: &[(&str, Run)] = &[
     ("credentials", crate::credentials::run),
     ("github", ops_github),
+    ("strategy", north_timers::timers::decision_log_retain::run),
     ("watch", ops_watch),
 ];
 

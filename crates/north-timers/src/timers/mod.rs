@@ -1,4 +1,5 @@
 mod cross_project;
+pub mod decision_log_retain;
 pub mod ask;
 pub mod oneshot;
 mod eta_calibration;

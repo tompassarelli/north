@@ -1,0 +1,1 @@
+  ops strategy log retain  Compress the decision log's closed hours with zstd and delete its days past 14, on the host that decided (hourly timer)

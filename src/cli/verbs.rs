@@ -151,6 +151,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("opencode-host", Diagnosis),
     ("ops credentials", Diagnosis),
     ("ops github", Diagnosis),
+    ("ops strategy", Diagnosis),
     ("ops watch", Status),
     ("ops", Status),
     ("outside-watch", Status),
