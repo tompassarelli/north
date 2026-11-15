@@ -181,6 +181,7 @@ const RUNTIME: &[(&str, Run)] = &[
     ("hold", |arguments| north_runtime::worker_sandbox::hold_client::command(arguments, north_offload::land_offload::settles_fleet_here())),
     ("opencode", north_runtime::vendor_runtime::run_opencode),
     ("pi", north_runtime::vendor_runtime::run_pi),
+    ("review-fetch", |arguments| north_runtime::worker_sandbox::hold_client::fetch_command(arguments, north_offload::land_offload::settles_fleet_here())),
 ];
 
 fn agent_runtime_update(arguments: &[String]) -> u8 {

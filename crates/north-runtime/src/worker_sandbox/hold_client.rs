@@ -5,6 +5,7 @@ use north_base::platform::review_accept::Accepts;
 use super::peer::Peer;
 use super::{MARK, broker, hold_request, lane_grant};
 use crate::runtime::review_accept::{self, Accept};
+use crate::runtime::review_fetch::{self, Fetch};
 use crate::runtime::review_hold::{self, Ask, Caller, Holds, now};
 
 /// `north runtime hold` on a host that `settles` the fleet, or not (runtime/review_hold.rs); its exit code.
@@ -47,5 +48,16 @@ fn accept(accept: Accept) -> Result<String, String> {
             let accepts = Accepts::here();
             accept.serve(&accepts, &own_caller()?, now()).map(|line| review_accept::carried(&accepts, line))
         }
+    }
+}
+
+pub fn fetch_command(arguments: &[String], settles: bool) -> u8 {
+    review_fetch::run(arguments, settles, fetched)
+}
+
+fn fetched(fetch: &Fetch) -> Result<String, String> {
+    match brokered(&fetch.words(), "review fetch") {
+        Some(told) => told,
+        None => review_fetch::main_here().and_then(|main| review_fetch::serve(&main, fetch)),
     }
 }

@@ -32,6 +32,7 @@ mod replay;
 mod reuse;
 mod scope;
 pub(crate) mod review_accept;
+pub(crate) mod review_fetch;
 pub mod review_hold;
 mod after_landing;
 mod settle;

@@ -61,18 +61,19 @@ pub(crate) fn run(flags: &[String], settles: bool, serve: impl FnOnce(Accept) ->
 }
 
 fn command(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result<String, String>) -> Result<(), Failure> {
-    let (named, withdraw) = match flags {
-        [named] => (named, false),
-        [flag, named] if flag == WITHDRAW => (named, true),
-        _ => return Err(failed(64, USAGE)),
+    let (withdraw, rest) = match flags.split_first() {
+        Some((flag, rest)) if flag == WITHDRAW => (true, rest),
+        _ => (false, flags),
     };
+    let [named] = rest else { return Err(failed(64, USAGE)) };
     if named.starts_with('-') {
         return Err(failed(64, USAGE));
     }
     if !settles {
         return Err(failed(64, format!("the host that settles the fleet reads the accepts its landing counts, and this is not it; accept from a session there\n{USAGE}")));
     }
-    let commit = resolved(named).ok_or_else(|| failed(1, format!("{named} names no commit here, nor a lane head the trusted mirror publishes")))?;
+    let commit = resolved(named).ok_or_else(|| format!("{named} names no commit here, nor a commit the trusted mirror publishes")).map_err(|why| failed(1, why))?;
+    println!("north runtime accept: {named} resolves to commit {commit}");
     let fork = git(&["merge-base", BASE, &commit])?;
     let patch = patch_id(&std::env::current_dir().unwrap_or_default(), &fork, &commit).map_err(|why| failed(1, why))?;
     let line = serve(Accept { patch_id: patch, withdraw }).map_err(|why| failed(1, why))?;
@@ -82,7 +83,6 @@ fn command(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result
     Ok(())
 }
 
-/// The commit `named` names here, or, for a full sha this store lacks, the lane head the trusted mirror beside the main checkout publishes, fetched into this store.
 fn resolved(named: &str) -> Option<String> {
     let here = || git(&["rev-parse", "--verify", &format!("{named}^{{commit}}")]).ok().filter(|commit| full_sha(commit));
     here().or_else(|| {

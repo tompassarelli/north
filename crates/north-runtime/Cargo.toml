@@ -19,6 +19,7 @@ north-lanes = { path = "../north-lanes" }
 north-providers = { path = "../north-providers" }
 north-dispatch = { path = "../north-dispatch" }
 north-trusted-mirror = { path = "../north-trusted-mirror" }
+north-landing = { path = "../north-landing" }
 regex.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true

@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use base64::Engine as _;
 use north_trusted_mirror::Mirror;
 
-use super::after::route::{self, Outbox, SSH_OPTIONS};
+use super::after::route::{self, Outbox, SSH_OPTIONS, ssh, ssh_with_input};
 use super::candidate::git;
 use super::lander::{Lander, OFFLOAD_OWNER, plain};
 use super::queue::{self, Ticket};
@@ -16,22 +15,6 @@ use north_base::land_ticket::{self, Phase};
 
 const WAIT_TICK: Duration = Duration::from_millis(200);
 const BUNDLE_LIMIT: usize = 8 << 20;
-
-fn ssh(host: &str, script: &str) -> Result<String, String> {
-    ssh_with_input(host, script, b"")
-}
-
-fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, String> {
-    let mut child = Command::new("ssh").args(SSH_OPTIONS).args(["-T", host, "--", script]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("ssh {host}: {error}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(input);
-    }
-    let output = child.wait_with_output().map_err(|error| format!("ssh {host}: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("ssh {host} exited {}: {}", output.status.code().map_or("on a signal".to_owned(), |code| code.to_string()), String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
 
 fn lane_ref(outbox: &Outbox, branch: &str) -> String {
     format!("refs/land-remote/{}/{}", outbox.name(), queue::slug(branch))

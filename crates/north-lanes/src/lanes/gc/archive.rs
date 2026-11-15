@@ -180,6 +180,9 @@ pub(in crate::lanes) fn archive(lane: &Lane, root: &Path, now_ms: i64) -> Result
         if !removed.ok {
             return Err(format!("bundled to {}, but worktree remove failed: {}", file.display(), removed.last_err_line()));
         }
+        if let Err(why) = north_trusted_mirror::forget_review(lane.main, worktree.file_name().and_then(|name| name.to_str()).unwrap_or_default()) {
+            return Err(format!("bundled to {}, but its review ref in the trusted mirror stays: {why}", file.display()));
+        }
     }
     if !lane.branch.is_empty() && !git(lane.main, &["update-ref", "-d", &format!("refs/heads/{}", lane.branch), lane.tip]).ok {
         return Err(format!("bundled to {}, but the branch {} moved", file.display(), lane.branch));

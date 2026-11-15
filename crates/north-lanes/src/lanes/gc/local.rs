@@ -365,6 +365,9 @@ impl Gc {
             println!("{}: kept {}: {}", sweep.name, lane.place, removed.last_err_line());
             return false;
         }
+        if let Err(why) = north_trusted_mirror::forget_review(&sweep.main, lane.path.file_name().and_then(|name| name.to_str()).unwrap_or_default()) {
+            println!("{}: {} is removed, but its review ref in the trusted mirror stays: {why}", sweep.name, lane.place);
+        }
         self.counts.retired_worktrees += 1;
         sweep.checked_out.remove(&lane.branch);
         if !lane.branch.is_empty() && lane.branch != "main" && self.delete_branch(&sweep.main, &lane.branch, &lane.tip) {

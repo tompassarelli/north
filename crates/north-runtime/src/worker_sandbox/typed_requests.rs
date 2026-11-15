@@ -4,9 +4,9 @@ use std::os::fd::OwnedFd;
 
 use super::lane_grant::Host;
 use super::peer::Peer;
-use super::{eval_unit_request, hold_request, host_op_request};
+use super::{eval_unit_request, hold_request, host_op_request, review_fetch_request};
 
-const VERBS: [&str; 4] = [crate::runtime::review_hold::VERB, crate::runtime::review_accept::VERB, eval_unit_request::VERB, host_op_request::VERB];
+const VERBS: [&str; 5] = [crate::runtime::review_hold::VERB, crate::runtime::review_accept::VERB, crate::runtime::review_fetch::VERB, eval_unit_request::VERB, host_op_request::VERB];
 
 /// Whether `arguments` name one of these requests.
 pub(super) fn named(arguments: &[String]) -> bool {
@@ -20,6 +20,9 @@ pub(super) fn answer(arguments: &[String], streams: Vec<OwnedFd>, peer: &Peer, h
     }
     if let Some(asked) = crate::runtime::review_accept::Accept::asked(arguments) {
         return hold_request::answer_accept(asked, streams, peer, host);
+    }
+    if let Some(asked) = crate::runtime::review_fetch::Fetch::asked(arguments) {
+        return review_fetch_request::answer(asked, streams, peer, host);
     }
     if let Some(asked) = eval_unit_request::Ask::asked(arguments) {
         return eval_unit_request::answer(asked, streams, peer, host);

@@ -152,6 +152,10 @@ pub fn clean(lander: &Lander, path: &Path, ticket: &Ticket) -> Outcome {
 }
 
 pub fn report(lander: &Lander, path: &Path, ticket: &Ticket) {
+    let lane = ticket.root.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+    if let Err(error) = north_trusted_mirror::forget_review(&lander.repo, lane) {
+        println!("north land: lane {lane} landed; kept its review ref in the trusted mirror: {error}");
+    }
     match clean(lander, path, ticket) {
         Outcome::Removed => println!("north land: lane {} landed; removed its worktree {} and branch", ticket.branch, ticket.root.display()),
         Outcome::Kept(reason) => println!("north land: lane {} landed; kept {}: {reason}", ticket.branch, ticket.root.display()),

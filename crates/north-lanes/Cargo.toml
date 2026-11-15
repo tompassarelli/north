@@ -13,6 +13,7 @@ doctest = false
 north-base = { path = "../north-base" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-git-locks = { path = "../north-git-locks" }
+north-trusted-mirror = { path = "../north-trusted-mirror" }
 regex.workspace = true
 rustix.workspace = true
 serde.workspace = true

@@ -154,3 +154,58 @@ pub fn fetch_lane_head(main: &Path, into: &Path, head: &str) -> Result<(), Strin
     }
     Ok(())
 }
+
+pub const REVIEW: &str = "refs/review";
+const LONGEST_LANE: usize = 64;
+
+pub fn review_ref(lane: &str) -> String {
+    format!("{REVIEW}/{lane}")
+}
+
+pub fn plain_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= LONGEST_LANE && !name.starts_with('-') && name.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+pub fn lane_name_ok(lane: &str) -> Result<(), String> {
+    let hex_commit = lane.len() >= 7 && lane.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if plain_name(lane) && !hex_commit {
+        Ok(())
+    } else {
+        Err(format!("{lane:?} is not a lane name: lowercase letters, digits and '-', no leading '-', at most {LONGEST_LANE} characters, and not all hex of 7 or more characters"))
+    }
+}
+
+pub fn review_lanes(main: &Path) -> Result<Vec<String>, String> {
+    let git_dir = Mirror::repository(main)?;
+    if !git_dir.join("HEAD").is_file() {
+        return Ok(Vec::new());
+    }
+    let prefix = format!("{REVIEW}/");
+    let listed = stdout(&git_dir, &["for-each-ref", "--format=%(refname)", &prefix])?;
+    Ok(listed.lines().filter_map(|line| line.strip_prefix(&prefix)).map(str::to_owned).collect())
+}
+
+pub fn review_head(main: &Path, lane: &str) -> Result<Option<String>, String> {
+    if lane_name_ok(lane).is_err() {
+        return Ok(None);
+    }
+    let git_dir = Mirror::repository(main)?;
+    let reference = review_ref(lane);
+    let commit = format!("{reference}^{{commit}}");
+    if !git_dir.join("HEAD").is_file() || stdout(&git_dir, &["rev-parse", "--verify", "--quiet", &commit]).is_err() {
+        return Ok(None);
+    }
+    if stdout(&git_dir, &["merge-base", ORIGIN_MAIN, &reference]).is_err() {
+        return Err(format!("{reference} has no merge base with {ORIGIN_MAIN} in the trusted mirror, so it is refused"));
+    }
+    stdout(&git_dir, &["rev-parse", "--verify", &commit]).map(Some)
+}
+
+pub fn forget_review(main: &Path, lane: &str) -> Result<(), String> {
+    lane_name_ok(lane)?;
+    let git_dir = Mirror::repository(main)?;
+    if !git_dir.join("HEAD").is_file() {
+        return Ok(());
+    }
+    stdout(&git_dir, &["update-ref", "-d", &review_ref(lane)]).map(drop)
+}
