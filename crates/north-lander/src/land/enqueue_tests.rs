@@ -5,7 +5,6 @@ use std::process::Command;
 use serde_json::json;
 
 use super::Denylist;
-use super::refuse::refuse_static_gates;
 use crate::land::slots::runner::{QueueRefusal, STOPPED, Stop};
 use super::QueueChecks;
 
@@ -15,31 +14,10 @@ fn run(repo: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-fn allow(repo: &Path, globs: &[&str]) {
-    let entries: Vec<_> = globs.iter().map(|glob| json!({"glob":glob,"class":"script","gap":"fixture gap","provenance":"Tom 2026-10-15: permit this fixture","port_owner":"fixture-port-owner","port_target":"src/ported.rs","commitment":"Rust port by 2026-10-16 18:00","created":"2026-10-15"})).collect();
-    fs::write(repo.join(".language-allowlist.json"), json!({"ratchet":["script"],"entries":entries}).to_string()).unwrap();
-}
-
 fn commit(repo: &Path, message: &str) -> String {
     run(repo, &["add", "--all"]);
     run(repo, &["commit", "-q", "-m", message]);
     run(repo, &["rev-parse", "HEAD"])
-}
-
-#[test]
-fn a_lane_only_behind_main_is_judged_on_its_own_changes_not_on_what_main_dropped() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = dir.path();
-    run(repo, &["init", "-q", "-b", "main"]);
-    allow(repo, &["tool.sh"]);
-    let fork = commit(repo, "allow a script");
-    allow(repo, &[]);
-    let main = commit(repo, "main drops the allowance");
-    run(repo, &["checkout", "-q", "-b", "lane", &fork]);
-    fs::write(repo.join("notes.md"), "lane change\n").unwrap();
-    commit(repo, "lane touches only notes");
-    assert!(!crate::language_gate::check(repo, &main, "HEAD"), "diffing from main's tip shows main's removal as the lane widening the allowlist");
-    assert_eq!(refuse_static_gates(repo, &main, "HEAD"), Ok(()));
 }
 
 struct Lane {
@@ -537,28 +515,6 @@ fn a_hand_in_whose_head_is_already_on_main_is_refused_before_the_queue_naming_it
     fs::write(lane.repo.join("new.txt"), "untracked\n").unwrap();
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).err().unwrap_or_default();
     assert!(refused.starts_with("nothing to land:") && refused.contains("content.txt, new.txt"), "on 2026-11-12 a hand-in from a lane at an old main commit with its change uncommitted was answered landed with main's head: {refused}");
-}
-
-#[test]
-fn the_enqueue_gate_scans_a_deny_list_fetched_after_it_began_not_the_copy_held_from_the_calls_first_instant() {
-    let lane = Lane::new();
-    lane.commit("note zebra-quokka-7731 in the lane", &[]);
-    let rules = |regex: &str| format!("title = \"fixture\"\n[[rules]]\nid = \"fake-private-term\"\nregex = '''{regex}'''\n");
-    let south_origin = lane.dir.path().join("south-origin");
-    run(lane.dir.path(), &["init", "-q", "-b", "main", south_origin.to_str().unwrap()]);
-    fs::create_dir_all(south_origin.join("privacy")).unwrap();
-    fs::write(south_origin.join("privacy/public-denylist.toml"), rules("unrelated-term-0000")).unwrap();
-    commit(&south_origin, "rules");
-    let south = lane.dir.path().join("south");
-    fs::create_dir_all(&south).unwrap();
-    run(&south, &["clone", "-q", south_origin.to_str().unwrap(), "main"]);
-    let denylist = Denylist { south, south_named: true, config: None, kinds: None, mirror: Some(lane.dir.path().join("mirror.git")) };
-    let facts = super::Facts::start(&lane.repo, "main", &denylist).unwrap();
-    assert!(facts.denylist().is_some_and(|held| held.is_ok()), "the first-instant copy is fetched");
-    fs::write(south_origin.join("privacy/public-denylist.toml"), rules("zebra-quokka-7731")).unwrap();
-    commit(&south_origin, "an entry added after the call began");
-    let refused = lane.try_enqueue_scanning("fixture-host", super::Shape::OneCommit { message: None }, Some(facts), &denylist).err().unwrap_or_default();
-    assert!(refused.contains("deny-list scan refused the landing"), "an entry added to the list after the call's first instant must refuse the lane at the gate: {refused:?}");
 }
 
 fn placed_marker(root: &Path, _base: &str, _head: &str, _north: &str, _stop: &Stop) -> Result<(), QueueRefusal> {

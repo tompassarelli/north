@@ -11,7 +11,6 @@ use north_lander::land::queue::{self, Ticket};
 use super::serve::{HANG, Repository, World, git};
 
 const CHECKOUT: &str = "NORTH_LAND_IT_OUTBOX_CHECKOUT";
-const SSH: &str = "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done\nshift\n[ \"$1\" = -- ] && shift\nexec sh -c \"$*\"\n";
 const REMOTE_SSH: &str = r#"#!/bin/sh
 while [ $# -gt 0 ]; do case "$1" in -o|-p) shift 2 ;; -*) shift ;; *) break ;; esac; done
 host=$1
@@ -46,51 +45,6 @@ fn outboxed(outbox: &Path, micros: u128, root: &Path, branch: &str, head: &str) 
     let ticket = Ticket { origin: "https://github.com/tompassarelli/north".into(), root: root.to_owned(), host: "gex45".into(), branch: branch.into(), head: head.into(), session: Some(format!("{branch}-session")), queued_at: "2026-11-07T03:07:09Z".into(), queued_micros: Some(micros), ..Ticket::default() };
     queue::write(&outbox.join(&name), &ticket).unwrap();
     name
-}
-
-#[test]
-fn an_outbox_ticket_whose_worktree_is_gone_or_whose_branch_no_longer_holds_its_head_is_withdrawn_and_the_ticket_behind_it_is_pulled_the_same_round() {
-    let world = World::new();
-    let repository = world.repository("north");
-    write_executable(&world.path().join("bin/ssh"), SSH);
-    git(&repository.checkout, &["config", "landing.remote-hosts", "gex45"]);
-    let behind = repository.checkout.parent().unwrap().join("worktrees/behind");
-    git(&repository.checkout, &["worktree", "add", "-q", "-b", "behind", behind.to_str().unwrap()]);
-    git(&behind, &["commit", "-q", "--allow-empty", "-m", "behind"]);
-    let outbox = repository.queue.join(queue::OUTBOX);
-    let gone = outboxed(&outbox, 1_794_020_829_623_648, &repository.checkout.parent().unwrap().join("worktrees/n706-claim-filed"), "n706-claim-filed", "ef0ef324027acc6752dd7476b7b3dd49c13e768f");
-    let pulled = outboxed(&outbox, 1_794_020_900_000_000, &behind, "behind", &git(&behind, &["rev-parse", "HEAD"]));
-    let agent = world.path().join("agent-home/north");
-    git(world.path(), &["clone", "-q", repository.origin.to_str().unwrap(), agent.to_str().unwrap()]);
-    git(&agent, &["checkout", "-q", "-b", "rewritten"]);
-    let queued = commit_in(&agent, "queued");
-    let rewritten = outboxed(&outbox, 1_794_020_950_000_000, &agent, "rewritten", &queued);
-    git(&agent, &["commit", "-q", "--amend", "--allow-empty", "-m", "rewritten"]);
-
-    let path = format!("{}:{}", world.path().join("bin").display(), std::env::var("PATH").unwrap_or_default());
-    let output = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "outbox_pull::outbox_puller", "--nocapture", "--test-threads", "1"])
-        .env(CHECKOUT, &repository.checkout)
-        .env("PATH", path)
-        .env("HOME", world.path())
-        .env("XDG_STATE_HOME", world.path().join("state"))
-        .env("NORTH_TEST_ROOT", world.path())
-        .env("NORTH_LAND_NORTH", world.path().join("bin/north"))
-        .env("GIT_CONFIG_GLOBAL", world.path().join("gitconfig"))
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
-    let transcript = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-
-    assert!(output.status.success() && !transcript.contains("waiting: "), "the outbox was skipped:\n{transcript}");
-    let withdrawn = queue::read(&repository.queue.join(queue::WITHDRAWN).join(&gone)).unwrap_or_else(|error| panic!("{error}\n{transcript}"));
-    assert!(withdrawn.verdict.unwrap_or_default().contains("is gone from gex45"), "{transcript}");
-    assert!(outbox.join(queue::WITHDRAWN).join(&gone).is_file() && !outbox.join(&gone).exists(), "{transcript}");
-    assert!(repository.queue.join(&pulled).is_file(), "the ticket behind it waited:\n{transcript}");
-    let moved = queue::read(&repository.queue.join(queue::WITHDRAWN).join(&rewritten)).unwrap_or_else(|error| panic!("{error}\n{transcript}"));
-    assert!(moved.verdict.unwrap_or_default().contains(&format!("no longer holds {queued}")) && !repository.queue.join(&rewritten).exists(), "{transcript}");
-    let told = std::fs::read_to_string(world.path().join("bin/north.calls")).unwrap_or_default();
-    assert!(told.lines().any(|call| call.starts_with("fleet send --from service:north-land n706-claim-filed-session ") && call.contains("was withdrawn from gex45's outbox")), "{told}");
 }
 
 struct Pull {

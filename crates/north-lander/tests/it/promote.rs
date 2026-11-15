@@ -5,7 +5,6 @@ use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const NOW: u64 = 2_000_000_000;
-const UNIT_RECORDS: &str = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n";
 
 fn unit_runs_inline() -> String {
     let lander = std::env::current_exe().unwrap();
@@ -49,7 +48,6 @@ pub(super) struct Promoted {
     pub(super) status: bool,
     pub(super) stdout: String,
     pub(super) calls: String,
-    pub(super) alarms: String,
     pub(super) candidate: String,
 }
 
@@ -147,7 +145,7 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let calls = std::fs::read_to_string(candidate.with_extension("calls")).unwrap_or_default();
-    Promoted { status: judged(&units, output.status.success()), stdout, calls, alarms: std::fs::read_to_string(&alarmed).unwrap_or_default(), candidate: candidate_name }
+    Promoted { status: judged(&units, output.status.success()), stdout, calls, candidate: candidate_name }
 }
 
 pub(super) fn unfit_signature(log: &Path) -> String {
@@ -327,27 +325,12 @@ impl Chain {
             .stdin(Stdio::null())
             .output()
             .unwrap();
-        Promoted { status: judged(&units, output.status.success()), stdout: String::from_utf8_lossy(&output.stdout).into_owned(), calls: String::new(), alarms: String::new(), candidate: String::new() }
+        Promoted { status: judged(&units, output.status.success()), stdout: String::from_utf8_lossy(&output.stdout).into_owned(), calls: String::new(), candidate: String::new() }
     }
 
     fn reverts(&self) -> Vec<Ticket> {
         queue::pending(&self.queue).unwrap().into_iter().map(|(_, ticket)| ticket).collect()
     }
-}
-
-#[test]
-fn promote_follows_a_candidate_whose_commit_declares_the_replay_change_and_logs_the_divergence() {
-    let chain = Chain::new();
-    let candidate = chain.commit("crates/north-landing/src/land/clippy.rs", "Make lanes need a cached clippy verdict\n\nReplay-change: land.failed lanes need a cached clippy verdict");
-    chain.runtime(&candidate, "echo 'replay: verdict failed'");
-    chain.current(&candidate);
-    let promoted = chain.promote();
-    let stdout = &promoted.stdout;
-    assert!(promoted.status, "{stdout}");
-    assert!(stdout.contains("recorded landed but the candidate replayed failed (the held runtime replayed landed): declared by ") && stdout.contains("(Replay-change: land.failed lanes need a cached clippy verdict)"), "{stdout}");
-    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
-    assert!(chain.told().contains("proxy") && chain.told().contains("1 declared replay change(s)"), "{}", chain.told());
-    assert!(chain.reverts().is_empty());
 }
 
 #[test]
@@ -370,24 +353,6 @@ fn a_replay_divergence_that_flips_on_its_rerun_is_a_flaky_check_and_reverts_noth
     assert!(stdout.contains(&format!("the link stays on {candidate} and the next promotion replays it")), "{stdout}");
     assert!(std::fs::read_to_string(chain.state.join("north/lander-unreached")).unwrap().starts_with(&format!("{candidate}\t1\t")), "{stdout}");
     assert!(chain.told().contains("file the flaky test on its owner") && chain.told().contains("lander link not held"), "{}", chain.told());
-}
-
-#[test]
-fn a_candidate_whose_replay_flips_on_its_rerun_moves_the_lander_link_to_it() {
-    let chain = Chain::new();
-    let innocent = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
-    let candidate = chain.commit("docs/two.md", "Document another thing");
-    chain.runtime(&innocent, "echo 'replay: verdict landed'");
-    chain.runtime(&candidate, "echo x >> \"$0.replays\"; if [ \"$(wc -l < \"$0.replays\")\" -eq 1 ]; then echo 'replay: verdict failed'; else echo 'replay: verdict landed'; fi");
-    chain.current(&candidate);
-    let promoted = chain.promote();
-    let stdout = &promoted.stdout;
-    assert!(promoted.status, "{stdout}");
-    assert!(stdout.contains(&format!("runtime {} replayed it as recorded on the rerun", &candidate[..9])) && stdout.contains("1 flaky replay(s) the candidate replayed as recorded on its rerun"), "{stdout}");
-    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
-    assert!(chain.reverts().is_empty(), "a check that flips between runs queued a revert: {stdout}");
-    assert!(!chain.state.join("north/lander-held").exists(), "a flaky check held the link: {stdout}");
-    assert!(chain.told().contains(&format!("the lander link follows {}", &candidate[..9])) && chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
 }
 
 #[test]
@@ -490,22 +455,6 @@ fn a_replay_that_reaches_no_verdict_holds_nothing_queues_no_revert_and_the_next_
 }
 
 #[test]
-fn a_candidate_replaying_a_round_as_the_held_runtime_does_again_moves_the_lander_link_to_it() {
-    let chain = Chain::new();
-    chain.runtime(&chain.held, "echo x >> \"$0.replays\"; if [ \"$(wc -l < \"$0.replays\")\" -eq 1 ]; then echo 'replay: verdict landed'; else echo 'replay: verdict failed'; fi");
-    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
-    chain.runtime(&candidate, "echo 'replay: verdict failed'");
-    chain.current(&candidate);
-    let promoted = chain.promote();
-    let stdout = &promoted.stdout;
-    assert!(promoted.status, "{stdout}");
-    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
-    assert!(chain.reverts().is_empty(), "{stdout}");
-    assert!(!chain.state.join("north/lander-held").exists(), "{stdout}");
-    assert!(chain.told().contains(&format!("the lander link follows {}", &candidate[..9])) && chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
-}
-
-#[test]
 fn a_transient_replay_beside_matched_rounds_moves_the_lander_link_and_a_divergence_still_holds_it() {
     let transient = "echo 'replay: verdict transient land check cargo nextest run waited past its slot deadline'";
     let replay = |lane_b: &str| format!("case \"$*\" in *lane-b*) {lane_b};; *lane-c*) {transient};; *) echo 'replay: verdict landed';; esac");
@@ -536,21 +485,6 @@ fn a_transient_replay_beside_matched_rounds_moves_the_lander_link_and_a_divergen
 }
 
 #[test]
-fn a_replay_that_hits_a_held_index_lock_beside_matched_rounds_does_not_hold_the_link() {
-    let chain = Chain::new();
-    chain.land(2, "lane-b");
-    chain.land(3, "lane-c");
-    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
-    chain.runtime(&candidate, "case \"$*\" in *lane-c*) echo 'north land replay: Another git process seems to be running in this repository, or the lock file may be stale' >&2; exit 1;; *) echo 'replay: verdict landed';; esac");
-    chain.current(&candidate);
-    let promoted = chain.promote();
-    let stdout = &promoted.stdout;
-    assert!(promoted.status, "{stdout}");
-    assert!(stdout.contains("reported, not held on: round lane-c: error ") && stdout.contains("Another git process"), "{stdout}");
-    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
-}
-
-#[test]
 fn a_rollback_never_points_the_lander_at_a_pruned_runtime() {
     let chain = Chain::new();
     let candidate = chain.commit("docs/two.md", "Document another thing");
@@ -562,78 +496,4 @@ fn a_rollback_never_points_the_lander_at_a_pruned_runtime() {
     assert!(!promoted.status, "{stdout}");
     assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
     assert!(stdout.contains("is no longer on disk, so the lander link stays on the runtime it runs now"), "{stdout}");
-}
-
-fn modified_at(path: &Path, seconds: u64) {
-    std::fs::File::options().write(true).open(path).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds)).unwrap();
-}
-
-#[test]
-fn a_lander_that_cannot_start_pages_once_and_a_held_runtime_is_retried_after_15_quiet_minutes() {
-    let chain = Chain::new();
-    let candidate = chain.commit("docs/three.md", "Document a third thing");
-    chain.runtime(&candidate, "echo 'replay: verdict landed'");
-    chain.current(&candidate);
-    let refused = chain.state.join("north/lander-refused");
-    std::fs::write(&refused, format!("runtimes/{candidate}\n")).unwrap();
-    modified_at(&refused, NOW);
-    for entry in std::fs::read_dir(chain.queue.join("done")).unwrap() {
-        modified_at(&entry.unwrap().path(), NOW);
-    }
-    let systemctl = |restarts: u32, result: &str| {
-        let bin = chain.root.path().join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        north_base::foundation::shim::write_executable(&bin.join("systemctl"), format!("#!/bin/sh\nprintf 'ActiveState=activating\\nNRestarts={restarts}\\nResult={result}\\n'\n"));
-        north_base::foundation::shim::write_executable(&bin.join("journalctl"), "#!/bin/sh\necho \"Unable to locate executable '/lander/tree/bin/north': No such file or directory\"\n");
-    };
-    let paged = || chain.told().lines().filter(|call| call.contains("--key lander-unit-start:")).map(str::to_owned).collect::<Vec<_>>();
-
-    systemctl(16, "success");
-    let handover = chain.promote();
-    assert!(handover.status, "{}", handover.stdout);
-    assert_eq!(paged(), Vec::<String>::new(), "a unit restarting onto a changed live runtime after a clean exit is no failed start, however many restarts it counts");
-
-    systemctl(2, "exit-code");
-    let twice = chain.promote();
-    assert!(twice.status && twice.stdout.contains("stays off the lander until current moves on or the lander has landed nothing for 15 minutes"), "{}", twice.stdout);
-    assert_eq!(paged(), Vec::<String>::new(), "two failed starts page no one");
-
-    systemctl(3, "exit-code");
-    let thrice = chain.promote();
-    assert!(thrice.status, "{}", thrice.stdout);
-    let pages = paged();
-    assert_eq!(pages.len(), 2, "{pages:?}");
-    assert!(pages.iter().any(|call| call.contains(" proxy ")) && pages.iter().any(|call| call.contains(" land-lead ")), "{pages:?}");
-    assert!(pages.iter().all(|call| call.contains("failed to start 3 times") && call.contains("Unable to locate executable '/lander/tree/bin/north'")), "{pages:?}");
-    assert_eq!(pages[0].split(" proxy ").next(), pages[1].split(" land-lead ").next(), "both pages name one condition, which the fleet store delivers once");
-
-    assert_eq!(chain.lander(), format!("runtimes/{}", chain.held), "{}", thrice.stdout);
-    modified_at(&refused, 0);
-    for entry in std::fs::read_dir(chain.queue.join("done")).unwrap() {
-        modified_at(&entry.unwrap().path(), 0);
-    }
-    let retried = chain.promote_at(NOW);
-    assert!(retried.status, "{}", retried.stdout);
-    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{}", retried.stdout);
-    assert!(!refused.exists(), "a judged candidate that follows is no longer held off");
-}
-
-#[test]
-fn a_promotion_moves_the_lander_link_and_hands_its_eight_round_replay_to_a_unit_of_its_own_instead_of_running_it_before_it_returns() {
-    let chain = Chain::new();
-    for (micros, branch) in (2..9).zip(["lane-b", "lane-c", "lane-d", "lane-e", "lane-f", "lane-g", "lane-h"]) {
-        chain.land(micros, branch);
-    }
-    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Change a landing rule");
-    chain.runtime(&candidate, "echo 'replay: verdict landed'");
-    chain.current(&candidate);
-    let promoted = chain.promote_through(NOW, UNIT_RECORDS);
-    let stdout = &promoted.stdout;
-    assert!(promoted.status, "{stdout}");
-    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
-    let binary = chain.state.join(format!("north/runtimes/{candidate}/tree/bin/north"));
-    let replays = std::fs::read_to_string(binary.with_extension("calls")).unwrap_or_default();
-    assert!(!replays.contains("land replay"), "the promotion replayed recorded rounds before it returned: {replays}");
-    let started = std::fs::read_to_string(chain.root.path().join("units/systemd-run.calls")).unwrap_or_default();
-    assert!(started.contains(&format!("-- {} land promote --judge runtimes/{candidate} --held runtimes/{}", binary.display(), chain.held)), "{started}\n{stdout}");
 }

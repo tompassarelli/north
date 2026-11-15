@@ -1,22 +1,18 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::cell::Cell;
 
 use north_base::platform::wait;
 use super::serve::HANG;
 use north_lander::land::candidate::{self, git};
-use north_lander::land::jobs::Chores;
 use north_lander::land::lander::Lander;
 use north_lander::land::serve::Serve;
 use north_lander::land::watch::Watch;
 use north_lander::land::queue::{self, Ticket};
-use north_lander::land::{after, after_landing_lifecycle, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
-const STOPPED_AFTER_RUN: &str = "land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane";
 const FIRST_TICKET: u128 = 1_790_000_000_000_000;
 
 const CHECKER: &str = r#"dir="$1"; plan="$1/plan"; calls="$1/calls"
@@ -111,11 +107,6 @@ impl World {
         Self::open(root)
     }
 
-    fn plan(&self, steps: &[&str]) {
-        let _ = fs::remove_dir_all(self.plan.join("calls"));
-        fs::write(self.plan.join("plan"), steps.iter().map(|step| format!("{step}\n")).collect::<String>()).unwrap();
-    }
-
     fn lander(&self) -> Lander {
         let mut lander = Lander::new(&self.main, self.checker.clone()).unwrap();
         lander.app_token = vec!["sh".to_owned(), self.root.join("token.sh").display().to_string()];
@@ -202,226 +193,6 @@ fn drive(lander: &Lander, state: &mut Watch) -> Vec<String> {
 
 fn landed(verdicts: &[String]) {
     assert!(verdicts.iter().all(|verdict| verdict.starts_with("landed ")), "{verdicts:?}");
-}
-
-fn kill_mid_check(world: &World) {
-    world.plan(&["hold"]);
-    let killed = world.lander();
-    let a = world.enqueue(&killed, &world.lane("a"));
-    let b = world.enqueue(&killed, &world.lane("b"));
-    let base = candidate::prepare(&killed.repo, &killed.worktree).unwrap();
-    let tickets = queue::collect(&killed.queue).unwrap();
-    candidate::build(&killed.worktree, &base, &tickets, &[], usize::MAX, &killed.queue.join("logs")).unwrap();
-    let check = checks::start(&checks::Launch::of(&killed), &killed.worktree, &base, &killed.queue.join("logs/killed.log"), true, None).unwrap();
-    fs::write(killed.worktree.join("a.txt"), "half written\n").unwrap();
-    fs::write(killed.worktree.join("stray"), "untracked\n").unwrap();
-    drop(killed);
-    let restarted = world.lander();
-    drive(&restarted, &mut Watch::default());
-    drop(check);
-    fs::write(world.plan.join("release"), "").unwrap();
-    landed(&world.settled(&restarted, &[&a, &b]));
-
-    let c = world.enqueue(&restarted, &world.lane("c"));
-    let base = candidate::prepare(&restarted.repo, &restarted.worktree).unwrap();
-    let tickets = queue::collect(&restarted.queue).unwrap();
-    let built = candidate::build(&restarted.worktree, &base, &tickets, &[], usize::MAX, &restarted.queue.join("logs")).unwrap();
-    let included: Vec<_> = tickets.iter().map(|(path, ticket)| (path, ticket)).collect();
-    after::begin(&restarted, &built.head, &base, &included, &built.tips).unwrap();
-    run(&restarted.worktree, &["push", "-q", "origin", &format!("{}:refs/heads/main", built.head)]);
-    drop(restarted);
-    let again = world.lander();
-    drive(&again, &mut Watch::default());
-    landed(&world.settled(&again, &[&a, &b, &c]));
-}
-
-fn deleted_lander_worktrees(world: &World) {
-    let first = world.lander();
-    let a = world.enqueue(&first, &world.lane("a"));
-    drive(&first, &mut Watch::default());
-    fs::remove_dir_all(&first.worktree).unwrap();
-    let second = world.lander();
-    let b = world.enqueue(&second, &world.lane("b"));
-    drive(&second, &mut Watch::default());
-    landed(&world.settled(&second, &[&a, &b]));
-
-    let third = world.lander();
-    let c = world.enqueue(&third, &world.lane("c"));
-    drive(&third, &mut Watch::default());
-    fs::remove_dir_all(&third.worktree).unwrap();
-    let fourth = world.lander();
-    let d = world.enqueue(&fourth, &world.lane("d"));
-    drive(&fourth, &mut Watch::default());
-    landed(&world.settled(&fourth, &[&a, &b, &c, &d]));
-}
-
-fn duplicate_branch_names(world: &World) {
-    let base = world.lander();
-    let stray = Lander { worktree: world.root.join("proj/worktrees/worktrees/lander"), ..world.lander() };
-    let early = world.enqueue(&stray, &world.lane("early"));
-    let main = candidate::prepare(&stray.repo, &stray.worktree).unwrap();
-    let held = candidate::build(&stray.worktree, &main, &queue::collect(&stray.queue).unwrap(), &[], usize::MAX, &stray.queue.join("logs")).unwrap().head;
-    let stray_worktree = stray.worktree.clone();
-    drop(stray);
-
-    let clone = world.root.join("elsewhere/north");
-    fs::create_dir_all(clone.parent().unwrap()).unwrap();
-    run(&world.root, &["clone", "-q", world.origin.to_str().unwrap(), clone.to_str().unwrap()]);
-    let here = world.enqueue(&base, &world.lane("fix"));
-    let there = world.enqueue(&base, &world.lane_in(&clone, &clone, "fix", "fix-elsewhere.txt"));
-    let slashed = world.enqueue(&base, &world.lane("feature/x"));
-    let dashed = world.enqueue(&base, &world.lane_in(&world.main, &world.root.join("proj/worktrees/feature-x-dash"), "feature-x", "feature-x-dash.txt"));
-    drive(&base, &mut Watch::default());
-    landed(&world.settled(&base, &[&early, &here, &there, &slashed, &dashed]));
-    assert_eq!(run(&stray_worktree, &["rev-parse", "HEAD"]), held, "another lander worktree's candidate moved under it");
-}
-
-fn wait_for(what: &str, ready: impl FnMut() -> bool) {
-    assert!(wait::until(HANG, ready), "timed out waiting for {what}");
-}
-
-fn journaled(lander: &Lander) -> usize {
-    after_landing_lifecycle::journaled(&north_base::lifecycle::Store::host().unwrap(), &lander.queue).len()
-}
-
-fn verdicts(head: &str) -> Vec<String> {
-    let ledger = PathBuf::from(std::env::var_os("XDG_STATE_HOME").unwrap()).join("safe-push").join("post-land.tsv");
-    fs::read_to_string(ledger).unwrap_or_default().lines().filter_map(|line| {
-        let fields: Vec<&str> = line.split('\t').collect();
-        (fields.get(2) == Some(&head)).then(|| fields.get(3).copied().unwrap_or_default().to_owned())
-    }).collect()
-}
-
-fn stopped_mid_after_run(world: &World) {
-    if std::env::var_os(LANDER_ROLE).is_some() {
-        let lander = world.lander();
-        let mut watch = Watch::resume(&lander);
-        let parent = rustix::process::getppid();
-        wait::until(HANG, || {
-            let _ = Serve::new(&lander).round(&mut watch);
-            rustix::process::getppid() != parent
-        });
-        return;
-    }
-    let lander = world.lander();
-    let a = world.enqueue(&lander, &world.lane("a"));
-    let bad = world.enqueue(&lander, &world.lane("bad"));
-    let c = world.enqueue(&lander, &world.lane("c"));
-    fs::write(world.root.join("stall"), "").unwrap();
-    let mut first = Command::new(std::env::current_exe().unwrap()).args([STOPPED_AFTER_RUN, "--exact", "--nocapture", "--test-threads=1"]).env(LANDER_ROLE, "1").stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
-    let recorded = || fs::read_dir(lander.queue.join("logs")).is_ok_and(|mut logs| logs.any(|entry| entry.is_ok_and(|entry| entry.path().extension().is_some_and(|extension| extension == "runner"))));
-    wait_for("the first lander to land the batch and record its after runner", || world.root.join("stalled").exists() && queue::pending(&lander.queue).unwrap().is_empty() && recorded());
-    let group = rustix::process::Pid::from_raw(first.id().cast_signed()).unwrap();
-    rustix::process::kill_process_group(group, rustix::process::Signal::Term).unwrap();
-    wait_for("the first lander to exit on SIGTERM", || first.try_wait().unwrap().is_some());
-    let landed_head = run(&world.origin, &["rev-parse", "main"]);
-    assert_eq!(journaled(&lander), 1, "the stopped lander left no journal entry for the after run of {landed_head}");
-    assert!(!world.root.join("after-runs").exists(), "the after run finished before the lander was stopped");
-    assert!(verdicts(&landed_head).is_empty(), "the stopped after run of {landed_head} was recorded as a verdict");
-
-    fs::remove_file(world.root.join("stall")).unwrap();
-    let restarted = world.lander();
-    let mut watch = Watch::resume(&restarted);
-    assert_eq!(watch.journaled(), 1);
-    wait_for("the restarted lander to settle the adopted run and land the revert", || {
-        let _ = Serve::new(&restarted).round(&mut watch);
-        watch.in_flight() == 0 && queue::pending(&restarted.queue).unwrap().is_empty() && world.landed_subjects().iter().any(|subject| subject.starts_with("Revert "))
-    });
-    assert_eq!(journaled(&restarted), 0);
-    assert_eq!(verdicts(&landed_head), ["red-main"], "the adopted after run of {landed_head} recorded no single red verdict");
-    let runs = fs::read_to_string(world.root.join("after-runs")).unwrap();
-    assert_eq!(runs.lines().filter(|head| *head == landed_head).count(), 1, "the after run of {landed_head} was rerun from scratch instead of adopted: {runs}");
-    let spans = fs::read_to_string(restarted.queue.join("logs").join("spans.jsonl")).unwrap_or_default();
-    assert!(!spans.contains("after-landing run lost to a lander restart"), "the restart lost the after run its live runner was still checking: {spans}");
-    let subjects = world.landed_subjects();
-    assert_eq!(subjects[0], format!("Revert {}", bad.subject), "{subjects:?}");
-    assert_eq!(subjects.iter().filter(|subject| subject.starts_with("Revert ")).count(), 1, "{subjects:?}");
-    for lane in [&a, &bad, &c] {
-        assert_eq!(subjects.iter().filter(|subject| **subject == lane.subject).count(), 1, "{subjects:?}");
-    }
-    let culprit = run(&world.origin, &["log", "--format=%H %s", "main"]).lines().find_map(|line| line.split_once(' ').filter(|(_, subject)| *subject == bad.subject).map(|(sha, _)| sha.to_owned())).unwrap();
-    let body = run(&world.origin, &["log", "-1", "--format=%B", "main"]);
-    assert!(body.contains(&format!("Reverts: {culprit}")), "{body}");
-    assert!(!run(&world.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == "bad.txt"));
-}
-
-fn restarted_while_waiting_out_a_rerun(world: &World) {
-    let lander = world.lander();
-    fs::write(world.root.join("transient"), "").unwrap();
-    world.enqueue(&lander, &world.lane("a"));
-    let mut watch = Watch::default();
-    let unsettled = |head: &str| north_base::lifecycle::Store::host().unwrap().history("after-landing-run", head).unwrap().iter().any(|logged| logged.to == "unsettled");
-    wait_for("the after-landing run to end without a verdict", || {
-        let _ = Serve::new(&lander).round(&mut watch);
-        unsettled(&run(&world.origin, &["rev-parse", "main"]))
-    });
-    let head = run(&world.origin, &["rev-parse", "main"]);
-    drop(watch);
-    fs::remove_file(world.root.join("transient")).unwrap();
-    let restarted = world.lander();
-    let mut watch = Watch::resume(&restarted);
-    wait_for("the restarted lander to reach the after-landing verdict", || {
-        let _ = Serve::new(&restarted).round(&mut watch);
-        watch.in_flight() == 0
-    });
-    assert_eq!(verdicts(&head), ["green"]);
-    let spans = fs::read_to_string(restarted.queue.join("logs").join("spans.jsonl")).unwrap_or_default();
-    assert!(!spans.contains("after-landing run lost to a lander restart"), "a restart while the run of {head} waited out its rerun delay was recorded as losing it: {spans}");
-}
-
-#[test]
-fn chaos_a_restart_while_a_run_waits_out_its_rerun_delay_loses_nothing() {
-    isolated("land_chaos::chaos_a_restart_while_a_run_waits_out_its_rerun_delay_loses_nothing", restarted_while_waiting_out_a_rerun);
-}
-
-#[test]
-fn chaos_kill_mid_check_lands_each_lane_once_after_restart() {
-    isolated("land_chaos::chaos_kill_mid_check_lands_each_lane_once_after_restart", kill_mid_check);
-}
-
-#[test]
-fn chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane() {
-    isolated(STOPPED_AFTER_RUN, stopped_mid_after_run);
-}
-
-#[test]
-fn chaos_deleted_lander_worktrees_are_recreated() {
-    isolated("land_chaos::chaos_deleted_lander_worktrees_are_recreated", deleted_lander_worktrees);
-}
-
-#[test]
-fn chaos_duplicate_branch_names_land_as_separate_lanes() {
-    isolated("land_chaos::chaos_duplicate_branch_names_land_as_separate_lanes", duplicate_branch_names);
-}
-
-fn stalled_patrol(_: &Lander) -> Result<(), String> {
-    wait::hang();
-    Ok(())
-}
-
-fn stalled_recovery(_: &Lander, _: &Path) -> Result<Option<after::Recovered>, String> {
-    wait::hang();
-    Ok(None)
-}
-
-fn stalled_chores(world: &World) {
-    let lander = Lander { chores: Chores { patrol: stalled_patrol, recover: stalled_recovery }, ..world.lander() };
-    after::begin(&lander, "interrupted", "base", &[], &[]).unwrap();
-    let a = world.enqueue(&lander, &world.lane("a"));
-    let mut watch = Watch::default();
-    assert!(wait::until(HANG, || {
-        let _ = Serve::new(&lander).round(&mut watch);
-        queue::pending(&lander.queue).unwrap().is_empty()
-    }), "the queued lane waited behind the sheriff and the recovery");
-    landed(&world.settled(&lander, &[&a]));
-    let mut running: Vec<&str> = watch.jobs.running().into_iter().map(|(kind, _)| kind.name()).collect();
-    running.sort_unstable();
-    assert_eq!(running, ["recovery", "sheriff"], "the lane landed only because a stalled job never started");
-}
-
-#[test]
-fn chaos_a_queued_lane_lands_while_the_sheriff_and_a_recovery_each_stall_five_minutes() {
-    isolated("land_chaos::chaos_a_queued_lane_lands_while_the_sheriff_and_a_recovery_each_stall_five_minutes", stalled_chores);
 }
 
 

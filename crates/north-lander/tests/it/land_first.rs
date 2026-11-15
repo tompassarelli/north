@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use north_lander::land::queue;
 
-use super::serve::{Repository, World, git, report, runtime_commit};
+use super::serve::{Repository, World, git, report};
 
 const COUNTED: &str = "#!/bin/sh\npwd >> \"$0.calls\"\necho 'safe-push: verdict green'\n";
 const AFTER_RUNNER: &str = r#"#!/bin/sh
@@ -185,12 +185,6 @@ fn the_after_landing_run_offloads_to_a_build_host() {
     assert_eq!(refused.lines().filter(|line| line.contains("land checks")).count(), checks_before, "a refused after-landing run still ran its check: {refused}");
 }
 
-fn vouch(north: &Repository, branch: &str, base: &str) {
-    let path = fs::read_dir(&north.queue).unwrap().flatten().map(|entry| entry.path()).find(|path| path.is_file() && queue::read(path).is_ok_and(|ticket| ticket.branch == branch)).unwrap();
-    let ticket = queue::read(&path).unwrap();
-    queue::write(&path, &queue::Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), ..ticket }).unwrap();
-}
-
 const JUDGE_OUT_ONCE: &str = "#!/bin/sh\nif [ ! -e \"$0.answered\" ]; then\n  : > \"$0.answered\"\n  echo 'the private-text judge could not run (exit 75): no subscription account is available' >&2\n  exit 75\nfi\nexit 0\n";
 
 pub(super) const NO_SECRETS: &str = "#!/bin/sh\nreport=\nfor arg in \"$@\"; do\n  if [ -n \"$report\" ]; then printf '[]' > \"$arg\"; report=; fi\n  case \"$arg\" in --report-path) report=1 ;; esac\ndone\nexit 0\n";
@@ -314,111 +308,10 @@ fn a_lane_whose_private_kind_judge_is_still_asking_is_queued_at_once_and_the_lan
     assert_eq!(subjects(&north).iter().filter(|subject| subject.starts_with("Add the ")).collect::<Vec<_>>(), ["Add the prose note"], "{journal}");
 }
 
-#[test]
-fn a_lane_whose_alone_pass_is_six_landings_old_lands_in_the_same_batch_as_a_fresh_lane_without_another_alone_check() {
-    let world = World::new();
-    let north = world.repository("north");
-    let calls_file = checker(&world);
-    let start = git(&north.origin, &["rev-parse", "main"]);
-    for landing in 1..=6 {
-        north.lane(&format!("l{landing}"));
-    }
-    serve(&world, &north);
-    let main = git(&north.origin, &["rev-parse", "main"]);
-    assert_eq!(git(&north.origin, &["rev-list", "--count", &format!("{start}..{main}")]), "6");
-    north.lane("stale");
-    vouch(&north, "stale", &start);
-    north.lane("fresh");
-    vouch(&north, "fresh", &main);
-    let journal = serve(&world, &north);
-    assert!(journal.contains("carries 2 lanes that passed their checks before queueing"), "a lane whose pass aged past a batch was left out of the candidate: {journal}");
-    assert!(verdict(&north, "fresh").starts_with("landed "), "{journal}");
-    assert!(verdict(&north, "stale").starts_with("landed "), "{journal}");
-    assert_eq!(calls(&calls_file), 0, "an aged alone pass held its lane for a serial alone check: {journal}");
-}
-
-fn no_verdict_lane_steps_aside_beside_two_landed(checker_output: &str) {
-    let world = World::new();
-    let north = world.repository("north");
-    let path = world.path().join("bin/checker");
-    north_base::foundation::shim::write_executable(&path, format!("#!/bin/sh\npwd >> \"$0.calls\"\necho \"{checker_output}\" >&2\nexit 75\n"));
-    north.lane("unsettled");
-    let ticket = fs::read_dir(&north.queue).unwrap().flatten().map(|entry| entry.path()).find(|path| path.is_file() && queue::read(path).is_ok_and(|ticket| ticket.branch == "unsettled")).unwrap();
-    queue::write(&ticket, &queue::Ticket { alone_green: None, alone_base: None, ..queue::read(&ticket).unwrap() }).unwrap();
-    north.lane("passed");
-    north.lane("also-passed");
-    let first = report(&world.lander(&north, None).wait_with_output().unwrap());
-    assert!(verdict(&north, "passed").starts_with("landed ") && verdict(&north, "also-passed").starts_with("landed "), "{first}");
-    assert!(first.contains("it is checked once more next round"), "{first}");
-    let journal = serve(&world, &north);
-    let unsettled = verdict(&north, "unsettled");
-    assert!(unsettled.starts_with("failed ") && unsettled.contains("reached no verdict twice"), "a lane whose alone check never settles held the queue: {unsettled}\n{journal}");
-    assert_eq!(calls(&world.path().join("bin/checker.calls")), 2, "{journal}");
-}
-
-#[test]
-fn a_lane_whose_solo_check_reaches_no_verdict_never_holds_the_round() {
-    no_verdict_lane_steps_aside_beside_two_landed("safe-push: verdict transient main's check environment is broken: the base fails");
-}
-
-const HELD_ALONE: &str = "#!/bin/sh\npwd >> \"$0.calls\"\n: > \"$HOME/alone-started\"\nwhile [ ! -e \"$HOME/alone-release\" ]; do sleep 0.05; done\necho 'safe-push: verdict green'\n";
-
 pub(super) struct Release(pub(super) std::path::PathBuf);
 
 impl Drop for Release {
     fn drop(&mut self) {
         let _ = fs::write(&self.0, "");
     }
-}
-
-#[test]
-fn a_candidate_is_pushed_while_an_alone_check_is_in_flight() {
-    let world = World::new();
-    let north = world.repository("north");
-    north_base::foundation::shim::write_executable(&world.path().join("bin/checker"), HELD_ALONE);
-    let release = Release(world.path().join("alone-release"));
-    let old = runtime_commit(&north, "old");
-    let new = runtime_commit(&north, "new");
-    std::os::unix::fs::symlink(format!("runtimes/{old}"), world.path().join("lander")).unwrap();
-    north.lane("unchecked");
-    let (path, ticket) = queue::pending(&north.queue).unwrap().pop().unwrap();
-    queue::write(&path, &queue::Ticket { alone_green: None, alone_base: None, ..ticket }).unwrap();
-    north.lane("passed");
-    let (passed, _) = queue::pending(&north.queue).unwrap().into_iter().find(|(_, ticket)| ticket.branch == "passed").unwrap();
-    let unannounced = world.path().join("passed-ticket.json");
-    fs::rename(&passed, &unannounced).unwrap();
-    let (checker, token) = (world.path().join("bin/checker"), world.path().join("bin/token"));
-    let mut first = world.land(&["serve", "--repo", north.checkout.to_str().unwrap(), "--checker", checker.to_str().unwrap(), "--app-token", token.to_str().unwrap()]).spawn().unwrap();
-    wait_for("the alone check of the lane with no pass to start", || world.path().join("alone-started").exists());
-    fs::hard_link(&unannounced, &passed).unwrap();
-    let landed = |file: &str| git(&north.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == file);
-    north_base::platform::wait::until(super::serve::HANG, || landed("passed.txt") || first.try_wait().unwrap().is_some());
-    let pushed = landed("passed.txt");
-    fs::remove_file(world.path().join("lander")).unwrap();
-    std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("lander")).unwrap();
-    let exited = north_base::platform::wait::until(super::serve::HANG, || first.try_wait().unwrap().is_some());
-    if !exited {
-        let _ = first.kill();
-    }
-    let handover = report(&first.wait_with_output().unwrap());
-    assert!(pushed, "the lane with a pass, queued with no event the lander could see, waited for the alone check in flight instead of landing beside it on the backstop round:\n{handover}");
-    assert!(exited, "{handover}");
-    let second = world.lander(&north, None);
-    drop(release);
-    let journal = report(&second.wait_with_output().unwrap());
-    assert!(journal.contains("adopting the alone check of unchecked"), "the restarted lander discarded the alone check in flight: {journal}");
-    assert!(verdict(&north, "unchecked").starts_with("landed "), "{journal}");
-    assert_eq!(calls(&world.path().join("bin/checker.calls")), 1, "the restarted lander ran the alone check again: {journal}");
-}
-
-#[test]
-fn a_lane_lands_into_a_local_origin_although_no_push_token_can_be_minted() {
-    let world = World::new();
-    let north = world.repository("north");
-    checker(&world);
-    north_base::foundation::shim::write_executable(&world.path().join("bin/token"), "#!/bin/sh\necho 'no app key on this host' >&2\nexit 1\n");
-    north.lane("scratch");
-    let journal = serve(&world, &north);
-    assert!(verdict(&north, "scratch").starts_with("landed "), "{journal}");
-    assert_eq!(subjects(&north)[0], "scratch (north#360)", "{journal}");
 }

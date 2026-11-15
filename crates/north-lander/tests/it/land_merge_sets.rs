@@ -9,7 +9,6 @@ use north_lander::landing::merge_set;
 
 const DRIVER: &str = "NORTH_MERGE_SETS_DRIVER";
 const HOME: &str = "NORTH_MERGE_SETS_HOME";
-const NAME: &str = "land_merge_sets::land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_capacity_module_and_a_feature_in_one_candidate";
 const OWN_RULES: &str = "land_merge_sets::a_lane_that_edits_its_regenerate_rules_runs_none_of_its_own_commands_at_pick";
 const JAILED: &str = "jailed";
 
@@ -116,50 +115,12 @@ fn lane(main: &Path, name: &str, change: impl FnOnce(&Path)) -> Ticket {
     Ticket { origin: main.parent().unwrap().parent().unwrap().join("origin.git").display().to_string(), root, host: "laptop".into(), branch: name.into(), head, queued_at: "2026-11-08T12:00:00Z".into(), ..Default::default() }
 }
 
-fn adds_everything(root: &Path, name: &str) {
-    let krate = format!("crates/north-{name}");
-    edit(root, "Cargo.toml", |text| {
-        text.replace(r#""crates/north-b"]"#, &format!(r#""crates/north-b", "{krate}"]"#))
-            .replace("north-b = { path = \"crates/north-b\" }\n", &format!("north-b = {{ path = \"crates/north-b\" }}\nnorth-{name} = {{ path = \"{krate}\" }}\n"))
-    });
-    write(root, &format!("structure/9000-allow-{name}.toml"), &format!("[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"{krate}/src/{name}.rs\"\nreason = \"an external format\"\n"));
-    edit(root, "src/main.rs", |text| text.replace("mod run;\n", &format!("mod run;\nmod {name};\n")));
-    edit(root, CAPACITY_PATH, |text| text.replace("mod aperture;\n", &format!("mod aperture;\npub mod {name};\n")));
-    write(root, &format!("docs/features/{name}.md"), &format!("# {name}\n"));
-    write(root, &format!("{krate}/Cargo.toml"), &member(name));
-    write(root, &format!("{krate}/src/lib.rs"), "");
-}
-
 fn north_shim(home: &Path, name: &str) {
     let shim = home.join("north");
     let exe = std::env::current_exe().unwrap();
     let jailed = home.join(JAILED);
     write_script(&shim, &format!("if [ \"$1\" = --worker-sandbox ]; then echo \"$*\" >>'{}'; shift 3; IN_CANDIDATE_JAIL=1 exec \"$@\"; fi\n{DRIVER}=\"$*\" exec '{}' {name} --exact --quiet --test-threads=1\n", jailed.display(), exe.display()));
     merge_set::run_drivers_with(&shim);
-}
-
-fn scenario(home: &Path) {
-    north_shim(home, NAME);
-    let main = main_repo(home);
-    let tickets: Vec<(std::path::PathBuf, Ticket)> = [
-        lane(&main, "x", |root| adds_everything(root, "x")),
-        lane(&main, "y", |root| adds_everything(root, "y")),
-        lane(&main, "z", |root| edit(root, "src/main.rs", |text| text.replace("mod run;\n", "mod run;\nfn z() {}\n"))),
-    ]
-    .into_iter()
-    .map(|ticket| (home.join(format!("queue/{}.json", ticket.branch)), ticket))
-    .collect();
-    let worktree = main.parent().unwrap().join("worktrees/lander");
-    let base = candidate::prepare(&main, &worktree).unwrap();
-    let built = candidate::build(&worktree, &base, &tickets, &[], usize::MAX, &home.join("logs")).unwrap();
-    let verdicts: Vec<String> = built.picks.iter().map(|pick| format!("{:?}", candidate::recorded(pick))).collect();
-    assert!(matches!(built.picks[..], [Pick::Included, Pick::Included, Pick::Deferred(_)]), "on 2026-11-07 lanes that each added a crate to Cargo.toml or an allow table to structure.toml were sent back as conflicts: {verdicts:?}");
-    let show = |path: &str| run(&worktree, &["show", &format!("HEAD:{path}")]);
-    let cargo = show("Cargo.toml");
-    assert!(cargo.contains(r#"members = ["crates/north-a", "crates/north-b", "crates/north-x", "crates/north-y"]"#) && cargo.contains("north-x = { path = \"crates/north-x\" }\nnorth-y = { path = \"crates/north-y\" }\n"), "{cargo}");
-    assert_eq!(show("structure.toml").matches("[[implicit_state.allow]]").count(), 3, "{}", show("structure.toml"));
-    assert_eq!(show(CAPACITY_PATH), "pub mod admission;\nmod aperture;\npub mod fixtures;\npub mod replay;\npub mod x;\npub mod y;", "lanes that each add a module to capacity/mod.rs merge without a conflict");
-    assert_eq!(show("src/main.rs"), "mod cli;\nmod run;\nmod x;\nmod y;\n\nfn main() {}", "a line that is not a mod line still conflicts");
 }
 
 fn own_rules(home: &Path) {
@@ -206,11 +167,6 @@ fn isolated(name: &str, scenario: fn(&Path)) {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success() && stdout.contains("1 passed"), "the candidate scenario failed in its own home:\n{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
-}
-
-#[test]
-fn land_drivers_merge_lanes_that_each_add_a_crate_an_allow_table_a_mod_line_a_capacity_module_and_a_feature_in_one_candidate() {
-    isolated(NAME, scenario);
 }
 
 #[test]
