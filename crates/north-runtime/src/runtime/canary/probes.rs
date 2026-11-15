@@ -219,7 +219,7 @@ trap 'rm -rf "$root"' EXIT
 __OWN_BROKER__git init -q -b main "$root/canary/main"
 cd "$root/canary/main"
 checkout=$(pwd -P)
-__ROOTS__="[\"$checkout\"]" "$north" depbox run -- "$north" depbox run -- true
+__ROOTS__="[\"$checkout\"]" "$north" depbox run -- true
 "#;
 
 /// The product verification of the judged runtime, run only when a Claude account can place its

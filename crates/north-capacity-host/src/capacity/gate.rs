@@ -7,7 +7,7 @@ use super::effects::Host;
 use super::build_offload;
 use super::build_host_command;
 use super::depbox_check;
-use super::depbox_mode::{Mode, in_sandbox};
+use super::depbox_mode::Mode;
 use crate::nix_command::{self, Inner};
 use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
@@ -87,7 +87,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
 
 /// Holds `program` for a capacity lease of `class`, which sends a fleet session's compile to a build host.
 fn leased(class: Class, program: &str, rest: &[String], host: &Host) -> u8 {
-    if in_sandbox(&std::env::var(SANDBOX).unwrap_or_default()) && !(host.lease_builds)() && agent_compile(&words(program, rest)) {
+    if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) && !(host.lease_builds)() && agent_compile(&words(program, rest)) {
         eprintln!("north capacity gate: a fleet session's {} inside depbox reaches no build host, since the sandbox has no network or ssh keys; make the compile depbox's own command (depbox run -- cargo ...) so the gate sends the whole run to a build host (infrastructure, exit 75)", shell::basename(program));
         attribution::record_here("capacity", Cause::Harness(Harness::Capacity), "sandbox reaches no build host (exit 75)");
         return NO_VERDICT;
@@ -309,7 +309,7 @@ fn script_file(path: &str) -> bool {
 
 /// The depbox mode a toolchain program runs in when a shim starts it outside depbox: `fetch` for the verbs that download, `run` for every other one that may run a dependency's code, and None for a call that runs none (a version, help, metadata or formatting query), inside depbox already, or a bun or node script that landed code ships.
 pub fn sandboxed(name: &str, args: &[String]) -> Option<Mode> {
-    if in_sandbox(&std::env::var(SANDBOX).unwrap_or_default()) {
+    if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) {
         return None;
     }
     sandbox_mode(name, args, &|script| landed(Path::new(script)))

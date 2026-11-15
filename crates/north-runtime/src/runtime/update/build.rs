@@ -133,13 +133,10 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
     let system = north_build_system::here();
     let request = cargo_build::release_build(&lane.path, &built, confined, system.release_uncached());
     let invocation = system.build(&request);
-    let north = north_base::platform::north_binary::north_binary();
-    let mut build = Command::new(&north);
+    let mut build = Command::new(north_base::platform::north_binary::north_binary());
     build
         .args(["capacity", "host", "run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
         .args(cargo_build::idle(confined))
-        .arg(&north)
-        .args(["depbox", "run", "--"])
         .args(&invocation.words);
     invocation.environ(&mut build);
     let log = BuildLog::open(layout, target)?;
