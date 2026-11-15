@@ -340,7 +340,7 @@ fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
     let home = tempfile::tempdir().unwrap();
     let window = Owner::current();
     let runtime = std::sync::Arc::new(Windows { live: std::sync::Mutex::new(vec![("proxy-conversation".to_owned(), window.pid)]) });
-    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
     let directory = fleet.session_dir("proxy").unwrap();
     fleet.adopt("proxy", "proxy-conversation", home.path().into()).unwrap();
     let record = crate::fleet::records::record_file(&directory);
@@ -354,5 +354,14 @@ fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
     assert_eq!(super::own_session(&peer, &host, "absent").unwrap_err(), "absent");
     fleet.refresh_adoption("proxy", "proxy-conversation", home.path().into()).unwrap();
     let (found, resolved) = super::own_session(&peer, &host, "absent").unwrap();
+    assert_eq!((found, resolved["name"].as_str()), (directory.clone(), Some("proxy")));
+    let mut restarted = Command::new("sleep").arg("60").spawn().unwrap();
+    *runtime.live.lock().unwrap() = vec![("proxy-restarted".to_owned(), restarted.id())];
+    let moved = Peer::with_pids(Some(APP_CGROUP), &[SHELL, restarted.id()]);
+    assert_eq!(super::own_session(&moved, &host, "absent").unwrap_err(), "absent", "a restarted window passed before it re-adopted");
+    fleet.adopt_if_free("proxy", "proxy-restarted", home.path().into()).unwrap().unwrap();
+    let (found, resolved) = super::own_session(&moved, &host, "absent").unwrap();
+    restarted.kill().unwrap();
+    restarted.wait().unwrap();
     assert_eq!((found, resolved["name"].as_str()), (directory, Some("proxy")));
 }
