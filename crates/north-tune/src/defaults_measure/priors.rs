@@ -16,7 +16,9 @@ pub(super) fn priors(db: &Connection, context: &Context) -> Result<Vec<String>, 
     let mut counted: BTreeMap<&str, Count> = BTreeMap::new();
     let mut lines = Vec::new();
     for entry in context.registry.priors() {
-        let settles = entry.settles.as_ref().ok_or_else(|| format!("{}: a prior needs settles_when", entry.name))?;
+        let Some(settles) = entry.settles.as_ref() else {
+            continue;
+        };
         let count = settles.count.as_str();
         let (n, value) = match counted.get(count) {
             Some(known) => *known,

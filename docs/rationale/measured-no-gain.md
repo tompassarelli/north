@@ -222,11 +222,13 @@ arm loses. Each box is at most 45 minutes, lands alone through safe-push, and le
 
 Method: `north defaults-measure --priors` on the threads snapshot of 2026-11-15 lists each entry with `settles_when` as one
 of 25 measurable (count reached, nothing measured) or 34 waiting (count below need). This replaces the page's earlier counts
-of 22 and 26. The listing aborts on `land_check_cpu_weight`, a `prior:` entry with no `settles_when`
-(`/home/tom/code/north/main/crates/north-tune/src/defaults_measure/priors.rs:19`), so the counts above come from a scratch
-build that skips such an entry; that build is not committed. Effects read the snapshot's worker runs: done rate is the share
-of runs with outcome done; cost per done is the total cost_usd of the group over its done runs. Codex tiers are the gpt-6,
-sol, luna and astra tiers; other is every other engine in the category.
+of 22 and 26. The listing skips a `prior:` entry with no `settles_when` instead of aborting
+(`/home/tom/code/north/main/crates/north-tune/src/defaults_measure/priors.rs`), so both counts come from the bundled
+`harness/defaults.toml` and the ledger, with no scratch build. One entry sits outside them: `land_check_cpu_weight` has a
+`prior:` source but no `settles_when` count; its source cites north#784's wall-time reading rather than a ledger row, so it
+stays a mechanism at the game reserve's weight (1000), not a gain claim. Effects read the snapshot's worker runs: done rate
+is the share of runs with outcome done; cost per done is the total cost_usd of the group over its done runs. Codex tiers
+are the gpt-6, sol, luna and astra tiers; other is every other engine in the category.
 
 Settled with an effect, kept:
 - `codex_route_netcode-determinism` (claude, read at `/home/tom/code/north/main/crates/north-pace/src/router/brief.rs:111`):
