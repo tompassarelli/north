@@ -433,7 +433,7 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
     }
     std::os::unix::fs::symlink("runtimes/a", state.join("current")).unwrap();
     let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, user_runtime: home.join("run"), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()), session: None, agent_socket: None, offload_slot: None, land_check: false };
-    let hidden: Vec<PathBuf> = super::lane_only::hidden(&context, &[]).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
+    let hidden: Vec<PathBuf> = super::lane_only::hidden(&context, None, &[]).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
     assert!(!hidden.iter().any(|path| runtimes.join("a/tree/bin").starts_with(path)), "the north runtime is hidden: {hidden:?}");
     assert!(hidden.contains(&state.join("profiles")), "the agent state beside the runtime is readable: {hidden:?}");
 }
