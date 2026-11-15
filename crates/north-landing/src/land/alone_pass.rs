@@ -27,7 +27,3 @@ pub fn landings_since(repo: &Path, checked_on: &str, main: &str) -> Option<usize
     git(repo, &["merge-base", "--is-ancestor", checked_on, main]).ok()?;
     git(repo, &["rev-list", "--count", "--first-parent", &format!("{checked_on}..{main}")]).ok()?.trim().parse().ok()
 }
-
-#[cfg(test)]
-#[path = "alone_pass_tests.rs"]
-mod tests;

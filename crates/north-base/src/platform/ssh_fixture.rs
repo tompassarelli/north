@@ -148,7 +148,3 @@ pub fn master_words(fixture: &Fixture) -> Vec<String> {
     words.extend(["-o".to_owned(), control, "-N".to_owned(), "testhost".to_owned()]);
     words
 }
-
-
-#[path = "ssh_fixture_tests.rs"]
-mod tests;

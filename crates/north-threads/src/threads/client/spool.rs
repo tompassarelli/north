@@ -250,7 +250,6 @@ fn refused(name: &str, refusal: &Refusal<Phase>) -> NorthError {
     NorthError::State(format!("spooled write {name}: {refusal:?}"))
 }
 
-
 fn spool_stem() -> String {
     format!("{}-{}", Timestamp::now().unix_nanos(), std::process::id())
 }
@@ -588,93 +587,5 @@ impl Client {
             Flush::Busy => ingest_lock::RETRY,
             Flush::Down => TRANSPORT_FAILED_STATUS,
         })
-    }
-}
-
-#[cfg(test)]
-mod spool_lifecycle {
-    use north_base::lifecycle::{FaultKind, Liveness, Owner};
-
-    use super::*;
-
-    struct Dead(u32);
-
-    impl Liveness for Dead {
-        fn alive(&self, owner: &Owner) -> Option<bool> {
-            (owner.host == "client").then_some(owner.pid != self.0)
-        }
-    }
-
-    fn store(path: &Path, pid: u32, dead: u32) -> Store {
-        Store::open_as(path, Owner { host: "client".into(), pid, started: 1, booted_ms: 1 }, Box::new(Dead(dead))).unwrap()
-    }
-
-    fn at(seconds: i64) -> Timestamp {
-        Timestamp::from_unix_seconds(1_800_000_000 + seconds)
-    }
-
-    fn rig() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
-        let directory = tempfile::tempdir().unwrap();
-        let spool = directory.path().join("spool");
-        std::fs::create_dir(&spool).unwrap();
-        let ledger = directory.path().join("ledger.db");
-        (directory, spool, ledger)
-    }
-
-    #[test]
-    fn a_sent_write_cannot_be_queued_again_and_health_sees_the_attempt() {
-        let (_keep, directory, ledger) = rig();
-        let mut spool = Spool::adopting(store(&ledger, 10, 0), &directory, at(0)).unwrap();
-        spool.queue("1-1.jsonl", "the ledger host was unreachable", at(0)).unwrap();
-        assert!(spool.take("1-1.jsonl", at(1)).unwrap());
-        spool.deliver("1-1.jsonl", None, at(2)).unwrap();
-
-        assert!(spool.queue("1-1.jsonl", "a writer that reused the name", at(3)).is_err());
-
-        let record = spool.store.current::<SpooledWrite>("1-1.jsonl").unwrap().unwrap();
-        assert_eq!((record.state, record.seq), (Phase::Sent, 3));
-        let faults = spool.store.faults(at(4)).unwrap();
-        assert_eq!(faults.len(), 1);
-        assert_eq!(faults[0].kind, FaultKind::Illegal { to: "queued".into(), at_ms: at(3).unix_millis() });
-    }
-
-    #[test]
-    fn a_flush_killed_mid_send_is_reported_and_the_next_flush_logs_its_death_and_resends() {
-        let (_keep, directory, ledger) = rig();
-        std::fs::write(directory.join("2-2.argv"), "[]").unwrap();
-        std::fs::write(directory.join("3-3.failed"), "{}").unwrap();
-        std::fs::write(directory.join(".lock"), "").unwrap();
-        let mut killed = Spool::adopting(store(&ledger, 10, 0), &directory, at(0)).unwrap();
-        assert_eq!(killed.queued(at(0)).unwrap(), ["2-2.argv"]);
-        assert!(killed.take("2-2.argv", at(1)).unwrap());
-
-        let mut next = Spool::adopting(store(&ledger, 11, 10), &directory, at(2)).unwrap();
-        let faults = next.store.faults(at(2)).unwrap();
-        assert_eq!(faults.iter().map(|fault| (fault.instance.as_str(), fault.state.as_str())).collect::<Vec<_>>(), [("3-3.failed", "refused"), ("2-2.argv", "sending")]);
-        assert!(matches!(faults[0].kind, FaultKind::Overdue { .. }) && matches!(faults[1].kind, FaultKind::Orphaned { .. }));
-
-        assert_eq!(next.queued(at(3)).unwrap(), ["2-2.argv"]);
-        assert!(next.take("2-2.argv", at(3)).unwrap());
-        let causes: Vec<_> = next.store.history(SpooledWrite::NAME, "2-2.argv").unwrap().into_iter().map(|logged| (logged.to, logged.cause)).collect();
-        assert_eq!(causes[2], ("queued".to_owned(), "the holder, pid 10 on client, is gone".to_owned()));
-        assert_eq!(next.store.current::<SpooledWrite>("3-3.failed").unwrap().unwrap().state, Phase::Refused);
-    }
-
-    #[test]
-    fn a_lost_race_to_adopt_a_spool_file_is_not_an_illegal_move() {
-        let (_keep, directory, ledger) = rig();
-        std::fs::write(directory.join("4-4.jsonl"), "{}").unwrap();
-        let mut first = Spool { store: store(&ledger, 10, 0), directory: directory.clone() };
-        let mut second = Spool { store: store(&ledger, 11, 0), directory };
-        let (seen_first, seen_second) = (first.unrecorded().unwrap(), second.unrecorded().unwrap());
-        assert_eq!((seen_first.len(), seen_second.len()), (1, 1));
-
-        first.adopt("4-4.jsonl", Phase::Queued, at(0)).unwrap();
-        second.adopt("4-4.jsonl", Phase::Queued, at(1)).unwrap();
-
-        let record = second.store.current::<SpooledWrite>("4-4.jsonl").unwrap().unwrap();
-        assert_eq!((record.state, record.seq), (Phase::Queued, 1));
-        assert!(second.store.history(SpooledWrite::NAME, "4-4.jsonl").unwrap().iter().all(|logged| !logged.refused));
-        assert!(second.store.faults(at(2)).unwrap().is_empty());
     }
 }

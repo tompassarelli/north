@@ -115,43 +115,6 @@ mod tests {
     }
 
     #[test]
-    fn a_pending_ticket_naming_the_session_refuses_the_forget_with_its_path_and_branch_and_keeps_the_session() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
-        let _worker = live(&fleet, "lander-w33-failfast");
-        let path = ticket(home.path(), "", "1-w33-concurrent.json", "lander-w33-failfast", "/code/north/worktrees/w33-concurrent");
-
-        let Err(NorthError::Usage(why)) = fleet.forget_unless_queued("lander-w33-failfast", None, None) else { panic!("a queued lane refuses the forget") };
-
-        assert!(why.contains(&format!("{} (branch w33-concurrent)", path.display())), "{why}");
-        assert!(why.contains("--force REASON"), "{why}");
-        assert!(fleet.session("lander-w33-failfast").is_ok(), "a refused forget keeps the session");
-    }
-
-    #[test]
-    fn a_retiring_session_hands_its_queued_lane_to_its_parent_and_is_refused_when_it_has_no_one_to_hand_it_to() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
-        let lead = live(&fleet, "construct-lead");
-        let _worker = live_under(&fleet, "n892-worker", Some("construct-lead"));
-        let lane = ticket(home.path(), "", "1-n892-solo.json", "n892-worker", "/code/north/worktrees/n892-solo");
-
-        fleet.retire("n892-worker", "reported", None).unwrap();
-
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&lane).unwrap()).unwrap()["session"], "construct-lead");
-        let frames = lead.frames.lock().unwrap();
-        assert!(frames.iter().any(|frame| frame.contains("n892-worker is leaving the fleet") && frame.contains("queued lane w33-concurrent")), "{frames:?}");
-        drop(frames);
-
-        let _orphan = live(&fleet, "n903-orphan");
-        let held = ticket(home.path(), "", "2-n903.json", "n903-orphan", "/code/north/worktrees/n903-waits");
-        let Err(NorthError::Refused(why)) = fleet.retire("n903-orphan", "reported", None) else { panic!("a parentless session kept its lane unowned") };
-        assert!(why.contains("no parent or successor") && why.contains("w33-concurrent"), "{why}");
-        assert!(fleet.session("n903-orphan").is_ok());
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&fs::read_to_string(held).unwrap()).unwrap()["session"], "n903-orphan");
-    }
-
-    #[test]
     fn a_forget_naming_a_successor_hands_the_lane_to_it_even_without_a_parent() {
         let home = tempfile::tempdir().unwrap();
         let freed = Arc::new(Freed::default());

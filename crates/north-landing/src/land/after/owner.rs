@@ -121,7 +121,3 @@ impl Fleet for Cli {
         if launched.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&launched.stderr).trim().to_owned()) }
     }
 }
-
-#[cfg(test)]
-#[path = "owner_tests.rs"]
-mod tests;

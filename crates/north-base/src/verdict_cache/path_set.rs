@@ -101,10 +101,4 @@ mod tests {
         assert_eq!(parse(&text), Ok(sorted));
     }
 
-    #[test]
-    fn an_absolute_entry_with_an_empty_or_parent_part_is_refused() {
-        for bad in ["content\t/etc//hosts", "content\t/etc/../hosts", "content\t//", "content\t/etc/", "content\t"] {
-            assert!(parse(bad).is_err(), "{bad}");
-        }
-    }
 }

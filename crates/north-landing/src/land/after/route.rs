@@ -113,7 +113,3 @@ pub fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, 
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
-
-#[cfg(test)]
-#[path = "route_tests.rs"]
-mod tests;

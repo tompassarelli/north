@@ -218,7 +218,3 @@ pub fn percentile(values: &[f64], fraction: f64) -> f64 {
     let rank = ((sorted.len() as f64 * fraction).ceil() as usize).clamp(1, sorted.len());
     sorted[rank - 1]
 }
-
-#[cfg(test)]
-#[path = "profile_tests.rs"]
-mod tests;

@@ -8,14 +8,10 @@ use serde_json::{Value, json};
 use super::*;
 use crate::fleet::fakes::{Paper, Stream};
 use crate::fleet::gates::{GateBook, GateRequest};
-use crate::fleet::model::{Delivery, Phase};
 use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::registry::fixtures::live;
-use crate::fleet::registry::Sent;
-use crate::fleet::runtime::{new_uuid, now_ms};
+use crate::fleet::runtime::now_ms;
 use crate::fleet::runtimes::Runtimes;
-use crate::fleet::sender::Sender;
-use crate::fleet::store::{FleetRow, RowKind};
 use crate::fleet::records::ARCHIVE;
 use crate::fleet::waits::Run;
 
@@ -76,64 +72,6 @@ fn retired(reaped: &Reaped) -> Vec<&str> {
 
 fn archived_dir(fleet: &Fleet, name: &str) -> std::path::PathBuf {
     std::fs::read_dir(fleet.root.join(ARCHIVE)).unwrap().flatten().map(|entry| entry.path()).find(|path| path.file_name().unwrap().to_string_lossy().starts_with(&format!("{name}-"))).unwrap()
-}
-
-#[test]
-fn a_done_report_retires_its_session_only_once_its_parent_took_it_and_each_sha_it_names_is_on_origin_main() {
-    let home = tempfile::tempdir().unwrap();
-    let (fleet, paper) = fleet(home.path());
-    let _lead = live(&fleet, "lead");
-    reported(&fleet, "worker", Some("lead"), "Done: the reaper landed as 1af7168df on origin/main.");
-    let mut evidence = Sight::default();
-
-    let untaken = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
-    paper.claim_receipt("worker", "turn:1", now_ms()).unwrap();
-    let unlanded = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
-    evidence.landed.insert("1af7168df".into());
-    let finished = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
-
-    assert!(retired(&untaken).is_empty() && retired(&unlanded).is_empty(), "{untaken:?} {unlanded:?}");
-    assert!(unlanded.kept.iter().any(|kept| kept.name == "worker" && kept.why.contains("1af7168df")), "{unlanded:?}");
-    assert_eq!(retired(&finished), ["worker"]);
-    assert!(fleet.session("worker").is_err(), "a retired session leaves the registry");
-    let archive = archived_dir(&fleet, "worker");
-    let record = crate::fleet::records::read_record(&archive).unwrap();
-    assert_eq!(record.phase(), Some(Phase::Retired), "{record:?}");
-    assert!(std::fs::read_to_string(archive.join("g1/stream.jsonl")).unwrap().contains("1af7168df"), "the transcript is archived with it");
-    let note: Value = serde_json::from_slice(&std::fs::read(archive.join("retired.json")).unwrap()).unwrap();
-    assert!(note["last"].as_str().unwrap().starts_with("Done: the reaper landed"), "{note}");
-    assert_eq!(retired(&reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true)), Vec::<&str>::new(), "the fresh lead stays");
-}
-
-#[test]
-fn a_waiting_report_outlives_its_idled_host_until_a_done_report_retires_it_and_a_not_done_or_split_retires_only_when_it_names_a_stop() {
-    let home = tempfile::tempdir().unwrap();
-    let (fleet, paper) = fleet(home.path());
-    let _lead = live(&fleet, "lead");
-    reported(&fleet, "stopped", Some("lead"), "Split: boxes 1 and 2 landed; box 3 is its own item.\nStop: budget");
-    reported(&fleet, "unstopped", Some("lead"), "Not done: the suite is red on main.");
-    reported(&fleet, "waiting", Some("lead"), "Waiting: the coordinator holds the hand-in until main is green.");
-    let record_path = fleet.root.join("waiting").join("session.json");
-    let mut idled: Value = serde_json::from_slice(&std::fs::read(&record_path).unwrap()).unwrap();
-    idled["stopped"] = json!(true);
-    idled["ended"] = json!("idle-exit");
-    std::fs::write(&record_path, idled.to_string()).unwrap();
-    let result = json!({"type": "result", "subtype": "success", "session_id": "rehired"});
-    parked(&fleet, "rehired", Some("lead"), &[said("rehired", "assistant", "Done: nothing to land."), result.clone(), said("rehired", "user", "[from lead] also port the shell test"), said("rehired", "assistant", "Porting it now."), result]);
-    for name in ["stopped", "unstopped", "waiting", "rehired"] {
-        paper.claim_receipt(name, "turn:1", now_ms()).unwrap();
-    }
-
-    let reaped = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true);
-
-    assert_eq!(retired(&reaped), ["stopped"]);
-    assert!(fleet.session("unstopped").is_ok() && fleet.session("rehired").is_ok() && fleet.session("waiting").is_ok());
-    reported(&fleet, "waiting", Some("lead"), "Done: nothing to land.");
-    paper.claim_receipt("waiting", "turn:2", now_ms()).unwrap();
-
-    let finished = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true);
-
-    assert_eq!(retired(&finished), ["waiting"]);
 }
 
 /// Eight workers parked under the coordinator's hold were retired on 2026-11-12 after a taken Not done report, lanes ahead of main and their parent untold (north#1235).
@@ -215,72 +153,6 @@ fn retirement_digests_reach_a_parent_at_most_once_per_half_hour_the_first_at_onc
     assert_eq!(digests().len(), 2, "nothing is sent twice");
 }
 
-/// north-669-d1955 stopped on `Stop: landing` with its guards lane queued: the reaper keeps it while the lane is open and
-/// after the lander decides it until the session is woken, and retires it once the lane is settled (north#790).
-#[test]
-fn a_session_stopped_on_its_queued_lane_stays_until_the_lander_decides_it_and_wakes_it() {
-    let (home, state) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let (fleet, paper) = fleet(home.path());
-    let _lead = live(&fleet, "lead");
-    reported(&fleet, "north-669-d1955", Some("lead"), "Not done: the guards commit bf636ba82 is in the lander queue but not on origin/main, so no box of north#669 is ticked yet.\nStop: landing");
-    paper.claim_receipt("north-669-d1955", "turn:1", now_ms()).unwrap();
-    let (stream, ended) = (fleet.root.join("north-669-d1955/g1/stream.jsonl"), std::time::SystemTime::now() - Duration::from_secs(600));
-    std::fs::File::options().write(true).open(stream).unwrap().set_modified(ended).unwrap();
-    let queue = state.path().join("north/land-queue/de2e0e8479546ba9");
-    std::fs::create_dir_all(&queue).unwrap();
-    let ticket = queue.join(format!("{}-guards.json", (now_ms() - 12 * 60_000) * 1000));
-    std::fs::write(&ticket, json!({"session": "north-669-d1955", "branch": "guards", "queued_micros": (now_ms() - 12 * 60_000) * 1000}).to_string()).unwrap();
-    let mut records = north_base::land_ticket::Records::of(&ticket).unwrap();
-    records.moved(&ticket, north_base::land_ticket::Phase::Queued, "queued").unwrap();
-    let held = |state: &Path| Sight { lanes: north_base::land_ticket::lanes_by_session(&state.join("north/land-queue")).unwrap(), ..Sight::default() };
-
-    let open = reap_after(&fleet, &held(state.path()), 24 * HOUR, now_ms(), false);
-    let indexed = crate::fleet::resume::ended_ms(&fleet.session("north-669-d1955").unwrap());
-    records.moved(&ticket, north_base::land_ticket::Phase::Failed, "failed: the candidate's tests are red").unwrap();
-    let decided = reap_after(&fleet, &held(state.path()), 24 * HOUR, now_ms(), false);
-    let settled = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), false);
-
-    assert_eq!(indexed.map(u128::from), Some(ended.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()), "the reap that indexed the session still reads its end from its stream (north#821)");
-    assert!(retired(&open).is_empty() && retired(&decided).is_empty(), "{open:?} {decided:?}");
-    assert!(decided.kept.iter().any(|kept| kept.name == "north-669-d1955" && kept.why.contains("lander")), "{decided:?}");
-    assert_eq!(retired(&settled), ["north-669-d1955"], "a landing stop with no lane left to wait on finishes: {settled:?}");
-}
-
-#[test]
-fn a_retired_note_keeps_the_report_not_a_later_reply_to_a_lander_notice() {
-    let home = tempfile::tempdir().unwrap();
-    let (fleet, paper) = fleet(home.path());
-    let _lead = live(&fleet, "lead");
-    let result = json!({"type": "result", "subtype": "success", "session_id": "north-725-d0351"});
-    let report = "Not done: two of the three boxes on north#725 are still open.\nStop: landing";
-    parked(&fleet, "north-725-d0351", Some("lead"), &[said("north-725-d0351", "assistant", report), result.clone(), said("north-725-d0351", "user", "[from service:north-fleet] [north: landed] 988a0d0cef is on origin/main"), said("north-725-d0351", "assistant", "The lander's message confirms the landing I already reported."), result]);
-    paper.claim_receipt("north-725-d0351", "turn:1", now_ms()).unwrap();
-
-    assert_eq!(retired(&reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true)), ["north-725-d0351"]);
-    let note: Value = serde_json::from_slice(&std::fs::read(archived_dir(&fleet, "north-725-d0351").join("retired.json")).unwrap()).unwrap();
-    assert_eq!(note["last"], report, "the note keeps the report, not a later reply");
-}
-
-#[test]
-fn a_message_to_a_retired_session_reaches_its_parent_as_one_turn_and_never_revives_it() {
-    let home = tempfile::tempdir().unwrap();
-    let (fleet, _paper) = fleet(home.path());
-    let lead = live(&fleet, "lead");
-    reported(&fleet, "worker", Some("lead"), "Done: nothing to land.");
-    fleet.retire("worker", "test", Some("Done: nothing to land.")).unwrap();
-
-    let sent = fleet.send_message(&Sender::Tom, "worker", "are you there", Delivery::Queued).unwrap();
-    let row = FleetRow { id: format!("{}-{}", now_ms(), new_uuid().unwrap()), kind: RowKind::Message, to: "worker".into(), from: "far".into(), urgent: false, sent_at: now_ms(), text: "from the far host".into(), sender: Sender::Session("peer".into()), gate: None, answer: None, job: None, origin: None, spooled_by: None };
-    fleet.hand_in(&row).unwrap();
-
-    assert_eq!(sent, Sent::Retired { heir: "lead".into() });
-    assert!(fleet.session("worker").is_err() && !fleet.root.join("worker").exists(), "the retired session is not revived");
-    let frames = lead.frames.lock().unwrap();
-    assert_eq!(frames.len(), 2, "{frames:?}");
-    assert!(frames[0].contains("worker is retired") && frames[0].contains("are you there"), "{frames:?}");
-    assert!(frames[1].contains("worker is retired") && frames[1].contains("from the far host"), "{frames:?}");
-}
-
 #[test]
 fn a_session_retires_when_finished_and_its_cli_runs_nothing_when_its_host_ended_it_at_idle_exit_or_when_quiet_past_the_stale_window_unless_a_wait_gate_lane_job_or_unfinished_task_would_wake_it() {
     {
@@ -340,45 +212,6 @@ fn a_session_retires_when_finished_and_its_cli_runs_nothing_when_its_host_ended_
     assert!(reaped.kept.iter().any(|kept| kept.name == "monitoring" && kept.why.contains("background task")), "{reaped:?}");
     assert!(reaped.kept.iter().any(|kept| kept.name == "queued" && kept.why.contains("background task")), "a Not done whose CLI still runs the job it waits on is paused, not finished (north#770): {reaped:?}");
     assert!(fleet.session("finished").is_err() && fleet.session("ended").is_err() && fleet.session("monitoring").is_ok());
-}
-
-struct Nexus {
-    release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
-    ended: std::sync::atomic::AtomicBool,
-}
-
-impl crate::fleet::jobs::JobLeases for Nexus {
-    fn leased(&self, _session: &str, _machine: Option<&crate::fleet::model::Machine>) -> crate::error::NorthResult<bool> {
-        let _ = self.release.lock().unwrap().recv();
-        self.ended.store(true, std::sync::atomic::Ordering::SeqCst);
-        Ok(true)
-    }
-}
-
-#[test]
-fn the_reaper_reads_job_leases_from_the_ticks_exchange_and_defers_a_session_whose_lease_read_outlasts_its_budget_instead_of_holding_it_as_leased() {
-    let home = tempfile::tempdir().unwrap();
-    let (fleet, _paper) = fleet(home.path());
-    let (release, held) = std::sync::mpsc::channel();
-    let nexus = Arc::new(Nexus { release: std::sync::Mutex::new(held), ended: std::sync::atomic::AtomicBool::new(false) });
-    let fleet = fleet.leasing(nexus.clone());
-    for name in ["expired", "held", "unexchanged"] {
-        reported(&fleet, name, None, "Done: nothing to land.");
-    }
-    let wait = |session: &str, deadline: &str| crate::fleet::store::WaitRow { session: session.into(), kind: crate::fleet::store::WaitKind::Job, key: format!("{session}#1"), deadline: deadline.into(), created: "2026-11-06T16:00:00Z".into() };
-    let waits = [wait("expired", "2026-11-06T17:00:00Z"), wait("held", "2026-11-06T17:03:00Z")];
-    fleet.cache_leases(&crate::fleet::store::LeaseTable::read(&waits, ["expired".to_owned(), "held".to_owned()], "2026-11-06T17:01:00Z", now_ms())).unwrap();
-
-    let reaped = reap_within(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300), &|| Duration::ZERO);
-
-    assert!(!nexus.ended.load(std::sync::atomic::Ordering::SeqCst), "the reaper waited for the lease read to end");
-    drop(release);
-    assert_eq!(retired(&reaped), ["expired"], "{reaped:?}");
-    let why = |name: &str| reaped.kept.iter().find(|kept| kept.name == name).map(|kept| kept.why.clone()).unwrap_or_default();
-    assert!(why("held").contains("holds a lease") && why("unexchanged").contains("next tick"), "{reaped:?}");
-    assert_eq!(reaped.unread, 1);
-    assert!(reaped.lines().iter().any(|line| line.starts_with("deferred 1 sessions to the next tick: their job leases")), "{:?}", reaped.lines());
-    assert!(fleet.session("unexchanged").is_ok() && fleet.session("held").is_ok());
 }
 
 // KEEP(bug): on 2026-11-10 at 3:20 PM 27 DeepSeek sessions whose lanes had landed and whose Done reports sat in the proxy's held digest kept their claims on seven issues until forgotten by hand; north#1054

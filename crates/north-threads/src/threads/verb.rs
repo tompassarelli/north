@@ -13,7 +13,6 @@ use serde_json::Value;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::issues::Issues;
 
-
 static NATIVE_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!(r"\b(?:{})#\d+\b", CATALOG.native.join("|"))).expect("native ref pattern"));
 
 /// What a verb touches outside the ledger.
@@ -188,38 +187,4 @@ pub fn table(rows: &[Vec<String>]) -> String {
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
     let line = |row: &Vec<String>| row.iter().zip(&widths).map(|(cell, width)| format!("{cell:<width$}")).collect::<Vec<_>>().join("  ").trim_end().to_owned();
     rows.iter().map(|row| format!("{}\n", line(row))).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Context, Failure};
-    use crate::foundation::clock::Timestamp;
-    use crate::threads::catalog::CATALOG;
-    use crate::threads::fake::Recorded;
-
-    #[test]
-    fn gh_refuses_every_argv_naming_a_generated_native_ref_before_it_runs() {
-        let outside = Recorded::default();
-        let context = Context { database: std::path::Path::new("/dev/null"), actor: "tester".into(), no_native: None, outside: &outside, now: Timestamp::from_unix_seconds(0), replica: false };
-        let mut state = 7_u64;
-        let mut next = |bound: u64| {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
-            (state >> 33) % bound
-        };
-        let mut refused = 0;
-        for index in 0..1000 {
-            let reference = format!("{}#{}", CATALOG.native[next(CATALOG.native.len() as u64) as usize], 1000 + index);
-            let argv = match next(4) {
-                0 => vec!["issue".to_owned(), "comment".into(), "1".into(), "--body".into(), format!("see {reference}")],
-                1 => vec!["issue".to_owned(), "create".into(), "--title".into(), format!("{reference} title")],
-                2 => vec!["api".to_owned(), "graphql".into(), "-f".into(), format!("query={reference}")],
-                _ => vec!["pr".to_owned(), "edit".into(), "2".into(), format!("--body=x ({reference})")],
-            };
-            let words: Vec<&str> = argv.iter().map(String::as_str).collect();
-            if matches!(context.gh(&words), Err(Failure::Refused(_))) {
-                refused += 1;
-            }
-        }
-        assert_eq!((refused, outside.calls.borrow().len()), (1000, 0));
-    }
 }

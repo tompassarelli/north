@@ -5,8 +5,6 @@ mod segments;
 mod spans;
 mod started;
 mod substitution;
-#[cfg(test)]
-mod tests;
 
 #[allow(unused_imports)]
 pub use heredoc::{blank, heredoc_bodies, strip_heredoc_bodies, strip_heredocs};

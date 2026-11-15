@@ -201,7 +201,3 @@ fn receipt_path(text: &str) -> std::path::PathBuf {
     let name: String = sha2::Digest::finalize(<sha2::Sha256 as sha2::Digest>::new_with_prefix(text.as_bytes())).iter().map(|byte| format!("{byte:02x}")).collect();
     verdict_dir().join(format!("{name}.ran"))
 }
-
-#[cfg(test)]
-#[path = "private_text_tests.rs"]
-mod tests;

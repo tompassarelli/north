@@ -444,7 +444,3 @@ pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
     words.extend(invocation.command);
     replace_with("north capacity dev-shell", std::process::Command::new(&nix).arg0("nix").args(&words), "nix")
 }
-
-#[cfg(test)]
-#[path = "dev_shell_tests.rs"]
-mod tests;

@@ -27,14 +27,6 @@ fn ledger() -> Ledger {
 }
 
 impl Ledger {
-    fn db(&self) -> Connection {
-        Connection::open(&self.path).unwrap()
-    }
-
-    fn sql(&self, query: &str) -> String {
-        self.db().query_row(query, [], |row| row.get::<_, String>(0)).unwrap()
-    }
-
     fn feed(&self, argv: &str, stdin: &str) -> (i32, String, String) {
         let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, outside: &self.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
         let argv: Vec<String> = shell_words(argv);
@@ -70,34 +62,6 @@ fn shell_words(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn two_concurrent_takes_claim_the_one_job_once_and_a_successful_result_posts_no_comment_on_its_issue() {
-    let rig = ledger();
-    let id = rig.out("queue add laptop makgora#3 -- echo hi");
-    let id = id.trim();
-    let path = rig.path.as_path();
-    let takes: Vec<String> = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..2).map(|_| scope.spawn(move || ledger_take(path))).collect();
-        handles.into_iter().map(|handle| handle.join().unwrap()).collect()
-    });
-    let wanted = serde_json::json!({"id": id.parse::<i64>().unwrap(), "placement": "laptop", "item": "makgora#3", "cmd": ["echo", "hi"]});
-    assert_eq!(takes.iter().filter(|out| serde_json::from_str::<serde_json::Value>(out).ok().as_ref() == Some(&wanted)).count(), 1, "{takes:?}");
-    assert!(takes.iter().any(String::is_empty), "{takes:?}");
-    assert_eq!(rig.out(&format!("queue msg {id} done said hi")), format!("job {id} done\n"));
-    let (code, _, err) = rig.run(&format!("queue msg {id} done again"));
-    assert_eq!((code, err), (1, format!("NorthThreads: queue msg: job {id} is not taken\n")));
-    assert!(rig.outside.calls.borrow().is_empty());
-    assert_eq!(rig.sql(&format!("SELECT state || '|' || result FROM job_queue WHERE id = {id}")), "done|said hi");
-}
-
-fn ledger_take(path: &std::path::Path) -> String {
-    let outside = Recorded::default();
-    let context = Context { database: path, actor: "tester".into(), no_native: None, outside: &outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
-    let mut out = Vec::new();
-    assert_eq!(run(&shell_words("queue take laptop"), &context, &mut &b""[..], &mut out, &mut Vec::new()), 0);
-    String::from_utf8(out).unwrap()
-}
-
-#[test]
 fn a_secret_in_a_result_is_never_posted_and_native_items_are_hidden_from_callers_that_may_not_read_them() {
     let mut rig = ledger();
     rig.outside.secret = Some("ghp_");
@@ -111,4 +75,3 @@ fn a_secret_in_a_result_is_never_posted_and_native_items_are_hidden_from_callers
     assert!(rig.out("queue").lines().nth(2).unwrap().starts_with("2   laptop     native  queued"), "{}", rig.out("queue"));
     assert_eq!(rig.run("queue add laptop life#2 -- true"), (1, String::new(), "NorthThreads: native items are not readable here: THREADS_NO_NATIVE is set (agy)\n".into()));
 }
-

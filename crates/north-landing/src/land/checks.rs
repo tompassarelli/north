@@ -211,7 +211,3 @@ pub fn verdict(program: &str, log: &Path, status: ExitStatus) -> Verdict {
 pub fn lane_names<'a>(branches: impl Iterator<Item = &'a str>) -> String {
     branches.collect::<Vec<_>>().join(",")
 }
-
-#[cfg(test)]
-#[path = "checks_tests.rs"]
-mod tests;

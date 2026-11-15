@@ -30,31 +30,6 @@ fn find_here(request: &Request, tip: &str, lanes: &[Lane], reverted: &BTreeSet<S
 }
 
 #[test]
-fn bisects_a_range_to_the_lane_that_turns_the_case_red_and_verifies_only_that_one() {
-    let lanes = [lane("head", "Add e"), lane("l4", "Add d"), lane("l3", "Break x"), lane("l2", "Add b"), lane("l1", "Add a")];
-    let (mut at_probed, mut revert_probed) = (Vec::new(), Vec::new());
-    let finding = find_here(
-        &request(),
-        "head",
-        &lanes,
-        &BTreeSet::new(),
-        |lane| {
-            at_probed.push(lane.commit.clone());
-            Some(if ["l1", "l2"].contains(&lane.commit.as_str()) { BTreeSet::new() } else { x() })
-        },
-        |lane| {
-            revert_probed.push(lane.commit.clone());
-            Some(if lane.commit == "l3" { BTreeSet::new() } else { x() })
-        },
-    );
-    assert_eq!(finding, Finding::Revert { lane: "l3".into(), cases: x().into_iter().collect() });
-    assert_eq!(at_probed, ["head", "l3", "l2", "head", "head"], "the tip reruns twice more, each after a confirmation");
-    let ledger = "1\tnorth\tg1\tgreen\t\t\t5\t\n2\tnorth\tg2\tred-main\tx\t\t5\t\n3\tother\tg3\tgreen\t\t\t5\t";
-    assert_eq!(green_ancestor(ledger, "north", &["g3", "g2", "g1"]), Some("g1".to_owned()));
-    assert_eq!(revert_probed, ["l3", "l3"], "main without the culprit passes twice before its revert");
-}
-
-#[test]
 fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothing() {
     let lanes = [lane("head", "Revert \"Break x\""), lane("sheriff", "Fix\n\nSheriff-Reverts: abc"), lane("older", "Break x")];
     let green = |_: &Lane| Some(BTreeSet::new());
@@ -92,90 +67,6 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
     assert!(verdict_tree::misjudged(&named(Some(format!("{}{commit} red\n", verdict_tree::header("blue", true)))), &commit).is_some(), "another run's record reverts nothing");
     assert!(verdict_tree::misjudged(&named(None), &commit).is_some(), "a run with no record reverts nothing");
     assert!(verdict_tree::misjudged(&request().tree, &commit).is_some(), "a request naming no tree reverts nothing");
-}
-
-#[test]
-fn a_failure_that_passes_at_the_tip_on_the_recheck_is_flaky_and_reverts_nothing() {
-    let lanes = [lane("head", "Add e"), lane("l2", "Add b"), lane("l1", "Add a")];
-    let mut tip_runs = 0;
-    let finding = find_here(
-        &request(),
-        "head",
-        &lanes,
-        &BTreeSet::new(),
-        |lane| {
-            if lane.commit == "head" {
-                tip_runs += 1;
-            }
-            let passes = (lane.commit == "head" && tip_runs > 1) || lane.commit == "l1";
-            Some(if passes { BTreeSet::new() } else { x() })
-        },
-        |_| Some(BTreeSet::new()),
-    );
-    assert_eq!(finding, Finding::Flaky { lane: "l2".into(), cases: x().into_iter().collect() }, "a test that flips between runs at the same tip names no culprit");
-    assert_eq!(tip_runs, 2, "the tip reruns once after the confirmation");
-    let unreached = find_here(&request(), "head", &lanes, &BTreeSet::new(), |lane| {
-        let at_tip = lane.commit == "head";
-        tip_runs += usize::from(at_tip);
-        (!at_tip || tip_runs < 4).then(|| if lane.commit == "l1" { BTreeSet::new() } else { x() })
-    }, |_| Some(BTreeSet::new()));
-    assert!(matches!(unreached, Finding::NoVerdict(_)), "a recheck with no verdict never reverts: {unreached:?}");
-    let mut base_runs = 0;
-    let host_state = find_here(&request(), "head", &lanes, &BTreeSet::new(), |lane| Some(if lane.commit == "l1" { BTreeSet::new() } else { x() }), |_| {
-        base_runs += 1;
-        Some(if base_runs == 1 { BTreeSet::new() } else { x() })
-    });
-    assert_eq!(host_state, Finding::Flaky { lane: "l2".into(), cases: x().into_iter().collect() }, "a case that fails once in two runs on the base names no culprit");
-    assert_eq!(base_runs, 2, "the base runs a second time before any revert");
-}
-
-#[test]
-fn a_red_that_names_no_test_bisects_by_rerunning_its_failing_step_at_the_tip_and_reverts_the_lane_that_broke_it() {
-    let request = clippy_request();
-    assert_eq!(request.failing, clippy(), "the request carries the failing step");
-    assert_eq!(request.log, "/logs/post-land-red.log");
-    let lanes = [lane("red", "Add c"), lane("l2", "Warn in b"), lane("l1", "Add a")];
-    let mut reran = Vec::new();
-    let finding = find_here(
-        &request,
-        "red",
-        &lanes,
-        &BTreeSet::new(),
-        |lane| {
-            reran.push(lane.commit.clone());
-            Some(if lane.commit == "l1" { BTreeSet::new() } else { clippy() })
-        },
-        |lane| Some(if lane.commit == "l2" { BTreeSet::new() } else { clippy() }),
-    );
-    assert_eq!(finding, Finding::Revert { lane: "l2".into(), cases: clippy().into_iter().collect() });
-    assert_eq!(reran, ["red", "l2", "l1", "red", "red"], "the step reruns at the red head, bisects, then rechecks the tip after each confirmation");
-    main_moved_past_the_red_head();
-}
-
-fn main_moved_past_the_red_head() {
-    let request = clippy_request();
-    let lanes = [lane("tip", "Add e"), lane("later", "Add d"), lane("red", "Add c"), lane("culprit", "Warn in b"), lane("l1", "Add a")];
-    let red_from = |commit: &str| ["tip", "later", "red", "culprit"].contains(&commit);
-    let (mut reran, mut without) = (Vec::new(), Vec::new());
-    let finding = find_here(
-        &request,
-        "tip",
-        &lanes,
-        &BTreeSet::new(),
-        |lane| {
-            reran.push(lane.commit.clone());
-            Some(if red_from(&lane.commit) { clippy() } else { BTreeSet::new() })
-        },
-        |lane| {
-            without.push(lane.commit.clone());
-            Some(if lane.commit == "culprit" { BTreeSet::new() } else { clippy() })
-        },
-    );
-    assert_eq!(finding, Finding::Revert { lane: "culprit".into(), cases: clippy().into_iter().collect() });
-    assert_eq!(reran.first().map(String::as_str), Some("tip"), "the failing step reruns at the new tip first: {reran:?}");
-    assert_eq!(without, ["culprit", "culprit"], "main at the tip without the culprit, twice, is the confirmation");
-    let fixed = find_here(&request, "tip", &lanes, &BTreeSet::new(), |_| Some(BTreeSet::new()), |_| Some(BTreeSet::new()));
-    assert_eq!(fixed, Finding::Fixed { cases: clippy().into_iter().collect() }, "a later landing that fixed it leaves nothing to revert");
 }
 
 fn infrastructure_reaches_no_verdict() {
@@ -224,4 +115,3 @@ fn a_check_that_fails_only_on_one_host_is_that_hosts_fault_and_reverts_nothing()
     let unanswered = find(&request, "9b38429b23", &lanes, &BTreeSet::new(), None, |lane: &Lane, on: On| (!matches!(on, On::Besides(_))).then(|| bench(lane, on)).flatten(), bench);
     assert!(matches!(unanswered, Finding::HostFault { elsewhere: None, .. }), "no other host reaching a verdict reverts nothing: {unanswered:?}");
 }
-

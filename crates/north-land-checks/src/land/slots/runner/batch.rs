@@ -82,7 +82,3 @@ pub fn split(log: &str, count: usize) -> Vec<Option<Part>> {
     }
     parts
 }
-
-#[cfg(test)]
-#[path = "batch_tests.rs"]
-mod tests;

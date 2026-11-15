@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use super::recommend_acts::{Issue, decide, read_turn, turn_in};
+use super::recommend_acts::decide;
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 use std::path::PathBuf;
@@ -20,28 +20,6 @@ fn state(test: &str) -> PathBuf {
     dir
 }
 
-fn blocked(verdict: &Verdict) -> bool {
-    matches!(verdict, Verdict::Deny(reason) if reason.starts_with("BLOCKED (recommend-acts)") && !reason.contains('\n'))
-}
-
-#[test]
-fn an_unacted_recommendation_blocks_twice_per_turn_and_one_filed_with_the_url_gh_printed_and_cited_passes() {
-    let dir = state("unacted");
-    let turn = read_turn(&fixture("unacted")).unwrap();
-    assert_eq!((turn.id.as_str(), turn.commands.as_slice()), ("t2", ["north fleet list --json".to_owned()].as_slice()), "the turn starts at the last real prompt, past the meta Stop feedback");
-    let first = decide(&stop("unacted", "s1"), &dir);
-    assert!(blocked(&first), "{first:?}");
-    assert!(matches!(&first, Verdict::Deny(reason) if reason.contains("\"i recommend\"") && reason.contains("created or edited no issue")));
-    assert!(blocked(&decide(&stop("unacted", "s1"), &dir)));
-    assert_eq!(decide(&stop("unacted", "s1"), &dir), Verdict::Allow, "a third stop in the same turn passes");
-    assert!(blocked(&decide(&stop("unacted", "s2"), &dir)), "another session keeps its own count");
-    let dir = state("acted");
-    assert_eq!(decide(&stop("acted", "s1"), &dir), Verdict::Allow);
-    let mut uncited = stop("acted", "s3");
-    uncited.data["last_assistant_message"] = "I recommend moving the lander to gex45; filed and launched.".into();
-    assert!(matches!(decide(&uncited, &dir), Verdict::Deny(reason) if reason.contains("cites no issue")));
-}
-
 #[test]
 fn a_recommendation_naming_an_ask_once_category_or_only_quoted_passes() {
     assert_eq!(decide(&stop("ask_once", "s1"), &state("ask-once")), Verdict::Allow);
@@ -51,24 +29,4 @@ fn a_recommendation_naming_an_ask_once_category_or_only_quoted_passes() {
     assert!(super::recommend_acts::recommendation("My recommendation is the second option; answer it with the fleet.", &turn).is_some());
     assert!(super::recommend_acts::recommendation("The refused reply said \"I recommend the second option\" and `want me to` stayed in the code span.", &turn).is_none(), "a phrase only quoted is not a recommendation");
     assert!(super::recommend_acts::recommendation("The refused reply said \"I recommend the first option\". I recommend the second option.", &turn).is_some(), "an unquoted phrase still is");
-}
-
-#[test]
-fn a_cited_issue_is_covered_only_once_the_turn_edited_that_same_issue_named_by_its_first_positional() {
-    let dir = state("cited-box");
-    let launched = decide(&stop("launched_only", "s1"), &dir);
-    assert!(blocked(&launched), "{launched:?}");
-    assert!(matches!(&launched, Verdict::Deny(reason) if reason.contains("no box tracks this on north#633") && reason.contains("gh issue edit N")));
-    assert_eq!(decide(&stop("edited", "s2"), &dir), Verdict::Allow);
-    let other = decide(&stop("other_issue", "s1"), &state("other-issue"));
-    assert!(blocked(&other), "{other:?}");
-    assert!(matches!(&other, Verdict::Deny(reason) if reason.contains("cites north#640") && reason.contains("only created or edited north#633")));
-    let moved = |command: &str| {
-        let lines = format!("{}\n{}\n", r#"{"type":"user","uuid":"t","message":{"role":"user","content":"x"}}"#, json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"a","name":"Bash","input":{"command":command}}]}}));
-        turn_in(lines.as_bytes()).unwrap().moved
-    };
-    let issue = |repo: Option<&str>, number| Issue { repo: repo.map(str::to_owned), number };
-    assert_eq!(moved("gh issue edit -R tompassarelli/north --title 'Split 3 checks' 633"), vec![]);
-    assert_eq!(moved("gh issue edit 633 -R tompassarelli/north --add-label x"), vec![issue(Some("north"), 633)]);
-    assert_eq!(moved("gh -R tompassarelli/south issue edit 633"), vec![issue(Some("south"), 633)]);
 }

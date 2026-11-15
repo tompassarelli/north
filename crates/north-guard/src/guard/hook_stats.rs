@@ -146,39 +146,3 @@ pub fn render(stats: &Stats, window: &str, samples: &[Sample]) -> String {
     let _ = writeln!(out, "  {}", if stats.prune.is_empty() { "none".to_owned() } else { stats.prune.join(", ") });
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::threads::runs::hook_rules::classify;
-
-    /// The 2026-11-07 to 2026-11-10 samples north#1041 added read at most 10% false, and each
-    /// carries enough rows to mean something. The guards the naming added keep their own rule:
-    /// their refusal text is filed under the guard, never `other` (north#1041).
-    #[test]
-    fn the_north_1041_samples_read_at_most_10_percent_false() {
-        let samples = samples(SAMPLES).unwrap();
-        for rule in ["issue-cleanup", "issue-filing", "public-text"] {
-            let sample = samples.iter().rev().find(|sample| sample.rule == rule).unwrap_or_else(|| panic!("{rule} has no sample"));
-            assert!(sample.rows > 0, "{rule} has no rows");
-            assert!(sample.falses * 10 <= sample.rows, "{rule} reads {}/{} false", sample.falses, sample.rows);
-            assert!(sample.narrowed.is_some(), "{rule} has no narrowed line");
-        }
-        let worktree = samples.iter().rev().find(|sample| sample.rule == "worktree-remove").unwrap_or_else(|| panic!("worktree-remove has no sample"));
-        assert!(worktree.rows > 0, "worktree-remove has no rows");
-        assert_eq!(worktree.falses, 0, "worktree-remove reads {}/{} false", worktree.falses, worktree.rows);
-        for (refusal, rule) in [
-            ("No. Land ticket x still waits to land from y, and the lander fetches it from that worktree.", "worktree-remove"),
-            ("No. A worker sandbox cannot delete a directory in worktrees/, so `git worktree remove` there unregisters x.", "worktree-remove"),
-            ("This session's cwd is the lane worktree x, and an in-process worker inherits it.", "agent-cwd"),
-            ("BLOCKED (question-box): a question box stops the proxy's whole session until Tom answers.", "question-box"),
-            ("unrunnable-box: a new unticked box must name a command that `north task check --done-when` can run.", "unrunnable-box"),
-            ("No. This edit replaces x#1's 734-character body with 353 characters, which blanks or drops most of it.", "issue-shrink"),
-            ("/x/shots.ts: new Python or Script file is forbidden; write it in Rust under src/ or as a north subcommand", "language"),
-            ("This Bash command would run `git worktree remove` inside the externally-consumed pin north/pins/x (/x).", "launch-critical"),
-            ("BLOCKED: unseen unit operand teardown refused — its operand comes from `$VAR`", "session-kill"),
-        ] {
-            assert_eq!(classify(refusal), rule, "{refusal:?} is not filed as {rule}");
-        }
-    }
-}

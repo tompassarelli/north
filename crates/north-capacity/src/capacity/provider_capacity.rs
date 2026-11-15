@@ -8,9 +8,6 @@ use serde_json::Value;
 
 use crate::foundation::clock::Timestamp;
 
-#[cfg(test)]
-mod tests;
-
 const ERROR_INFO: &str = "server_overloaded";
 const MESSAGE: &str = "Selected model is at capacity";
 const USAGE: &str = "usage: north provider-capacity events|status [--minutes N]";

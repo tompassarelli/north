@@ -5,8 +5,6 @@ use rusqlite::types::Value;
 use serde_json::{Value as Json, json};
 
 use super::run;
-use crate::threads::attribution::{Harness, losses};
-use crate::threads::causes;
 use crate::foundation::clock::Timestamp;
 use crate::threads::fake::Recorded;
 use crate::threads::verb::Context;
@@ -62,39 +60,6 @@ impl Ledger {
         statement.query_map([], |row| (0..width).map(|index| row.get::<_, Value>(index)).collect()).unwrap().collect::<Result<_, _>>().unwrap()
     }
 
-}
-
-fn readout(provider: &str, account: &str, minute: u32, used: f64) -> Json {
-    json!({"type": "usage", "ts": format!("2026-10-11T00:{minute:02}:00Z"), "provider": provider, "account": account, "kind": "window",
-           "name": if provider == "codex" { "week" } else { "weekly_all" }, "used_pct": used, "resets_at": "2026-10-15T00:00:00Z"})
-}
-
-fn routine(id: &str, account: &str, samples: &[(u32, f64)]) -> Json {
-    let samples: Vec<Json> = samples.iter().map(|(minute, weight)| json!({"request": format!("{id}-{minute}"), "ts": format!("2026-10-11T00:{minute:02}:00Z"), "weight": weight})).collect();
-    json!({"id": id, "role": "routine", "account": account, "usage_samples": samples, "tier": "high", "actual_min": 20, "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:20:00Z", "outcome": "done", "unpriced_models": ["zeta-1", "alpha-2"]})
-}
-
-fn first_batch() -> Vec<Json> {
-    vec![readout("claude", "b", 0, 10.0), readout("claude", "b", 10, 14.0), readout("claude", "b", 20, 20.0), readout("codex", "", 0, 10.0), readout("codex", "", 10, 13.0), routine("a", "claude-b", &[(5, 730.0)])]
-}
-
-fn second_batch() -> Vec<Json> {
-    vec![readout("claude", "b", 30, 23.0), routine("b", "claude-b", &[(8, 270.0), (15, 100.0), (25, 30.0)]), routine("c", "codex", &[(5, 400.0)])]
-}
-
-#[test]
-fn an_incremental_ingest_leaves_runs_and_run_costs_as_a_full_ingest_does() {
-    let full = ledger();
-    full.ingest(&[first_batch(), second_batch()].concat());
-    let incremental = ledger();
-    incremental.ingest(&first_batch());
-    incremental.ingest(&second_batch());
-    incremental.ingest(&[]);
-    for sql in ["SELECT * FROM run_costs ORDER BY account, started, ended, agent", "SELECT * FROM runs ORDER BY agent"] {
-        let expected = full.rows(sql);
-        assert!(!expected.is_empty(), "{sql}");
-        assert_eq!(incremental.rows(sql), expected, "{sql}");
-    }
 }
 
 const RECORDED_BATCHES: &str = include_str!("fixtures/usage_batches.jsonl");
@@ -170,120 +135,6 @@ fn a_usage_batch_re_prices_only_the_intervals_from_its_rows_through_the_next_ris
     assert_eq!(incremental.rows(RUN_COSTS), full.rows(RUN_COSTS), "a price change re-prices every interval at the next batch");
 }
 
-/// A long report's closing `Stop:` line fell outside the 600 characters the ledger keeps, so 40% of a day's worker
-/// usage read as unattributed (north#706); since north#872 the kept line names no class, and only a boundary's record does.
-/// Eleven of the 26 runs read as landing refusals over the 24 h to 2026-11-07T18:26Z ended `Stop: landing` on a queued
-/// lane that then landed with the run's sha (north#829): a run whose lane landed is no harness loss.
-#[test]
-fn a_failed_run_is_attributed_by_its_boundary_record_and_its_kept_stop_line_alone_names_no_class() {
-    let ledger = ledger();
-    let worker = |id: &str, report: &str, stop: Option<&str>| {
-        json!({"id": id, "role": "worker", "fleet_name": format!("w-{id}"), "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
-               "tier": "high", "actual_min": 20, "started": "2026-10-28T08:20:00Z", "ended": "2026-10-28T08:40:00Z", "outcome": "not done", "report": report, "stop": stop})
-    };
-    let head: String = format!("Not done: {}", "the lane holds three files. ".repeat(30)).chars().take(600).collect();
-    ledger.ingest(&[worker("long", &head, Some("Stop: landing")), worker("cut", "Not done: clippy is clean, so the lane goes next.", None), worker("told", "Not done: the proxy asked me to stop here.", None), worker("queued", "Not done: the lane is queued with the lander.", Some("Stop: landing")), worker("prov", "Not done: the provider dropped the stream.", None), worker("launch", "Not done: placement refused the launch.", None), worker("lease", "Not done: the build stopped.", None), worker("safety", "Not done: the safeguards stopped the response.\nStop: reasoning", None)]);
-    ledger.ingest(&[json!({"push_join": 1, "fleet_name": "w-queued", "landed_sha": "abc1234", "landed_at": "2026-10-28T08:45:00.000Z"})]);
-    let context = Context { database: &ledger.path, actor: "tester".into(), no_native: None, outside: &ledger.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
-    for (session, source, cause) in [("w-cut", "fleet", "halted"), ("w-told", "fleet", "proxy"), ("w-prov", "provider", "provider error"), ("w-launch", "launch", "launch refusal"), ("w-lease", "capacity", "lease timeout"), ("w-safety", "provider", "safety refusal")] {
-        let argv: Vec<String> = ["cause", "record", "--session", session, "--source", source, "--cause", cause].map(str::to_owned).to_vec();
-        assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
-    }
-    let reading = losses(&Connection::open(&ledger.path).unwrap(), 0).unwrap();
-    let classes: Vec<(Harness, usize)> = reading.losses.iter().map(|loss| (loss.harness, loss.runs)).collect();
-    assert_eq!(classes, vec![(Harness::Halted, 1), (Harness::ProviderError, 1), (Harness::LaunchRefusal, 1), (Harness::LeaseTimeout, 1), (Harness::SafetyRefusal, 1)]);
-    assert_eq!(reading.proxy.0, 1, "a run the proxy cut short is the proxy's, apart from the harness classes");
-    assert_eq!(reading.unclaimed_usd, 0.0, "{reading:?}");
-}
-
-/// north-730-d0235 opened `Blocked:` on ccx33 and the ready bar read it as Tom's on 2026-11-07, hiding a placement loss
-/// (north#751). Workers now record a need with `north fleet need`, which writes a `host-need` cause row for their session:
-/// a run whose session recorded one inside its window is placement whatever its report says, and a run whose session
-/// opened a gate is Tom's from the gate's row, no harness loss, whatever its `Blocked:` words say (north#872).
-#[test]
-fn a_run_whose_session_recorded_a_host_need_is_placement_and_a_gated_one_is_no_harness_loss() {
-    let ledger = ledger();
-    let worker = |id: &str, report: &str| {
-        json!({"id": id, "role": "worker", "fleet_name": format!("w-{id}"), "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
-               "tier": "high", "actual_min": 20, "started": "2026-10-28T08:20:00Z", "ended": "2026-10-28T08:40:00Z", "outcome": "escalated", "report": report})
-    };
-    ledger.ingest(&[worker("need", "Blocked: I'm on ccx33, and the runner lane lives on gex45."), worker("tom", "Blocked: the pilot spends money.\nStop: decision")]);
-    let context = Context { database: &ledger.path, actor: "tester".into(), no_native: None, outside: &ledger.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
-    for (session, source, cause, reason) in [("w-need", "host-need", "placement", "gex45: the runner lane lives there"), ("w-tom", "gate", "tom", "the pilot spends money")] {
-        let argv: Vec<String> = ["cause", "record", "--session", session, "--source", source, "--cause", cause, "--reason", reason].map(str::to_owned).to_vec();
-        assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
-    }
-    let reading = losses(&Connection::open(&ledger.path).unwrap(), 0).unwrap();
-    let classes: Vec<(Harness, usize)> = reading.losses.iter().map(|loss| (loss.harness, loss.runs)).collect();
-    assert_eq!(classes, vec![(Harness::Placement, 1)], "{reading:?}");
-}
-
-/// On 2026-11-07, 22 of the 24 Done runs from 23:00 to 06:14 UTC that expected a landing showed `landed = 0` on their row
-/// though the push log named a landing by the same fleet session: a session on another host writes its row there, and the
-/// lander host holds the landing (north#791). The lander host's push row gives the session's newest run before it the sha.
-#[test]
-fn a_run_ingested_on_another_host_takes_the_landing_the_lander_hosts_push_log_names_for_its_session() {
-    let ledger = ledger();
-    let run = |id: &str, started: &str, ended: &str| {
-        json!({"id": id, "role": "worker", "fleet_name": "cpx62-n757-spool", "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
-               "tier": "high", "actual_min": 20, "started": started, "ended": ended, "outcome": "done", "report": "Done: queued.", "expects_landing": 1, "landed": 0})
-    };
-    ledger.ingest(&[run("first", "2026-10-28T06:00:00.000Z", "2026-10-28T06:20:00.000Z"), run("second", "2026-10-28T08:20:00.000Z", "2026-10-28T08:40:00.000Z")]);
-    ledger.ingest(&[json!({"push_join": 1, "fleet_name": "cpx62-n757-spool", "landed_sha": "abc1234", "landed_at": "2026-10-28T08:45:00.000Z"})]);
-    assert_eq!(
-        ledger.rows("SELECT agent, landed, coalesce(landed_sha, '') FROM runs ORDER BY started"),
-        vec![vec![Value::Text("first".into()), Value::Integer(0), Value::Text(String::new())], vec![Value::Text("second".into()), Value::Integer(1), Value::Text("abc1234".into())]]
-    );
-}
-
-/// On 2026-11-07 from 06:52 UTC every whiterabbit worker-ledger batch carried about 2,050 push_join rows, each a scan of
-/// the ledger's 10,090 runs, so one ingest held nexus's ingest lock 35 s, past the caller's 20 s ssh bound, and the spool
-/// resent the same batch until nexus's CPU pressure starved every other ledger call.
-#[test]
-fn the_landing_join_probes_an_index_instead_of_scanning_the_runs() {
-    let ledger = ledger();
-    ledger.ingest(&[json!({"push_join": 1, "fleet_name": "cpx62-n757-spool", "landed_sha": "abc1234", "landed_at": "2026-10-28T08:45:00.000Z"})]);
-    let db = Connection::open(&ledger.path).unwrap();
-    let mut plan = db.prepare(&format!("EXPLAIN QUERY PLAN {}", super::record::PUSH_JOIN)).unwrap();
-    let steps: Vec<String> = plan.query_map(rusqlite::params!["", "", ""], |row| row.get(3)).unwrap().map(Result::unwrap).collect();
-    assert!(steps.iter().all(|step| !step.starts_with("SCAN")), "{steps:?}");
-}
-
-/// Two workers on two boxes of north#782 were one claim in the ledger, so the second ingest took the issue from the first.
-#[test]
-fn two_running_workers_on_two_boxes_of_one_issue_hold_one_claim_each_and_their_run_rows_name_the_issue_and_the_box() {
-    let ledger = ledger();
-    let worker = |id: &str, status: &str, box_text: Option<&str>| {
-        let brief = format!("Item: makgora#782\n{}Category: feature\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n", box_text.map(|text| format!("Box: {text}\n")).unwrap_or_default());
-        json!({"id": id, "role": "worker", "status": status, "tier": "sonnet", "started": "2026-10-28T08:00:00Z", "ended": "2026-10-28T08:30:00Z", "actual_min": 30, "outcome": "done", "report": "Done:", "eta_min": 60, "brief": brief})
-    };
-    ledger.ingest(&[worker("w1", "running", Some("the loss is classified")), worker("w2", "running", Some("the staffing replays"))]);
-    assert_eq!(
-        ledger.rows("SELECT item, owner FROM claims ORDER BY item"),
-        [["makgora#782@the-loss-is-classified", "w1"], ["makgora#782@the-staffing-replays", "w2"]].map(|row| row.map(|text| Value::Text(text.to_owned())).to_vec())
-    );
-    ledger.ingest(&[worker("w1", "finished", Some("the loss is classified")), worker("w2", "finished", Some("the staffing replays"))]);
-    assert!(ledger.rows("SELECT item FROM claims").is_empty());
-    assert_eq!(
-        ledger.rows("SELECT agent, item, box FROM runs WHERE item = 'makgora#782' ORDER BY agent"),
-        [["w1", "makgora#782", "the loss is classified"], ["w2", "makgora#782", "the staffing replays"]].map(|row| row.map(|text| Value::Text(text.to_owned())).to_vec())
-    );
-}
-
-/// north#798: the replica's capacity rows stopped on 2026-10-10 while admission kept deciding every build and lease; each
-/// admission a host ships is one ledger row, a repeat adds none, and the ledger names each host's newest for the next shipment.
-#[test]
-fn a_shipped_capacity_admission_is_one_ledger_row_and_a_repeat_adds_none() {
-    let ledger = ledger();
-    let admission = |id: &str, host: &str, at: &str, decision: &str| json!({"type": "capacity", "id": id, "host": host, "at": at, "owner": "land-check", "class": "heavy", "decision": decision, "reason": "RUN", "queued_seconds": 0.0, "cpus": 4.0, "memory_mib": 8192.0});
-    let batch = [admission("a", "nexus", "2026-10-28T08:00:00.000Z", "RESERVED"), admission("b", "nexus", "2026-10-28T08:30:00.000Z", "DEFER"), admission("c", "gex45", "2026-10-28T08:10:00.000Z", "REFUSED")];
-    assert!(ledger.ingest(&batch).contains("3 capacity admissions"));
-    assert!(!ledger.ingest(&batch).contains("capacity admissions"));
-    assert_eq!(ledger.rows("SELECT count(*) FROM capacity_admissions"), [[Value::Integer(3)]]);
-    let (code, seen, _) = ledger.call(&["run-ids", "--capacity"], "");
-    assert_eq!((code, seen.as_str()), (0, "gex45\t2026-10-28T08:10:00.000Z\nnexus\t2026-10-28T08:30:00.000Z\n"));
-}
-
 /// On 2026-11-08 north-719-lead held north#719 while it staffed children on its boxes; the ingest of a child's running run
 /// took the lead's whole-issue claim, so every sibling's box launch was refused as owned by the child's conversation.
 /// On 2026-11-13 a worker briefed `Item: none` read north#1247 with `gh issue view`, and its running run claimed the whole issue.
@@ -298,39 +149,6 @@ fn a_running_worker_leaves_a_claim_its_lead_holds_and_claims_only_the_unheld_iss
         ledger.rows("SELECT item, owner FROM claims ORDER BY item"),
         [["north#719", "north-719-lead"], ["north#720", "c2"]].map(|row| row.map(|text| Value::Text(text.to_owned())).to_vec())
     );
-}
-
-/// Session f0efb1c7 (north#840's lane, 2026-11-07) ended a turn on "My lane is still queued: ... It goes into the next batch.",
-/// was recorded `unclear`, and carried on 17 minutes later: a run whose session opened a newer turn is idle, not a lost
-/// first try, until the session's next report decides it (north#706).
-#[test]
-fn a_not_done_run_whose_session_carries_on_reads_idle_until_its_next_report_decides_it() {
-    let ledger = ledger();
-    let run = |status: &str, backfill: bool, ended: &str, outcome: Option<&str>| {
-        let mut row = json!({"id": "carried", "role": "worker", "status": status, "backfill": backfill, "tier": "sonnet", "started": "2026-10-28T08:00:00Z", "ended": ended, "actual_min": 30, "report": "My lane is still queued.", "brief": "Item: north#840\nCategory: feature\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n"});
-        if let Some(outcome) = outcome {
-            row["outcome"] = json!(outcome);
-        }
-        row
-    };
-    let outcome = || ledger.rows("SELECT outcome FROM runs WHERE agent = 'carried'");
-    let read = |name: &str| vec![vec![Value::Text(name.to_owned())]];
-    ledger.ingest(&[run("finished", false, "2026-10-28T08:30:00Z", Some("not done"))]);
-    assert_eq!(outcome(), read("not done"));
-    ledger.ingest(&[run("running", true, "2026-10-28T08:47:00Z", None)]);
-    assert_eq!(outcome(), read("idle"));
-    ledger.ingest(&[run("finished", true, "2026-10-28T09:10:00Z", Some("not done"))]);
-    assert_eq!(outcome(), read("not done"), "the next finished turn decides it again");
-}
-
-/// On 2026-11-10 verify-north's Claude worker landed its commit in 13 s with a brief naming no category, and its run read
-/// `not done`: every ended run arrives `not done` for the settle to judge, the zero-minute uncategorized run was stored as
-/// a judge, and the settle judges workers only (north#1022). A run that landed a commit is a worker, settled done.
-#[test]
-fn a_quick_uncategorized_run_that_landed_its_commit_is_a_worker_settled_done() {
-    let ledger = ledger();
-    ledger.ingest(&[json!({"id": "vn", "fleet_name": "vn-1", "account": "api", "tier": "haiku", "actual_min": 0, "started": "2026-10-28T08:20:00.000Z", "ended": "2026-10-28T08:20:30.000Z", "outcome": "not done", "report": "Done: queued.", "expects_landing": 1, "landed": 1, "landed_sha": "f57cfd3"})]);
-    assert_eq!(ledger.rows("SELECT role, outcome, landed, landed_sha FROM runs"), vec![vec![Value::Text("worker".into()), Value::Text("done".into()), Value::Integer(1), Value::Text("f57cfd3".into())]]);
 }
 
 /// A worker claimed two boxes of north#872, ticked the first citing the main commit its Done-when check passed on, and

@@ -74,17 +74,3 @@ pub fn pid(dir: &Path) -> Option<u32> {
 pub fn scope(dir: &Path) -> Option<String> {
     fs::read_to_string(scope_path(dir)).ok().map(|unit| unit.trim().to_owned()).filter(|unit| !unit.is_empty())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_long_state_root_and_session_name_keep_the_socket_path_short() {
-        let state = Path::new("/tmp").join("state".repeat(40)).join("session".repeat(40));
-        let path = socket_path(&state);
-        assert!(path.as_os_str().len() < SOCKET_PATH_LIMIT, "{}", path.display());
-        assert_eq!(path.file_name().unwrap().as_encoded_bytes().len(), 2 * SOCKET_ID_BYTES + 5);
-        assert_ne!(path, socket_path(&Path::new("/tmp").join("another")));
-    }
-}

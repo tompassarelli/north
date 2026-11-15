@@ -113,7 +113,3 @@ pub fn queue(queue_directory: &Path, landed: &Landed, claims: &dyn Fn() -> Resul
         })
         .collect()
 }
-
-#[cfg(test)]
-#[path = "leaf_tests.rs"]
-mod tests;

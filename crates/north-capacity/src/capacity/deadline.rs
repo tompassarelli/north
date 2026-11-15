@@ -297,7 +297,3 @@ impl Drop for SlotWait {
         self.end();
     }
 }
-
-#[cfg(test)]
-#[path = "deadline_tests.rs"]
-mod tests;

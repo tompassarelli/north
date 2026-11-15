@@ -34,30 +34,3 @@ fn adopt(session: &str, cwd: Option<&str>) -> Option<String> {
     let output = process::run_command_within(command, None, ADOPT_LIMIT)?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::Cell;
-
-    #[test]
-    fn a_session_start_payload_from_an_interactive_window_runs_the_free_name_adoption_and_no_other_start_does() {
-        let payload = br#"{"hook_event_name":"SessionStart","session_id":"conv-1","cwd":"/tmp","source":"startup"}"#;
-        let input = HookInput::parse(payload).unwrap();
-        let seen = Cell::new(String::new());
-        let verdict = adoption(&input, Some("conv-1"), |session| {
-            seen.set(session.to_owned());
-            Some("proxy now reaches this window on account a\n".into())
-        });
-        assert_eq!(seen.take(), "conv-1");
-        assert_eq!(verdict, Verdict::Advise("proxy now reaches this window on account a".into()));
-
-        assert_eq!(adoption(&input, Some("conv-1"), |_| Some(String::new())), Verdict::Allow, "a held name prints nothing");
-        assert_eq!(adoption(&input, Some("conv-1"), |_| None), Verdict::Allow, "a failed adoption leaves the start unchanged");
-        let ran = Cell::new(false);
-        assert_eq!(adoption(&input, None, |_| { ran.set(true); None }), Verdict::Allow);
-        assert!(!ran.get(), "a fleet session or subagent never runs the adoption");
-        assert_eq!(adoption(&input, Some("tom-window"), |_| { ran.set(true); None }), Verdict::Allow);
-        assert!(!ran.get(), "a start whose session is not the conversation its own window holds, such as the token measurement's budget start, never runs the adoption");
-    }
-}

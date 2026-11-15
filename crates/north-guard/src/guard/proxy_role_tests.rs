@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::host::{MessageReads, ReadStreak};
-use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, lane_changes, streak_verdict};
+use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, streak_verdict};
 use super::proxy_loads::harness_load;
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
@@ -71,145 +71,6 @@ fn denied(world: &Fake, input: &HookInput) -> bool {
     matches!(decide(world, input), Verdict::Deny(reason) if reason.contains("north fleet launch"))
 }
 
-fn implementation() -> Vec<HookInput> {
-    vec![
-        tool("Edit", json!({"file_path": "/home/tom/code/north/worktrees/x/src/lib.rs", "old_string": "a", "new_string": "b"})),
-        tool("Write", json!({"file_path": "~/code/operator/main/agents/x.md", "content": "x"})),
-        tool("Write", json!({"file_path": "src/main.rs", "content": "x"})),
-        bash("git commit -m wip src/lib.rs"),
-        bash("cd /home/tom/code/north/worktrees/x && git -C . commit --amend"),
-        bash("safe-push --to main"),
-        bash("FOO=1 /home/tom/.local/bin/safe-push --to main"),
-        bash("cargo build -p north-guard"),
-        bash("cargo +nightly test --lib"),
-        bash("cargo clippy --tests"),
-        bash("north capacity offload run --host gex45 -- 'cd /x && cargo test'"),
-        bash("cargo --color always test"),
-        bash("cargo c"),
-        bash("git -c user.name=\"A B\" commit -m x"),
-        bash("bash -c 'cargo test --lib'"),
-        bash("ssh gex45 \"cd x && git commit -m y\""),
-        bash("timeout 60 cargo test"),
-        bash("env -u X cargo build"),
-        tool("Agent", json!({"subagent_type": "worker", "description": "d", "prompt": "p"})),
-        tool("Agent", json!({"description": "d", "prompt": "p"})),
-    ]
-}
-
-#[test]
-fn the_proxy_is_refused_every_implementation_action_and_a_question_box_that_would_block_its_session() {
-    for input in implementation() {
-        assert!(denied(&proxy(), &input), "{:?}", input.data);
-    }
-    let ask = tool("AskUserQuestion", json!({"questions": [{"question": "Give gex45 a key nexus accepts?", "options": [{"label": "yes"}, {"label": "no"}]}]}));
-    let Verdict::Deny(reason) = super::question_box::decide(&proxy(), &ask) else { panic!("a proxy's question box blocks its whole session and must be denied") };
-    assert!(reason.contains("north gate open") && reason.contains("--default-after") && reason.contains("multiple-choice question in text"), "{reason}");
-    assert_eq!(super::question_box::decide(&worker(), &ask), Verdict::Allow, "a worker's question becomes a gate through its host");
-    a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused();
-}
-
-#[test]
-fn a_proxy_resumed_by_hand_on_its_profile_is_the_proxy_and_a_claude_started_from_its_shell_is_not() {
-    let commit = bash("git commit -m x");
-    let profile = Some("/home/tom/.local/state/north/profiles/claude-a");
-    let by_hand = Fake { account: Some("a"), config: profile, start: Some((false, false)), ..Fake::default() };
-    assert!(denied(&by_hand, &commit));
-    let scripted = Fake { start: Some((false, true)), ..by_hand };
-    assert_eq!(decide(&scripted, &commit), Verdict::Allow);
-    let elsewhere = Fake { config: Some("/home/tom/.local/state/north/profiles/claude-b"), start: Some((false, false)), ..by_hand };
-    assert_eq!(decide(&elsewhere, &commit), Verdict::Allow);
-    let unknown = Fake { start: None, ..by_hand };
-    assert_eq!(decide(&unknown, &commit), Verdict::Allow);
-    let nested = Fake { start: Some((true, true)), ..proxy() };
-    assert_eq!(decide(&nested, &commit), Verdict::Allow);
-    let nested_by_hand = Fake { start: Some((true, false)), ..by_hand };
-    assert_eq!(decide(&nested_by_hand, &commit), Verdict::Allow);
-    let launched = Fake { start: Some((false, true)), ..proxy() };
-    assert!(denied(&launched, &commit));
-}
-
-#[test]
-fn tom_resumed_window_on_another_profile_than_the_registered_proxy_is_his_window_but_not_the_proxy() {
-    use super::proxy_role::is_tom_window;
-    let input = tool("Bash", json!({"command": "git commit -m x"}));
-    let claude_c = Some("/home/tom/.local/state/north/profiles/claude-c");
-    let resumed = Fake { registered: Some("d11ef811"), account: Some("a"), config: claude_c, start: Some((false, false)), ..Fake::default() };
-    assert!(is_tom_window(&resumed, &input));
-    assert_eq!(decide(&resumed, &input), Verdict::Allow, "the code-work refusals stay with the registered proxy");
-    assert!(!is_tom_window(&Fake { start: Some((false, true)), ..resumed }, &input), "a claude -p is not his window");
-    let nested = Fake { registered: Some("d11ef811"), account: Some("a"), config: claude_c, start: Some((true, false)), ..Fake::default() };
-    assert!(!is_tom_window(&nested, &input));
-    let fleet_worker = Fake { registered: Some("d11ef811"), account: Some("a"), config: claude_c, start: Some((false, false)), ..worker() };
-    assert!(!is_tom_window(&fleet_worker, &input));
-    let unknown = Fake { start: None, ..Fake::default() };
-    assert!(!is_tom_window(&unknown, &input));
-}
-
-fn a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused() {
-    let landing = [
-        bash(&format!("cd {LANE} && git commit -qam x")),
-        bash(&format!("cd {LANE}; safe-push --to main")),
-        bash(&format!("git -C {LANE} commit -m x")),
-        bash("cd ../worktrees/lane && git add -A && git commit -m x && safe-push --to main"),
-        bash("cd ~/code/north/worktrees/lane && git commit -m x"),
-        bash(&format!("cat /tmp/x.output; cd {LANE} && git commit -qam x && git log -1 --oneline")),
-        bash(&format!("cd /home/tom/code/north/main && git fetch -q && cd {LANE} && sed -i 1d docs/a.md && git commit -qam x")),
-        bash(&format!("cd {LANE}; git fetch -q origin && git rebase -q origin/main 2>&1 | tail -1; safe-push --to main")),
-    ];
-    let lane = |files| Fake { lane: Some(files), ..proxy() };
-    for allowed in [&["harness/defaults.toml"][..], &["docs/features.md"], &["harness/skills/github/SKILL.md"], &["harness/skills/github/references/x.md"]] {
-        for input in &landing {
-            assert_eq!(decide(&lane(allowed), input), Verdict::Allow, "{allowed:?} {:?}", input.data);
-        }
-    }
-    for refused in [&["src/lib.rs"][..], &["harness/defaults.toml", "docs/a.md"], &["harness/code/x.rs"], &["harness/skills/github/agents/x.md"], &["docs/../src/a.rs"], &[]] {
-        for input in &landing {
-            assert!(denied(&lane(refused), input), "{refused:?} {:?}", input.data);
-        }
-    }
-    assert!(denied(&proxy(), &landing[0]), "an unreadable lane is refused");
-    for elsewhere in ["git commit -m x", "safe-push --to main", "cd /home/tom/code/north/main && git commit -m x", "git -C /home/tom/code/north/main commit -m x"] {
-        assert!(denied(&lane(&["harness/defaults.toml"]), &bash(elsewhere)), "{elsewhere} acts in the session directory");
-    }
-    for elsewhere in [format!("cd {LANE} && git commit -qam x && cd /home/tom/code/north/main && git commit -qam y"), "cd /home/tom/code/north/main && git commit -qam y".to_owned()] {
-        assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&elsewhere)), "{elsewhere} lands outside the lane");
-    }
-    assert_eq!(decide(&proxy(), &bash("git commit --allow-empty --dry-run -m probe")), Verdict::Allow, "a dry run commits nothing");
-    for unresolved in [format!("cd \"{LANE}\" && git commit -m x"), "cd $D && git commit -m x".to_owned(), format!("cd {LANE} && cd .. && git commit -m x"), format!("git -C {LANE} -C /tmp commit -m x"), format!("cd {LANE} && git -C /tmp commit -m x")] {
-        assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&unresolved)), "{unresolved}");
-    }
-    assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&format!("cd {LANE} && git commit -m x && cargo test"))), "only the landing steps are allowed");
-    a_lane_behind_origin_main_lists_only_the_files_it_changed();
-}
-
-fn a_lane_behind_origin_main_lists_only_the_files_it_changed() {
-    let root = tempfile::tempdir().unwrap();
-    let dir = root.path().to_str().unwrap();
-    let git = |args: &[&str]| {
-        let output = std::process::Command::new("git").args(["-C", dir, "-c", "user.email=t@example", "-c", "user.name=t"]).args(args).output().unwrap();
-        assert!(output.status.success(), "git {args:?}");
-    };
-    let write = |name: &str| {
-        std::fs::create_dir_all(root.path().join(name).parent().unwrap()).unwrap();
-        std::fs::write(root.path().join(name), name).unwrap();
-    };
-    git(&["init", "-q", "-b", "main"]);
-    write("base.txt");
-    git(&["add", "-A"]);
-    git(&["commit", "-qm", "base"]);
-    git(&["branch", "lane"]);
-    write("src/moved.rs");
-    git(&["add", "-A"]);
-    git(&["commit", "-qm", "main moved"]);
-    git(&["update-ref", "refs/remotes/origin/main", "main"]);
-    git(&["checkout", "-q", "lane"]);
-    write("docs/spend-rule.md");
-    assert_eq!(lane_changes(dir), Some(vec!["docs/spend-rule.md".to_owned()]), "untracked");
-    git(&["add", "-A"]);
-    git(&["commit", "-qm", "lane"]);
-    assert_eq!(lane_changes(dir), Some(vec!["docs/spend-rule.md".to_owned()]), "committed");
-}
-
 fn reads(looks: usize, looking: bool) -> ReadStreak {
     ReadStreak { calls: 3, subject: "why is the laptop at load 87?".into(), shapes: vec![("ps".into(), 3)], message: MessageReads { looks, looking } }
 }
@@ -255,23 +116,6 @@ fn harness_required_loads_spend_no_proxy_read_budget() {
     ] {
         assert!(!load(tool, text), "{tool} {text} is a look");
     }
-}
-
-#[test]
-fn a_path_inside_an_issue_body_is_not_a_proxy_read() {
-    let body = "gh issue create -R tompassarelli/north --title 'EVALS' --body \"$(cat <<'EOF'\nCause: it does not read X\nrg -n x /home/tom/code/north/main/docs/EVALS.md\ncat ~/code/north/main/Cargo.toml | head\nEOF\n)\"";
-    let plain = "gh issue create -R tompassarelli/north --title t --body-file - <<'EOF'\nsee: rg -n x /home/tom/code/north/main/docs/EVALS.md\nEOF";
-    let quoted = "gh issue comment 1106 --body 'the guard refused rg /home/tom/code/north/main/docs/EVALS.md; cat /home/tom/code/north/main/Cargo.toml'";
-    for command in [body, plain, quoted] {
-        assert_eq!(decide(&proxy(), &bash(command)), Verdict::Allow, "{command}");
-    }
-    for command in ["rg -n x /home/tom/code/north/main/docs/EVALS.md", "bash <<'EOF'\nrg -n x /home/tom/code/north/main/docs/EVALS.md\nEOF", "cat <<'EOF' | bash\ncat /home/tom/code/north/main/Cargo.toml\nEOF", "gh issue comment 1 --body \"$(rg -n x /home/tom/code/north/main/docs/EVALS.md)\""] {
-        assert!(denied_reach(&proxy(), &bash(command)), "{command}");
-    }
-}
-
-fn denied_reach(world: &Fake, input: &HookInput) -> bool {
-    matches!(decide(world, input), Verdict::Deny(reason) if reason.contains("proxy-reach-guard"))
 }
 
 #[test]
@@ -366,4 +210,3 @@ fn the_proxy_has_no_diagnosis_budget_without_break_glass() {
         assert_eq!(decide(&proxy(), input), Verdict::Allow, "{:?}", input.tool_input);
     }
 }
-

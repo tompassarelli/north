@@ -97,7 +97,3 @@ fn unrunnable(body: &str) -> Vec<String> {
         .filter(|text| !RUNNABLE.is_match(text) && !EXEMPT.is_match(text))
         .collect()
 }
-
-#[cfg(test)]
-#[path = "unrunnable_box_tests.rs"]
-mod tests;

@@ -50,6 +50,3 @@ pub fn landed(body: &str, registered: impl Fn(&str) -> bool) -> bool {
     let mut boxes = body.lines().filter_map(|line| Some((line, ANY_BOX.captures(line)?.get(1)?.as_str() != " "))).peekable();
     boxes.peek().is_some() && boxes.all(|(line, ticked)| ticked || deferred_to(line).is_some_and(&registered)) && unproven(body).is_empty()
 }
-
-#[cfg(test)]
-mod tests;

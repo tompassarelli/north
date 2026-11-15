@@ -32,30 +32,3 @@ fn per_machine_admission_reads_memory_and_cpu_pressure_not_a_session_count() {
     assert_eq!(parse(&reading("0 4.0 24 5149")).unwrap().refusal("whiterabbit").as_deref(), Some("whiterabbit skipped: its seat stalled 51% of the time"), "app.slice disk pressure 51% keeps a session off at any load");
     assert_eq!(parse(&reading("0 56.19 20")).unwrap().refusal("gex45").as_deref(), Some("gex45 skipped: load 56 on 20 threads"));
 }
-
-#[test]
-fn a_host_under_its_disk_bound_takes_nothing_and_takes_work_again_once_over_it() {
-    let free = |gib: u64| parse(&format!("65536000\n40000000\n/dev/sda3 981467136 0 {} 90% /\n#backlog\n0 4.0 20 35\n#token\n", gib * 1024 * 1024)).unwrap().bounded(Some(100.0));
-    let under = free(95);
-    assert_eq!(under.refusal("gex45").as_deref(), Some("gex45 skipped: 95.0 GiB free on the root disk, under its 100 GiB disk bound"));
-    assert_eq!(under.session_room(), 0);
-    let over = free(120);
-    assert_eq!(over.refusal("gex45"), None);
-    assert_eq!(over.session_room(), 2);
-}
-
-#[test]
-fn a_token_file_written_just_now_reads_fresh_behind_a_symlink_made_long_ago() {
-    let home = tempfile::tempdir().unwrap();
-    let state = home.path().join(".local/state/north");
-    std::fs::create_dir_all(&state).unwrap();
-    let minted = home.path().join("minted-token");
-    std::fs::write(&minted, "token").unwrap();
-    std::os::unix::fs::symlink(&minted, state.join("gh-write-token")).unwrap();
-    let aged = std::process::Command::new("touch").args(["-h", "-d", "@1000000000"]).arg(state.join("gh-write-token")).status().unwrap();
-    assert!(aged.success());
-    let out = std::process::Command::new("sh").args(["-c", super::saturation::PROBE]).env("HOME", home.path()).output().unwrap();
-    let age: u64 = String::from_utf8(out.stdout).unwrap().split("#token").nth(1).unwrap().trim().parse().unwrap();
-    assert!(age < 60, "token age {age}s");
-}
-

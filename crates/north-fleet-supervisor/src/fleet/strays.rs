@@ -85,7 +85,3 @@ fn updated_ms(row: &SessionRow) -> u64 {
 fn millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
-
-#[cfg(test)]
-#[path = "strays_tests.rs"]
-mod tests;

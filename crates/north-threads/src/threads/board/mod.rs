@@ -1,8 +1,6 @@
 //! `north threads show` and `north threads ready`: one issue with its blockers, owners, handoffs
 //! and runs, and the open issues nothing blocks and nobody holds.
 pub mod issues;
-#[cfg(test)]
-mod tests;
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};

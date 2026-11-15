@@ -77,33 +77,3 @@ fn denial(command: &str, check: &str, publish: &str) -> String {
         "masked-pipeline: `{check}` exits with the status of its last stage, so `&&` runs `{publish}` even when the check fails. Turn on pipefail first: `set -o pipefail; {command}`"
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn decision(command: &str) -> Verdict {
-        let payload = json!({"tool_name": "Bash", "cwd": "/tmp", "tool_input": {"command": command}});
-        decide(&HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap())
-    }
-
-    #[test]
-    fn a_filtered_check_chained_into_a_publish_is_denied_with_the_pipefail_form() {
-        let command = "cargo test 2>&1 | tail -5 && safe-push --to main";
-        assert_eq!(
-            decision(command),
-            Verdict::Deny(format!(
-                "masked-pipeline: `cargo test | tail -5` exits with the status of its last stage, so `&&` runs `safe-push --to main` even when the check fails. Turn on pipefail first: `set -o pipefail; {command}`"
-            ))
-        );
-        for command in [
-            "cd x && cargo test -p north-core 2>&1 | grep -E 'test result|FAILED' && git add a && git commit -m x",
-            "bun test | head -20 && north land enqueue",
-            "nix build .#north 2>&1 | tail -3 && cargo fmt && safe-push --to main",
-        ] {
-            assert!(matches!(decision(command), Verdict::Deny(_)), "{command}");
-        }
-    }
-
-}

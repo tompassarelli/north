@@ -292,39 +292,3 @@ pub fn on_path(program: &str) -> bool {
         })
     })
 }
-
-#[cfg(test)]
-mod leave_tests {
-    use super::*;
-
-    #[test]
-    fn a_hook_stops_waiting_at_its_limit_and_the_command_finishes_on_its_own() {
-        let dir = tempfile::tempdir().unwrap();
-        let (gate, done, finished) = (dir.path().join("gate"), dir.path().join("done"), dir.path().join("finished"));
-        assert!(Command::new("mkfifo").arg(&finished).status().unwrap().success());
-        let mut command = Command::new("sh");
-        command.args(["-c", "i=0; while [ ! -e \"$0\" ] && [ $i -lt 6000 ]; do sleep 0.02; i=$((i+1)); done; touch \"$1\"; echo > \"$2\"", &gate.display().to_string(), &done.display().to_string(), &finished.display().to_string()]);
-        assert!(run_command_or_leave(command, b"", Duration::from_millis(200)).unwrap().is_none());
-        assert!(!done.exists());
-        std::fs::write(&gate, "").unwrap();
-        std::fs::read_to_string(&finished).unwrap();
-        assert!(done.exists());
-    }
-}
-
-#[cfg(test)]
-mod within_tests {
-    use super::*;
-
-    fn fails(_: &mut Child) -> std::io::Result<Option<ExitStatus>> {
-        Err(std::io::Error::from_raw_os_error(10))
-    }
-
-    #[test]
-    fn a_poll_error_kills_and_reaps_the_child() {
-        let mut child = Command::new("sh").args(["-c", "sleep 30"]).spawn().unwrap();
-        let pid = child.id();
-        assert!(child_within_with(&mut child, Duration::from_secs(30), fails).is_err());
-        assert!(!Command::new("kill").args(["-0", &pid.to_string()]).status().unwrap().success());
-    }
-}

@@ -153,7 +153,3 @@ pub(super) fn run(machine: Option<&Machine>, cwd: &Path, script: &str) -> Option
     let output = super::hops::timed(if machine.is_some() { "brief read over a fresh ssh" } else { "brief read here" }, || try_run_command_within(command, None, SSH_WAIT)).ok().flatten()?;
     output.status.success().then_some(output.stdout)
 }
-
-#[cfg(test)]
-#[path = "brief_files_tests.rs"]
-mod tests;

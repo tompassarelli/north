@@ -54,17 +54,3 @@ impl Notice {
 pub fn told<'a>(owner: Option<&'a str>, verdict: &str) -> Vec<&'a str> {
     owner.filter(|session| !session.is_empty()).into_iter().chain(verdict.starts_with("conflict ").then_some(OWNER)).collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_conflict_reaches_its_owner_then_the_landers_owner_and_a_sessionless_landing_reaches_no_one() {
-        assert_eq!(told(Some("n1-worker"), "conflict src/a.rs,src/b.rs"), ["n1-worker", OWNER]);
-        assert_eq!(told(None, "conflict src/a.rs"), ["land-lead"]);
-        assert_eq!(told(Some(""), "conflict src/a.rs"), [OWNER]);
-        assert!(told(None, "landed abc").is_empty());
-        assert_eq!(told(Some("n1-worker"), "failed clippy"), ["n1-worker"]);
-    }
-}

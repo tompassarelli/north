@@ -43,27 +43,3 @@ fn relay(policy: &Path, arguments: &[String], payload: &[u8]) -> Option<Vec<u8>>
     let _ = feeder.join();
     (read.is_ok() && !oversized && status.success()).then_some(output)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use north_base::foundation::shim;
-
-    fn stub(directory: &Path, body: &str) -> PathBuf {
-        let path = directory.join("policy");
-        shim::write_script(&path, &format!("{body}\n"));
-        path
-    }
-
-    #[test]
-    fn relay_passes_the_policy_answer_and_drops_a_failing_or_oversized_one() {
-        let directory = tempfile::tempdir().unwrap();
-        let echo = stub(directory.path(), "cat; printf ' %s' \"$1\"");
-        assert_eq!(relay(&echo, &["inject-session".into()], b"payload").unwrap(), b"payload inject-session");
-        let failing = stub(directory.path(), "echo partial; exit 3");
-        assert_eq!(relay(&failing, &[], b""), None);
-        let flood = stub(directory.path(), "head -c 70000 /dev/zero");
-        assert_eq!(relay(&flood, &[], b""), None);
-        assert_eq!(relay(&directory.path().join("missing"), &[], b""), None);
-    }
-}

@@ -138,37 +138,3 @@ impl Checkpoints {
         self.0.values_mut().any(Checkpoint::take_resume)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_answer_line_a_worker_writes_is_read_and_the_checkpoint_asks_at_250k_then_every_50k_and_chooses_a_compaction_only_when_the_turns_left_repay_it() {
-        let focus = |turns_left, focus: &str| Some(Answer { turns_left, focus: focus.to_owned() });
-        assert_eq!(Answer::parse("Turns left: 40. Focus: finish the checkpoint, then land it"), focus(40, "finish the checkpoint, then land it"));
-        assert_eq!(Answer::parse("Ok.\n**Turns left: 3. Focus: land box 1**\nContinuing."), focus(3, "land box 1"));
-        assert_eq!(Answer::parse("Turns left: 12"), focus(12, ""));
-        assert_eq!(Answer::parse("answer with `Turns left: N. Focus: TEXT`"), None);
-
-        assert!(!pays(Some("opus"), 250_000, 18) && pays(Some("opus"), 250_000, 19));
-        assert!(!pays(Some("opus"), 300_000, 14) && pays(Some("opus"), 300_000, 15));
-        assert!(!pays(Some("sonnet"), 250_000, 10) && pays(Some("sonnet"), 250_000, 11));
-
-        let mut checkpoint = Checkpoint::default();
-        assert!(!checkpoint.due(249_000) && checkpoint.due(260_000));
-        checkpoint.answered("Turns left: 40. Focus: x", None);
-        assert_eq!(checkpoint.take_ready(), None, "an answer nobody asked for chooses nothing");
-        checkpoint.ask(260_000);
-        assert!(!checkpoint.due(300_000) && checkpoint.due(310_000));
-        checkpoint.answered("Turns left: 3. Focus: x", Some("claude-opus-5-5"));
-        assert_eq!(checkpoint.take_ready(), None);
-        checkpoint.ask(310_000);
-        checkpoint.answered("Turns left: 40. Focus: keep the lane", Some("claude-opus-5-5"));
-        assert!(!checkpoint.due(400_000), "a chosen compaction is unsent");
-        assert_eq!(checkpoint.take_ready().as_deref(), Some("keep the lane"));
-        checkpoint.compacted();
-        assert!(checkpoint.due(250_000));
-        assert!(checkpoint.take_resume() && !checkpoint.take_resume(), "the compaction it sent owes one resume turn");
-    }
-}

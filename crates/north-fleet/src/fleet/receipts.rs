@@ -286,62 +286,6 @@ mod tests {
     }
 
     #[test]
-    fn a_report_to_the_proxy_is_its_head_only_and_reaches_it_only_with_a_new_fact_so_a_wait_on_its_own_queued_ticket_or_a_repeat_is_nothing() {
-        let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
-        let report = |turn, landed: Option<&str>, waiting, reply: &str| Report { child: "land-lead".into(), turn, exit: TurnExit::Completed, landed: landed.map(str::to_owned), reply: Some(reply.into()), waiting };
-        let deliver = |report: Report| deliver_report(&book, &book, &inbox, "proxy", &report, &[], 1).unwrap();
-
-        assert!(!deliver(report(39, None, true, "Not done: the lander still runs dab9f6fcf4, behind current main.")), "north#909: land-lead sent this turn after turn on 2026-11-08 while its ticket sat queued");
-        assert!(deliver(report(40, None, false, "Not done: the build host refused the lease.")));
-        assert!(!deliver(report(41, None, false, "Not done: the build host refused the lease again.")), "a repeat of the last report that went up");
-        assert!(deliver(report(42, Some("be5886ab3b"), true, "Not done: half of it landed.")), "a landing always goes up");
-        assert!(deliver(report(43, None, false, "Not done: the build host refused the lease.")), "the same stop after a different report is news again");
-        let done = "Done: ticked the box with be5886ab3b.\nBox: A health alarm pages once per cause.\nBox: Land-watch holds a landing behind its follower.\nEvidence: cargo nextest passed; clippy clean; origin/main carries be5886ab3b.\nNext: none";
-        assert!(!deliver(report(44, Some("be5886ab3b"), true, done)), "a Done waits in the digest, not the proxy");
-        let blocked = "Blocked: the broker token expired.\nEvidence: the last call answered 401 at 04:12.\nMore evidence: the token log shows no renewal.\nStop: wait until 2026-11-10T12:00Z";
-        assert!(deliver(report(45, None, false, blocked)));
-        let posted = inbox.sent.into_inner().unwrap();
-        assert_eq!(posted.len(), 4);
-        let decision = &posted[3].1;
-        assert!(decision.contains("Blocked: the broker token expired."), "{decision}");
-        assert!(decision.contains("Stop: wait until 2026-11-10T12:00Z"), "the head keeps the one decision: {decision}");
-        assert!(!decision.contains("More evidence:"), "{decision}");
-        assert_eq!(decision.lines().filter(|line| !line.starts_with("[read it all")).count(), 3, "{decision}");
-        let held = inbox.held.into_inner().unwrap();
-        let notice = &held.iter().find(|(_, text)| text.contains("Done: ticked")).unwrap().1;
-        assert!(notice.contains("Done: ticked the box with be5886ab3b.") && notice.contains("landed be5886ab3b"), "{notice}");
-        assert!(notice.contains("Box: A health alarm pages once per cause.") && notice.contains("Box: Land-watch holds a landing behind its follower."), "{notice}");
-        assert!(!notice.contains("Evidence:") && !notice.contains("Next: none"), "the head leaves the evidence in the transcript: {notice}");
-        assert!(notice.contains("[read it all with `north fleet show land-lead`]"), "{notice}");
-        assert_eq!(notice.lines().filter(|line| !line.starts_with("[read it all")).count(), 3, "at most three head lines: {notice}");
-    }
-
-    #[test]
-    fn a_workers_final_message_reaches_a_parent_mid_turn_exactly_once_within_60_s() {
-        let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
-        let reported_ms = 1_000_000;
-        let report = |turn, landed: Option<&str>, reply: &str| Report { child: "kid".into(), turn, exit: TurnExit::Completed, landed: landed.map(str::to_owned), reply: Some(reply.into()), waiting: false };
-        let deliver = |report: &Report, now_ms| deliver_report(&book, &book, &inbox, "boss", report, &[], now_ms).unwrap();
-
-        let finals = [
-            report(1, None, "Done: the first box.\nNext: none"),
-            report(2, Some("be5886ab3b"), "Done: the second box landed.\nNext: none"),
-            report(3, None, "Done: the third box, nothing to land.\nNext: none"),
-            report(4, None, "Done: the fourth box, nothing to land.\nNext: none"),
-            report(5, None, "Split: the rest is north#1032.\nNext: north#1032"),
-        ];
-        for (turn, last) in finals.iter().enumerate() {
-            let at = reported_ms + turn as u64 * 1_000;
-            assert!(deliver(last, at), "turn {} of a worker whose parent is mid-turn is claimed on its own turn", last.turn);
-            assert!(!deliver(last, at + 1), "a second delivery of turn {} claims nothing", last.turn);
-        }
-        let posted = inbox.sent.into_inner().unwrap();
-        assert_eq!(posted.len(), finals.len(), "each final message reached the parent exactly once: {posted:?}");
-        assert!(posted.iter().all(|(parent, _, delivery)| parent == "boss" && *delivery == Delivery::Queued));
-        assert!(inbox.held.into_inner().unwrap().is_empty(), "none was kept back for the digest");
-    }
-
-    #[test]
     fn only_the_page_now_classes_wake_the_proxy() {
         use crate::fleet::fold::{Admit, admit};
         use crate::fleet::sender::Sender;

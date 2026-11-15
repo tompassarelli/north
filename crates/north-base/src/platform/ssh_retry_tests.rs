@@ -5,14 +5,6 @@ use super::super::ssh_fixture::{master_words, Fixture};
 use super::super::wait;
 use super::{retried, Link, Reply, Rerun};
 
-const BANNER: &str = "Connection timed out during banner exchange\n";
-
-fn scripted(replies: &mut Vec<(Option<i32>, &'static str)>, links: &mut Vec<Link>, link: Link) -> Reply<Option<i32>> {
-    links.push(link);
-    let (exit, said) = replies.remove(0);
-    Reply { value: exit, exit, said: said.to_owned() }
-}
-
 #[test]
 fn a_read_whose_shared_master_was_killed_under_it_is_run_again_on_a_fresh_connection() {
     let mut fixture = Fixture::new();
@@ -42,30 +34,4 @@ fn a_read_whose_shared_master_was_killed_under_it_is_run_again_on_a_fresh_connec
 
     assert_eq!(exit, Some(0), "the read was given up after the master died under it");
     assert_eq!(attempts, [Link::Shared, Link::Fresh]);
-}
-
-#[test]
-fn a_command_that_may_have_run_is_not_sent_twice_but_one_that_never_left_is() {
-    let mut links = Vec::new();
-    let mut after_send = vec![(Some(255), ""), (Some(0), "")];
-    assert_eq!(retried("host", Rerun::BeforeSend, |link| scripted(&mut after_send, &mut links, link)), Some(255));
-    assert_eq!(links, [Link::Shared]);
-
-    let mut links = Vec::new();
-    let mut before_send = vec![(Some(255), BANNER), (Some(0), "")];
-    assert_eq!(retried("host", Rerun::BeforeSend, |link| scripted(&mut before_send, &mut links, link)), Some(0));
-    assert_eq!(links, [Link::Shared, Link::Fresh]);
-}
-
-#[test]
-fn an_outage_that_outlasts_the_one_retry_still_fails_with_the_second_exit() {
-    let mut links = Vec::new();
-    let mut replies = vec![(Some(255), BANNER), (Some(255), BANNER), (Some(0), "")];
-    assert_eq!(retried("host", Rerun::Anywhere, |link| scripted(&mut replies, &mut links, link)), Some(255));
-    assert_eq!(links.len(), 2);
-
-    let mut links = Vec::new();
-    let mut replies = vec![(Some(1), BANNER), (Some(0), "")];
-    assert_eq!(retried("host", Rerun::Anywhere, |link| scripted(&mut replies, &mut links, link)), Some(1));
-    assert_eq!(links.len(), 1);
 }

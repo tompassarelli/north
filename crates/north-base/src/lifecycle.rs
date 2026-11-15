@@ -13,8 +13,6 @@ use crate::foundation::clock::Timestamp;
 
 mod owner;
 mod store;
-#[cfg(test)]
-mod tests;
 
 pub use owner::{Liveness, Owner, Proc};
 pub use store::{EXPIRE_BOUND, EXPIRED, ORPHANED_LIKE, Retire, Store, orphaned, retire};

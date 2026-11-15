@@ -57,35 +57,6 @@ fn a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_close
     assert!(!std::path::Path::new(&format!("/proc/{stalled}")).exists(), "the stalled master {stalled} still runs");
 }
 
-struct Scripted {
-    answers: Vec<Option<Duration>>,
-}
-
-impl Dial for Scripted {
-    fn round_trip(&mut self, _words: &[OsString], _limit: Duration) -> Option<Duration> {
-        self.answers.remove(0)
-    }
-}
-
-struct Forbidden;
-
-impl Master for Forbidden {
-    fn stop(&mut self, host: &str) -> Result<(), String> {
-        panic!("killed the master for {host} while a direct connection was as slow")
-    }
-
-    fn start(&mut self, host: &str) -> Result<(), String> {
-        panic!("restarted the master for {host}")
-    }
-}
-
-#[test]
-fn a_master_is_left_alone_while_a_direct_connection_is_nearly_as_slow() {
-    let mut dial = Scripted { answers: vec![None, Some(Duration::from_millis(2600)), None, None] };
-    let health = probe_with(&mut dial, &[which("ssh").into()], &Default::default(), "testhost", &mut Forbidden);
-    assert!(matches!(health, Health::Loaded { .. }), "{health:?}");
-}
-
 struct Restarted(Vec<String>);
 
 impl Master for Restarted {

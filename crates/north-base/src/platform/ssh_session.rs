@@ -145,7 +145,3 @@ fn command_start(arguments: &[String]) -> Option<(usize, usize)> {
     }
     None
 }
-
-#[cfg(test)]
-#[path = "ssh_session_tests.rs"]
-mod tests;

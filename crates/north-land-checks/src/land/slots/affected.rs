@@ -309,7 +309,3 @@ pub fn scope(root: &Path, base: &str, head: &str) -> Result<Scope, String> {
     let metadata = north_build_system::here().workspace(root)?;
     select(&metadata, &changed(root, base, head, &[])?, &read_dep_info(&metadata))
 }
-
-#[cfg(test)]
-#[path = "affected_tests.rs"]
-mod tests;

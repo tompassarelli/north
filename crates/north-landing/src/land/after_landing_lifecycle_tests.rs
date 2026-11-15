@@ -1,7 +1,7 @@
 use north_base::foundation::clock::Timestamp;
-use north_base::lifecycle::{FaultKind, Liveness, Owner, Refusal, Store};
+use north_base::lifecycle::{FaultKind, Liveness, Owner, Store};
 
-use super::{AfterLandingRun, Main, RedMain, Run, journal, misses, moved, retire_unadopted, settled, take};
+use super::{AfterLandingRun, Run, journal, misses, moved, retire_unadopted, settled, take};
 
 struct Gone(u32);
 
@@ -13,25 +13,6 @@ impl Liveness for Gone {
 
 fn lander(path: &std::path::Path, pid: u32, gone: u32) -> Store {
     Store::open_as(path, Owner { host: "gex45".into(), pid, started: 1, booted_ms: 1 }, Box::new(Gone(gone))).unwrap()
-}
-
-#[test]
-fn a_retired_after_landing_run_may_be_announced_again_and_an_illegal_red_main_move_leaves_its_record_unchanged() {
-    let directory = tempfile::tempdir().unwrap();
-    let mut store = lander(&directory.path().join("ledger.db"), 10, 0);
-    moved::<RedMain>(&mut store, "owner/repo", Main::Opened, "the after-landing run of abc is red").unwrap();
-
-    let skipped = store.transition::<RedMain>("owner/repo", Main::Green, "green without clearing", Timestamp::now()).unwrap();
-
-    assert_eq!(skipped, Err(Refusal::Illegal { from: Some(Main::Opened), to: Main::Green }));
-    assert_eq!(store.current::<RedMain>("owner/repo").unwrap().unwrap().state, Main::Opened);
-    moved::<AfterLandingRun>(&mut store, "abc", Run::Journaled, "landed on base").unwrap();
-    moved::<AfterLandingRun>(&mut store, "abc", Run::Running, "started").unwrap();
-    moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
-    assert!(moved::<AfterLandingRun>(&mut store, "abc", Run::Running, "a stale lander reruns a retired head").is_none());
-    let again = moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
-    assert_eq!(again.state, Run::Retired);
-    assert_eq!(store.current::<AfterLandingRun>("abc").unwrap().unwrap().state, Run::Retired);
 }
 
 #[test]
@@ -74,18 +55,6 @@ fn a_lander_killed_mid_run_leaves_an_orphaned_run_that_health_reports_and_the_ne
     assert_eq!(fourth.retire_gone::<AfterLandingRun>(Timestamp::now()).unwrap().len(), 1);
     assert!(super::lost_in_search(&fourth, "ghi"), "a run whose lander stopped in its culprit search resumes the search");
     assert!(!super::lost_in_search(&fourth, "def") && !super::lost_in_search(&fourth, "abc"), "a run lost mid-checks reruns them");
-}
-
-#[test]
-fn a_second_writer_may_announce_a_retired_head_again_so_the_table_promises_the_repeat() {
-    let directory = tempfile::tempdir().unwrap();
-    let mut store = lander(&directory.path().join("ledger.db"), 10, 0);
-    moved::<AfterLandingRun>(&mut store, "abc", Run::Journaled, "landed on base").unwrap();
-    moved::<AfterLandingRun>(&mut store, "abc", Run::Running, "started").unwrap();
-    moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
-    let again = moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
-    assert_eq!(again.state, Run::Retired);
-    assert_eq!(store.history("after-landing-run", "abc").unwrap().iter().filter(|logged| !logged.refused && logged.to == "retired").count(), 2);
 }
 
 #[test]

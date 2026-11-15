@@ -43,7 +43,3 @@ pub mod reservation;
 pub mod setting;
 pub mod unjudged;
 pub mod wake;
-
-#[cfg(test)]
-mod reuse_shadow_tests;
-

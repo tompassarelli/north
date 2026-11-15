@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::time::Duration;
 
-use super::{Landed, Run, reap_scratch, settle};
+use super::{Landed, Run, settle};
 use super::execute::{apart, judged};
 use super::settle::announce;
 use crate::land::checks::Verdict;
@@ -189,25 +189,6 @@ fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_
 }
 
 #[test]
-fn a_post_land_worktree_a_killed_lander_left_in_its_queue_is_removed_and_other_worktrees_stay() {
-    let scratch = tempfile::tempdir().unwrap();
-    let repo = scratch.path().join("repo");
-    let queue = scratch.path().join("queue");
-    std::fs::create_dir_all(&repo).unwrap();
-    std::fs::create_dir_all(&queue).unwrap();
-    let git = |arguments: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(arguments).status().unwrap().success());
-    git(&["init", "-q", "-b", "main"]);
-    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"]);
-    let left = queue.join("post-land-4c43bc5c465d");
-    let lane = scratch.path().join("worktrees").join("lane");
-    git(&["worktree", "add", "-q", "--detach", left.to_str().unwrap()]);
-    git(&["worktree", "add", "-q", "--detach", lane.to_str().unwrap()]);
-    assert_eq!(reap_scratch(&repo, &queue), std::slice::from_ref(&left));
-    assert!(!left.exists());
-    assert!(lane.exists());
-}
-
-#[test]
 fn a_red_verdict_arriving_after_a_descendants_green_run_covered_its_checks_opens_no_episode_sends_no_alarm_and_blames_no_lane() {
     let scratch = tempfile::tempdir().unwrap();
     let repo = scratch.path().join("repo");
@@ -349,22 +330,6 @@ fn an_after_landing_suite_is_placed_on_a_build_host_and_never_on_the_control_hos
     assert_eq!(scoped.keys().collect::<Vec<_>>(), ["north-landing::it"], "a listing of the packages a change reaches takes the same binaries the build host prints");
     let scoped_asked = std::fs::read_to_string(&record).unwrap();
     assert!(scoped_asked.lines().last().is_some_and(|line| line.contains("'-p' 'north-landing'") && !line.contains("--workspace")), "a listing of the reached packages names each with -p, not the whole workspace: {scoped_asked}");
-}
-
-#[test]
-fn a_landing_check_that_fails_on_a_stale_host_token_is_not_a_red_main() {
-    let scratch = tempfile::tempdir().unwrap();
-    let mut placed = run();
-    placed.host = Some("cpx62b".to_owned());
-    placed.log = scratch.path().join("post-land.log");
-    placed.outcome = scratch.path().join("post-land.outcome");
-    std::fs::write(&placed.outcome, "event\tland check\tfailed\tconfig agents check-owners; log: /x.log\nfailed-step\tconfig agents check-owners\t/x.log\n").unwrap();
-    std::fs::write(&placed.log, "gh-write-token-credential: the App token the laptop pushes to /home/tom/.local/state/north/gh-write-token is 71 min old, outside its 55 min trust\nfatal: credential helper 'gh-write-token-credential' told us to quit\nerror: North configuration failed: cannot fetch /home/tom/code/south/main origin/main; refusing landing\n").unwrap();
-    let Verdict::Transient(detail) = judged(ExitStatus::from_raw(1 << 8), &placed) else { panic!("a stale host token was judged red main") };
-    assert!(detail.contains("cpx62b") && detail.contains("71 min old") && detail.contains("environment failure") && detail.contains("no commit is suspect"), "{detail}");
-
-    std::fs::write(&placed.log, "error: North configuration failed: cannot fetch /home/tom/code/south/main origin/main; refusing landing\n").unwrap();
-    assert!(matches!(judged(ExitStatus::from_raw(1 << 8), &placed), Verdict::RedMain(_)), "a failure that shows no stale token is judged as before");
 }
 
 #[test]

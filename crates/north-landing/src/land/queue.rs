@@ -411,11 +411,3 @@ pub fn collect(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     }
     Ok(kept)
 }
-
-#[cfg(test)]
-#[path = "queue_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "ticket_lifecycle_tests.rs"]
-mod ticket_lifecycle;

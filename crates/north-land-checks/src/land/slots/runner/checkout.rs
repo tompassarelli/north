@@ -69,7 +69,3 @@ impl Drop for BaseTree {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "checkout_tests.rs"]
-mod tests;

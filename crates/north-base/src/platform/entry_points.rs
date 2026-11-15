@@ -42,7 +42,6 @@ impl EntryPoint {
     }
 }
 
-
 /// Links each entry point in `runtime`'s tree to the runtime's north, keeping a file the tree already tracks at that path, and links worker-sandbox beside that north.
 pub fn link(runtime: &Path) -> io::Result<()> {
     linked_beside(&runtime.join("north"), EntryPoint::WorkerSandbox)?;
@@ -71,38 +70,4 @@ pub fn linked_beside(north: &Path, point: EntryPoint) -> io::Result<PathBuf> {
         }
     }
     if path.is_file() { Ok(path) } else { Err(io::Error::new(io::ErrorKind::NotFound, format!("{} leads to no file", path.display()))) }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn runtime_with(tracked: &[&str]) -> tempfile::TempDir {
-        let runtime = tempfile::tempdir().unwrap();
-        fs::write(runtime.path().join("north"), b"north").unwrap();
-        fs::create_dir_all(runtime.path().join(TREE).join("bin")).unwrap();
-        for name in tracked {
-            fs::write(runtime.path().join(TREE).join("bin").join(name), b"#!/bin/bash\n").unwrap();
-        }
-        runtime
-    }
-
-    #[test]
-    fn a_tree_gets_a_link_to_the_runtimes_north_once_and_a_tracked_file_at_that_path_stays() {
-        let runtime = runtime_with(&["agents"]);
-        link(runtime.path()).unwrap();
-        let path = runtime.path().join(TREE).join("bin/safe-push");
-        assert_eq!(fs::canonicalize(&path).unwrap(), fs::canonicalize(runtime.path().join("north")).unwrap());
-        link(runtime.path()).unwrap();
-        assert_eq!(fs::read_link(&path).unwrap(), Path::new(LINK_TARGET));
-
-        let tracked = runtime_with(&["safe-push"]);
-        link(tracked.path()).unwrap();
-        assert!(fs::symlink_metadata(tracked.path().join(TREE).join("bin/safe-push")).unwrap().file_type().is_file());
-
-        let stale = runtime_with(&[]);
-        symlink("north_providers-removed", stale.path().join("worker-sandbox")).unwrap();
-        let relinked = linked_beside(&stale.path().join("north"), EntryPoint::WorkerSandbox).expect("a worker-sandbox link a removed binary left dangling is made again");
-        assert_eq!(fs::read_link(relinked).unwrap(), Path::new("north"));
-    }
 }

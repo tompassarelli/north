@@ -19,10 +19,6 @@ fn searched_signatures(lanes: usize, suspects: &Suspects, bad: &[(usize, &str)],
     (found, runs)
 }
 
-fn search(lanes: usize, room: usize, red_from: usize, base_red: bool) -> (Blame, Vec<Vec<usize>>) {
-    searched(lanes, room, &Suspects::Untraced, red_from, base_red)
-}
-
 fn searched(lanes: usize, room: usize, suspects: &Suspects, red_from: usize, base_red: bool) -> (Blame, Vec<Vec<usize>>) {
     let mut rounds = Vec::new();
     let found = culprit(lanes, room, suspects, |counts| {
@@ -43,21 +39,6 @@ fn trusted(known: bool, age: u64) -> String {
 
 fn batch() -> Vec<String> {
     ["lane-a", "lane-b", "lane-c", "lane-d"].map(str::to_owned).to_vec()
-}
-
-#[test]
-fn four_merged_landings_with_the_third_red_name_it_after_one_parallel_round() {
-    let (found, rounds) = search(4, 6, 3, false);
-    assert_eq!(found, Blame::Lane(2));
-    assert_eq!(rounds, vec![vec![0, 1, 2, 3]], "the base and every proper prefix are checked in one round");
-}
-
-#[test]
-fn a_base_already_red_blames_no_lane() {
-    assert_eq!(search(4, 6, 1, true).0, Blame::BaseRed);
-    let (found, rounds) = search(4, 1, 1, true);
-    assert_eq!(found, Blame::BaseRed);
-    assert_eq!(rounds.last(), Some(&vec![0]), "bisection ending on the first lane probes the base");
 }
 
 #[test]

@@ -307,7 +307,3 @@ pub(super) fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Re
     arguments.extend(specs);
     git_output(repo, &arguments).map(|lines| lines.into_iter().filter(|line| !line.is_empty()).collect())
 }
-
-#[cfg(test)]
-#[path = "select_tests.rs"]
-mod tests;

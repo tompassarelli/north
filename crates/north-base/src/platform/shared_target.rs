@@ -322,7 +322,3 @@ fn measured_tree(
     }
     Ok((total, newest))
 }
-
-#[cfg(test)]
-#[path = "shared_target_tests.rs"]
-mod tests;

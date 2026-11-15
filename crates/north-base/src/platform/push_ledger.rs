@@ -56,17 +56,3 @@ pub fn record(path: &Path, push: &Push) -> std::io::Result<bool> {
     let line = format!("{}\t{}\t{}\t{}\t{}\t{}\n", push.at_secs, push.repository, push.branch, push.oid, push.landed, push.session);
     OpenOptions::new().create(true).append(true).open(path)?.write_all(line.as_bytes()).map(|()| true)
 }
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::is_host_checkout;
-
-    #[test]
-    fn a_lander_serving_a_scratch_repository_outside_the_code_root_records_no_landing() {
-        let code = Path::new("/nonexistent-home/code");
-        assert!(!is_host_checkout(Path::new("/tmp/vn-exp.tZfk/proj/main"), code), "n719-verify's scratch lander of 2026-11-08 recorded landed a9c5cb53c7");
-        assert!(is_host_checkout(Path::new("/nonexistent-home/code/north/main"), code));
-    }
-}

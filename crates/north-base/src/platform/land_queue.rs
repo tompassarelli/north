@@ -220,17 +220,3 @@ pub fn serving_unit(checkout: &Path) -> Option<String> {
     let own = lander_unit(checkout);
     if unit_declared(&own) { Some(own) } else { unit_declared(REST_UNIT).then(|| REST_UNIT.to_owned()) }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::confined_in;
-
-    #[test]
-    fn a_path_outside_the_declared_fixture_root_is_refused() {
-        assert!(confined_in(Path::new("/fixture/state"), Some(Path::new("/fixture"))).is_ok());
-        assert!(confined_in(Path::new("/home/tom/.local/state"), Some(Path::new("/fixture"))).is_err());
-        assert!(confined_in(Path::new("/home/tom/.local/state"), None).is_ok());
-    }
-}

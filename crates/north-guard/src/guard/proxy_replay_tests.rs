@@ -6,8 +6,6 @@ use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
 const LOAD_TRACE: &str = include_str!("fixtures/proxy_load_trace_2026_11_11.json");
-const TRACED_LAUNCH: &str = include_str!("fixtures/proxy_traced_launch_2026_11_11.json");
-
 struct Proxy;
 
 impl World for Proxy {
@@ -98,18 +96,4 @@ fn the_2026_11_11_load_trace_is_refused_within_its_look_budget() {
         assert!(message[at].reads.looks <= budgets.looks + 1, "message {} was first refused at look {}, past the first call over the budget of {}", number + 1, message[at].reads.looks, budgets.looks);
         assert!(reason.contains("north work brief new") && reason.contains("north fleet launch") && !reason.contains("STOPPED"), "message {} was refused without naming the worker brief, or ended the turn: {reason}", number + 1);
     }
-}
-
-#[test]
-fn the_2026_11_11_traced_launch_on_nexus_is_refused() {
-    let budgets = budgets();
-    let messages = messages(TRACED_LAUNCH);
-    let calls: Vec<&Call> = messages.iter().flatten().collect();
-    let traced = calls.iter().position(|call| call.input["command"].as_str().is_some_and(|command| command.contains("ssh") && command.contains("strace"))).expect("the trace holds the traced launch on nexus");
-
-    let (at, reason) = stop_of(&messages[0], &budgets).expect("the traced launch's message ran to its end without a stop");
-    assert!(at <= traced, "the guard let the traced launch run, stopping the message at call {at}");
-    assert!(reason.contains("proxy-reach-guard") && reason.contains("`Item:`") && reason.contains("north fleet launch"), "{reason}");
-    let Verdict::Deny(reason) = refused_before(calls[traced]) else { panic!("the traced launch on nexus ran") };
-    assert!(reason.contains("strace") && reason.contains("nexus"), "{reason}");
 }

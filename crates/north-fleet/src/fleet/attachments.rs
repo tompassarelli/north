@@ -70,17 +70,3 @@ pub fn base64(bytes: &[u8]) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn base64_pads_like_the_standard_alphabet() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-    }
-}

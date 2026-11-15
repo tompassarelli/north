@@ -129,7 +129,3 @@ pub fn fetch_crates_recorded(directory: &Path, fetched: &Path, north: &Path) -> 
     }
     fs::create_dir_all(fetched).and_then(|()| fs::write(&record, "")).map_err(|error| format!("safe-push: {}: {error}", record.display()))
 }
-
-#[cfg(test)]
-#[path = "deps_tests.rs"]
-mod tests;

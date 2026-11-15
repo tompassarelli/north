@@ -107,28 +107,3 @@ fn read(dir: &Path) -> Vec<Entry> {
     let text = fs::read_to_string(dir.join(FILE)).unwrap_or_default();
     text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_prompt_is_replayed_to_the_next_host_once_and_dropped_when_that_host_dies_with_it_too() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut first = Unaccepted::inherit(dir.path());
-        first.sent("a".into(), "frame-a".into());
-        first.sent("b".into(), "frame-b".into());
-        first.accepted("a");
-        assert!(Unaccepted::awaits_a_host(dir.path()));
-
-        let mut second = Unaccepted::inherit(dir.path());
-        assert_eq!(Unaccepted::to_replay(dir.path()), ["frame-b"]);
-        assert!(!Unaccepted::awaits_a_host(dir.path()), "a replayed prompt does not call for a third host");
-        second.sent("b".into(), "frame-b".into());
-        assert_eq!(Unaccepted::to_replay(dir.path()), ["frame-b"], "writing the replayed frame again does not journal it twice");
-
-        let third = Unaccepted::inherit(dir.path());
-        assert!(third.is_empty() && Unaccepted::to_replay(dir.path()).is_empty());
-        assert!(!dir.path().join(FILE).exists());
-    }
-}

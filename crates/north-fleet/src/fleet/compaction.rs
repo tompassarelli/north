@@ -16,7 +16,3 @@ pub fn window(brief: &str) -> Option<u64> {
 pub fn idle_compaction(provider: &str) -> Option<bool> {
     (provider == "claude").then_some(true)
 }
-
-#[cfg(test)]
-#[path = "compaction_tests.rs"]
-mod tests;

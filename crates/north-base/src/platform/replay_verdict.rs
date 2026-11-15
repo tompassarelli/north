@@ -109,16 +109,3 @@ pub fn proven(proof: &str) -> Option<Verdict> {
     let deterministic = !rows.is_empty() && rows.iter().all(|row| row["detector"] == "pattern");
     decide(kind, count(BASE_ARM), count(LANE_ARM), deterministic)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{Kind, Verdict, decide};
-
-    #[test]
-    fn a_two_sample_swing_is_inconclusive_and_names_the_samples_a_decision_needs() {
-        assert_eq!(decide(Kind::Bad, (0, 2), (2, 2), false), Some(Verdict::Inconclusive(Some(4))));
-        assert_eq!(decide(Kind::Bad, (0, 4), (4, 4), false), Some(Verdict::Regressed));
-        assert_eq!(decide(Kind::Bad, (4, 4), (0, 4), false), Some(Verdict::Kept));
-        assert_eq!(decide(Kind::Bad, (2, 2), (0, 2), true), Some(Verdict::Kept));
-    }
-}

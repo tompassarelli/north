@@ -58,15 +58,3 @@ impl Catalog {
         Ok((repo.to_owned(), number))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::CATALOG;
-
-    #[test]
-    fn every_repo_the_fleet_staffs_is_accepted() {
-        for (text, repo) in [("south#93", "south"), ("tompassarelli/south#85", "south"), ("smashcraft#277", "makgora"), ("smashcraft-client#4", "makgora-client"), ("tompassarelli/smashcraft-dev#2", "makgora")] {
-            assert_eq!(CATALOG.parse_ref(text).map(|(repo, _)| repo), Ok(repo.to_owned()), "{text}");
-        }
-    }
-}

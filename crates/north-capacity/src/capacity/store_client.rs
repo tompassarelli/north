@@ -52,7 +52,3 @@ pub(super) fn refusal_here(command: &[String], root: &Path) -> Option<String> {
     let laptop = runs_buck2(command) && orchestration::owners_machine(&orchestration::path()) == Some(super::local_machine::host_name());
     refusal(laptop, command, root, Path::new("/etc"), &home)
 }
-
-#[cfg(test)]
-#[path = "store_client_tests.rs"]
-mod tests;

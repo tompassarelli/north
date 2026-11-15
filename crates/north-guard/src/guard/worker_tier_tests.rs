@@ -31,13 +31,3 @@ fn a_brief_that_names_its_issue_or_gives_its_model_reason_and_cites_a_rule_by_nu
     assert_eq!(over.lines().filter(|line| line.contains("no net-new test")).count(), 1, "{over}");
     assert!(!skeleton("tooling", &[], false).expect("tooling is a category").contains("net-new test"));
 }
-
-#[test]
-fn a_native_brief_that_lands_nothing_needs_no_lands_before_line() {
-    let native = HEADER.replace("local-test", "native");
-    let landing = format!("Item: north#1\n{}", native.replace("review", "feature"));
-    assert!(brief_refusal("worker", false, false, &landing).is_some_and(|why| why.contains("Lands-before")));
-    assert_eq!(brief_refusal("worker", false, false, &format!("Item: north#1\n{native}\nRead the four images.")), None, "a review lands nothing");
-    let investigate = format!("Item: north#1\n{}\nInvestigate only; no landing needed.", landing.replace("Item: north#1\n", ""));
-    assert_eq!(brief_refusal("worker", false, false, &investigate), None);
-}

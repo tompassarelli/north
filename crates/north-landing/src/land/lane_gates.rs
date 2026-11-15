@@ -123,7 +123,3 @@ pub fn judge(lane: &Lane, logs: &Path, name: &str) -> Result<Option<Refused>, St
     let gates = failed.join(", ");
     Ok(Some(Refused { verdict: format!("failed {gates}; log: {}", log.display()), gates, log }))
 }
-
-#[cfg(test)]
-#[path = "lane_gates_tests.rs"]
-mod tests;

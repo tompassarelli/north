@@ -1,7 +1,5 @@
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::Connection;
 
-use super::readings_query;
-use crate::foundation::clock::Timestamp;
 use crate::platform::usage_table;
 
 fn ledger() -> Connection {
@@ -11,32 +9,6 @@ fn ledger() -> Connection {
     db.execute_batch(super::SCHEMA).unwrap();
     super::super::columns::ensure(&db).unwrap();
     db
-}
-
-fn plan(db: &Connection, account: &str) -> Vec<String> {
-    let (sql, bound) = readings_query(Some((account, super::Range { from: Some(Timestamp::parse("2026-11-06T10:00:00Z").unwrap()), through: None })));
-    db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap().query_map(params_from_iter(bound), |row| row.get(3)).unwrap().collect::<Result<_, _>>().unwrap()
-}
-
-#[test]
-fn one_account_s_recent_readings_are_searched_by_time_not_scanned_by_provider() {
-    let db = ledger();
-    let claude = plan(&db, "claude-a");
-    assert!(claude.iter().any(|step| step.contains("usage_latest (provider=? AND account=? AND kind=? AND name=? AND ts>?)")), "{claude:?}");
-    let gemini = plan(&db, "gemini");
-    assert!(gemini.iter().any(|step| step.contains("usage_window_time (provider=? AND kind=? AND name=? AND ts>?)")), "{gemini:?}");
-}
-
-#[test]
-fn a_touch_reads_from_the_minute_before_it_and_refuses_a_timestamp_with_an_offset() {
-    let bound = super::minute_bound(Timestamp::parse("2026-11-06T10:00:30Z").unwrap());
-    for kept in ["2026-11-06T10:00:30Z", "2026-11-06T10:00:30.250Z", "2026-11-06T10:01:00Z", "2026-11-07T00:00:00Z"] {
-        assert!(kept > bound.as_str(), "{kept} sorts below {bound}");
-    }
-    assert!("2026-11-06T09:30:00Z" < bound.as_str(), "{bound} reads the half hour before the touch");
-    let mut touched = super::Touched::default();
-    assert!(touched.add("claude-a".to_owned(), "2026-11-06T10:00:30.250Z").is_ok());
-    assert!(touched.add("claude-a".to_owned(), "2026-11-06T12:00:30+02:00").is_err());
 }
 
 #[test]

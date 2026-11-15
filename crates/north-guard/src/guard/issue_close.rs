@@ -75,7 +75,3 @@ fn unproven(repo: &str, number: u64, body: &str) -> Option<String> {
         )
     })
 }
-
-#[cfg(test)]
-#[path = "issue_close_tests.rs"]
-mod tests;

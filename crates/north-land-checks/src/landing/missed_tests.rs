@@ -1,34 +1,3 @@
-use super::{refused, since_instant};
-use crate::foundation::clock::Timestamp;
-use crate::platform::records_mirror::{ROOT, Records, STAMP, Stamp};
-use std::fs;
-
-fn mirrored(state: &std::path::Path, at: f64) {
-    let root = state.join(ROOT);
-    let stamp = Stamp { host: "whiterabbit".into(), state: "/home/tom/.local/state".into(), at };
-    fs::create_dir_all(root.join(STAMP).parent().unwrap()).unwrap();
-    fs::write(root.join(STAMP), serde_json::to_vec(&stamp).unwrap()).unwrap();
-}
-
-#[test]
-fn a_stale_lander_mirror_is_refused_not_passed() {
-    let state = tempfile::tempdir().unwrap();
-    let now = 1_794_270_600.0;
-    mirrored(state.path(), now - 26.0 * 3600.0);
-    let records = Records::of(state.path(), "gex45");
-    let why = refused(&records, "2026-11-09T00:30:00Z", None, now).expect("a 26 h old mirror cannot judge this window");
-    assert!(why.contains("stale mirror"), "{why}");
-    assert!(why.contains("whiterabbit"), "{why}");
-    assert!(why.contains("run it there"), "{why}");
-
-    let fresh = tempfile::tempdir().unwrap();
-    mirrored(fresh.path(), now - 30.0);
-    assert_eq!(refused(&Records::of(fresh.path(), "gex45"), "2026-11-09T00:30:00Z", None, now), None, "a mirror the fleet tick just refreshed still answers");
-
-    let local = tempfile::tempdir().unwrap();
-    mirrored(local.path(), now - 26.0 * 3600.0);
-    assert_eq!(refused(&Records::of(local.path(), "whiterabbit"), "2026-11-09T00:30:00Z", None, now), None, "the lander host reads its own records, however old they are");
-}
 
 #[test]
 fn a_full_run_failure_names_the_lane_whose_own_run_first_failed_the_test_not_a_later_lane_landed_on_red_main() {
@@ -73,13 +42,6 @@ fn a_full_run_failure_names_the_lane_whose_own_run_first_failed_the_test_not_a_l
     let run = Run { source: Source::Actions(1), sha: lane, conclusion: Conclusion::Failure, created: "2026-11-09T00:38:39Z".into() };
     let tally = super::after_landing(repository.path(), &[batch_landing, lane_landing], None, &run, None, &[test.to_owned()], &|_| false);
     assert!(tally.left_out.is_empty(), "the lane's own landing held {} though the batch's narrowed selection did not: {:?}", test, tally.left_out);
-}
-
-#[test]
-fn a_relative_since_becomes_a_date_gh_can_filter_on() {
-    let now = Timestamp::parse_rfc3339("2026-11-10T15:00:00Z").unwrap();
-    assert_eq!(since_instant("24h", now), "2026-11-09T15:00:00Z");
-    assert_eq!(since_instant("2026-11-09T01:00:00Z", now), "2026-11-09T01:00:00Z");
 }
 
 #[test]

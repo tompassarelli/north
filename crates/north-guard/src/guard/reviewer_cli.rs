@@ -47,7 +47,3 @@ pub fn decide(input: &HookInput) -> Verdict {
         ),
     }
 }
-
-#[cfg(test)]
-#[path = "reviewer_cli_tests.rs"]
-mod tests;

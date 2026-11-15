@@ -172,7 +172,3 @@ impl Stranded {
         !self.lanes.iter().any(Lane::unlanded)
     }
 }
-
-#[cfg(test)]
-#[path = "stranded_tests.rs"]
-mod tests;

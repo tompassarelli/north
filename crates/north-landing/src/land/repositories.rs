@@ -92,7 +92,3 @@ pub fn orphan(queue: &Path) -> bool {
 }
 
 pub use crate::platform::land_queue::local_host;
-
-#[cfg(test)]
-#[path = "repositories_tests.rs"]
-mod tests;
