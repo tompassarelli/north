@@ -325,7 +325,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         })?;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran, check: environment.session.and_then(|session| super::after::leaf::passed(&FinishRecords::here(), session, &root, &head)) };
         let queued_micros = micros();
-        let after_landing = runner::tests_after_landing(&root, &base, &lane_head);
+        let after_landing = runner::tests_after_landing();
         let ticket = Ticket {
             origin: origin.clone(),
             root: root.clone(),

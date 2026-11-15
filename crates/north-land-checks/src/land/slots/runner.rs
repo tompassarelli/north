@@ -161,7 +161,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
             }
         }
     };
-    let commands = if arguments.alone && tests_after_landing(&root, &arguments.base, &arguments.head) { commands.into_iter().filter(|command| !crate::land::slots::unit_reuse::runs_tests(command)).collect() } else { commands };
+    let commands = if arguments.alone && tests_after_landing() { commands.into_iter().filter(|command| !crate::land::slots::unit_reuse::runs_tests(command)).collect() } else { commands };
     let commands = if arguments.leased { commands } else { without_empty_test_selections(&root, &arguments, commands) };
     if !arguments.leased && !commands.is_empty() && commands.iter().all(|command| config.is_inferred(command)) {
         say(&format!("safe-push: no land.check lines in .safe-push; running the {} land check(s) inferred from the tree", commands.len()));

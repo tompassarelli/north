@@ -43,7 +43,7 @@ under it, including ones that have not happened yet.
    push can only revert. It can never refuse. A reason may name a land.check line too, and that
    line then leaves the checks before queueing: north's test line does so, read from the landing
    base so a lane cannot grant itself the exception, while `tests_after_landing` in
-   harness/defaults.toml is on and the lane changes no path in `trust_boundary_paths` (class 5).
+   harness/defaults.toml is on (class 5).
 
 ## Classes
 
@@ -206,8 +206,9 @@ updates its own class's line when its lane lands.
   change making landing faster goes live with its revert ready and is proven by backtest. North names
   its test line so (83 to 112 s of a one-line core change), and its after-landing run reverts a lane
   that turns it red. The diff gates, the rebased build and link, clippy, the scans and the manifest
-  check stay before landing. A lane on a `trust_boundary_paths` path keeps the line before landing,
-  and `tests_after_landing = "off"` in harness/defaults.toml restores it for every lane. No other
+  check stay before landing. Every lane, trust-boundary ones included, leaves the line to the after-landing run, and
+  `tests_after_landing = "off"` in harness/defaults.toml restores it for every lane. Tom ruled this on
+  2026-11-15 after trust-boundary tickets queued behind one serial alone check. No other
   repository names such a line. A ticket that left its test line records it, so the after-landing
   selection never counts that lane's tests as already run.
 

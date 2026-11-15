@@ -10,8 +10,6 @@ use super::{Arguments, Config, Environment, NO_NORTH, Stop, affected, block_on, 
 use north_base::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 use north_base::platform::finish_record::acceptance_in_prequeue;
 use north_base::platform::harness::{DEFAULTS, document};
-use north_base::platform::trust_boundary;
-use super::super::select::changed;
 
 const ATTEMPTS: usize = 3;
 const FAILING: &str = "; failing check `";
@@ -20,8 +18,7 @@ const TESTS_AFTER_LANDING: &str = "tests_after_landing";
 const LINE_SECONDS: u64 = 180;
 
 /// The checks a lane runs alone before its ticket is written: its clippy (build and link) and the `@enqueue` land.check
-/// lines, which are scans. No test runs here (north#1508): a lane's test line runs after it lands, or on a trust-boundary
-/// path in the lander's alone check before the lane joins a batch.
+/// lines, which are scans. No test runs here (north#1508): a lane's test line runs after it lands, and the lander's alone check leaves it out too.
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = judged::config(root, base, head);
     let landing = config.after_set().commands(root, base, head)?;
@@ -261,9 +258,8 @@ fn off_base(root: &Path, base: &str, head: &str) -> String {
     format!("; the checks ran against base {base}, which the lane's history does not contain: the lane stays on its older base when it cannot be rebased in place; rebase it onto {base} and hand in again")
 }
 
-pub fn tests_after_landing(root: &Path, base: &str, head: &str) -> bool {
-    let on = document(DEFAULTS).get(TESTS_AFTER_LANDING).and_then(|entry| entry.get("value")).and_then(toml_edit::Item::as_str) == Some("on");
-    on && changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(document(DEFAULTS), &files).is_some_and(|crossing| crossing.is_empty()))
+pub fn tests_after_landing() -> bool {
+    document(DEFAULTS).get(TESTS_AFTER_LANDING).and_then(|entry| entry.get("value")).and_then(toml_edit::Item::as_str) == Some("on")
 }
 
 #[cfg(test)]
