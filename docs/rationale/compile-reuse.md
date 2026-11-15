@@ -675,6 +675,35 @@ the build.
 - The wait for a slot is not in those 6.9 s, and it was the larger cost that hour: the same call to gex45 was
   still in line after 180 s, behind 13 to 16 queued jobs with all 6 slots held, and was stopped there.
 
+### Measured against the hand-in's test build, 2026-11-15
+
+For north#1508. The checks before queueing build a lane's test programs with `cargo test --no-run` in a held
+land-offload slot. On the last twelve lanes whose change reached tests that step took 24 to 185 s. On cpx62, a slot
+near main rebuilt a north-lander-only change in 17 s (4 units compiled, 249 fresh), a north-fleet-store change in
+60 s (68 units, 106 unit-seconds, 81 of them in 40 test and binary programs) and a north-foundation change in 66 s
+(67 units, 85 programs), at a load of 18 to 34 in an 8-CPU scope. A lane that changes a crate low in the graph
+therefore stays near 60 s even on a warm slot. Slots are rarely warm: cpx62b's warmer skipped all of its last 15
+passes because a land check was waiting, and its slots sat at other lanes' heads.
+
+The same north-fleet-store closure through Buck2 (29 packages, `buck2 build --remote-only -M none` then
+`buck2 test --remote-only --unstable-allow-compatible-tests-on-re`, tree b7d5e6b420):
+
+- A slot on cpx62b, first to build that tree: build 95 s, tests 51 s, tests again 26 s.
+- A second checkout at the same tree on cpx62b, with a new daemon: build 6.3 s.
+- gex45: build 1.8 s, `Commands: 1745 (cached: 1745, remote: 0, local: 0)`. Tests 36 s, with 1319 actions cached
+  and the 35 test runs executed remotely, at a tree that differed from cpx62b's by one script file. Tests again
+  6.1 s: 1353 actions from the cache and 1 remote, the one failing test, whose result is not cached.
+- A test run's result is shared across hosts and checkouts by its digest. One north-fleet-store test action had
+  digest `f8f8bf7d…:147` in slots on both hosts. cpx62b ran it remotely, and gex45's first run 2 s later read it
+  from the cache.
+- The one failure was `lane_gc_journeys::unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_state`,
+  red on main at that base until fd5fc0859d, so Buck2 and Cargo agreed.
+
+Every check before queueing is formed on the laptop. The laptop holds no store generation and is no client of the
+store (Lanes, decision 9), so the seam's `here()` picks Cargo there whatever the build hosts' policy says. Moving
+the test build onto Buck2 therefore needs the line chosen on the build host that runs it, as `north land lint` and
+`north land crate-tests` already do, and needs the hosts' `build_system` and `buck2_tests` keys (box 7).
+
 ### What box 6 builds, in order
 
 1. `toolchains//platforms:exec`: `local_enabled = not remote`, with no hybrid (decision 5). Built.
