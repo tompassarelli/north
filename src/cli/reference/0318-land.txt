@@ -1,7 +1,7 @@
   land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]  Print each landing's wall time split by category from the span traces, the same split summed with p50 and p90, and the longest leaf spans, then each hand-in refused before its ticket with the seconds from hand-in to the refusal
   land doctor [--dry-run]                       Read every lander health bound, apply each known remedy and page the proxy once per unknown state
   land drill [FAULT]...                         Inject each lander stuck state into a scratch lander and require its remedy to clear it within the doctor's patience, nobody paged
-  land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket ahead of every urgent ticket marked later and print the place the lander gives it
+  land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket to the front of the urgent tickets (the latest mark goes first) and print the place the lander gives it
   land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason
   land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]  Land one queued ticket onto main without a lander round, only under a recorded approval, after the secret and privacy scans
   land freeze --cause TEXT | --lift             Place or lift the landing freeze on this host and every fleet host: while placed, every hand-in, finish call and safe-push --to main is refused with its cause before any check runs, and no ticket is written
