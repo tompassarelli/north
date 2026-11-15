@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
@@ -36,26 +37,31 @@ fn catalog_at(root: &Path, reference: &str) -> NorthResult<Value> {
     Ok(serde_json::from_slice(&git_object(root, reference, CATALOG)?)?)
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Options {
+    #[arg(long = "dropped-by-catalog")]
+    _dropped_by_catalog: bool,
+    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
+    south_root: Option<PathBuf>,
+    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
+    north_root: Option<PathBuf>,
+    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
+    repo: Option<PathBuf>,
+    #[arg(long, allow_hyphen_values = true, default_value = "origin")]
+    remote: String,
+    #[arg(long, allow_hyphen_values = true)]
+    max_age: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    hosts: Option<String>,
+}
+
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
-    let (mut south, mut north, mut repo) = (None, None, None);
-    let mut remote = "origin".to_owned();
-    let mut max_age = DEFAULT_MAX_AGE_MS;
-    let mut hosts = Vec::new();
-    let mut entries = arguments.iter();
-    while let Some(flag) = entries.next() {
-        let mut value = || entries.next().cloned().ok_or_else(|| NorthError::Usage(format!("{flag} needs a value")));
-        match flag.as_str() {
-            "--dropped-by-catalog" => {}
-            "--south-root" => south = Some(PathBuf::from(value()?)),
-            "--north-root" => north = Some(PathBuf::from(value()?)),
-            "--repo" => repo = Some(PathBuf::from(value()?)),
-            "--remote" => remote = value()?,
-            "--max-age" => max_age = parse_duration_ms(&value()?)?,
-            "--hosts" => hosts = value()?.split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect(),
-            _ => return Err(NorthError::Usage(format!("unknown option {flag}"))),
-        }
-    }
-    let (Some(south), Some(north), Some(repo)) = (south, north, repo) else {
+    let options: Options = crate::arguments::parse(arguments).map_err(NorthError::Usage)?;
+    let remote = options.remote;
+    let max_age = options.max_age.as_deref().map_or(Ok(DEFAULT_MAX_AGE_MS), parse_duration_ms)?;
+    let hosts: Vec<String> = options.hosts.as_deref().unwrap_or_default().split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect();
+    let (Some(south), Some(north), Some(repo)) = (options.south_root, options.north_root, options.repo) else {
         return Err(NorthError::Usage("live-refs --dropped-by-catalog needs --south-root DIR --north-root DIR --repo DIR".into()));
     };
     let current_root = git_text(Path::new("."), &["rev-parse", "--show-toplevel"])?;

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
@@ -250,34 +251,38 @@ fn relay(repo: &Path, remote: &str, host: &str, recorded: &[u8]) -> NorthResult<
     transport::publish(repo, remote, &facts)
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Options {
+    #[arg(long, short = 'h')]
+    help: bool,
+    #[arg(long)]
+    record: bool,
+    #[arg(long, value_name = "HOST", allow_hyphen_values = true)]
+    relay: Option<String>,
+    #[arg(long, value_name = "NAME", allow_hyphen_values = true)]
+    path: Option<String>,
+    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
+    facts_dir: Option<PathBuf>,
+    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
+    repo: Option<PathBuf>,
+    #[arg(long, allow_hyphen_values = true, default_value = "origin")]
+    remote: String,
+    #[arg(long, allow_hyphen_values = true)]
+    max_age: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    hosts: Option<String>,
+}
+
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
-    let mut recording = false;
-    let mut relayed = None;
-    let mut name = None;
-    let mut directory = None;
-    let mut repo = None;
-    let mut remote = "origin".to_owned();
-    let mut max_age = DEFAULT_MAX_AGE_MS;
-    let mut hosts = Vec::new();
-    let mut entries = arguments.iter();
-    while let Some(flag) = entries.next() {
-        let mut value = || entries.next().cloned().ok_or_else(|| NorthError::Usage(format!("{flag} needs a value")));
-        match flag.as_str() {
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            "--record" => recording = true,
-            "--relay" => relayed = Some(value()?),
-            "--path" => name = Some(value()?),
-            "--facts-dir" => directory = Some(PathBuf::from(value()?)),
-            "--repo" => repo = Some(PathBuf::from(value()?)),
-            "--remote" => remote = value()?,
-            "--max-age" => max_age = parse_duration_ms(&value()?)?,
-            "--hosts" => hosts = value()?.split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect(),
-            _ => return Err(NorthError::Usage(format!("unknown option {flag}\n{USAGE}"))),
-        }
+    let options: Options = crate::arguments::parse(arguments).map_err(|message| NorthError::Usage(format!("{message}\n{USAGE}")))?;
+    if options.help {
+        println!("{USAGE}");
+        return Ok(());
     }
+    let Options { record: recording, relay: relayed, path: name, facts_dir: directory, repo, remote, .. } = options;
+    let max_age = options.max_age.as_deref().map_or(Ok(DEFAULT_MAX_AGE_MS), parse_duration_ms)?;
+    let hosts: Vec<String> = options.hosts.as_deref().unwrap_or_default().split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect();
     if let Some(host) = relayed {
         let repo = repo.ok_or_else(|| NorthError::Usage(format!("--relay needs --repo DIR\n{USAGE}")))?;
         let mut recorded = Vec::new();
