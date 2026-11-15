@@ -5,6 +5,7 @@ use std::process::Command;
 use super::after::follow::program;
 use super::{candidate, hold, lander, queue, repositories};
 
+mod check_phase;
 mod coverage;
 mod main_run;
 mod pick;
@@ -21,7 +22,8 @@ pub enum Round {
     Locked,
     Idle,
     NoRoom(String),
-    Ran { branch: String, recorded: usize, unrecorded: usize },
+    Ran { branch: String, started: usize, failed: usize },
+    InFlight { recorded: usize, live: usize },
     StartedMain { main: String, lines: usize },
     RecordedMain { main: String, lines: usize },
 }
@@ -75,8 +77,12 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
         return Ok(Round::Locked);
     };
     let worktree = candidate::lander_worktree(&settings.repo, WORKTREE)?;
-    let main = candidate::prepare(&settings.repo, &worktree)?;
     let logs = settings.state.join("north/land-shadow");
+    let harvest = run::harvest(settings, &worktree, &logs);
+    if harvest.live > 0 {
+        return Ok(Round::InFlight { recorded: harvest.recorded, live: harvest.live });
+    }
+    let main = candidate::prepare(&settings.repo, &worktree)?;
     let tickets = queue::pending(&settings.queue).map_err(|error| format!("{}: {error}", settings.queue.display()))?;
     let queued = pick::not_checking(pick::ordered(tickets, &settings.host), &settings.queue);
     let host = if queued.is_empty() {
@@ -100,8 +106,8 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
         }
         return Ok(Round::Idle);
     };
-    let (recorded, unrecorded) = run::check(settings, &worktree, &main, &host, &work.found, &logs);
-    Ok(Round::Ran { branch: work.ticket.branch, recorded, unrecorded })
+    let launched = run::check(settings, &worktree, &main, &host, &work.found, &logs);
+    Ok(Round::Ran { branch: work.ticket.branch, started: launched.started, failed: launched.failed })
 }
 
 pub fn sweep(settings: &[Settings]) -> Vec<Result<Round, String>> {
@@ -125,7 +131,8 @@ fn say(repo: &Path, round: &Result<Round, String>) -> bool {
         Ok(Round::NoRoom(reason)) => println!("north land shadow: {name}: no host has room, skipped the round: {reason}"),
         Ok(Round::StartedMain { main, lines }) => println!("north land shadow: {name}: started the nextest land check of main {main} detached on a build host, {lines} line(s)"),
         Ok(Round::RecordedMain { main, lines }) => println!("north land shadow: {name}: recorded the nextest land check of main {main} in the background slot, {lines} line(s)"),
-        Ok(Round::Ran { branch, recorded, unrecorded }) => println!("north land shadow: {name}: {branch}: recorded {recorded} verdict(s), {unrecorded} without a verdict"),
+        Ok(Round::InFlight { recorded, live }) => println!("north land shadow: {name}: {live} check(s) still running detached on a build host, {recorded} verdict(s) recorded"),
+        Ok(Round::Ran { branch, started, failed }) => println!("north land shadow: {name}: {branch}: started {started} check(s) detached on a build host, {failed} failed to start"),
         Err(error) => {
             eprintln!("north land shadow: {name}: {error}");
             return false;
