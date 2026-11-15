@@ -55,3 +55,16 @@ pub fn brief_refusal(text: &str) -> Option<String> {
     let phrase = plans_human_signin(&planned.join("\n"))?;
     Some(format!("the plan needs a human sign-in (\"{phrase}\"), and no agent work depends on one; file a box that builds the machine path (a GitHub App token, a sops-held key or a setup token) and launch that instead"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::brief_refusal;
+
+    #[test]
+    fn a_login_named_as_a_subject_in_a_header_launches_and_a_planned_sign_in_is_refused() {
+        let subject = "Item: north#1\nBox: offloaded runs arrive as the gex45 account, whatever its login\nDone when: `true`";
+        assert_eq!(brief_refusal(subject), None);
+        let planned = "Item: north#1\nBox: Tom signs in to the browser first\nDone when: `true`";
+        assert!(brief_refusal(planned).is_some_and(|why| why.contains("signs in")));
+    }
+}

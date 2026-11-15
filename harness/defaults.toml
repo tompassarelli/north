@@ -1688,7 +1688,7 @@ fallback = "a credential with no expiry date is never renewed or announced, and 
 consumers = ["crates/north-credentials/src/credentials/mod.rs"]
 
 [human_signin_phrases]
-value = ["sign in", "signs in", "log in", "logs in", "login", "passkey", "passkeys", "password", "passwords", "keyring", "unlock", "2fa", "second factor", "two factor", "personal access token", "oauth consent", "device code", "browser auth"]
+value = ["sign in", "signs in", "log in", "logs in", "login prompt", "login page", "passkey", "passkeys", "password", "passwords", "keyring", "unlock", "2fa", "second factor", "two factor", "personal access token", "oauth consent", "device code", "browser auth"]
 allowed = { min_len = 1 }
 unit = "words and phrases that put a brief's Item, Box or Done when line, or a gate's question or option, in the plans-a-human-sign-in class, which launch and gate refuse"
 source = "tom: sign-in requests do not scale while he sleeps, so a plan that needs a person to sign in, type a password, confirm a passkey or unlock a keyring is turned into a box that builds the machine path (north#522, 2026-11-06)"
