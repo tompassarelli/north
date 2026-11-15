@@ -13,7 +13,7 @@ use crate::lifecycle::{Lifecycle, Lost, Refusal, State, Store};
 /// The longest a healthy land check holds a ticket: the land-check ceiling with room for a slow candidate build.
 const CHECK_DWELL: Duration = Duration::from_secs(2 * 3600);
 
-/// The longest `safe-push --to main --wait` waits for the lander's verdict; a tool server's call timeout sits above it, so a hand-in or finish call's checks before queueing end inside it.
+/// The longest `safe-push --to main --wait` waits for the lander's verdict; a fleet session's foreground maximum sits above it.
 pub const HAND_IN_WAIT: Duration = Duration::from_secs(25 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

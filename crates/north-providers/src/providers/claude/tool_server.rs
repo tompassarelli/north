@@ -45,7 +45,7 @@ pub fn shell_prefix(north: &Path) -> NorthResult<PathBuf> {
     linked_beside(north, EntryPoint::WorkerSandbox).map_err(|error| NorthError::State(format!("cannot link worker-sandbox beside {}, so the session's tool server could not start: {error}", north.display())))
 }
 
-/// The `--mcp-config` argument that starts one tool server offering `verbs`, or nothing for no verbs; the shell prefix puts the server in the sandbox (north#1151). Its call timeout sits above the longest hand-in wait, so a `hand-in` or `finish` call's checks before queueing return their verdict instead of timing out (north#1158).
+/// The `--mcp-config` argument that starts one tool server offering `verbs`, or nothing for no verbs; the shell prefix puts the server in the sandbox (north#1151). Its call timeout sits above the longest hand-in wait, so a `hand-in` call returns the lander's verdict instead of timing out (north#1158).
 pub fn tool_server_args(north: &Path, verbs: &[String]) -> Vec<String> {
     if verbs.is_empty() {
         return Vec::new();

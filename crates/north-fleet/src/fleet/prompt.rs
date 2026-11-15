@@ -8,6 +8,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
 use super::model::Role;
+use super::runtime::HAND_IN_CAP_SECS;
 
 const TEMPLATE: &str = include_str!("prompt.md");
 pub const TEMPLATE_PATH: &str = "crates/north-fleet/src/fleet/prompt.md";
@@ -15,6 +16,7 @@ const SEED_ORDERS: &str = include_str!("standing-orders.md");
 const DEEPEN: &str = include_str!("deepen.md");
 const ORDERS_SLOT: &str = "{standing_orders}";
 const CAP_SLOT: &str = "{foreground_cap_secs}";
+const HAND_IN_SLOT: &str = "{hand_in_timeout_ms}";
 const REACH_SLOT: &str = "{reach}";
 const REPORT_SLOT: &str = "{report_lead}";
 const MEMBER_REPORT_LEAD: &str = " Begin it `Done:`, `Not done:`, `Split:` or `Blocked:`, since the ledger scores your run by that word, and end a Not done or Blocked report with one `Stop:` line: `Stop: decision`, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, else `Stop: landing`, `capacity`, `client`, `leash` or `reasoning`. A report that only waits on your coordinator opens `Waiting:` instead, and the fleet keeps your session until your next report. When only another host or need (laptop, native) can finish the box, run `north fleet need NAME REASON` first, which records it for dispatch to place the next try; write no `Stop: host` line.";
@@ -83,6 +85,7 @@ pub fn render_from(template: &str, inputs: &PromptInputs) -> String {
         PromptMode::North => Some(
             template
                 .replace(CAP_SLOT, &inputs.foreground_cap_secs.to_string())
+                .replace(HAND_IN_SLOT, &(HAND_IN_CAP_SECS * 1000).to_string())
                 .replace(REACH_SLOT, reach(inputs.role))
                 .replace(REPORT_SLOT, report_lead(inputs.role))
                 .replace(ORDERS_SLOT, inputs.orders.trim_end()),

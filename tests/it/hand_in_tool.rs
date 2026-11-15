@@ -174,16 +174,14 @@ fn a_candidates_hand_in_tool_lands_through_its_own_build_while_the_live_link_nam
     assert_eq!(listed, ["hand-in"], "{}", journal());
     let called = answers.iter().find(|answer| answer["id"] == 3).unwrap_or_else(|| panic!("no answer to the tool call: {}", journal()));
     let text = called["result"]["content"][0]["text"].as_str().unwrap_or_default();
-    let ticket = text.lines().last().unwrap_or_default().to_owned();
-    assert!(ticket.starts_with("Done: queued ") && called["result"]["isError"] == false, "the tool did not return the lane's ticket: {}", journal());
-    assert!(wait::until(CALL_WAIT, || git(&canary.origin, &["rev-parse", "main"]) != base), "the lander did not land the handed-in lane: {}", journal());
     let landed = git(&canary.origin, &["rev-parse", "main"]);
+    assert!(text.contains(&format!("Done: landed {landed} on main")) && called["result"]["isError"] == false, "the tool did not return the lander's verdict: {}", journal());
     assert_eq!(git(&canary.origin, &["rev-parse", &format!("{landed}^")]), base, "{}", journal());
     assert_eq!(git(&canary.origin, &["show", &format!("{landed}:worker.txt")]), CHANGE.trim_end(), "{}", journal());
     let mut session = Transcript::new();
     Claude.observe(&json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "hand-in", "content": called["result"]["content"]}]}}), &mut session);
     let recorded = session.entries.iter().find(|entry| entry.kind == EntryKind::ToolResult).map_or("", |entry| entry.text.as_str());
-    assert_eq!(recorded.lines().last(), Some(ticket.as_str()), "the session records the tool call's result without its ticket: {recorded}\n{}", journal());
+    assert_eq!(recorded.lines().last(), Some(format!("Done: landed {landed} on main").as_str()), "the session records the tool call's result without its verdict: {recorded}\n{}", journal());
     let reached = fs::read_to_string(canary.path("older.calls")).unwrap_or_default();
     assert!(reached.is_empty(), "the candidate ran the live runtime's north for: {reached}\n{}", journal());
     assert!(live_broker.accept().is_err(), "the candidate's sandbox asked the live runtime's broker: {}", journal());

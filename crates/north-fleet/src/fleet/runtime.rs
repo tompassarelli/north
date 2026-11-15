@@ -169,7 +169,7 @@ pub trait Runtime: Send + Sync {
 
 
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
-/// The longest `timeout` a session may ask for: the hand-in wait and room to print its verdict, for a lead or the proxy that runs `safe-push --to main --wait` in the foreground; a worker never waits on its own landing and the worker-wait guard keeps it out of foreground waits.
+/// The foreground maximum a session may ask for, which only its hand-in call uses: the hand-in wait and room to print its verdict.
 pub const HAND_IN_CAP_SECS: u64 = north_base::land_ticket::HAND_IN_WAIT.as_secs() + 300;
 pub const ACTOR_ENV: &str = "THREADS_ACTOR";
 pub const CAPACITY_NEED_ENV: &str = "AGENT_CAPACITY_NEED";
