@@ -109,7 +109,8 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
 
 fn land(journey: &mut Journey) -> Result<String, String> {
     let waited = journey.scratch()?;
-    exec::poll_until(LAND_WAIT, POLL, || waited.origin_main(QUERY_WAIT).is_ok_and(|head| head != waited.base));
+    let log = waited.root.join("lander.log");
+    exec::poll_until(LAND_WAIT, POLL, || waited.origin_main(QUERY_WAIT).is_ok_and(|head| head != waited.base && fs::read_to_string(&log).is_ok_and(|said| said.contains(&format!("landed {head}")))));
     let served = journey.stop_lander();
     let scratch = journey.scratch()?;
     let landed = scratch.origin_main(QUERY_WAIT)?;

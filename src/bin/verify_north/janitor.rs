@@ -64,7 +64,8 @@ fn sweep(manifest: &Manifest) -> Result<String, String> {
     settle(&started, CHILD_GRACE);
     let mut watched: Vec<Process> = manifest.watched.iter().copied().collect();
     watched.extend(processes::descendants(&watched));
-    let mut problems = forget_all(manifest);
+    let mut problems: Vec<String> = remove_queue(manifest).into_iter().collect();
+    problems.extend(forget_all(manifest));
     if let Some(root) = &manifest.scratch {
         watched.extend(processes::within(root));
     }
@@ -75,9 +76,6 @@ fn sweep(manifest: &Manifest) -> Result<String, String> {
         for process in &left {
             process.terminate();
         }
-    }
-    if let (Some(state), Some(queue)) = (&manifest.state, &manifest.queue) {
-        problems.extend(remove(queue, queue.parent() == Some(journey::landing_queues(state).as_path())));
     }
     problems.extend(manifest.scratch.as_deref().and_then(|root| remove(root, scratch::removable(root))));
     problems.extend(manifest.state.as_deref().and_then(|root| remove(root, scratch::removable(root))));
@@ -102,6 +100,11 @@ fn forget_all(manifest: &Manifest) -> Vec<String> {
             Err(error) => Some(format!("forget {name}: {error}")),
         })
         .collect()
+}
+
+fn remove_queue(manifest: &Manifest) -> Option<String> {
+    let (Some(state), Some(queue)) = (&manifest.state, &manifest.queue) else { return None };
+    remove(queue, queue.parent() == Some(journey::landing_queues(state).as_path()))
 }
 
 fn settle(processes: &[Process], limit: Duration) -> Vec<Process> {
