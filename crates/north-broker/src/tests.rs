@@ -104,7 +104,7 @@ fn broker(github: &str, digitalocean: &str, uid: u32) -> (tempfile::TempDir, Bro
 
 fn call(broker: &Broker, uid: u32, method: &str, target: &str, headers: &[(&str, &str)], body: &Value) -> (u16, Value) {
     let request = Request { method: method.to_owned(), target: target.to_owned(), headers: headers.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), body: body.to_string().into_bytes() };
-    let answer = broker.handle_on(Surface::Open, &Peer { uid, pid: 1, lane_only: false, unit: "-".to_owned() }, &request, NOW);
+    let answer = broker.handle_on(Surface::Open, &Peer { uid, pid: 1, lane_only: false, no_new_privs: false, unit: "-".to_owned() }, &request, NOW);
     (answer.status, serde_json::from_slice(&answer.body).unwrap_or(Value::Null))
 }
 
@@ -208,11 +208,22 @@ fn a_caller_outside_the_ceiling_or_the_policy_gets_no_token_and_costs_no_mint() 
     let ask_at = |now: i64, valid_for: i64| {
         let body = json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" }, "valid_for": valid_for });
         let request = Request { method: "POST".to_owned(), target: "/github/token".to_owned(), headers: Vec::new(), body: body.to_string().into_bytes() };
-        broker.handle_on(Surface::Open, &Peer { uid: 1001, pid: 1, lane_only: false, unit: "-".to_owned() }, &request, now).status
+        broker.handle_on(Surface::Open, &Peer { uid: 1001, pid: 1, lane_only: false, no_new_privs: false, unit: "-".to_owned() }, &request, now).status
     };
     assert_eq!((ask_at(NOW + 2000, 0), minted()), (200, 1), "a held token with 1600 s left serves a caller that asks nothing more");
     assert_eq!((ask_at(NOW + 2000, 1800), minted()), (200, 2), "a caller that stores the token for 1800 s gets a fresh one, not the held token about to expire");
     assert_eq!(ask_at(NOW + 2000, 3301), 400);
+    let ask_with_no_new_privs = |app: &str| {
+        let body = json!({ "app": app, "repositories": ["north"], "permissions": { "contents": "read" } });
+        let request = Request { method: "POST".to_owned(), target: "/github/token".to_owned(), headers: Vec::new(), body: body.to_string().into_bytes() };
+        broker.handle_on(Surface::Open, &Peer { uid: 1001, pid: 1, lane_only: false, no_new_privs: true, unit: "-".to_owned() }, &request, NOW)
+    };
+    let refused = ask_with_no_new_privs("lander");
+    let answer: Value = serde_json::from_slice(&refused.body).unwrap();
+    assert_eq!(refused.status, 403, "the lander App went to a caller with NoNewPrivs set");
+    assert!(answer["error"].as_str().unwrap().contains("NoNewPrivs"), "{answer}");
+    assert_eq!(ask_with_no_new_privs("agent").status, 200, "the agent App is unchanged by NoNewPrivs");
+    assert_eq!(minted(), 2, "a lander request refused for NoNewPrivs still minted a token");
 }
 
 #[test]
@@ -255,7 +266,7 @@ fn a_body_starting_with_at_reaches_the_provider_as_text_and_no_loaded_secret_com
     let marker = keep.path().join("github-app.yaml");
     let body = format!("@{}", marker.display());
     let request = Request { method: "POST".to_owned(), target: "/digitalocean/v2/body".to_owned(), headers: vec![("Authorization".to_owned(), "Bearer placeholder".to_owned())], body: body.clone().into_bytes() };
-    let answer = broker.handle_on(Surface::Open, &Peer { uid: 1001, pid: 1, lane_only: false, unit: "-".to_owned() }, &request, NOW);
+    let answer = broker.handle_on(Surface::Open, &Peer { uid: 1001, pid: 1, lane_only: false, no_new_privs: false, unit: "-".to_owned() }, &request, NOW);
     assert_eq!(answer.status, 200);
     assert_eq!(seen.lock().unwrap()[0].2, body, "the provider got something other than the text the caller sent");
     assert!(!String::from_utf8_lossy(&answer.body).contains("BEGIN"), "a credential file came back");
@@ -267,7 +278,7 @@ fn a_lane_only_session_gets_no_github_token_and_no_cloud_call() {
     let (_keep, broker) = broker("http://127.0.0.1:9", &upstream, 1001);
     let ask = |target: &str, headers: &[(&str, &str)]| {
         let request = Request { method: "POST".to_owned(), target: target.to_owned(), headers: headers.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), body: json!({ "app": "agent" }).to_string().into_bytes() };
-        broker.handle_on(Surface::Open, &Peer { uid: 1001, pid: 1, lane_only: true, unit: "-".to_owned() }, &request, NOW).status
+        broker.handle_on(Surface::Open, &Peer { uid: 1001, pid: 1, lane_only: true, no_new_privs: false, unit: "-".to_owned() }, &request, NOW).status
     };
     assert_eq!(ask("/github/token", &[]), 403);
     assert_eq!(ask("/digitalocean/v2/customers/my/balance", &[("Authorization", "Bearer placeholder")]), 403);
@@ -365,7 +376,7 @@ const THREADS_POLICY: &str = "[[caller]]\nuid = 1001\nthreads = [\"claim\", \"no
 
 fn forward(broker: &Broker, surface: Surface, uid: u32, body: &Value) -> (u16, Value) {
     let request = Request { method: "POST".to_owned(), target: "/threads/forward".to_owned(), headers: Vec::new(), body: body.to_string().into_bytes() };
-    let answer = broker.handle_on(surface, &Peer { uid, pid: 1, lane_only: false, unit: "-".to_owned() }, &request, NOW);
+    let answer = broker.handle_on(surface, &Peer { uid, pid: 1, lane_only: false, no_new_privs: false, unit: "-".to_owned() }, &request, NOW);
     (answer.status, serde_json::from_slice(&answer.body).unwrap_or(Value::Null))
 }
 
@@ -398,7 +409,7 @@ fn the_ledger_forward_runs_only_the_verbs_a_caller_is_listed_for_with_values_nev
     assert_eq!(std::fs::read_to_string(directory.path().join("arguments")).unwrap(), "threads note north#1041 see crates/x.rs\n");
 
     let cloud = Request { method: "GET".to_owned(), target: "/hcloud/v1/servers".to_owned(), ..Request::default() };
-    assert_eq!(broker.handle_on(Surface::Typed, &Peer { uid: 1001, pid: 1, lane_only: false, unit: "-".to_owned() }, &cloud, NOW).status, 404);
+    assert_eq!(broker.handle_on(Surface::Typed, &Peer { uid: 1001, pid: 1, lane_only: false, no_new_privs: false, unit: "-".to_owned() }, &cloud, NOW).status, 404);
 }
 
 #[test]

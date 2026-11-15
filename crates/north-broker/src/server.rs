@@ -25,11 +25,12 @@ const MAX_CONNECTIONS: usize = 64;
 const MAX_PER_UID: usize = 16;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// A caller as the broker read it at accept, through the pidfd the socket gave, its process still alive after the last read. `lane_only`: the caller runs in the scope of a lane-only session (DeepSeek's harnesses), read from its cgroup, which the session cannot change; such a session's code is not trusted with a GitHub token or a cloud call (south#104). `unit`: the service or scope its cgroup names, for the log.
+/// A caller as the broker read it at accept, through the pidfd the socket gave, its process still alive after the last read. `lane_only`: the caller runs in the scope of a lane-only session (DeepSeek's harnesses), read from its cgroup, which the session cannot change; such a session's code is not trusted with a GitHub token or a cloud call (south#104). `no_new_privs`: its NoNewPrivs flag is set or could not be read, which keeps the lander App from it. `unit`: the service or scope its cgroup names, for the log.
 pub struct Peer {
     pub uid: u32,
     pub pid: i32,
     pub lane_only: bool,
+    pub no_new_privs: bool,
     pub unit: String,
 }
 
@@ -176,6 +177,9 @@ impl Broker {
             if !(0..=LONGEST_VALIDITY).contains(&valid_for) {
                 return Err((400, format!("valid_for {valid_for} is outside 0 to {LONGEST_VALIDITY} seconds")));
             }
+            if app_name == "lander" && peer.no_new_privs {
+                return Err((403, format!("the lander App goes only to a caller without NoNewPrivs; uid {} runs with it set", peer.uid)));
+            }
             let ceiling = caller.github.get(app_name).ok_or_else(|| (403, format!("uid {} may not receive {app_name} tokens", peer.uid)))?;
             let scope = ceiling.scope(app_name, &repositories, &permissions).map_err(|why| (403, why))?;
             let key = format!("{}|{app_name}|{}|{:?}", peer.uid, scope.repositories.join(","), scope.permissions);
@@ -303,8 +307,13 @@ pub(crate) fn peer(stream: &UnixStream) -> Option<Peer> {
     let pidfd = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::PeerPidfd).ok()?;
     let pid = pid_of(&pidfd)?;
     let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok();
-    let peer = Peer { uid, pid, lane_only: cgroup.as_deref().is_none_or(session_scope::lane_only_cgroup), unit: cgroup.as_deref().map_or_else(|| "-".to_owned(), unit_of) };
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok();
+    let peer = Peer { uid, pid, lane_only: cgroup.as_deref().is_none_or(session_scope::lane_only_cgroup), no_new_privs: status.as_deref().is_none_or(no_new_privileges), unit: cgroup.as_deref().map_or_else(|| "-".to_owned(), unit_of) };
     alive(&pidfd).then_some(peer)
+}
+
+fn no_new_privileges(status: &str) -> bool {
+    !status.lines().find_map(|line| line.strip_prefix("NoNewPrivs:")).is_some_and(|value| value.trim() == "0")
 }
 
 fn pid_of(pidfd: &OwnedFd) -> Option<i32> {
