@@ -52,6 +52,9 @@ pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head:
     if !north_diff_gates::stub_exec_gate::check(root, destination, base, head) {
         return Err("stub-exec gate");
     }
+    if !north_diff_gates::secrets_gate::check(root, base, head) {
+        return Err("secrets gate");
+    }
     Ok(())
 }
 

@@ -15,6 +15,7 @@ pub enum Gate {
     DocLinks,
     StrategyReplay,
     Secrets,
+    Sealed,
     Denylist,
     CommitEmail,
     ShellHook,
@@ -23,7 +24,7 @@ pub enum Gate {
 impl Gate {
     /// Whether the gate refuses while the others are in shadow: the land checks (build, clippy, tests), the pick itself, secrets, privacy (north#729), test admission (north#1048) and the incident test (north#1329).
     pub fn always_refuses(self) -> bool {
-        matches!(self, Self::LandChecks | Self::DroppedCommits | Self::Secrets | Self::Denylist | Self::CommitEmail | Self::NativeRef) || north_landing::land::landing_refusals::always_refuses(self.label())
+        matches!(self, Self::LandChecks | Self::DroppedCommits | Self::Secrets | Self::Sealed | Self::Denylist | Self::CommitEmail | Self::NativeRef) || north_landing::land::landing_refusals::always_refuses(self.label())
     }
 
     pub fn label(self) -> &'static str {
@@ -43,6 +44,7 @@ impl Gate {
             Self::DocLinks => "document links",
             Self::StrategyReplay => "strategy replay",
             Self::Secrets => "secret scan",
+            Self::Sealed => "sealed secrets",
             Self::Denylist => "deny-list scan",
             Self::CommitEmail => "commit email",
             Self::ShellHook => "shell hook",
@@ -97,6 +99,7 @@ pub fn plan(facts: &GateFacts) -> Result<Vec<Gate>, SecretScannerMissing> {
         Gate::DocsOwners,
         Gate::DocLinks,
         Gate::Secrets,
+        Gate::Sealed,
         Gate::Denylist,
         Gate::CommitEmail,
     ]);

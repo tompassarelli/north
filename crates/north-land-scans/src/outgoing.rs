@@ -126,6 +126,7 @@ fn dispatch(dir: &Path, command: &str, rest: &[String]) -> Option<Step> {
         ("private-kinds", [base, head, reference, wait]) => private_kinds(dir, (base, head, reference), Some(wait)),
         ("commit-email", revisions) => commit_email_scan(dir, &revisions.iter().map(|revision| (*revision).to_owned()).collect::<Vec<_>>()),
         ("secrets", [range]) => secrets(dir, range),
+        ("sealed", [range]) => sealed(dir, range),
         ("private-file", ["--range", range]) => private_file::range_scan(dir, &Denylist::from_env().south.join("main"), range),
         ("publication", [base, head]) => publication(dir, base, head),
         _ => return None,
@@ -147,6 +148,13 @@ pub fn run(arguments: &[String]) -> Option<u8> {
         Ok(()) => 0,
         Err(Refused(code)) => code,
     })
+}
+
+/// Whether every file under secrets/ that the range adds or changes is sealed (north#1626).
+pub fn sealed(dir: &Path, range: &str) -> Step {
+    let (base, head) = range.split_once("..").unwrap_or(("", range));
+    let head = if head.is_empty() { "HEAD" } else { head };
+    if north_diff_gates::secrets_gate::check(dir, base, head) { Ok(()) } else { Err(Refused(1)) }
 }
 
 pub fn instruction_limits(root: &Path, reference: &str) -> Step {

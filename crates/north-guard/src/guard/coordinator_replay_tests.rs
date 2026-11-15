@@ -28,6 +28,9 @@ impl World for Coordinator {
     fn lane_files(&self, _: &str) -> Option<Vec<String>> {
         None
     }
+    fn lane_file_bytes(&self, _cwd: &str, _file: &str) -> Option<Vec<u8>> {
+        None
+    }
     fn break_glass(&self) -> bool {
         false
     }

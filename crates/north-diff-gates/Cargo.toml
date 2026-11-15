@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-shared-config = { path = "../north-shared-config" }
 percent-encoding.workspace = true
 regex.workspace = true
 serde.workspace = true

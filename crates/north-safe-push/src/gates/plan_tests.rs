@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use super::{Destination, Gate, GateFacts, SecretScannerMissing, plan};
 
-const SCANS: [&str; 12] = [
+const SCANS: [&str; 13] = [
     "dependency gate",
     "native item reference",
     "tool removal",
@@ -13,6 +13,7 @@ const SCANS: [&str; 12] = [
     "document owners",
     "document links",
     "secret scan",
+    "sealed secrets",
     "deny-list scan",
     "commit email",
 ];

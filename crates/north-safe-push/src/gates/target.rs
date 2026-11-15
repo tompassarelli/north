@@ -51,6 +51,7 @@ impl Target<'_> {
             Gate::NativeRef if self.branch.is_empty() => own(&["native-ref", "--range", self.range, "--"]),
             Gate::NativeRef => own(&["native-ref", "--range", self.range, "--", self.branch, self.destination]),
             Gate::Secrets => own(&["secrets", self.range]),
+            Gate::Sealed => own(&["sealed", &outgoing]),
             Gate::Denylist => own(&["denylist", self.base, self.head, self.destination]),
             Gate::LandChecks => None,
             other => own(&[range_scan(other), self.range]),

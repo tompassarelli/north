@@ -7,6 +7,8 @@ use north_base::shell::{blank_quotes, strip_heredocs};
 use serde_json::Value;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
+use north_shared_config::secrets_seal;
+use super::coordinator_lanes::{file_bytes, lane_changes};
 
 const UNIT: &str = "coordinator-role-guard";
 const REACH_UNIT: &str = "coordinator-reach-guard";
@@ -50,6 +52,7 @@ pub trait World {
     fn profile(&self, account: &str) -> Option<String>;
     fn claude_start(&self) -> Option<ClaudeStart>;
     fn lane_files(&self, cwd: &str) -> Option<Vec<String>>;
+    fn lane_file_bytes(&self, cwd: &str, file: &str) -> Option<Vec<u8>>;
     fn break_glass(&self) -> bool;
     fn status_verb(&self, words: &[&str]) -> bool;
 }
@@ -91,6 +94,10 @@ impl World for Live {
         lane_changes(cwd)
     }
 
+    fn lane_file_bytes(&self, cwd: &str, file: &str) -> Option<Vec<u8>> {
+        file_bytes(cwd, file)
+    }
+
     fn break_glass(&self) -> bool {
         crate::guard::break_glass::lifted_now()
     }
@@ -98,17 +105,6 @@ impl World for Live {
     fn status_verb(&self, words: &[&str]) -> bool {
         host::status_verb(words)
     }
-}
-
-pub(super) fn lane_changes(cwd: &str) -> Option<Vec<String>> {
-    let git = |args: &[&str]| -> Option<Vec<String>> {
-        let output = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
-        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect())
-    };
-    let base = git(&["merge-base", "HEAD", "origin/main"])?.into_iter().next()?;
-    let mut files = git(&["diff", "--name-only", &base])?;
-    files.extend(git(&["ls-files", "--others", "--exclude-standard"])?);
-    Some(files)
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
@@ -215,7 +211,11 @@ fn shell_refusal(world: &impl World, input: &HookInput, command: &str) -> Option
 
 fn lane_is_one_doc_or_config(world: &impl World, input: &HookInput, command: &str) -> bool {
     let Some(dir) = input.cwd().and_then(|cwd| acting_dir(command, cwd, world.var("HOME").as_deref())) else { return false };
-    world.lane_files(&dir).is_some_and(|files| matches!(files.as_slice(), [file] if is_doc_or_config(file)))
+    world.lane_files(&dir).is_some_and(|files| matches!(files.as_slice(), [file] if is_doc_or_config(file) && sealed_in_lane(world, &dir, file)))
+}
+
+fn sealed_in_lane(world: &impl World, dir: &str, file: &str) -> bool {
+    !secrets_seal::governs(file) || world.lane_file_bytes(dir, file).is_some_and(|bytes| secrets_seal::sealed(file, &bytes))
 }
 
 fn acting_dir(command: &str, cwd: &str, home: Option<&str>) -> Option<String> {
@@ -280,7 +280,7 @@ fn is_doc_or_config(file: &str) -> bool {
     if let Some(rest) = file.strip_prefix("harness/") {
         return is_harness_config(rest);
     }
-    file.starts_with("docs/") || file.starts_with("secrets/")
+    file.starts_with("docs/") || secrets_seal::governs(file)
 }
 
 fn is_harness_config(rest: &str) -> bool {

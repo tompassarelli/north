@@ -31,6 +31,9 @@ impl World for Role {
     fn lane_files(&self, _cwd: &str) -> Option<Vec<String>> {
         None
     }
+    fn lane_file_bytes(&self, _cwd: &str, _file: &str) -> Option<Vec<u8>> {
+        None
+    }
 
     fn break_glass(&self) -> bool {
         false

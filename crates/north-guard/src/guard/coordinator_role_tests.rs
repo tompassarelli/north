@@ -17,6 +17,7 @@ struct Fake {
     config: Option<&'static str>,
     start: Option<(bool, bool)>,
     lane: Option<&'static [&'static str]>,
+    content: Option<&'static str>,
     glass: bool,
 }
 
@@ -38,6 +39,9 @@ impl World for Fake {
     }
     fn lane_files(&self, dir: &str) -> Option<Vec<String>> {
         self.lane.filter(|_| dir == LANE).map(|files| files.iter().map(|file| (*file).to_owned()).collect())
+    }
+    fn lane_file_bytes(&self, _dir: &str, _file: &str) -> Option<Vec<u8>> {
+        self.content.map(|text| text.as_bytes().to_vec())
     }
     fn claude_start(&self) -> Option<ClaudeStart> {
         self.start.map(|(nested, print)| ClaudeStart { nested, print, conversation: None })
@@ -207,11 +211,14 @@ fn the_coordinator_has_no_diagnosis_budget_without_break_glass() {
     }
 }
 
+const SEALED: &str = "sops:\n    lastmodified: '2026-11-15T00:00:00Z'\n    mac: ENC[AES256_GCM,data:fixture,iv:fixture,tag:fixture,type:str]\n    version: 3.9.0\n";
+const PLAINTEXT: &str = "token: fixture-not-a-credential\n";
+
 #[test]
 fn proxy_lands_its_own_config_lane() {
-    let lane = |files: &'static [&'static str]| Fake { lane: Some(files), ..coordinator() };
+    let lane = |files: &'static [&'static str]| Fake { lane: Some(files), content: Some(SEALED), ..coordinator() };
     let landing = ["git commit -qm south", "safe-push --to main"];
-    let config: [&'static [&'static str]; 3] = [&["agents/rules.toml"], &["secrets/south.env.sops"], &["harness/defaults.toml"]];
+    let config: [&'static [&'static str]; 3] = [&["agents/rules.toml"], &["secrets/south.yaml"], &["harness/defaults.toml"]];
     for files in config {
         for landing_command in landing {
             let command = format!("cd {LANE} && {landing_command}");
@@ -229,5 +236,10 @@ fn proxy_lands_its_own_config_lane() {
             let command = format!("cd {LANE} && {landing_command}");
             assert!(denied(&lane(files), &bash(&command)), "{command} over {files:?}");
         }
+    }
+    let plaintext = Fake { lane: Some(&["secrets/plain.yaml"]), content: Some(PLAINTEXT), ..coordinator() };
+    for landing_command in landing {
+        let command = format!("cd {LANE} && {landing_command}");
+        assert!(denied(&plaintext, &bash(&command)), "{command} over a plaintext secrets file");
     }
 }

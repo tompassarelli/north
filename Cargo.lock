@@ -1433,6 +1433,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-foundation",
+ "north-shared-config",
  "percent-encoding",
  "regex",
  "serde",

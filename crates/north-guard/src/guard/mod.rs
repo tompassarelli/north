@@ -57,6 +57,7 @@ mod coordinator_loads;
 mod coordinator_reach;
 mod coordinator_replay_tests;
 mod coordinator_role_tests;
+mod coordinator_lanes;
 mod coordinator_background_tests;
 pub mod code_health_edit;
 pub mod hook_stats;
