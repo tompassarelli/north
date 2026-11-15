@@ -89,6 +89,7 @@ Nothing here is needed to use north: these notes record why it is built the way 
 - [Rust build times: a measured trigger for crate splits](rust-build-times.md): Tom asked on 2026-11-04 that Rust compile times stay fast as Wisp grows.
 - [Small-task speed-up ideas: two sessions compared (2026-11-12)](small-task-ideas-comparison.md): Two sessions were given the same request anatomy for north#1239 and asked for ranked ideas to cut a small task's launch-to-landed time, each without reading the other.
 - [Subsystem ledger: what each north subsystem costs to repair against the decisions it feeds](subsystem-ledger.md): North's breadth has to show it is necessary (north#797).
+- [Verb inventory by use, 2026-11-15](verb-inventory-2026-11.md): Measured for north#1487, extending [command usage](command-usage-2026-11.md), whose rule stands: zero use alone never retires a verb.
 - [Wake paths: what wakes an agent turn, and what to cut](wake-paths.md): Fleet sessions went quiet for hours while Claude Code subagents rarely did, and the suspicion was too many overlapping wake paths, some of which depend on the agent's prose rather than a process.
 
 ## Decision records
