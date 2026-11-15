@@ -129,10 +129,15 @@ const NIX_STORE: &str = "/nix/store";
 /// The workspace's own libraries and binaries: `north_rust_test` builds each test binary as a `rust_binary` with `--test` (build/rust_test.bzl), and a dependency outside the workspace is built only as a dependency.
 const WORKSPACE_TARGETS: &str = r#"kind("^rust_(binary|library)$", //... - //third-party/...) - attrfilter(rustc_flags, "--test", //...)"#;
 
+const RENAME_ONTO: &str = r#"final=$1; tmp=$2; shift 2; "$@" && mv -f "$tmp" "$final""#;
+
 impl Buck2 {
-    /// The build of the one program `binary`: Buck2's `--out` copies a target's one output onto the path itself, so each program is its own build and the path names the file, never its directory.
+    /// The build of the one program `binary`: Buck2's `--out` copies a target's one output onto the path it names, so the build copies into a fresh path of this process beside `binary`'s, renamed onto `binary` only once Buck2 exits 0, and a copy another check runs keeps its inode (north#1560). Each program is its own build, so each path names one file.
     fn build_words(&self, request: &Build, out: &Path, binary: &str) -> Vec<String> {
-        let mut words = self.words(&["build", REMOTE_ONLY, &format!("//:{binary}"), "--out", &out.join(binary).display().to_string()]);
+        let names = out.join(binary).display().to_string();
+        let fresh = format!("{names}.{}", std::process::id());
+        let mut words = ["sh", "-c", RENAME_ONTO, "sh", &names, &fresh].map(str::to_owned).to_vec();
+        words.extend(self.words(&["build", REMOTE_ONLY, &format!("//:{binary}"), "--out", &fresh]));
         words.extend(self.settings(request));
         words
     }
