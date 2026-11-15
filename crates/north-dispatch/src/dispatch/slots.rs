@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 const SESSION_CORES_GUESS: f64 = 0.5;
 
 /// Sessions the idle cores take, each charged `SESSION_CORES_GUESS`; a host without a CPU reading takes no more than its memory and cap allow.
-fn cpu_room(measure: super::measure::Measure) -> i64 {
-    (((measure.cores - measure.load).max(0.0) / SESSION_CORES_GUESS).floor()) as i64
+fn cpu_room(idle_cores: f64) -> i64 {
+    (idle_cores / SESSION_CORES_GUESS).floor() as i64
 }
 
 #[derive(Clone, Debug, PartialEq)]
