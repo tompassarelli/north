@@ -8,6 +8,7 @@ use super::state::Owned;
 use north_base::foundation::clock::Timestamp;
 
 const DAY_MS: i64 = 86_400_000;
+const ALERT_ROWS: usize = 12;
 
 pub(super) struct Row<'a> {
     pub(super) place: &'a str,
@@ -78,19 +79,21 @@ impl Gc {
                 parents.entry(row.owner.clone()).or_default().push(Owned { place: repo.clone(), ..row.clone() });
             }
         }
-        for (parent, rows) in parents {
+        for (parent, mut rows) in parents {
             let Some(age) = rows.iter().map(|row| row.age_h).max() else {
                 continue;
             };
-            let Some(oldest) = rows.iter().find(|row| row.age_h == age).filter(|_| rows.len() > 25 || age > 72) else {
+            if rows.len() <= 25 && age <= 72 {
                 continue;
-            };
+            }
+            rows.sort_by_key(|row| std::cmp::Reverse(row.age_h));
+            let shown: Vec<String> = rows.iter().take(ALERT_ROWS).map(|row| format!("{} {} {}h {}", row.place, row.branch, row.age_h, row.issues.join(" "))).collect();
+            let more = rows.len().saturating_sub(ALERT_ROWS);
             let text = format!(
-                "{parent}: {} owned unlanded lanes, oldest {}h ({} {}); continue, land or archive each (north lane gc --unlanded)",
+                "{parent}: {} lanes hold unique work, oldest first (repository branch age issue=state): {}{}; land, continue or archive each (north lane gc --unlanded)",
                 rows.len(),
-                oldest.age_h,
-                oldest.place,
-                oldest.branch
+                shown.join("; "),
+                if more > 0 { format!("; +{more} more") } else { String::new() }
             );
             if self.options.dry_run {
                 println!("would alert {text}");
