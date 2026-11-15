@@ -100,7 +100,7 @@ fn repository_with_two_commits() -> (tempfile::TempDir, String, String) {
 }
 
 fn reap_script(root: &Path, owner: &str) -> Output {
-    let script = super::REAP.replace("@ROOT@", &shell(root));
+    let script = super::REAP.replace("@ROOT@", &shell(root)).replace("sleep 2\n", "sleep 0\n");
     Command::new("sh").args(["-c", &script, "offload-reap", owner]).output().unwrap()
 }
 
@@ -501,7 +501,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     assert!(!home.path().join(".cache/land-offload/code-p-main.hold").exists(), "an ended hold left its token's hash behind");
     let calls = fs::read_to_string(home.path().join("line-calls")).unwrap();
     assert!(calls.lines().any(|line| line.starts_with("started --deadline 4200 ")), "a hold's deadline is cut to the hold ceiling in its line record: {calls}");
-    let mut expiring = on_host("1", &header, "");
+    let mut expiring = on_host("0", &header, "");
     let mut input = expiring.stdin.take().unwrap();
     input.write_all(&header).and_then(|()| std::io::copy(&mut fs::File::open(&bundle).unwrap(), &mut input).map(drop)).unwrap();
     let expired = expiring.wait_with_output().unwrap();
