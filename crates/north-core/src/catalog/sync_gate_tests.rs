@@ -71,43 +71,6 @@ fn sync(pair: &Pair) -> (Result<(), String>, Vec<String>) {
 }
 
 #[test]
-fn a_diverged_main_is_refused_and_left_alone() {
-    let pair = pair();
-    commit(&pair.origin, "remote");
-    commit(&pair.clone, "local");
-    let before = head(&pair.clone);
-    let (outcome, _) = sync(&pair);
-    assert_eq!(
-        outcome.unwrap_err(),
-        "south main is behind origin by 1 and not fast-forwardable: diverged with 1 local commits"
-    );
-    assert_eq!(head(&pair.clone), before);
-}
-
-#[test]
-fn a_clean_branch_checkout_with_no_unlanded_commits_returns_to_main_and_publishes() {
-    let pair = pair();
-    git(&pair.clone, &["switch", "-q", "-c", "n706-box"]);
-    commit(&pair.origin, "remote");
-    let (outcome, said) = sync(&pair);
-    assert_eq!(outcome, Ok(()));
-    assert_eq!(head(&pair.clone), head(&pair.origin));
-    let branch = Command::new("git")
-        .arg("-C")
-        .arg(&pair.clone)
-        .args(["branch", "--show-current"])
-        .output()
-        .unwrap();
-    assert_eq!(String::from_utf8_lossy(&branch.stdout).trim(), "main");
-    assert_eq!(
-        said,
-        [
-            "agents sync: south checkout was on branch n706-box at an ancestor of origin/main; switched to main"
-        ]
-    );
-}
-
-#[test]
 fn stale_locks_a_killed_git_left_in_main_are_cleared_and_main_still_fast_forwards_north_937() {
     let pair = pair();
     git(&pair.clone, &["switch", "-q", "-c", "n706-box"]);

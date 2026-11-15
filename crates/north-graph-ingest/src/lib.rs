@@ -22,6 +22,9 @@ mod touches;
 mod trusted_writers;
 mod waits;
 
+#[cfg(test)]
+mod ingest_tests;
+
 pub use places::Places;
 pub use run::{Report, ingest, run};
 pub use source::Source;

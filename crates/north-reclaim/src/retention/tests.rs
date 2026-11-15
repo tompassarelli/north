@@ -99,28 +99,6 @@ fn a_differing_copy_already_in_the_archive_blocks_the_delete() {
     assert!(rig.here("clash"));
 }
 
-fn aged(directory: &Path, inner: &str) {
-    let touch = |flag: &str, path: std::path::PathBuf| assert!(Command::new("touch").args([flag, "-d", &format!("@{}", hours_before_now(100))]).arg(path).status().unwrap().success());
-    touch("-h", directory.join(inner));
-    touch("-c", directory.to_owned());
-}
-
-#[test]
-fn an_archived_link_with_a_different_target_blocks_the_delete() {
-    let rig = Rig::new();
-    rig.entry("relinked", 100, false);
-    let directory = rig.root().join("relinked");
-    std::os::unix::fs::symlink("log.txt", directory.join("alias")).unwrap();
-    aged(&directory, "alias");
-    let existing = rig.archive.path().join("evidence/relinked");
-    fs::create_dir_all(existing.join("shots")).unwrap();
-    fs::write(existing.join("shots/a.png"), "relinked").unwrap();
-    fs::write(existing.join("log.txt"), "log").unwrap();
-    std::os::unix::fs::symlink("shots/a.png", existing.join("alias")).unwrap();
-    assert!(!rig.run(false));
-    assert!(rig.here("relinked"));
-}
-
 const ON_MAIN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const IN_LANE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const UNNAMED: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";

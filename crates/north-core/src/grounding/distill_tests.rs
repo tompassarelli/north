@@ -22,3 +22,12 @@ fn a_captured_correction_keeps_its_class_paraphrase_and_the_reply_it_corrected_n
     let line = serde_json::to_string(&rows[0]).unwrap();
     assert!(!line.contains("way too slowly") && !line.contains("pick it up"), "{line}");
 }
+
+#[test]
+fn a_fleet_message_relayed_into_a_session_is_never_read_as_tom_typing() {
+    assert!(is_skip_message("[from proxy] Fact, no order: the lane is innocent."));
+    assert!(is_skip_message("[from service:north-land] landed w230"));
+    assert!(is_skip_message("Another Claude session sent a message: [from n634-lander-doctor] three updates"));
+    assert!(is_skip_message("Item: north#656 a box\nCategory: feature") && is_brief_session("Item: north#656 a box\nCategory: feature"));
+    assert!(!is_skip_message("from now on file every plan as an issue"));
+}

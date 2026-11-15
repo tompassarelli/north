@@ -242,3 +242,6 @@ fn prune(root: &Path, keep: &str) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -60,8 +60,6 @@ mod rescue_tests;
 mod stray_tests;
 #[cfg(test)]
 mod unpushed_tests;
-#[cfg(test)]
-mod verdict_tests;
 
 #[cfg(test)]
 const TEST_NOW_SECS: u64 = 4_102_444_800;

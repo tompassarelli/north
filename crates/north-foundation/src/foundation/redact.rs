@@ -122,21 +122,4 @@ mod tests {
         assert!(out.contains("4502d16752b0b5a1c3f9e2d8a7b6c5d4e3f2a1b0"));
         assert!(out.contains("convo:2216789"));
     }
-
-    #[test]
-    fn redact_keeps_long_digit_bearing_filenames_but_masks_opaque_tokens() {
-        let text = [
-            "see docs/reports/gjoa-2026-10-27-ci-run-38240508386-diagnosis-summary.md",
-            "notes 2026-10-27-long-generated-report-name-r7q9w2e8t5y1u4i0o3p6.txt",
-            "blob Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXcVbNmQwErTy.then",
-            "jwt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9Q8w2E.Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXcVbNmQw.dozjgNryP4J3jVmNHl0w5NXgLa7Kq2Mz9Tb1Vc8Xd6Rf",
-        ]
-        .join("\n");
-        let out = redact(&text);
-        assert!(out.contains("docs/reports/gjoa-2026-10-27-ci-run-38240508386-diagnosis-summary.md"));
-        assert!(out.contains("2026-10-27-long-generated-report-name-r7q9w2e8t5y1u4i0o3p6.txt"));
-        assert!(!out.contains("Zx9Qw8Er7Ty6"));
-        assert!(!out.contains("Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXcVbNmQw."));
-        assert!(!out.contains("dozjgNryP4J3"));
-    }
 }

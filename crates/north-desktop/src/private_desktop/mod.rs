@@ -78,3 +78,17 @@ fn record_display() -> io::Result<u8> {
     fs::write(run.join("ready"), b"")?;
     Ok(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::run_state::private_client_env;
+
+    #[test]
+    fn client_environment_refuses_missing_and_host_displays() {
+        let run = std::env::temp_dir();
+        assert!(!private_client_env(None, Some(&run)));
+        assert!(!private_client_env(Some(":0"), Some(&run)));
+        assert!(!private_client_env(Some(":0.0"), Some(&run)));
+        assert!(private_client_env(Some(":12"), Some(&run)));
+    }
+}

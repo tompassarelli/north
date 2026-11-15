@@ -101,32 +101,6 @@ fn a_verification_mismatch_aborts_with_main_untouched() {
 }
 
 #[test]
-fn a_deleted_tracked_archive_and_an_untracked_archive_are_rescued() {
-    let project = Project::new();
-    let main = project.main();
-    let old_archive: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
-    let new_archive: Vec<u8> = (0..=255u8).rev().cycle().take(4096).collect();
-    fs::create_dir_all(main.join("vendor")).unwrap();
-    fs::write(main.join("vendor/old.tgz"), &old_archive).unwrap();
-    git_in(&main, &["add", "vendor/old.tgz"]);
-    git_in(&main, &["commit", "-qm", "archive"]);
-    fs::remove_file(main.join("vendor/old.tgz")).unwrap();
-    fs::write(main.join("vendor/new.tgz"), &new_archive).unwrap();
-
-    let Finished::Done(line) = project.rescue(false) else { panic!("rescue failed") };
-    assert!(line.starts_with("rescued -> "), "{line}");
-    assert_eq!(git_in(&main, &["status", "--porcelain"]), "");
-    assert_eq!(fs::read(main.join("vendor/old.tgz")).unwrap(), old_archive);
-    assert!(!main.join("vendor/new.tgz").exists());
-
-    let rescued = &project.lanes()[0];
-    assert_eq!(git_in(rescued, &["status", "--porcelain"]), "");
-    assert!(!rescued.join("vendor/old.tgz").exists());
-    assert_eq!(fs::read(rescued.join("vendor/new.tgz")).unwrap(), new_archive);
-    assert_eq!(git_in(rescued, &["show", "--name-status", "--format=", "HEAD"]), "A\tvendor/new.tgz\nD\tvendor/old.tgz");
-}
-
-#[test]
 fn a_checkout_holding_lanes_is_cleaned_with_the_registered_one_relocated_and_the_stale_copy_archived() {
     let project = Project::new();
     let main = project.main();

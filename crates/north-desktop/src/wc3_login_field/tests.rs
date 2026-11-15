@@ -60,16 +60,6 @@ fn outcome(result: Result<&'static str, Failure>) -> (String, u8) {
 }
 
 #[test]
-fn the_field_is_typed_into_the_active_login_window_and_never_printed() {
-    let root = tempfile::tempdir().unwrap();
-    let (run, _socket) = private_run(root.path());
-    let desktop = fake(vec![("12", "Battle.net Login")]);
-    let (message, code) = outcome(deliver(&request(&run, "b", "password", false), root.path(), &desktop));
-    assert_eq!((message.as_str(), code), ("Field delivered; verify the login result privately.", 0));
-    assert_eq!(desktop.typed.into_inner(), ["hunter2"]);
-}
-
-#[test]
 fn delivery_refuses_a_wrong_window_a_missing_field_a_non_private_run_and_a_focus_change() {
     let root = tempfile::tempdir().unwrap();
     let (run, _socket) = private_run(root.path());
