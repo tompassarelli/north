@@ -1,5 +1,5 @@
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
@@ -12,9 +12,10 @@ const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
 const WORKER_TOOLS: &str = "Bash,Read,Edit,Write,Grep,Glob,TaskStop";
 const RESEARCH_TOOLS: &str = ",WebSearch,WebFetch";
 const POLICY_FILE: &str = "CLAUDE.md";
+const REPOSITORY_INSTRUCTIONS: [&str; 4] = ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md", ".claude/AGENTS.md"];
 const LAUNCH_OWNED: [&str; 6] = ["apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper", "forceLoginMethod", "forceLoginOrgUUID"];
 
-/// A worker's system prompt is north's text followed by the account profile's policy file, which is the same for every session of the account; its repository's own instruction files come back through the project and local setting sources, and its one settings file is its profile's hook registration because Claude Code keeps only the last `--settings`. A settings file's env outranks the process environment and the profile's names a prefix of two words, so the launch's `prefix` goes into that one settings file (north#1172).
+/// A worker's system prompt is north's text followed by the account profile's policy file, which is the same for every session of the account, and its repository's instruction files read from the project's main checkout, which no worker writes; it loads no setting source, so no settings or instruction file a worker writes in its lane reaches its client, and its one settings file is its profile's hook registration because Claude Code keeps only the last `--settings`. A settings file's env outranks the process environment and the profile's names a prefix of two words, so the launch's `prefix` goes into that one settings file (north#1172).
 pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &str, prefix: &Path) -> NorthResult<Vec<String>> {
     if request.role() != Role::Worker {
         let mut args = vec!["--settings".to_owned(), with_prefix(json!({"switchModelsOnFlag": true}), prefix).to_string()];
@@ -23,18 +24,24 @@ pub(super) fn args(account: &Account, request: &LaunchRequest, instructions: &st
         }
         return Ok(args);
     }
-    let (settings, policy) = std::thread::scope(|scope| {
+    let (settings, policy, repository) = std::thread::scope(|scope| {
         let reads = crate::fleet::remote::ProfileReads::shared();
+        let (policy_reads, repository_reads) = (reads.clone(), reads);
         let policy = scope.spawn(|| {
-            let _reads = reads.map(crate::fleet::remote::LaunchReads::enter);
+            let _reads = policy_reads.map(crate::fleet::remote::LaunchReads::enter);
             where_it_runs(request, &account.home.join(POLICY_FILE))
         });
-        (worker_settings(account, request, prefix), policy.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+        let repository = scope.spawn(|| {
+            let _reads = repository_reads.map(crate::fleet::remote::LaunchReads::enter);
+            repository_instructions(request)
+        });
+        let settings = worker_settings(account, request, prefix);
+        (settings, policy.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)), repository.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
     });
-    let (settings, policy) = (settings?, policy?.unwrap_or_default());
+    let (settings, policy, repository) = (settings?, policy?.unwrap_or_default(), repository?);
     let tools = if researches(request) { format!("{WORKER_TOOLS}{RESEARCH_TOOLS}") } else { WORKER_TOOLS.to_owned() };
-    let mut args = ["--tools", &tools, "--setting-sources", "project,local", "--settings", &settings].map(str::to_owned).to_vec();
-    let prompt = [instructions, policy.trim_end()].iter().filter(|text| !text.is_empty()).copied().collect::<Vec<_>>().join("\n\n");
+    let mut args = ["--tools", &tools, "--setting-sources", "", "--settings", &settings].map(str::to_owned).to_vec();
+    let prompt = [instructions, policy.trim_end(), &repository].iter().filter(|text| !text.is_empty()).copied().collect::<Vec<_>>().join("\n\n");
     if !prompt.is_empty() {
         args.extend(["--system-prompt".to_owned(), prompt]);
     }
@@ -98,4 +105,22 @@ fn with_prefix(mut settings: Value, prefix: &Path) -> Value {
 
 fn researches(request: &LaunchRequest) -> bool {
     north_pace::router::brief::brief_header(&request.prompt).get("category").is_some_and(|category| category.trim().eq_ignore_ascii_case("research"))
+}
+
+/// The instruction files Claude Code loads from the root of the worker's repository, read where the session runs from that project's main checkout (`PROJECT/main` beside the outermost lane `PROJECT/worktrees/NAME` it runs in, so a worktree a worker makes inside its lane never stands in for it), each under a line naming it; empty for a session in no such checkout.
+fn repository_instructions(request: &LaunchRequest) -> NorthResult<String> {
+    let Some(main) = main_checkout(&request.cwd) else { return Ok(String::new()) };
+    let mut texts = Vec::new();
+    for name in REPOSITORY_INSTRUCTIONS {
+        let path = main.join(name);
+        if let Some(text) = where_it_runs(request, &path)?.filter(|text| !text.trim().is_empty()) {
+            texts.push(format!("Contents of {} (project instructions):\n\n{}", path.display(), text.trim_end()));
+        }
+    }
+    Ok(texts.join("\n\n"))
+}
+
+fn main_checkout(cwd: &Path) -> Option<PathBuf> {
+    let lane = cwd.ancestors().filter(|dir| dir.parent().and_then(Path::file_name).is_some_and(|name| name == "worktrees")).last();
+    lane.and_then(|lane| Some(lane.parent()?.parent()?.join("main"))).or_else(|| cwd.ancestors().filter(|dir| dir.file_name().is_some_and(|name| name == "main")).last().map(Path::to_path_buf))
 }

@@ -176,7 +176,7 @@ fn launched_worker_settings_disable_unsandboxed_commands() {
     assert_eq!(settings["hooks"], serde_json::from_str::<serde_json::Value>(HOOKED).unwrap()["hooks"], "a worker's hooks come from the checked settings.json: {argv:?}");
     assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false, "a worker's Bash tool may not leave the sandbox: {argv:?}");
     assert_eq!(argv.iter().filter(|arg| *arg == "--settings").count(), 1, "Claude Code keeps only the last --settings: {argv:?}");
-    assert!(argv.windows(2).any(|pair| pair == ["--setting-sources", "project,local"]) && argv.windows(2).any(|pair| pair == ["--system-prompt", "orders\n\nowner policy"]), "a worker's system prompt carries the profile's policy file: {argv:?}");
+    assert!(argv.windows(2).any(|pair| pair == ["--setting-sources", ""]) && argv.windows(2).any(|pair| pair == ["--system-prompt", "orders\n\nowner policy"]), "a worker's system prompt carries the profile's policy file: {argv:?}");
     let research = LaunchRequest { prompt: "Item: north#1\nCategory: research\n".into(), ..worker };
     let argv = Claude.host(&account, &research, Opening::Fresh(None), "orders").unwrap().argv;
     assert!(argv.windows(2).any(|pair| pair[0] == "--tools" && pair[1].ends_with("WebSearch,WebFetch")), "{argv:?}");
@@ -295,4 +295,30 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
         .output()
         .unwrap();
     assert!(child.status.success(), "{}{}", String::from_utf8_lossy(&child.stdout), String::from_utf8_lossy(&child.stderr));
+}
+
+#[test]
+fn a_worker_launch_reads_no_project_or_local_settings() {
+    let scratch = tempfile::tempdir().unwrap();
+    let home = scratch.path().join("home");
+    let (main, lane) = (scratch.path().join("code/project/main"), scratch.path().join("code/project/worktrees/lane"));
+    for dir in [&home, &main.join(".claude"), &lane.join(".claude")] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    std::fs::write(home.join("settings.json"), HOOKED).unwrap();
+    std::fs::write(main.join("AGENTS.md"), "main rules\n").unwrap();
+    std::fs::write(main.join(".claude/CLAUDE.md"), "main claude rules\n").unwrap();
+    std::fs::create_dir_all(lane.join("main")).unwrap();
+    for file in ["AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", ".claude/settings.json", ".claude/settings.local.json", "main/AGENTS.md"] {
+        std::fs::write(lane.join(file), r#"{"disableAllHooks": true} lane rules"#).unwrap();
+    }
+    let account = Account { provider: Claude.provider(), label: "a".into(), home, token_file: None, api: None };
+    let worker = LaunchRequest { role: Some(crate::fleet::model::Role::Worker), cwd: lane.join("worktrees/inner/crates"), ..request() };
+
+    let argv = Claude.host(&account, &worker, Opening::Fresh(None), "orders").unwrap().argv;
+    let after = |flag: &str| argv.iter().position(|arg| arg == flag).map(|at| argv[at + 1].as_str());
+    assert_eq!(after("--setting-sources"), Some(""), "{argv:?}");
+    let prompt = after("--system-prompt").unwrap();
+    assert!(prompt.starts_with("orders\n\n") && prompt.contains("main rules") && prompt.contains("main claude rules") && !prompt.contains("lane rules"), "{prompt}");
+    assert!(prompt.contains(&main.join("AGENTS.md").display().to_string()), "{prompt}");
 }
