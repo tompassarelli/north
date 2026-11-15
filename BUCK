@@ -775,6 +775,7 @@ north_rust_test(
         "carry_matrix::carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_exits_127_for_a_missing_program",
         "depbox_broker::dependency_code_in_depbox_cannot_connect_to_the_broker_socket",
         "golden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client",
+        "safe_push::session::a_hung_land_check_times_out_and_fails_the_push",
         "threads_ledger::the_ledger_host_over_ssh_spools_while_down_serves_a_stale_snapshot_and_flushes_in_order",
         "threads_resume::an_expired_claim_stays_held_for_its_live_holder_here_and_through_the_ledger_host",
         "worker_sandbox::a_candidate_check_or_after_landing_step_cannot_read_the_logins_or_write_the_trusted_mirror_the_lander_queue_records_or_runtimes_and_still_writes_its_checkout_scratch_and_caches_and_nests_a_namespace_south_138",

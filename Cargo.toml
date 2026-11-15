@@ -196,6 +196,11 @@ reason = "its after-landing run starts the candidate jail, whose mounts a remote
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
+name = "safe_push::session::a_hung_land_check_times_out_and_fails_the_push"
+reason = "waits up to 60 s for a push to exit after its land check passes a 1 s deadline, which on a slowed hosted runner it did not: hosted run 43677630330 failed it after 91 s, while it passes in 0.7 s on a build host (north#1537)"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
 name = "threads_ledger::the_ledger_host_over_ssh_spools_while_down_serves_a_stale_snapshot_and_flushes_in_order"
 reason = "reaches a fixture ledger host over ssh and waits on a detached snapshot pull, which on a slowed hosted runner does not land inside the 120 s case limit (north#1578)"
 test = "it"
