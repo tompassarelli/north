@@ -265,46 +265,60 @@ Split, open in north#1588:
 - `rework_alarm_pct` (20): settles at 100 judged first worker runs. The counter returns the first-run count and computes
   no per-repository rework rate, so it is split.
 
-Waiting below need, each to be settled by north#1588 box 2:
-- WAIT astra_cost n=0/20 (north#1588 box 2)
-- WAIT late_ratio n=0/10 (north#1588 box 2)
-- WAIT capacity_min n=0/20 (north#1588 box 2)
-- WAIT explore_runs n=13/40 (north#1588 box 2)
-- WAIT explore_every n=13/40 (north#1588 box 2)
-- WAIT priority_headroom n=0/50 (north#1588 box 2)
-- WAIT plan_meter_weighting n=0/40 (north#1588 box 2)
-- WAIT bar1_margin_mib n=0/20 (north#1588 box 2)
-- WAIT gpu_slots n=0/20 (north#1588 box 2)
-- WAIT vram_gpu_headroom_mib n=0/20 (north#1588 box 2)
-- WAIT gpu_vram_ramp_seconds n=0/20 (north#1588 box 2)
-- WAIT vram_margin_mib n=0/20 (north#1588 box 2)
-- WAIT game_reserve_headroom_mib n=0/20 (north#1588 box 2)
-- WAIT overload_cap_share n=0/20 (north#1588 box 2)
-- WAIT slice_weight_app_attended n=0/20 (north#1588 box 2)
-- WAIT slice_weight_agent n=0/20 (north#1588 box 2)
-- WAIT slice_weight_session_unattended n=0/20 (north#1588 box 2)
-- WAIT admit_psi_unattended_high n=0/20 (north#1588 box 2)
-- WAIT admit_psi_attended_low n=0/20 (north#1588 box 2)
-- WAIT admit_psi_game_low n=0/20 (north#1588 box 2)
-- WAIT admit_psi_game_high n=0/20 (north#1588 box 2)
-- WAIT admit_memory_ramp_seconds n=0/20 (north#1588 box 2)
-- WAIT watch_waste_wait_seconds n=0/20 (north#1588 box 2)
-- WAIT watch_waste_cpu_fraction n=0/20 (north#1588 box 2)
-- WAIT watch_waste_memory_fraction n=0/20 (north#1588 box 2)
-- WAIT capacity_mode_play_cpus n=0/20 (north#1588 box 2)
-- WAIT capacity_mode_play_cpus_min n=0/20 (north#1588 box 2)
-- WAIT capacity_mode_play_cpus_max n=0/20 (north#1588 box 2)
-- WAIT capacity_mode_play_cpus_step n=0/20 (north#1588 box 2)
-- WAIT capacity_mode_play_psi_target n=0/20 (north#1588 box 2)
-- WAIT capacity_mode_play_calm_sec n=0/20 (north#1588 box 2)
-- WAIT land_check_claim_seconds n=0/20 (north#1588 box 2)
-- WAIT agent_slice_read_cap_mib n=0/20 (north#1588 box 2)
-- WAIT agent_slice_write_cap_mib n=0/20 (north#1588 box 2)
+Nothing waits below need as a gain claim (2026-11-15, north#1588 box 2). The 34 priors the listing left under their need
+name no open box whose check settles them: the only open box was north#1588 box 2, whose check is this decision rather than
+a reading of any one of them, so it settles none of them itself. Each is settled here for what it is: a protection whose
+mechanism stays, or a guess whose gain claim is deleted and whose value stays with the count that would settle it.
+`north work`'s prior batch keeps printing that count from `settles_when`, which stays in `harness/defaults.toml` as the
+label.
 
-The waiting priors whose count is `count_capacity_episodes` read Codex rollouts under `CODEX_CONFIG_DIR` or
-`~/code/north-data/codex-pooled` (`/home/tom/code/north/main/crates/north-tune/src/defaults_measure/rollouts.rs:20`). Those
-rollouts are absent on this host, so each reads 0 whatever the capacity ledger holds. The counter needs a new source, or
-these claims go; that is box 2's decision.
+Marked protection, not a gain claim (a refusal, hold, cap or reserve that protects work in flight or the seat; the mechanism
+stays):
+- `bar1_margin_mib` (16), `gpu_slots` (2), `vram_gpu_headroom_mib` (4096), `gpu_vram_ramp_seconds` (60) and
+  `vram_margin_mib` (1024): gpu admission keeps the desktop and the Warcraft clients able to start beside a render, read at
+  `/home/tom/code/north/main/crates/north-capacity/src/capacity/admission/gpu.rs`.
+- `game_reserve_headroom_mib` (24576) and `overload_cap_share` (0.5): batch admission leaves the game and desktop their
+  memory, and the watchdog caps an offender's cores, read at
+  `/home/tom/code/north/main/crates/north-capacity/src/capacity/admission/gaming.rs` and
+  `/home/tom/code/north/main/crates/north-capacity-host/src/capacity/watchdog/detect.rs`.
+- `slice_weight_app_attended` (1000), `slice_weight_agent` (20), `slice_weight_session_unattended` (300),
+  `agent_slice_read_cap_mib` (200) and `agent_slice_write_cap_mib` (200): the slice weights and IO caps keep the compositor
+  and Tom's desktop ahead of agent bursts, read at
+  `/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/systemd.rs` and
+  `/home/tom/code/north/main/crates/north-capacity/src/capacity/game_reserve.rs`.
+- `admit_psi_unattended_high` (40), `admit_psi_attended_low` (10), `admit_psi_game_low` (5), `admit_psi_game_high` (20) and
+  `admit_memory_ramp_seconds` (60): the pressure bands refuse a heavy start before the seat feels it, read at
+  `/home/tom/code/north/main/crates/north-capacity/src/capacity/pressure_target.rs` and
+  `/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/policy.rs`.
+- `capacity_mode_play_cpus` (8), `capacity_mode_play_cpus_min` (4), `capacity_mode_play_cpus_max` (12),
+  `capacity_mode_play_cpus_step` (2), `capacity_mode_play_psi_target` (5.0) and `capacity_mode_play_calm_sec` (600): the play
+  reserve holds CPUs for the game and returns them when protected pressure stays calm, read at
+  `/home/tom/code/north/main/crates/north-capacity/src/capacity/mode.rs`.
+- `capacity_min` (15): a provider in a capacity error stays unavailable for the hold, so work is not staffed into it, read at
+  `/home/tom/code/north/main/crates/north-pace/src/router/ctx.rs`.
+- `priority_headroom` (0.2): a lower-priority project's spawns leave the higher one its share, read at
+  `/home/tom/code/north/main/crates/north-guard/src/guard/spawn_capacity.rs`.
+- `land_check_claim_seconds` (60): a check host the lander failed to place on keeps new worker leases off it, read at
+  `/home/tom/code/north/main/crates/north-capacity/src/capacity/land_claim.rs`.
+
+Deleted as gain claims, value kept as a guess with what would settle it:
+- `astra_cost` (5): settles at 20 Astra worker runs with Codex week readings around them (`count_astra_runs`, 0/20).
+- `late_ratio` (1.5): settles at 10 project targets with an on-date pass or fail in `goal-scores.jsonl`
+  (`count_goal_targets`, 0/10).
+- `explore_runs` (10) and `explore_every` (10): settle at 40 runs of the least-run tier among those that reached
+  `explore_runs` (`count_explored_tier_runs`, 13/40).
+- `plan_meter_weighting` (price): settles at 40 Haiku policy-replay rows carrying both plan percentages
+  (`count_meter_test_haiku_runs`, 0/40).
+- `watch_waste_wait_seconds` (60), `watch_waste_cpu_fraction` (0.7) and `watch_waste_memory_fraction` (0.25): they alarm
+  when work waits beside an idle host, the incident class Tom and the leads have reported by eye, so the alarm stays as a
+  protection of throughput; the gain claim in its thresholds is deleted and would settle at 20 capacity episodes where work
+  waited beside idle cores (`count_capacity_episodes`, 0/20).
+
+The 25 capacity safeguards above name `count_capacity_episodes` as what would settle them, and it reads Codex rollouts under
+`CODEX_CONFIG_DIR` or `~/code/north-data/codex-pooled`
+(`/home/tom/code/north/main/crates/north-tune/src/defaults_measure/rollouts.rs:20`). Those rollouts are absent on this host,
+so it reads 0 whatever the capacity ledger holds. Their labels stay as what would settle each value, but no claim rests on
+the count, since a protection needs no measurement to keep its mechanism, so the counter needs no new source for them.
 
 Mechanisms to delete (listed in north#1588 for the coordinator to staff; not deleted in this lane):
 - `/home/tom/code/north/main/crates/north-pace/src/router/brief.rs:206-212`: the Codex files gate behind `codex_files_max`.
