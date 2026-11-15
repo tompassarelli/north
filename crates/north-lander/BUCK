@@ -89,9 +89,6 @@ north_rust_test(
     crate_root = "crates/north-lander/tests/it/main.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
-    skip = [
-        "land_first::a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts_exactly_the_culprits",
-    ],
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-check-environment:north-check-environment",
@@ -127,7 +124,6 @@ north_host_cases(
     name = "host-cases",
     targets = [
         ":north-lander-unittest",
-        ":north-lander-test-it",
     ],
     visibility = ["PUBLIC"],
 )

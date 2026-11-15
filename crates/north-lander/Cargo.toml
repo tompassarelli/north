@@ -38,8 +38,3 @@ north-machine-model = { path = "../north-machine-model" }
 [[package.metadata.north.buck.host-cases]]
 name = "land::shadow::run::tests::a_queued_check_line_starts_detached_and_is_recorded_once_it_ends"
 reason = "waits 10 s for a detached check line to write its pid file, which on a slowed hosted runner it did not: hosted run 43683254262 failed it after 34 s, while it passes in 2.0 s on a build host (north#1537)"
-
-[[package.metadata.north.buck.host-cases]]
-name = "land_first::a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts_exactly_the_culprits"
-reason = "waits through a chain of polls and process starts that a slowed hosted runner stretches past its case limit (hosted run 43723570346 failed it) while it passes on a build host (north#1632)"
-test = "it"
