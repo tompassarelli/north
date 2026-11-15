@@ -1,12 +1,5 @@
+use north_base::test_inputs::git::git_in as git;
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
-use std::process::Command;
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 #[test]
 fn a_pinned_beside_checkout_answers_its_main_without_a_fetch_into_its_read_only_git_directory() {

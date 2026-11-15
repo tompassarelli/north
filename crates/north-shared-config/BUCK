@@ -37,6 +37,7 @@ north_rust_test(
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     deps = [
+        "//crates/north-foundation:north-foundation",
         "//crates/north-trusted-mirror:north-trusted-mirror",
         "//third-party:tempfile",
     ],

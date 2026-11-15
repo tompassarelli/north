@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -87,12 +88,6 @@ fn busy_queue(silence: u64) -> QueueFacts {
         round_silence: Some(silence),
         ..QueueFacts::default()
     }
-}
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").args(arguments).current_dir(directory).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 struct SlotJob {

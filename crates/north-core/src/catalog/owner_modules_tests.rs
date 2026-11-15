@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -8,19 +9,6 @@ use super::catalog_init::{catalog_from, initial_catalog};
 use super::owner_modules::STRUCTURE_FILE;
 use super::registration_checks::{OwnerCheckRoots, canonical, check_owner_files, git_text};
 use crate::error::NorthResult;
-
-fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid"])
-        .args(["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
-        .args(arguments)
-        .output()
-        .expect("git runs");
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8(output.stdout).expect("git output").trim().to_owned()
-}
 
 fn south_checkout(scratch: &Path) -> std::path::PathBuf {
     let origin = scratch.join("south-origin.git");

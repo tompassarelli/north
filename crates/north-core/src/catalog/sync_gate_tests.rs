@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -5,29 +6,6 @@ use std::process::Command;
 use tempfile::TempDir;
 
 use super::sync_gate::current_main;
-
-fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args([
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "commit.gpgsign=false",
-        ])
-        .args(args)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
 
 fn commit(dir: &Path, message: &str) {
     git(dir, &["commit", "-q", "--allow-empty", "-m", message]);

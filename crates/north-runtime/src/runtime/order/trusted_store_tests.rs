@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use north_runtime_records::after_landing::Landing;
 use super::super::main_runs::{FIXTURE_ANCESTOR, MainRuns};
 use super::super::review_hold::{Screen, contains_in};
@@ -7,18 +8,11 @@ use super::super::update::{main_commit, trusted_store_of};
 use super::resolve;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").current_dir(directory).args(arguments).env_remove("GIT_DIR").output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 fn commit(checkout: &Path, text: &str) -> String {
     fs::write(checkout.join("f"), text).unwrap();
     git(checkout, &["add", "f"]);
-    git(checkout, &["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-qm", text.trim()]);
+    git(checkout, &["commit", "-qm", text.trim()]);
     git(checkout, &["rev-parse", "HEAD"])
 }
 

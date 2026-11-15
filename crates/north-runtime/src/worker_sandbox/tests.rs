@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -24,11 +25,6 @@ mod withdraw_request;
 mod landed_request;
 #[path = "sockets_tests.rs"]
 mod sockets;
-
-fn git(directory: &Path, arguments: &[&str]) {
-    let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-}
 
 fn locks(under: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();

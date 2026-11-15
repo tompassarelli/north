@@ -1,3 +1,4 @@
+pub(super) use north_base::test_inputs::git::git_in as git;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,12 +27,6 @@ fn enqueue_process() {
     std::process::exit(i32::from(north_lander::land::enqueue::run(&arguments)));
 }
 
-pub(super) fn git(dir: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(dir).args(arguments).env("GIT_CONFIG_GLOBAL", dir.ancestors().find(|path| path.join("gitconfig").is_file()).unwrap().join("gitconfig")).env("GIT_CONFIG_NOSYSTEM", "1").output().unwrap();
-    assert!(output.status.success(), "git {arguments:?} in {}: {}", dir.display(), String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
-
 pub(super) struct World {
     root: tempfile::TempDir,
 }
@@ -45,7 +40,7 @@ pub(super) struct Repository {
 impl World {
     pub(super) fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("gitconfig"), "[user]\n\tname = t\n\temail = t@example.com\n[safe-push]\n\tallowEmail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n").unwrap();
+        std::fs::write(root.path().join("gitconfig"), "[user]\n\tname = t\n\temail = fixture@example.invalid\n[safe-push]\n\tallowEmail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n").unwrap();
         let bin = root.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("checker"), GREEN).unwrap();
@@ -68,7 +63,7 @@ impl World {
         git(&origin, &["init", "-q", "--bare", "-b", "main"]);
         let checkout = project.join("main");
         git(&project, &["clone", "-q", origin.to_str().unwrap(), "main"]);
-        for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        for (key, value) in [("user.name", "t"), ("user.email", "fixture@example.invalid"), ("commit.gpgsign", "false")] {
             git(&checkout, &["config", key, value]);
         }
         std::fs::write(checkout.join("README"), "start\n").unwrap();

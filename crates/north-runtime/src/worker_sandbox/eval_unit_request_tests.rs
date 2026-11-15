@@ -1,6 +1,6 @@
+use north_base::test_inputs::git::git_in as git;
 use std::cell::RefCell;
 use std::path::Path;
-use std::process::Command;
 
 use super::*;
 use crate::worker_sandbox::eval_units::{NIX_PROFILE_BIN, SYSTEM_BIN};
@@ -31,12 +31,6 @@ impl Units for Recorded {
         self.stopped.borrow_mut().push(name.to_owned());
         Ok(())
     }
-}
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
 fn host(root: &Path, role: &str, name: &str, agent: bool) -> Host {

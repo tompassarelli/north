@@ -2,5 +2,5 @@
 name = "north-shared-config"
 layer = 1
 paths = ["crates/north-shared-config/src/**"]
-may_use = ["north-trusted-mirror"]
+may_use = ["north-trusted-mirror", "north-foundation"]
 

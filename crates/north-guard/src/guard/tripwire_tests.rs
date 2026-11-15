@@ -1,10 +1,10 @@
+use north_base::test_inputs::git::git_in as git;
 use super::decide;
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 const CASES: &str = include_str!("tripwire_cases.jsonl");
 const PIN_OID: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -12,23 +12,6 @@ const PIN_OID: &str = "0123456789abcdef0123456789abcdef01234567";
 fn touch(path: &str, text: &str) {
     fs::create_dir_all(Path::new(path).parent().unwrap()).unwrap();
     fs::write(path, text).unwrap();
-}
-
-fn git(repo: &str, args: &[&str]) {
-    let status = Command::new("git")
-        .args([
-            "-C",
-            repo,
-            "-c",
-            "user.email=t@example",
-            "-c",
-            "user.name=t",
-        ])
-        .args(args)
-        .output()
-        .unwrap()
-        .status;
-    assert!(status.success(), "git {args:?} in {repo}");
 }
 
 fn lane(home: &str) {
@@ -43,8 +26,8 @@ fn lane(home: &str) {
         touch(&format!("{lane}/{file}"), "");
     }
     touch(&format!("{lane}/lib/x.txt"), "a\n");
-    git(&lane, &["add", ".gitignore", "src", "lib"]);
-    git(&lane, &["commit", "-qm", "base"]);
+    git(Path::new(&lane), &["add", ".gitignore", "src", "lib"]);
+    git(Path::new(&lane), &["commit", "-qm", "base"]);
     touch(&format!("{lane}/lib/x.txt"), "edited\n");
     touch(
         &format!("{lane}/ref-mutation.graphql"),
@@ -59,8 +42,8 @@ fn lane(home: &str) {
 fn made_lane(root: &str, home: &str) {
     let made = format!("{home}/code/proj/worktrees/made-220");
     touch(&format!("{made}/src/a.txt"), "");
-    git(&made, &["add", "src"]);
-    git(&made, &["commit", "-qm", "base"]);
+    git(Path::new(&made), &["add", "src"]);
+    git(Path::new(&made), &["commit", "-qm", "base"]);
     touch(&format!("{made}/.checks/controller/out.log"), "");
     touch(&format!("{made}/tools/__pycache__/m.pyc"), "");
     touch(&format!("{made}/src/a.txt"), "x\n");
@@ -123,11 +106,11 @@ fn sandbox(root: &str) {
         "worktrees/mine",
         "worktrees/made-220",
     ] {
-        git(&format!("{home}/code/proj/{repo}"), &["init", "-q"]);
+        git(Path::new(&format!("{home}/code/proj/{repo}")), &["init", "-q"]);
     }
-    git(&pin, &["init", "-q"]);
+    git(Path::new(&pin), &["init", "-q"]);
     fs::create_dir_all(format!("{root}/clone")).unwrap();
-    git(&format!("{root}/clone"), &["init", "-q"]);
+    git(Path::new(&format!("{root}/clone")), &["init", "-q"]);
     touch(
         &format!("{pin}.pin"),
         "Vendored upstream. Consumers: the docs build.\n",

@@ -1,3 +1,4 @@
+pub(super) use north_base::test_inputs::git::git_in as git;
 use super::script::{VERIFY, run_part};
 use super::{CommitId, Land, WRONG_TREE, bundle, carried, job_ref};
 use std::fs;
@@ -86,12 +87,6 @@ fn remote_run_after(command: &str, flake: Option<&str>, caller: &[(&str, &str)],
 
 pub(super) fn shell(word: &Path) -> String {
     super::quote(&word.display().to_string())
-}
-
-pub(super) fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git").current_dir(dir).args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"]).args(args).output().unwrap();
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
 fn repository_with_two_commits() -> (tempfile::TempDir, String, String) {

@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use std::path::Path;
 
 use north_base::foundation::shim::write_script;
@@ -16,12 +17,6 @@ impl Road for Laptop {
     fn take(self, _: &Lane) -> u8 {
         0
     }
-}
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = std::process::Command::new("git").current_dir(directory).args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
 fn stubs(root: &Path, north: &str) -> (String, String, std::path::PathBuf) {

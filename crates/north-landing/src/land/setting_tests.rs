@@ -1,12 +1,6 @@
-use std::path::Path;
-use std::process::Command;
+use north_base::test_inputs::git::git_in as git;
 
 use super::landing;
-
-fn git(repo: &Path, arguments: &[&str]) {
-    let ran = Command::new("git").arg("-C").arg(repo).args(["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
-    assert!(ran.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&ran.stderr));
-}
 
 #[test]
 fn an_eval_clone_whose_safe_push_sets_no_remote_hosts_serves_none_of_the_machines_remote_hosts() {

@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -6,12 +7,6 @@ use super::remote::{Ran, drive, invocation};
 use super::take::{release_command, transport};
 use north_capacity_host::capacity::build_offload::Job;
 use north_capacity_host::capacity::handover::Offer;
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").current_dir(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

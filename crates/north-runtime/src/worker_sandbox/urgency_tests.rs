@@ -1,8 +1,8 @@
+use north_base::test_inputs::git::git_in as git;
 use std::fs::File;
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use north_base::foundation::offload::URGENT_ENV;
 use north_base::foundation::shim::write_executable;
@@ -22,10 +22,6 @@ const SHELL: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/
 
 fn in_unit(unit: &str) -> String {
     format!("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/{unit}\n")
-}
-
-fn git(directory: &Path, arguments: &[&str]) {
-    assert!(Command::new("git").args(arguments).current_dir(directory).env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@t").env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@t").status().unwrap().success());
 }
 
 struct Fixture {

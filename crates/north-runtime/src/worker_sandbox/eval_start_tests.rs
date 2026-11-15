@@ -1,6 +1,6 @@
+use north_base::test_inputs::git::git_in as git;
 use std::cell::RefCell;
 use std::os::unix::fs::PermissionsExt;
-use std::process::Command;
 
 use super::*;
 use crate::worker_sandbox::eval_units::Shown;
@@ -27,11 +27,6 @@ impl Units for Recorded {
     fn stop(&self, _: &str) -> Result<(), String> {
         Ok(())
     }
-}
-
-fn git(directory: &Path, arguments: &[&str]) {
-    let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
 }
 
 fn script(evals: &Path, name: &str, header: &str) {

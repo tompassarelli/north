@@ -1,15 +1,9 @@
+use north_base::test_inputs::git::git_in as git;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::{Generators, refresh};
 use crate::landing::merge_set;
-
-fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(root).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 fn commit(root: &Path, files: &[(&str, &str)], message: &str) -> String {
     for (path, text) in files {

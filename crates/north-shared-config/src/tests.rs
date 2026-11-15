@@ -1,20 +1,9 @@
+use north_foundation::test_inputs::git::git_in as git;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 use super::{BOUND_SECONDS, checkout, current, fresh, overdue, refresh, warned};
-
-fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
-        .args(args)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-}
 
 fn land(origin: &Path, body: &str) {
     fs::write(origin.join("agents/orchestration.toml"), body).unwrap();

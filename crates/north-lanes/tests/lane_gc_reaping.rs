@@ -1,18 +1,7 @@
+use north_base::test_inputs::git::git_in as git;
 use std::fs::{self, File};
 use std::path::Path;
-use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git")
-        .args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "init.defaultBranch=main", "-c", "protocol.file.allow=always"])
-        .args(arguments)
-        .current_dir(directory)
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 fn lane(main: &Path, worktrees: &Path, name: &str, file: &str) -> std::path::PathBuf {
     let path = worktrees.join(name);
@@ -31,8 +20,8 @@ fn a_lane_with_a_recorded_rejection_is_bundled_and_reaped_and_a_half_removed_one
     let container = home.join("code/proj");
     let (main, worktrees, archive) = (container.join("main"), container.join("worktrees"), home.join("archive/lanes"));
     fs::create_dir_all(&worktrees).unwrap();
-    git(&root, &["init", "-q", "--bare", "origin.git"]);
-    git(&root, &["init", "-q", main.to_str().unwrap()]);
+    git(&root, &["init", "-q", "-b", "main", "--bare", "origin.git"]);
+    git(&root, &["init", "-q", "-b", "main", main.to_str().unwrap()]);
     git(&main, &["remote", "add", "origin", root.join("origin.git").to_str().unwrap()]);
     git(&main, &["commit", "-q", "--allow-empty", "-m", "start"]);
     git(&main, &["push", "-q", "origin", "main"]);

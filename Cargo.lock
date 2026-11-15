@@ -2148,6 +2148,7 @@ dependencies = [
 name = "north-shared-config"
 version = "0.1.0"
 dependencies = [
+ "north-foundation",
  "north-trusted-mirror",
  "tempfile",
 ]

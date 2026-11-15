@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::process::Command;
 
-const IDENTITY: [&str; 6] = ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"];
+const IDENTITY: [&str; 8] = ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
 
 pub fn git_in(dir: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(dir).args(IDENTITY).args(arguments).output().unwrap();
+    let output = Command::new("git").arg("-C").arg(dir).args(IDENTITY).args(arguments).env_remove("GIT_DIR").env("GIT_CONFIG_NOSYSTEM", "1").output().unwrap();
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }

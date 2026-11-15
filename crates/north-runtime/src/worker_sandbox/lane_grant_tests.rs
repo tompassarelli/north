@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::AsFd;
@@ -100,11 +101,6 @@ impl Asked {
         assert!(self.stderr.contains("refused") && self.stderr.contains(naming), "the client is told the refusal naming {naming}: {}", self.stderr);
         assert!(self.logged.contains("refused") && self.logged.contains(naming), "the broker log names the refusal of {naming}: {}", self.logged);
     }
-}
-
-fn git(directory: &Path, arguments: &[&str]) {
-    let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
 }
 
 fn cgroup() -> String {

@@ -1,6 +1,5 @@
+use north_base::test_inputs::git::git_in as git;
 use std::fs;
-use std::path::Path;
-use std::process::Command;
 
 use north_base::foundation::exit::NO_VERDICT;
 use north_landing::land::checks::Verdict;
@@ -8,12 +7,6 @@ use north_landing::land::post_land::{Landed, Run, settle};
 
 const LOCK: &str = "error: cannot lock ref 'refs/remotes/origin/main': is at aaa but expected bbb";
 const RATE_LIMIT: &str = "HTTP 403 for run 42112065121/jobs: API rate limit exceeded";
-
-fn git(repo: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(repo).args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "{arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 #[test]
 fn a_github_rate_limit_in_an_after_landing_check_is_judged_transient_and_reverts_nothing() {

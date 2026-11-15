@@ -1,3 +1,4 @@
+use north_base::test_inputs::git::git_in as git;
 use super::*;
 use super::super::tree_wide_units;
 
@@ -19,12 +20,6 @@ fn listing(ids: &[&str]) -> Option<super::super::graph_selection::ListedTests> {
         suite.tests.insert(test.to_owned());
     }
     Some(listed)
-}
-
-fn git(repo: &Path, arguments: &[&str]) -> String {
-    let output = std::process::Command::new("git").arg("-C").arg(repo).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
 /// A file's content without its mode: a remote worker's inputs are read-only, and these fixtures copy one file twice and edit their copies.

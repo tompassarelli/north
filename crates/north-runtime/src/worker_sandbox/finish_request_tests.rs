@@ -1,17 +1,11 @@
+use north_base::test_inputs::git::git_in as git;
 use std::path::Path;
-use std::process::Command;
 
 use super::super::peer::Peer;
 use super::{CHECKED, FLAG, Granted};
 use crate::foundation::shim::write_script;
 
 const NORTH: &str = "printf '%s\\n' \"$*\" >> \"$0.calls\"\ncase \"$1 $2\" in\n  'land checks') exit 0 ;;\n  'capacity offload') cat \"$0.host\" 2>/dev/null; exit 0 ;;\nesac\nexit 1\n";
-
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(directory).args(arguments).env("GIT_AUTHOR_NAME", "a").env("GIT_AUTHOR_EMAIL", "a@a").env("GIT_COMMITTER_NAME", "a").env("GIT_COMMITTER_EMAIL", "a@a").output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 fn granted(lane: &Path, head: &str, turn: &Path) -> Granted {
     let command = "echo ran >> /tmp/outside-the-lane".to_owned();
