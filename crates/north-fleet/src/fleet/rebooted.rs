@@ -81,3 +81,7 @@ fn revive_and_tell(resumer: &dyn Resumer, name: &str, text: &str) -> NorthResult
         waiting => Ok(waiting),
     })
 }
+
+#[cfg(test)]
+#[path = "rebooted_tests.rs"]
+mod tests;

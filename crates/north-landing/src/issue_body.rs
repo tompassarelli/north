@@ -474,3 +474,7 @@ pub fn drain(directory: &Path, github: &dyn Tracker, ledger: &dyn Ledger, limit:
     }
     Ok(drained)
 }
+
+#[cfg(test)]
+#[path = "issue_body_tests.rs"]
+mod tests;
