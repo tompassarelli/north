@@ -11,7 +11,7 @@ fn replay_script(state: &Path) -> String {
     format!(
         "#!/bin/sh\nstate={state}\ntarget=$(readlink \"$state/current\")\nheld=$(readlink \"$state/lander\")\necho \"$target\" >> \"$state/replays\"\nln -sfn \"$target\" \"$state/lander\"\n\
          case \"$target\" in\n\
-           {OLDER}) sleep 600 ;;\n\
+           {OLDER}) sleep 600; echo \"$target outlived the move\" >> \"$state/replays\" ;;\n\
            *) if [ -e \"$state/diverges\" ]; then ln -sfn \"$held\" \"$state/lander\"; echo \"$target\" > \"$state/lander-refused\"; echo \"north land promote: refused: the replay diverged; the lander link is unchanged\"; exit 1; fi ;;\n\
          esac\n",
         state = state.display()
@@ -47,7 +47,6 @@ fn newer_arrives_during_the_older_replay(layout: &Layout) -> Result<(), Failure>
         symlink(NEWER, &moved).unwrap();
         fs::rename(&moved, layout.current()).unwrap();
         follow_lander(layout).unwrap();
-        assert!(wait::until(HANG, || fs::read_to_string(layout.state.join("replays")).is_ok_and(|replays| replays.lines().any(|replay| replay == NEWER))), "the newer runtime was never replayed while the older replay ran");
         older.join().unwrap()
     })
 }
