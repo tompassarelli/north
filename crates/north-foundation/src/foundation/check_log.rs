@@ -102,3 +102,16 @@ pub fn stale_token(log: &str) -> Option<String> {
     let age = before.rsplit(|c: char| !c.is_ascii_digit()).next().filter(|digits| !digits.is_empty());
     Some(age.map_or_else(|| "older than 55 min".to_owned(), |minutes| format!("{minutes} min old")))
 }
+
+/// The commands `log` shows the land checks passing without a slot because they select no test on the tree they ran on,
+/// so a pass of theirs there proves nothing (north#1566).
+pub fn no_test_checks(log: &str) -> Vec<String> {
+    log.lines()
+        .filter_map(|line| log_text(line).strip_prefix("safe-push: land check "))
+        .filter_map(|rest| {
+            [" selects no test in this change, so it passes without a slot", " runs no test after this landing, so it passes without a slot: "]
+                .iter()
+                .find_map(|marker| rest.split_once(marker).map(|(command, _)| command.to_owned()))
+        })
+        .collect()
+}

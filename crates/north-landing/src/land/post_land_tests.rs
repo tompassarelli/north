@@ -39,8 +39,8 @@ fn a_post_land_run_is_red_main_only_when_a_check_recorded_a_failing_verdict_what
     assert!(matches!(judged(ExitStatus::from_raw(101 << 8), &switched), Verdict::RedMain(_)), "a check that recorded its failing verdict is red main");
     assert_eq!(super::failing(&switched.log, &switched.outcome), std::collections::BTreeSet::from([Failure::Cargo("land::x".to_owned()), Failure::Step("cargo clippy".to_owned())]));
     let red = Verdict::RedMain("exit 101".to_owned());
-    assert_eq!(super::settle::rerun_result(&red, &switched.outcome, &["cargo clippy".to_owned()]), Some(std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())])), "the requested step failing is a verdict on it");
-    assert_eq!(super::settle::rerun_result(&red, &switched.outcome, &["cargo nextest".to_owned()]), None, "a runner that ran steps the sheriff did not ask for reached no verdict on the one it asked for");
+    assert_eq!(super::settle::rerun_result(&red, &switched.outcome, "", &["cargo clippy".to_owned()]), Some(std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())])), "the requested step failing is a verdict on it");
+    assert_eq!(super::settle::rerun_result(&red, &switched.outcome, "", &["cargo nextest".to_owned()]), None, "a runner that ran steps the sheriff did not ask for reached no verdict on the one it asked for");
     assert_eq!(judged(ExitStatus::from_raw(0), &run()), Verdict::Green);
 
     let cancelled = |sender: Option<&str>| {
@@ -342,4 +342,15 @@ fn a_red_lane_scoped_check_over_a_batch_range_enters_no_blame() {
     let (blamed, named) = apart(failing, &outcome, &lanes);
     assert_eq!(blamed, std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned()), Failure::Step("cargo nextest run".to_owned())]), "a lane-scoped check naming a lane is not a failure the batch is searched for, one naming none stays");
     assert_eq!(named, [1], "the red names the lane whose own range failed");
+}
+
+#[test]
+fn a_check_that_selects_no_test_on_the_comparison_tree_reaches_no_verdict() {
+    let selects_none = "safe-push: land check cargo clippy selects no test in this change, so it passes without a slot\n";
+    let runs_none = "safe-push: land check cargo clippy runs no test after this landing, so it passes without a slot: no test selected\n";
+    let requested = ["cargo clippy".to_owned()];
+    let absent = std::path::Path::new("absent");
+    assert_eq!(super::settle::rerun_result(&Verdict::Green, absent, selects_none, &requested), None, "a green pass of a check that selected no test on the comparison tree proves nothing (north#1566)");
+    assert_eq!(super::settle::rerun_result(&Verdict::Green, absent, runs_none, &requested), None, "a check that runs no test after the landing proves nothing there (north#1566)");
+    assert_eq!(super::settle::rerun_result(&Verdict::Green, absent, "", &requested), Some(std::collections::BTreeSet::new()), "a green check that ran its tests is a pass");
 }

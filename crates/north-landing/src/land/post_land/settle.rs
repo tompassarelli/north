@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
+use north_foundation::foundation::check_log;
 use north_foundation::foundation::offload::OWNER_ENV;
 use north_base::lifecycle::Store;
 
@@ -42,10 +43,16 @@ pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String],
         cancel: Cancel::default(),
         adoptable: false,
     };
-    rerun_result(&check(&landed, tree, &run).verdict, &run.outcome, failing)
+    let verdict = check(&landed, tree, &run).verdict;
+    rerun_result(&verdict, &run.outcome, &fs::read_to_string(&run.log).unwrap_or_default(), failing)
 }
 
-pub(super) fn rerun_result(verdict: &Verdict, outcome: &Path, requested: &[String]) -> Option<BTreeSet<Failure>> {
+pub(super) fn rerun_result(verdict: &Verdict, outcome: &Path, log: &str, requested: &[String]) -> Option<BTreeSet<Failure>> {
+    let skipped = check_log::no_test_checks(log);
+    if let Some(step) = requested.iter().find(|step| skipped.contains(step)) {
+        println!("north land: sheriff: {step} selected no test on its tree, so passing it there proves nothing and it reaches no verdict");
+        return None;
+    }
     let requested: BTreeSet<Failure> = requested.iter().map(|step| Failure::Step(step.clone())).collect();
     match verdict {
         Verdict::Green => Some(BTreeSet::new()),
