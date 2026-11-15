@@ -6,6 +6,7 @@ mod fleet_launch;
 mod fleet_hand_in;
 mod golden_path;
 mod fleet_spool;
+mod fleet_compaction;
 mod fleet_state_root;
 mod land_checks;
 mod land_enqueue;

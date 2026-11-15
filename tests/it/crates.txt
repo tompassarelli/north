@@ -24,6 +24,7 @@ cargo_config north
 fleet_launch north-core north-fleet north-dispatch
 fleet_hand_in north-core north-fleet north-fleet-supervisor north-providers
 fleet_spool north-core north-fleet
+fleet_compaction north-fleet north-fleet-supervisor north-providers
 fleet_state_root north-providers north-fleet-supervisor
 policy_replay_login north-convo
 threads_resume north-core north-threads

@@ -112,6 +112,7 @@ pub struct Turn {
     pub compactions: Option<u64>,
     pub cost_usd: Option<f64>,
     pub exit: TurnExit,
+    pub compacted: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -127,6 +128,8 @@ struct Thread {
     context: u64,
     open: Option<Open>,
     tasks: HashSet<String>,
+    #[serde(default)]
+    compacted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -169,7 +172,10 @@ impl Turns {
                     open.call_tokens.insert(call, tokens);
                 }
             }
-            TurnSignal::Compacted { context, .. } => thread.context = context,
+            TurnSignal::Compacted { context, .. } => {
+                thread.context = context;
+                thread.compacted = true;
+            }
             TurnSignal::TaskStarted { task, .. } => {
                 thread.tasks.insert(task);
             }
@@ -248,6 +254,7 @@ impl Thread {
             calls: 0,
             call_tokens: HashMap::new(),
         });
+        let compacted = std::mem::take(&mut self.compacted);
         Turn {
             conversation,
             model: self.model.clone(),
@@ -262,6 +269,7 @@ impl Thread {
             compactions: totals.compactions,
             cost_usd: totals.cost_usd,
             exit,
+            compacted,
         }
     }
 }

@@ -37,7 +37,8 @@ impl TurnWatch {
         self.observe_landing(&record);
         rungs::escalate(self.ledger.as_ref(), self.courier.as_ref(), &record, (run.turn.exit == TurnExit::Completed).then_some(reply.as_str()), &self.verdicts, now_ms());
         if let Some(number) = number {
-            if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) {
+            let compaction_only = run.turn.compacted && reply.trim().is_empty();
+            if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) && !compaction_only {
                 self.quiet.insert(run.turn.conversation.clone(), Quiet::after(number, reply, run.turn.exit == TurnExit::Completed, record.eta_min, self.idle.eta_minute, lines));
             }
             self.report(&record, &run.turn, number);
