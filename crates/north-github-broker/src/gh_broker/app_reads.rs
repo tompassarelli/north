@@ -1,8 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::broker::{Broker, Source};
-use super::calls::token_kind;
+use super::calls::{Caller, token_kind};
 use super::http::{Request, Response};
+use crate::platform::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER;
 use crate::platform::github_app;
 
 type Mint = Box<dyn Fn() -> Option<String> + Send + Sync>;
@@ -25,7 +26,11 @@ impl AppReads {
         Self { mint }
     }
 
-    pub fn serve(&self, broker: &Broker, caller: &str, request: Request) -> (Request, Response, Source) {
+    pub fn serve(&self, broker: &Broker, caller: &Caller, request: Request) -> (Request, Response, Source) {
+        if let Some(added) = self.added(caller, &request) {
+            let (response, source) = broker.handle(&added);
+            return (added, response, source);
+        }
         if let Some(borrowed) = self.borrow(caller, &request) {
             let (response, source) = broker.handle(&borrowed);
             if !APP_CANNOT_READ.contains(&response.status) {
@@ -36,11 +41,23 @@ impl AppReads {
         (request, response, source)
     }
 
-    fn borrow(&self, caller: &str, request: &Request) -> Option<Request> {
-        let rest_read = matches!(request.method.as_str(), "GET" | "HEAD") && !request.target.starts_with("/graphql");
-        if !caller.ends_with(".service") || !rest_read || token_kind(request) != "personal" {
+    fn added(&self, caller: &Caller, request: &Request) -> Option<Request> {
+        let credential = request.header("authorization").and_then(|value| value.split_whitespace().nth(1));
+        if !caller.in_worker_scope() || credential.is_some_and(|credential| credential != CREDENTIAL_ADDED_BY_BROKER) {
             return None;
         }
+        self.with_token(request)
+    }
+
+    fn borrow(&self, caller: &Caller, request: &Request) -> Option<Request> {
+        let rest_read = matches!(request.method.as_str(), "GET" | "HEAD") && !request.target.starts_with("/graphql");
+        if !caller.name.ends_with(".service") || !rest_read || token_kind(request) != "personal" {
+            return None;
+        }
+        self.with_token(request)
+    }
+
+    fn with_token(&self, request: &Request) -> Option<Request> {
         let token = (self.mint)()?;
         let mut borrowed = request.clone();
         borrowed.headers.retain(|(name, _)| !name.eq_ignore_ascii_case("authorization"));

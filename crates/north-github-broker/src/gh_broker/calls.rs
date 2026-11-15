@@ -1,8 +1,10 @@
 use std::io::Write;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use super::broker::Source;
+use crate::platform::session_scope;
 use super::http::{Request, Response};
 
 const ROTATE_BYTES: u64 = 32 << 20;
@@ -38,13 +40,35 @@ impl CallLog {
     }
 }
 
-pub fn caller(stream: &UnixStream) -> String {
-    let Ok(peer) = rustix::net::sockopt::get_socket_peercred(stream) else {
-        return "unknown".to_owned();
+pub struct Caller {
+    pub name: String,
+    pub cgroup: Option<String>,
+}
+
+impl Caller {
+    pub fn in_worker_scope(&self) -> bool {
+        self.cgroup.as_deref().is_some_and(|cgroup| session_scope::worker_cgroup(cgroup) && !session_scope::lane_only_cgroup(cgroup))
+    }
+}
+
+pub fn caller(stream: &UnixStream) -> Caller {
+    let Some((pidfd, pid)) = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::PeerPidfd).ok().and_then(|pidfd| pid_of(&pidfd).map(|pid| (pidfd, pid))) else {
+        return Caller { name: "unknown".to_owned(), cgroup: None };
     };
-    let pid = peer.pid.as_raw_nonzero().get();
     let process = PathBuf::from(format!("/proc/{pid}"));
-    session_of(&process).or_else(|| unit_of(&process)).unwrap_or_else(|| format!("pid-{pid}"))
+    let cgroup = std::fs::read_to_string(process.join("cgroup")).ok();
+    let name = session_of(&process).or_else(|| unit_of(&process)).unwrap_or_else(|| format!("pid-{pid}"));
+    Caller { name, cgroup: cgroup.filter(|_| alive(&pidfd)) }
+}
+
+fn pid_of(pidfd: &OwnedFd) -> Option<i32> {
+    let fdinfo = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", pidfd.as_raw_fd())).ok()?;
+    fdinfo.lines().find_map(|line| line.strip_prefix("Pid:"))?.trim().parse().ok().filter(|pid| *pid > 0)
+}
+
+fn alive(pidfd: &OwnedFd) -> bool {
+    let mut exited = [rustix::event::PollFd::new(pidfd, rustix::event::PollFlags::IN)];
+    rustix::event::poll(&mut exited, 0).is_ok_and(|ready| ready == 0)
 }
 
 fn session_of(process: &Path) -> Option<String> {

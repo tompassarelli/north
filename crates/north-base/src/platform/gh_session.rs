@@ -59,10 +59,8 @@ pub fn run(arguments: &[String], screen: fn(&mut Command) -> Result<(), String>)
     let before = used(&fresh_spend(&ledger, now));
     let pool = shared_pool(real, rest, &ledger, now);
     let mint = || {
-        let (token, note) = github_app::agent_token(Timestamp::now().unix_seconds(), None, std::env::var("GH_TOKEN").ok())?;
-        if let Some(note) = note {
-            eprintln!("north gh-session: {note}");
-        }
+        let (token, note) = github_app::agent_token(Timestamp::now().unix_seconds(), None, std::env::var("GH_TOKEN").ok()).or_else(|why| if super::session_scope::confined_session() || std::env::var_os(SANDBOX_MARK).is_some() { Ok((super::gh_broker_route::CREDENTIAL_ADDED_BY_BROKER.to_owned(), Some(format!("this confined command reads no North Fleet App token ({why}); the GitHub broker adds one outside its domain")))) } else { Err(why) })?;
+        note.iter().for_each(|note| eprintln!("north gh-session: {note}"));
         Ok(token)
     };
     let origin = gh_origin::of_parent();

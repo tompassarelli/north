@@ -1562,6 +1562,7 @@ dependencies = [
 name = "north-github-broker"
 version = "0.1.0"
 dependencies = [
+ "nix 0.31.3",
  "north-base",
  "north-runtime-follow",
  "rustix 0.38.44",

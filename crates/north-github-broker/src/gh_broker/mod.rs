@@ -28,7 +28,9 @@ which bin/gh runs in a fleet session, starts the broker when its socket does not
 the real gh with a private GH_CONFIG_DIR whose http_unix_socket points at the broker. The broker
 forwards each request with the caller's own credentials, except that a systemd service's REST GET or HEAD
 with a personal login is sent with the North Fleet App installation token (read again with the
-service's own login when the app is answered 401, 403 or 404), and: answers identical reads from one
+service's own login when the app is answered 401, 403 or 404), and a call from a fleet session's scope, read from
+its cgroup, that carries no credential or gh-session's placeholder is sent with the installation token the broker mints
+outside the session's domain, and: answers identical reads from one
 GitHub call (in flight, or fetched within 20 s); revalidates older reads with If-None-Match, so a
 304 serves the stored body without spending rate limit; after a 403 or 429 with Retry-After, an
 exhausted x-ratelimit-remaining or a secondary limit, makes no GitHub call until the wait passes,

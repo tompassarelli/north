@@ -118,7 +118,7 @@ fn answer(stream: UnixStream, broker: &Broker, log: &CallLog, app: &AppReads) {
         Ok(request) => {
             let caller = calls::caller(&stream);
             let (request, response, source) = app.serve(broker, &caller, request);
-            log.record(&caller, &request, &response, source);
+            log.record(&caller.name, &request, &response, source);
             (response, source.name())
         }
         Err(error) => (Response::json(400, Vec::new(), &format!("north gh-broker could not read the request: {error}")), "refused"),

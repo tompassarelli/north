@@ -121,6 +121,7 @@ fn replace(path: &Path, text: &str) -> std::io::Result<()> {
     fs::rename(&staged, path)
 }
 
+pub const CREDENTIAL_ADDED_BY_BROKER: &str = "north-gh-broker-adds-the-credential";
 pub fn source_config() -> PathBuf {
     let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     var("GH_CONFIG_DIR")

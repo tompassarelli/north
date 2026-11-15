@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-runtime-follow = { path = "../north-runtime-follow" }
+nix = { version = "0.31", default-features = false, features = ["socket"] }
 rustix.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
