@@ -264,7 +264,10 @@ mod tests {
 
     use super::*;
 
-    fn ledger(script: &str, spooled: &Arc<Mutex<Vec<Vec<String>>>>) -> (tempfile::TempDir, ThreadsCli) {
+    const NEVER: Duration = Duration::from_millis(300);
+    const HANG_BOUND: Duration = Duration::from_secs(60);
+
+    fn ledger(script: &str, spooled: &Arc<Mutex<Vec<Vec<String>>>>, limit: Duration, claim_limit: Duration) -> (tempfile::TempDir, ThreadsCli) {
         let directory = tempfile::tempdir().unwrap();
         let program = directory.path().join("north");
         north_core::foundation::shim::write_executable(&program, format!("#!/bin/sh\n{script}\n"));
@@ -273,7 +276,7 @@ mod tests {
             queue.lock().unwrap().push(args.iter().map(|arg| (*arg).to_owned()).collect());
             Ok(Some("spooled".to_owned()))
         });
-        (directory, ThreadsCli { program: Some(program), limit: Duration::from_millis(300), claim_limit: Duration::from_millis(300), spool })
+        (directory, ThreadsCli { program: Some(program), limit, claim_limit, spool })
     }
 
     /// On 2026-11-11 a launch on cpx62 whose box the laptop had claimed under its name was refused after 30 s: its claim timed out into the spool, and the ledger answered the box by its slug while the launch looked for its text.
@@ -281,7 +284,7 @@ mod tests {
     fn a_queued_box_claim_the_ledger_holds_under_its_slug_starts_the_launch() {
         let spooled = Arc::new(Mutex::new(Vec::new()));
         let held = r#"[{"item":"north#1054","box":"a-dispatch-run-launches-what-its-own-plan-says-i","owner":"cpx62-n1054-proof"}]"#;
-        let (_ledger, slow) = ledger(&format!("case \"$2\" in holder) echo '{held}';; *) sleep 30;; esac"), &spooled);
+        let (_ledger, slow) = ledger(&format!("case \"$2\" in holder) echo '{held}';; *) sleep 30;; esac"), &spooled, HANG_BOUND, NEVER);
         let keys = [claim_key("tompassarelli/north#1054", Some("A dispatch run launches what its own plan says it would"))];
         crate::fleet::claims::hold_all(&slow, &keys, "cpx62-n1054-proof", &BTreeSet::new()).unwrap();
     }
@@ -290,7 +293,7 @@ mod tests {
     #[test]
     fn a_claim_from_a_build_host_is_held_when_the_ledger_answers_late() {
         let spooled = Arc::new(Mutex::new(Vec::new()));
-        let (_late, mut late) = ledger("sleep 3; echo 'cpx62-worker owns north#7 box the-box'", &spooled);
+        let (_late, mut late) = ledger("sleep 3; echo 'cpx62-worker owns north#7 box the-box'", &spooled, HANG_BOUND, HANG_BOUND);
         let production = ThreadsCli::new();
         (late.limit, late.claim_limit) = (production.limit, production.claim_limit);
         assert_eq!(late.hold("north#7@the box", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Held);
@@ -298,7 +301,7 @@ mod tests {
 
         let answered = tempfile::tempdir().unwrap();
         let marker = answered.path().join("answered");
-        let (_slow, slow) = ledger(&format!("sleep 30; touch {}", marker.display()), &spooled);
+        let (_slow, slow) = ledger(&format!("sleep 30; touch {}", marker.display()), &spooled, NEVER, NEVER);
         assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Queued("spooled".to_owned()));
         slow.release("north#7", "cpx62-worker").unwrap();
         assert!(!marker.exists(), "a call waited for the ledger's 30 s answer");
@@ -313,11 +316,11 @@ mod tests {
             "a claim below its lead names the parent chain so the ledger admits the lead's box"
         );
 
-        let (_refusing, refusing) = ledger("echo 'north#7 is already owned by alice' >&2; exit 1", &spooled);
+        let (_refusing, refusing) = ledger("echo 'north#7 is already owned by alice' >&2; exit 1", &spooled, HANG_BOUND, HANG_BOUND);
         assert!(matches!(refusing.hold("north#7", "cpx62-worker", &BTreeSet::new()), Err(NorthError::Refused(_))));
         assert_eq!(spooled.lock().unwrap().len(), 3, "a refusal that arrives in time is not queued");
 
-        let (_no_box, no_box) = ledger("echo 'NorthThreads: --box an-ordered-promotion-of-a-landed-commit names no box of north#1144' >&2; exit 1", &spooled);
+        let (_no_box, no_box) = ledger("echo 'NorthThreads: --box an-ordered-promotion-of-a-landed-commit names no box of north#1144' >&2; exit 1", &spooled, HANG_BOUND, HANG_BOUND);
         let refused = crate::fleet::claims::hold_all(&no_box, &["north#1144@an_ordered_promotion_of_a_landed_commit".to_owned()], "f-mcp-start", &BTreeSet::new()).unwrap_err();
         assert!(matches!(&refused, NorthError::Refused(why) if why.contains("names no box of north#1144")), "a box the ledger refuses in time refuses the launch rather than starting it unclaimed: {}", refused.user_message());
     }
