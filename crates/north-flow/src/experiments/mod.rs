@@ -13,6 +13,7 @@ pub mod verdict;
 
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::foundation::clock::Timestamp;
@@ -37,19 +38,25 @@ fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Flags {
+    #[arg(long, allow_hyphen_values = true)]
+    root: Option<PathBuf>,
+    #[arg(long, allow_hyphen_values = true)]
+    today: Option<String>,
+    #[arg(long)]
+    file: bool,
+}
+
 fn parse(arguments: &[String]) -> Option<Options> {
+    let flags = Flags::try_parse_from(arguments).ok()?;
     let code = std::env::var_os("NORTH_CODE_ROOT").filter(|value| !value.is_empty()).map_or_else(|| home().join("code"), PathBuf::from);
-    let mut options = Options { root: code.join("north/main"), today: Day::of_unix(Timestamp::now().unix_seconds()), file: false };
-    let mut rest = arguments.iter();
-    while let Some(flag) = rest.next() {
-        match flag.as_str() {
-            "--root" => options.root = PathBuf::from(rest.next()?),
-            "--today" => options.today = Day::parse(rest.next()?)?,
-            "--file" => options.file = true,
-            _ => return None,
-        }
-    }
-    Some(options)
+    let today = match flags.today {
+        Some(day) => Day::parse(&day)?,
+        None => Day::of_unix(Timestamp::now().unix_seconds()),
+    };
+    Some(Options { root: flags.root.unwrap_or_else(|| code.join("north/main")), today, file: flags.file })
 }
 
 fn state() -> PathBuf {

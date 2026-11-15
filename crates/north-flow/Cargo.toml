@@ -20,6 +20,7 @@ north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
 north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads" }
+clap.workspace = true
 regex.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true

@@ -1519,6 +1519,7 @@ dependencies = [
 name = "north-flow"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "north-base",
  "north-calibration",
  "north-capacity-host",
