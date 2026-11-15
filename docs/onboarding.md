@@ -54,7 +54,7 @@ Run it again after you fix the cause; it reuses whatever the last run left in pl
    2. It starts `north land serve` for that origin and the worker sandbox that keeps the worker's
       tools on that scratch world.
    3. It launches one Claude haiku worker with a one-file brief. The worker writes `worker.txt` and
-      calls the `hand-in` tool, which queues the lane and waits for the landing.
+      calls the `hand-in` tool, which queues the lane and returns its ticket at once.
    4. The lander checks the commit and pushes it to the scratch origin's `main`; `north ledger worker`
       then records the run, and the walk cleans every process and directory it made.
 

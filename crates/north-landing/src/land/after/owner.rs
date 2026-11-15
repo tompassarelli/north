@@ -49,7 +49,7 @@ impl Reverted<'_> {
     }
 
     fn notice(&self) -> String {
-        format!("north land: {}; fix the lane and queue it again with Follows: {}", self.evidence(), self.short())
+        format!("north land: {}; fix forward: start a lane from origin/main, bring the work back with `git cherry-pick {}`, fix what fails, and hand it in with Follows: {}", self.evidence(), self.commit, self.short())
     }
 
     fn brief(&self, brief: &str) -> String {
