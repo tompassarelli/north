@@ -1,4 +1,5 @@
-use super::{Ledger, Prior, Tick, Tracker, tick};
+use super::{Ledger, Prior, Tick, Tracker, tell_decays, tick};
+use super::dividends::{self, Bar, Reading};
 use super::estimates::EstimatedRuns;
 use north_pace::router::pricing::PriceTable;
 use north_providers::ledger::{ClosedReport, SpendRun, summarize};
@@ -76,18 +77,15 @@ fn boxes(prefix: &str, count: usize, arm: (&str, &str), category: &str, day: &st
 }
 
 #[test]
-fn a_cell_of_boxes_no_label_has_named_yet_files_no_rise_however_dear_this_week_is() {
-    let week = boxes("1", 3, OPUS, "unknown", "2026-10-24", 9_000_000);
-    let before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
+fn an_unlabelled_cell_and_a_tier_that_staffed_no_run_file_no_rise_however_dear_this_week_is() {
+    let unknown_week = boxes("1", 3, OPUS, "unknown", "2026-10-24", 9_000_000);
+    let unknown_before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
+    let unknown = Ledger { week: report(&unknown_week, "2026-10-20T06:00:00Z"), before: report(&unknown_before, "2026-10-13T06:00:00Z"), estimates: Ok(EstimatedRuns::default()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let mut issues = Issues::default();
-    let (_, quiet) = two_ticks(&ledger, &mut issues);
-    assert!(issues.told.is_empty(), "{:#?}", quiet.lines);
-    assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
-}
+    let (_, unlabelled) = two_ticks(&unknown, &mut issues);
+    assert!(issues.told.is_empty(), "{:#?}", unlabelled.lines);
+    assert!(!unlabelled.lines.iter().any(|line| line.starts_with("rose ")), "a cell no label names yet files nothing however dear the week is: {:#?}", unlabelled.lines);
 
-#[test]
-fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_earlier() {
     const SOL: (&str, &str) = ("gpt-6.1-sol high", "gpt-6.1-sol");
     let week = report(
         &[
@@ -217,4 +215,76 @@ fn an_estimate_drift_is_told_once_when_its_cells_change_and_again_when_it_clears
     assert_eq!(issues.told.len(), 2, "{:#?}", cleared.lines);
     assert_eq!(issues.told[1], format!("north tune: {}: no cell any longer; `north tune --dry-run` shows the week's cells.", super::estimates::TITLE));
     assert!(cleared.alarms.is_empty() && !cleared.failed, "{:#?}", cleared.lines);
+}
+
+const DIVIDENDS: &str = r#"
+[[dividend]]
+name = "reading above zero"
+issue = "north#112"
+metric = "usd_per_closed"
+at_most = 0.0
+
+[[dividend]]
+name = "reading at least zero"
+issue = "north#1"
+metric = "usd_per_closed"
+at_least = 0.0
+"#;
+
+fn readings(rows: &[serde_json::Value]) -> Vec<Reading> {
+    rows.iter().filter_map(Reading::read).collect()
+}
+
+/// Reproduces the guarantee north#112 box 3 observes: one reading per dividend a day, a decay told to
+/// the coordinator once, and a decay whose message did not go retried rather than dropped.
+#[test]
+fn a_dividend_is_read_once_a_day_and_one_decay_tells_the_coordinator_once_until_it_pays_again() {
+    let dividends = dividends::parse(DIVIDENDS).unwrap();
+    let week = report(&[run("north#1", SONNET, "feature", "2026-10-21T10:00:00Z", "2026-10-21T10:30:00Z")], "2026-10-20T06:00:00Z");
+    let mut issues = Issues::default();
+
+    let first = dividends::check(&week, &dividends, &[], AT);
+    assert!(first.lines.iter().any(|line| line.starts_with("dividend north#112 reading above zero:") && line.ends_with("DECAYED")), "{:#?}", first.lines);
+    assert!(first.lines.iter().any(|line| line.starts_with("dividend north#1 reading at least zero:") && line.ends_with("PAYING")), "{:#?}", first.lines);
+    assert_eq!(first.rows.len(), 2, "one reading for each dividend");
+    assert_eq!(first.alerts.len(), 1, "only the dividend past its bar is told");
+    let (rows, failed) = tell_decays(&mut issues, first.rows, first.alerts, false, &mut Vec::new());
+    assert!(!failed && rows.len() == 2 && issues.told.len() == 1, "{:?} {:#?}", issues.told, first.lines);
+    assert!(issues.told[0].starts_with("dividend DECAYED: reading above zero (north#112)") && issues.told[0].contains("it was first reading."), "{}", issues.told[0]);
+
+    let mut earlier = readings(&rows);
+    let rerun = dividends::check(&week, &dividends, &earlier, AT);
+    assert!(rerun.rows.is_empty() && rerun.alerts.is_empty(), "the same day is not read twice: {} rows, {} alerts", rerun.rows.len(), rerun.alerts.len());
+
+    for (day, at) in ["2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"].into_iter().enumerate() {
+        let checked = dividends::check(&week, &dividends, &earlier, &format!("{at}T06:00:00Z"));
+        assert_eq!(checked.rows.len(), 2, "day {day} reads each dividend once");
+        assert!(checked.alerts.is_empty(), "still decayed on day {at}: no second message");
+        let (next_rows, _) = tell_decays(&mut issues, checked.rows, checked.alerts, false, &mut Vec::new());
+        earlier = readings(&next_rows);
+    }
+    assert_eq!(issues.told.len(), 1, "a week of readings tells the one decay once");
+
+    let mut recovering = dividends.clone();
+    recovering[0].bar = Bar::AtLeast(0.0);
+    let paid = dividends::check(&week, &recovering, &earlier, "2026-11-03T06:00:00Z");
+    assert!(paid.alerts.is_empty() && paid.lines.iter().all(|line| !line.ends_with("DECAYED")), "{:#?}", paid.lines);
+    let (paid_rows, _) = tell_decays(&mut issues, paid.rows, paid.alerts, false, &mut Vec::new());
+
+    let again = dividends::check(&week, &dividends, &readings(&paid_rows), "2026-11-04T06:00:00Z");
+    assert_eq!(again.alerts.len(), 1, "decaying again after paying tells again");
+    assert!(again.alerts[0].1.contains("it was PAYING on 2026-11-03"), "{}", again.alerts[0].1);
+
+    let mut mute = Issues { mute: true, ..Issues::default() };
+    let missed = dividends::check(&week, &dividends, &[], AT);
+    let (kept, failed) = tell_decays(&mut mute, missed.rows, missed.alerts, false, &mut Vec::new());
+    assert!(failed && kept.len() == 1, "a decay the coordinator was not told of keeps no row, so the next tick tells again: {:?}", kept);
+    let mut issues = Issues::default();
+    let dry = dividends::check(&week, &dividends, &[], AT);
+    let (kept, failed) = tell_decays(&mut issues, dry.rows, dry.alerts, true, &mut Vec::new());
+    assert!(!failed && kept.len() == 2 && issues.told.is_empty(), "a dry run tells no one and keeps every row");
+
+    let registered = dividends::definitions().unwrap();
+    assert!(registered.len() >= 3 && registered.iter().all(|dividend| dividend.issue.starts_with("north#")), "{registered:?}");
+    assert!(dividends::parse("[[dividend]]\nname = \"x\"\nissue = \"north#1\"\nmetric = \"usd_per_closed\"\n").is_err());
 }
