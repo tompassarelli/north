@@ -179,6 +179,9 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
         let round = Serve::new(lander).round(&mut watch);
         lander.heartbeat.enter(Step::Watchdog);
         watchdog::after_round(lander, &round);
+        if let Some(note) = super::promote::watch_round(std::slice::from_ref(&lander.repo)) {
+            println!("north land: {note}");
+        }
         lander.heartbeat.enter(Step::Between);
         backoff.clear_if(matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)));
         match round {

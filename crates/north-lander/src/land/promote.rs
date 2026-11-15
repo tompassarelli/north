@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
+use super::after::send_condition;
 use super::candidate::{git, output};
 use super::divergence::{self, Divergence};
 use super::lander::state_home;
@@ -16,6 +17,7 @@ mod arrival;
 mod machinery_lane;
 mod report;
 mod options;
+mod pace;
 mod unit;
 
 pub use machinery_lane::run as machinery_replay;
@@ -28,6 +30,7 @@ pub const REFUSED: &str = "lander-refused";
 const ROUNDS: usize = 8;
 const MATCHED_PAST_UNREACHED: usize = 2;
 const WALK: usize = 256;
+const PROXY: &str = "proxy";
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
 const LANDER_PATHS: [&str; 6] = ["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-safe-push/", "crates/north-runtime/", "tests/it/land"];
 
@@ -260,6 +263,9 @@ fn name(target: &Path) -> String {
 
 fn promote(options: &Options) -> Result<Outcome, String> {
     let runtime = Runtime::from_env();
+    if options.judge.is_none() && let Some(outcome) = watch(&runtime, &options.repos, options.dry_run)? {
+        return Ok(outcome);
+    }
     let (target, held_target) = match &options.judge {
         Some(candidate) => (candidate.clone(), options.held.clone()),
         None => {
@@ -307,7 +313,7 @@ fn judge(options: &Options, runtime: &Runtime, binary: &Path, repositories: &[Re
     }
     let shadowed = match shadow(binary, repositories, &options.checker, options.shadow_minutes) {
         Ok(shadowed) => shadowed,
-        Err(reason) => return roll_back(options, runtime, held_target, target, format!("the shadow lander refused it: {reason}")),
+        Err(reason) => return roll_back(options.dry_run, runtime, held_target, target, format!("the shadow lander refused it: {reason}")),
     };
     println!("north land promote: shadow: {shadowed}");
     let _ = fs::remove_file(runtime.home.join(REFUSED));
@@ -348,17 +354,58 @@ fn judge_diverged(options: &Options, runtime: &Runtime, repositories: &[Reposito
             Ok(None)
         }
         Ok(divergence::Judged::Retry(reason)) => Ok(Some(Outcome::MovedUnjudged { candidate: sha, reason })),
-        Ok(divergence::Judged::Refused(reason)) | Err(reason) => roll_back(options, runtime, held, target, reason).map(Some),
+        Ok(divergence::Judged::Refused(reason)) | Err(reason) => roll_back(options.dry_run, runtime, held, target, reason).map(Some),
+    }
+}
+
+fn watch(runtime: &Runtime, repos: &[PathBuf], dry_run: bool) -> Result<Option<Outcome>, String> {
+    let Some(armed) = pace::armed(&runtime.home) else { return Ok(None) };
+    let reason = match pace::judge(&armed, &pace::decisions(&runtime.home, armed.since), link_hold::now_seconds()) {
+        pace::Judgement::Armed => return Ok(None),
+        pace::Judgement::Settled => {
+            if !dry_run {
+                pace::clear(&runtime.home);
+            }
+            return Ok(None);
+        }
+        pace::Judgement::Breach(reason) => reason,
+    };
+    let outcome = roll_back(dry_run, runtime, Some(armed.previous.as_path()), &armed.candidate, reason)?;
+    if dry_run {
+        return Ok(Some(outcome));
+    }
+    pace::clear(&runtime.home);
+    let told = match &outcome {
+        Outcome::Rolled { held, reason, .. } => {
+            for unit in served_units(repos) {
+                let _ = Command::new("systemctl").args(["--user", "--no-block", "restart", unit.as_str()]).stdin(Stdio::null()).status();
+            }
+            Some(format!("the lander link is back at {held}: {reason}"))
+        }
+        Outcome::Kept { gone, reason } => Some(format!("the lander link stays on the runtime it runs, since {gone} is gone: {reason}")),
+        _ => None,
+    };
+    let Some(told) = told else { return Ok(Some(outcome)) };
+    send_condition(PROXY, &format!("lander-watch:{}", armed.since), false, &format!("north land: the lander ran too slowly after its promotion to {}; {told}", name(&armed.candidate)));
+    Ok(Some(outcome))
+}
+
+pub fn watch_round(repos: &[PathBuf]) -> Option<String> {
+    match watch(&Runtime::from_env(), repos, false) {
+        Ok(Some(Outcome::Rolled { held, reason, .. })) => Some(format!("the landing watch rolled the lander link back to {held}: {reason}")),
+        Ok(Some(Outcome::Kept { gone, reason })) => Some(format!("the landing watch kept the lander link on its runtime, since {gone} is gone: {reason}")),
+        Ok(_) => None,
+        Err(error) => Some(format!("the landing watch failed: {error}")),
     }
 }
 
 /// Moves the link back to the runtime it held before this promotion, so a runtime whose own replay diverged from the recorded verdict no longer runs the lander, and names it refused until current moves on, as the doctor's rollback does.
 /// A held runtime whose binary is gone from disk is never the target: the link stays on the runtime the lander runs now.
-fn roll_back(options: &Options, runtime: &Runtime, held: Option<&Path>, candidate: &Path, reason: String) -> Result<Outcome, String> {
+fn roll_back(dry_run: bool, runtime: &Runtime, held: Option<&Path>, candidate: &Path, reason: String) -> Result<Outcome, String> {
     if let Some(gone) = held.filter(|held| !runtime.binary(held).is_file()) {
         return Ok(Outcome::Kept { gone: gone.display().to_string(), reason });
     }
-    if options.dry_run {
+    if dry_run {
         let held = held.map_or_else(|| "no held runtime".to_owned(), |held| held.display().to_string());
         return Ok(Outcome::Rolled { candidate: name(candidate), held, reason });
     }

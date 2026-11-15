@@ -1,4 +1,4 @@
-use super::{Options, Outcome, Repository, Runtime, link_hold, output, swap, unit};
+use super::{Options, Outcome, Repository, Runtime, link_hold, output, pace, swap, unit};
 use std::fs;
 use std::path::Path;
 
@@ -25,10 +25,14 @@ fn move_first(options: &Options, runtime: &Runtime, repositories: &[Repository],
         return Ok(None);
     }
     unit::stop(runtime);
-    if link_hold::rollback_of(&runtime.home).is_none() && let Some(previous) = fs::read_link(runtime.lander()).ok().filter(|previous| previous != target) {
-        link_hold::record_rollback(&runtime.home, &previous);
+    let previous = fs::read_link(runtime.lander()).ok().filter(|previous| previous != target);
+    if link_hold::rollback_of(&runtime.home).is_none() && let Some(previous) = &previous {
+        link_hold::record_rollback(&runtime.home, previous);
     }
     swap(&runtime.lander(), target).map_err(|error| format!("{}: {error}; the lander link is unchanged", runtime.lander().display()))?;
+    if let Some(previous) = &previous && let Err(error) = pace::arm(&runtime.home, target, previous, link_hold::now_seconds()) {
+        println!("north land promote: could not arm the landing watch: {error}");
+    }
     println!("north land promote: the lander link now points at {}; the recorded-round replay and shadow judge it after", target.display());
     Ok(None)
 }
