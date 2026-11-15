@@ -188,7 +188,7 @@ fn accounts() -> Result<Vec<AccountOutlook>, String> {
 }
 
 /// The worker first tries that started inside the window, judged as the first-try bar judges them.
-fn first_tries(since: i64, now: i64) -> Result<Vec<workers::Attempt>, String> {
+pub(crate) fn first_tries(since: i64, now: i64) -> Result<Vec<workers::Attempt>, String> {
     let path = ledger::threads_database();
     let db = scoreboard::open(&path)?;
     let missed = workers::missed_checks(&north_github_mirror::store::Mirror::local());

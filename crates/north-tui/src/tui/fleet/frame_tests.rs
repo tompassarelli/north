@@ -281,3 +281,23 @@ fn the_digest_reads_right_on_the_example_operator() {
     assert!(laptop[0].chars().count() <= 178 && laptop[0].contains('…') && laptop[0].ends_with("  idle"), "{}", laptop[0]);
     assert!(text.iter().all(|line| line.chars().count() <= 178), "{all}");
 }
+
+#[test]
+fn scorecard_is_the_top_line_with_landings_first_try_and_the_comparison() {
+    use super::scorecard::{Comparison, FirstTry, Scorecard};
+    let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
+    screen.scorecard = Scorecard {
+        landings: Some(12),
+        first_try: Some(FirstTry { landed: 9, started: 11 }),
+        comparison: Some(Comparison { rival: "T3 Code".into(), time: 0.75, cost: 0.31 }),
+    };
+    let top = frame_rows(&mut screen, 100).remove(0);
+    for reading in ["12 landed today", "first try 82% (9/11)", "vs T3 Code time 0.75x, cost 0.31x"] {
+        assert!(top.contains(reading), "the top line lacks `{reading}`: {top}");
+    }
+    screen.scorecard = Scorecard::default();
+    let unread = frame_rows(&mut screen, 100).remove(0);
+    for reading in ["landings unread", "first try unread", "comparison unread"] {
+        assert!(unread.contains(reading), "a reading that could not be read says so: {unread}");
+    }
+}

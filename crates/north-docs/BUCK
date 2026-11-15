@@ -17,9 +17,11 @@ RUSTC_FLAGS = [
 
 rust_library(
     name = "north-docs",
-    srcs = glob(["src/**"]),
+    mapped_srcs = {path: "crates/north-docs/" + path for path in glob(["src/**"])} | {
+        "//:docs/readme/comparison.toml": "docs/readme/comparison.toml",
+    },
     crate = "north_docs",
-    crate_root = "src/lib.rs",
+    crate_root = "crates/north-docs/src/lib.rs",
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
@@ -33,9 +35,11 @@ rust_library(
 north_rust_test(
     name = "north-docs-unittest",
     binary_id = "north-docs",
-    srcs = glob(["src/**"]),
+    mapped_srcs = {path: "crates/north-docs/" + path for path in glob(["src/**"])} | {
+        "//:docs/readme/comparison.toml": "docs/readme/comparison.toml",
+    },
     crate = "north_docs",
-    crate_root = "src/lib.rs",
+    crate_root = "crates/north-docs/src/lib.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     deps = [

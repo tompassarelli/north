@@ -13,6 +13,7 @@ mod order;
 mod painter;
 mod table;
 mod runner;
+mod scorecard;
 mod screen;
 mod slash;
 mod state_clock;
@@ -35,11 +36,11 @@ use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::board::Board;
 use crate::fleet::model::{Status, Transcript};
 use crate::fleet::registry::Fleet;
 
-pub use desk::AccountRoom;
+pub use desk::{AccountRoom, Reads};
+pub use scorecard::{Comparison, FirstTry, Scorecard};
 use burst::Bursts;
 use desk::{FleetDesk, SessionDesk};
 use digest::SessionFacts;
@@ -49,17 +50,16 @@ use screen::{Command, Screen};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// `board` reads the four-panel snapshot the digest shows; `rooms` reads each account's week left for the new-session form.
-pub fn run(fleet: Fleet, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> NorthResult<()> {
-    run_focused(fleet, None, board, rooms)
+pub fn run(fleet: Fleet, reads: Reads) -> NorthResult<()> {
+    run_focused(fleet, None, reads)
 }
 
-pub fn run_on(fleet: Fleet, session: &str, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> NorthResult<()> {
-    run_focused(fleet, Some(session.to_owned()), board, rooms)
+pub fn run_on(fleet: Fleet, session: &str, reads: Reads) -> NorthResult<()> {
+    run_focused(fleet, Some(session.to_owned()), reads)
 }
 
-fn run_focused(fleet: Fleet, session: Option<String>, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> NorthResult<()> {
-    let mut desk = FleetDesk::new(fleet, board, rooms);
+fn run_focused(fleet: Fleet, session: Option<String>, reads: Reads) -> NorthResult<()> {
+    let mut desk = FleetDesk::new(fleet, reads);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
     screen.selected = session;
     screen.offer(desk.choices());
@@ -163,7 +163,6 @@ fn settle_completed(runner: &mut Runner, screen: &mut Screen) -> bool {
     settled
 }
 
-
 fn screen_transcript<'d, D: SessionDesk>(desk: &'d D, screen: &Screen) -> Option<&'d Transcript> {
     desk.transcript(screen.selected.as_deref()?)
 }
@@ -179,6 +178,7 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
             screen.digest.project_status = desk.project_status();
             screen.digest.board = desk.board();
             screen.offer_rooms(desk.rooms());
+            screen.scorecard = desk.scorecard();
             true
         }
         Err(error) => {

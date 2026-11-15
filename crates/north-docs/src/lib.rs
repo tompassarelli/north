@@ -4,6 +4,7 @@ mod features_index;
 mod help_index;
 mod rationale_index;
 mod readme;
+pub use readme::{Headline, headline};
 mod reference_index;
 mod readme_large;
 mod registry;

@@ -1077,6 +1077,11 @@ export_file(
 )
 
 export_file(
+    name = "docs/readme/comparison.toml",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
     name = "tests/fixtures/lander-doctor/offline-binutils.log",
     visibility = ["PUBLIC"],
 )

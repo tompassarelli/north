@@ -178,15 +178,43 @@ fn list(doc: &DocumentMut, key: &str, path: &Path) -> Result<String, String> {
     items.iter().map(|value| value.as_str().map(|item| format!("- {item}\n")).ok_or_else(|| format!("{}: `{key}` holds an entry that is not text: {value:?}", path.display()))).collect()
 }
 
+fn arms<'a>(doc: &'a DocumentMut, path: &Path) -> Result<Vec<(&'a str, &'a str)>, String> {
+    let table = doc.get("arms").and_then(Item::as_table).ok_or_else(|| format!("{}: no `[arms]` table", path.display()))?;
+    let names: Vec<(&str, &str)> = table.iter().filter_map(|(key, item)| Some((key, item.as_str()?))).collect();
+    if names.len() < 2 {
+        return Err(format!("{}: `[arms]` needs north first and at least one arm to compare with", path.display()));
+    }
+    Ok(names)
+}
+
+const COMPARISON: &str = include_str!("../../../docs/readme/comparison.toml");
+
+/// North against the faster rival arm in the cell `headline` names: its time and its cost to land a task as a multiple of the rival's, below 1 where north is ahead.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Headline {
+    pub rival: String,
+    pub time: f64,
+    pub cost: f64,
+}
+
+pub fn headline() -> Result<Headline, String> {
+    let path = Path::new("docs/readme/comparison.toml");
+    let doc: DocumentMut = COMPARISON.parse().map_err(|error| format!("{}: {error}", path.display()))?;
+    let level = doc.get("headline").and_then(Item::as_integer).ok_or_else(|| format!("{}: `headline` names no cell", path.display()))?;
+    let names = arms(&doc, path)?;
+    let rows = rows(&doc, path)?;
+    let at: Vec<&Row> = rows.iter().filter(|row| row.level == level).collect();
+    let found = cell(&at, names[0].0, &names[1..], 0).ok_or_else(|| format!("{}: the headline cell {level} has no rows to compare", path.display()))?;
+    Ok(Headline { rival: text(doc.as_table(), "rival", path)?.to_owned(), time: found.ratio, cost: found.cost })
+}
+
 fn comparison(root: &Path) -> Result<String, String> {
     let path = root.join("docs/readme/comparison.toml");
     let doc = document(&path)?;
     let field = |key: &str| text(doc.as_table(), key, &path);
     let table = |key: &str| doc.get(key).and_then(Item::as_table).ok_or_else(|| format!("{}: no `[{key}]` table", path.display()));
-    let names: Vec<(&str, &str)> = table("arms")?.iter().filter_map(|(key, item)| Some((key, item.as_str()?))).collect();
-    let Some((&(base, _), rivals)) = names.split_first().filter(|(_, rivals)| !rivals.is_empty()) else {
-        return Err(format!("{}: `[arms]` needs north first and at least one arm to compare with", path.display()));
-    };
+    let names = arms(&doc, &path)?;
+    let (&(base, _), rivals) = names.split_first().expect("arms holds north and a rival");
     let rows = rows(&doc, &path)?;
     if let Some(row) = rows.iter().find(|row| !names.iter().any(|(arm, _)| *arm == row.arm)) {
         return Err(format!("{}: row arm `{}` is not in `[arms]`", path.display(), row.arm));

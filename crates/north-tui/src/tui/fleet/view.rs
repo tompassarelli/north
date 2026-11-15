@@ -18,24 +18,25 @@ const COMPOSER: Style = Style::new().fg(Color::Rgb(229, 231, 235));
 pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, now_ms: u64) {
     let width = frame.area().width.saturating_sub(4).max(1);
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
-    let ceiling = frame.area().height.saturating_sub(composer_rows + 2 + 6).max(6);
-    let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 3));
+    let ceiling = frame.area().height.saturating_sub(composer_rows + 3 + 6).max(6);
+    let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 3 + 3));
     let working = working_line(screen, transcript, now_ms);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(working.is_some().into()), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
+        .constraints([Constraint::Length(1), Constraint::Min(3), Constraint::Length(working.is_some().into()), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
         .split(frame.area());
+    frame.render_widget(Paragraph::new(Span::styled(screen.scorecard.line(), MUTED)), rows[0]);
     if screen.digest.shown {
-        draw_digest(frame, screen, rows[0], now_ms);
+        draw_digest(frame, screen, rows[1], now_ms);
     } else {
-        draw_transcript(frame, screen, transcript, painter, rows[0]);
+        draw_transcript(frame, screen, transcript, painter, rows[1]);
     }
     if let Some(line) = working {
-        frame.render_widget(Paragraph::new(line), rows[1]);
+        frame.render_widget(Paragraph::new(line), rows[2]);
     }
-    draw_composer(frame, screen, rows[2]);
-    draw_help(frame, screen, rows[3]);
-    draw_status(frame, screen, rows[4]);
+    draw_composer(frame, screen, rows[3]);
+    draw_help(frame, screen, rows[4]);
+    draw_status(frame, screen, rows[5]);
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),

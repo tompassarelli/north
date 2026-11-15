@@ -1,5 +1,6 @@
 # The rows the README's comparison table is computed from.
 title = "Small tasks against T3 Code"
+headline = 31
 date = "2026-11-14"
 model = "claude-opus-5-5 at medium effort in every arm"
 competitor = "T3 Code v0.1.8"

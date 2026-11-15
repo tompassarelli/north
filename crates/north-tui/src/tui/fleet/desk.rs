@@ -12,6 +12,7 @@ use crate::foundation::clock::Timestamp;
 use crate::fleet::registry::{Choices, Fleet, Follower};
 use crate::fleet::sender::Sender;
 
+use super::scorecard::Scorecard;
 use super::state_clock::StateClock;
 use crate::fleet::runtime::now_ms;
 
@@ -20,6 +21,7 @@ const GATE_RETRY: Duration = Duration::from_secs(2);
 const STATUS_INTERVAL: Duration = Duration::from_secs(300);
 const BOARD_INTERVAL: Duration = Duration::from_secs(30);
 const ROOMS_INTERVAL: Duration = Duration::from_secs(60);
+const SCORECARD_INTERVAL: Duration = Duration::from_secs(30);
 
 /// What an account has left of its week, listed in the order `north accounts` places the accounts: the first is placed first.
 #[derive(Clone, Debug, PartialEq)]
@@ -47,6 +49,7 @@ pub trait SessionDesk {
     fn project_status(&self) -> Vec<String> { Vec::new() }
     fn board(&self) -> Board { Board::default() }
     fn rooms(&self) -> Vec<AccountRoom> { Vec::new() }
+    fn scorecard(&self) -> Scorecard { Scorecard::default() }
     fn choices(&self) -> Vec<Choices> { Vec::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
@@ -96,6 +99,14 @@ impl SessionActions for Fleet {
     }
 }
 
+/// What the desk reads in the background: `board` the four-panel snapshot `north dash` prints, `rooms` each account's week left, `scorecard` the top line's three readings.
+#[derive(Clone, Copy)]
+pub struct Reads {
+    pub board: fn(&Fleet) -> Board,
+    pub rooms: fn(&Fleet) -> Vec<AccountRoom>,
+    pub scorecard: fn(&Fleet) -> Scorecard,
+}
+
 pub struct FleetDesk {
     fleet: Arc<Fleet>,
     records: Vec<SessionRecord>,
@@ -106,13 +117,13 @@ pub struct FleetDesk {
     upkeep: Upkeep,
     status: Periodic,
     board: BoardRead,
-    rooms: RoomsRead,
+    rooms: FleetRead<Vec<AccountRoom>>,
+    scorecard: FleetRead<Scorecard>,
 }
 
 impl FleetDesk {
-    /// `board` reads the four-panel snapshot in the background, the same one `north dash` prints; `rooms` reads each account's week left the same way.
-    pub fn new(fleet: Fleet, board: fn(&Fleet) -> Board, rooms: fn(&Fleet) -> Vec<AccountRoom>) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), board: BoardRead::of(board), rooms: RoomsRead::of(rooms) }
+    pub fn new(fleet: Fleet, reads: Reads) -> Self {
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), board: BoardRead::of(reads.board), rooms: FleetRead::of(reads.rooms, ROOMS_INTERVAL), scorecard: FleetRead::of(reads.scorecard, SCORECARD_INTERVAL) }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -176,7 +187,7 @@ impl SessionDesk for FleetDesk {
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
         let measured = self.upkeep.tend(&self.fleet, &self.digest)?;
-        Ok(changed | measured | self.status.tend() | self.board.tend(&self.fleet) | self.rooms.tend(&self.fleet))
+        Ok(changed | measured | self.status.tend() | self.board.tend(&self.fleet) | self.rooms.tend(&self.fleet) | self.scorecard.tend(&self.fleet))
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -211,7 +222,9 @@ impl SessionDesk for FleetDesk {
 
     fn board(&self) -> Board { self.board.board.clone() }
 
-    fn rooms(&self) -> Vec<AccountRoom> { self.rooms.rooms.clone() }
+    fn rooms(&self) -> Vec<AccountRoom> { self.rooms.value.clone() }
+
+    fn scorecard(&self) -> Scorecard { self.scorecard.value.clone() }
 
     fn choices(&self) -> Vec<Choices> {
         self.fleet.choices()
@@ -307,26 +320,27 @@ impl Periodic {
     }
 }
 
-struct RoomsRead {
-    read: fn(&Fleet) -> Vec<AccountRoom>,
-    job: Option<JoinHandle<Vec<AccountRoom>>>,
-    rooms: Vec<AccountRoom>,
+struct FleetRead<T> {
+    read: fn(&Fleet) -> T,
+    every: Duration,
+    job: Option<JoinHandle<T>>,
+    value: T,
     last: Option<Instant>,
 }
 
-impl RoomsRead {
-    fn of(read: fn(&Fleet) -> Vec<AccountRoom>) -> Self {
-        Self { read, job: None, rooms: Vec::new(), last: None }
+impl<T: Default + PartialEq + Send + 'static> FleetRead<T> {
+    fn of(read: fn(&Fleet) -> T, every: Duration) -> Self {
+        Self { read, every, job: None, value: T::default(), last: None }
     }
 
     fn tend(&mut self, fleet: &Arc<Fleet>) -> bool {
         let mut changed = false;
         if let Some(job) = self.job.take_if(|job| job.is_finished()) {
-            let rooms = job.join().unwrap_or_default();
-            changed = rooms != self.rooms;
-            self.rooms = rooms;
+            let value = job.join().unwrap_or_default();
+            changed = value != self.value;
+            self.value = value;
         }
-        if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= ROOMS_INTERVAL) {
+        if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= self.every) {
             let fleet = fleet.clone();
             let read = self.read;
             self.job = Some(thread::spawn(move || read(&fleet)));

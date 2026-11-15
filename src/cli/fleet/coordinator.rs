@@ -52,7 +52,7 @@ fn attach(fleet: Fleet) -> NorthResult<()> {
     if !std::io::stdout().is_terminal() {
         return Ok(());
     }
-    tui::fleet::run_on(fleet, COORDINATOR, crate::cli::dash::for_fleet, super::rooms::of)
+    tui::fleet::run_on(fleet, COORDINATOR, super::reads::reads())
 }
 
 fn surface(fleet: &Fleet) -> Surface {

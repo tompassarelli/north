@@ -25,6 +25,7 @@ use super::digest::{DigestPane, SessionFacts};
 use super::form::LaunchForm;
 use super::help_panel::HelpPanel;
 use super::order::arrange;
+use super::scorecard::Scorecard;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Focus {
@@ -87,6 +88,7 @@ pub struct Screen {
     sent_forms: BTreeMap<String, Box<LaunchForm>>,
     pub digest: DigestPane,
     pub help: HelpPanel,
+    pub scorecard: Scorecard,
     held_answer: Option<(i64, String)>,
     attachments: Attachments,
     clipboard: Clipboard,
@@ -119,6 +121,7 @@ impl Screen {
             sent_forms: BTreeMap::new(),
             digest: DigestPane::default(),
             help: HelpPanel::default(),
+            scorecard: Scorecard::default(),
             held_answer: None,
             attachments: Attachments::system(),
             clipboard: Clipboard::system(),

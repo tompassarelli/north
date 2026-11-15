@@ -50,6 +50,8 @@ mod turn_json;
 pub(super) mod usage;
 mod coordinator_move;
 mod rooms;
+mod reads;
+mod scorecard;
 mod withheld;
 mod drafts;
 mod view;
