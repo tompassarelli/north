@@ -62,7 +62,10 @@ async fn capacity_a_queued_runs_door_refuses_a_worker_scope_peer() {
     let ticket = queue(root, "heavy", true);
     let door = Listening::open_reading(root, &ticket, |_| Some(WORKER.to_owned())).expect("the run opens its door");
     let mut stream = std::os::unix::net::UnixStream::connect(socket_path(root, &ticket)).unwrap();
-    assert!(tokio::time::timeout(Duration::from_millis(500), door.accept()).await.is_err(), "a peer in a worker's scope takes no run");
     stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    assert_eq!(std::io::Read::read(&mut stream, &mut [0u8; 1]).unwrap(), 0, "the door closes a worker-scope peer's connection");
+    let closed = tokio::task::spawn_blocking(move || std::io::Read::read(&mut stream, &mut [0u8; 1]).unwrap());
+    tokio::select! {
+        _ = door.accept() => panic!("a peer in a worker's scope takes no run"),
+        read = closed => assert_eq!(read.unwrap(), 0, "the door closes a worker-scope peer's connection"),
+    }
 }
