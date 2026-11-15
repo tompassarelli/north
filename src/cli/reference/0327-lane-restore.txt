@@ -1,0 +1,1 @@
+  lane restore [--archive DIR] BRANCH           Restore the newest archived copy of BRANCH to a worktree at the lane's old path when that is free, with its uncommitted and untracked changes unstaged as they were (lane gc archives an unheld lane idle 24 h: its commits and those changes ride in a bundle under ~/archive/lanes/<project>)
