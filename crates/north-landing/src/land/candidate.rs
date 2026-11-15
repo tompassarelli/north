@@ -25,6 +25,7 @@ static WORKTREES: RwLock<()> = RwLock::new(());
 pub const DEADLINE: Duration = Duration::from_secs(120);
 /// Git 2.54 auto-maintenance detaches a repack that escapes the command's process group and races the next read of the object store.
 const NO_AUTO_MAINTENANCE: [&str; 2] = ["-c", "maintenance.auto=false"];
+const DEFERRED_FOR: Duration = Duration::from_secs(600);
 
 fn run(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
     run_with(directory, &merge_set::driver_arguments(), arguments)
@@ -251,8 +252,11 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
             return refuse(logs, name, "regenerate", &format!("could not read the regenerate rules: {error}; NOT landed."));
         }
     }
-    if let Err(failed) = merge_continue::refresh(worktree, base, &picked_onto, ticket.urgent.is_some() || ticket.red_fix.is_some() || ticket.lander_fix.is_some()) {
+    if let Err(failed) = merge_continue::refresh(worktree, base, &picked_onto, generators(ticket)) {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
+        if failed.unbuilt.is_some() {
+            return Ok(Pick::Deferred(format!("deferred: {}: {}; it stays queued, ahead of later lanes, for the first candidate after that build", ticket.branch, failed.message)));
+        }
         let kind = if failed.no_verdict { format!("regenerate.{}", north_base::foundation::exit::NO_VERDICT_KIND) } else { "regenerate".to_owned() };
         return refuse(logs, name, &kind, &format!("could not regenerate a derived file the lane leaves stale: {}; NOT landed.", failed.message));
     }
@@ -277,6 +281,18 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     let checked_on = checked_on(ticket).map(str::to_owned);
     *gating = (!lane_gates::judged_before_queueing(worktree, ticket.gated_from.as_deref(), &ticket.head, &picked_onto)).then(|| Gating { base: base.to_owned(), checked_on, picked_onto, head, lane_head: ticket.head.clone() });
     Ok(Pick::Included)
+}
+
+/// The north a lane's `north` generators may run on: the installed one for an urgent, red or lander fix; for a lane queued under `DEFERRED_FOR` the one built ahead for its own tree, so it steps out of the candidate while that build runs; past that, the merged tree's, waited on, so a lane whose own tree nobody builds still lands (north#1247).
+fn generators(ticket: &Ticket) -> merge_continue::Generators<'_> {
+    if ticket.urgent.is_some() || ticket.red_fix.is_some() || ticket.lander_fix.is_some() {
+        return merge_continue::Generators::Installed;
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_micros());
+    match ticket.queued_micros {
+        Some(queued) if now.saturating_sub(queued) < DEFERRED_FOR.as_micros() => merge_continue::Generators::Lane { head: &ticket.head },
+        _ => merge_continue::Generators::Merged,
+    }
 }
 
 struct Gating {

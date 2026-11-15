@@ -95,11 +95,12 @@ fn confined(generator: Command, confinement: Confinement) -> Result<Command, Str
 pub struct Unrefreshed {
     pub message: String,
     pub no_verdict: bool,
+    pub unbuilt: Option<String>,
 }
 
 impl From<String> for Unrefreshed {
     fn from(message: String) -> Self {
-        Self { message, no_verdict: false }
+        Self { message, no_verdict: false, unbuilt: None }
     }
 }
 
@@ -107,7 +108,7 @@ fn generate(worktree: &Path, command: &str, code: &[String], built: Option<&Path
     let output = confined(generator(worktree, command, code, built)?, confinement)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
     if !output.status.success() {
         let said = [&output.stdout, &output.stderr].map(|text| String::from_utf8_lossy(text).trim().to_owned()).into_iter().filter(|text| !text.is_empty()).collect::<Vec<_>>().join("\n");
-        return Err(Unrefreshed { message: format!("{command} failed ({}): {said}", output.status), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS) });
+        return Err(Unrefreshed { message: format!("{command} failed ({}): {said}", output.status), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS), unbuilt: None });
     }
     Ok(())
 }
@@ -225,7 +226,7 @@ fn built_ahead(worktree: &Path, tree: &str) -> Result<PathBuf, Unrefreshed> {
         .output()
         .map_err(|error| format!("no north built ahead for tree {tree}: {error}"))?;
     if !output.status.success() {
-        return Err(Unrefreshed { message: format!("no north built ahead for tree {tree}: {}", String::from_utf8_lossy(&output.stderr).trim()), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS) });
+        return Err(Unrefreshed { message: format!("no north built ahead for tree {tree}: {}", String::from_utf8_lossy(&output.stderr).trim()), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS), unbuilt: None });
     }
     String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim())).filter(|path| !path.as_os_str().is_empty()).ok_or_else(|| Unrefreshed::from(format!("no north built ahead for tree {tree}: build-ahead printed no path")))
 }
@@ -237,36 +238,66 @@ fn live_covering(worktree: &Path, code: &[String]) -> Option<PathBuf> {
     String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim())).filter(|path| path.is_file())
 }
 
-/// The north that runs the due `north` generators: for an urgent fix the installed one, so it never waits on a build (north#1631); else the live one when it covers their code, else the one built ahead for the base tree when it covers them, else the one built ahead for the merged tree; none when no due generator is a `north` command.
-fn generator_north(worktree: &Path, base: &str, due: &[(&merge_set::Rule, &String, &Vec<String>)], installed: bool) -> Result<Option<PathBuf>, Unrefreshed> {
+/// Which north may run a lane's `north` generators when the live one and the one built ahead for the base tree do not cover their code.
+#[derive(Clone, Copy)]
+pub enum Generators<'a> {
+    /// The installed north, so an urgent fix never waits on a build (north#1631).
+    Installed,
+    /// The north built ahead for the lane's own tree when the merged tree changes none of the generator code since `head`; while that build runs the lane is left unbuilt rather than waited on, so the lanes behind it land at once (north#1247).
+    Lane { head: &'a str },
+    /// The north built ahead for the merged tree, waited on.
+    Merged,
+}
+
+/// The north that runs the due `north` generators: the installed one when `generators` says so; else the live one when it covers their code, else the one built ahead for the base tree when it covers them, else for a lane the one built ahead for its own tree when that covers them, else the one built ahead for the merged tree; none when no due generator is a `north` command.
+fn generator_north(worktree: &Path, base: &str, due: &[(&merge_set::Rule, &String, &Vec<String>)], generators: Generators) -> Result<Option<PathBuf>, Unrefreshed> {
     let north: Vec<_> = due.iter().filter(|(_, command, _)| command.split_whitespace().next() == Some("north")).collect();
     if north.is_empty() {
         return Ok(None);
     }
-    if installed {
+    if matches!(generators, Generators::Installed) {
         return merge_set::driver_program().map(Some).ok_or_else(|| Unrefreshed::from("no installed north runs this lander to regenerate an urgent fix's derived files".to_owned()));
     }
     let code: Vec<String> = north.iter().flat_map(|(_, _, generator)| generator.iter().cloned()).collect();
-    if let Some(covering) = live_covering(worktree, &code).or_else(|| base_covering(worktree, base, &code)) {
+    if let Some(covering) = live_covering(worktree, &code) {
         return Ok(Some(covering));
+    }
+    if let Coverage::Built(covering) = covering(worktree, base, &code) {
+        return Ok(Some(covering));
+    }
+    if let Generators::Lane { head } = generators {
+        match covering(worktree, head, &code) {
+            Coverage::Built(covering) => return Ok(Some(covering)),
+            Coverage::Unbuilt(tree) => return Err(Unrefreshed { message: format!("the north built ahead for its own tree {} is not built yet", &tree[..tree.len().min(12)]), no_verdict: false, unbuilt: Some(tree) }),
+            Coverage::Uncovered => {}
+        }
     }
     Ok(Some(built_ahead(worktree, stdout(worktree, &["rev-parse", "HEAD^{tree}"])?.trim())?))
 }
 
-/// The north built ahead for the tree of `base` when HEAD changes none of `code` since it, so a lane behind a landing that changed a generator waits on no build of its merged tree while that landing's runtime is not yet live (north#1247).
-fn base_covering(worktree: &Path, base: &str, code: &[String]) -> Option<PathBuf> {
-    let north = merge_set::driver_program()?;
-    Command::new(&north).args(["runtime", "covers", "--from", base, "--head", "HEAD", "--code", &code.join(",")]).current_dir(worktree).output().ok().filter(|output| output.status.success())?;
-    let tree = stdout(worktree, &["rev-parse", &format!("{base}^{{tree}}")]).ok()?;
-    let output = Command::new(&north).args(["runtime", "build-ahead", "--fetch", "--tree", tree.trim()]).current_dir(worktree).output().ok().filter(|output| output.status.success())?;
-    String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim())).filter(|path| path.is_file())
+enum Coverage {
+    Uncovered,
+    Built(PathBuf),
+    Unbuilt(String),
+}
+
+/// Whether the north built ahead for the tree of `from` covers `code` at HEAD, which holds when HEAD changes none of `code` since `from`, and that north when it is built, so a lane behind a landing that changed a generator waits on no build of its merged tree while that landing's runtime is not yet live (north#1247).
+fn covering(worktree: &Path, from: &str, code: &[String]) -> Coverage {
+    let Some(north) = merge_set::driver_program() else { return Coverage::Uncovered };
+    let covers = Command::new(&north).args(["runtime", "covers", "--from", from, "--head", "HEAD", "--code", &code.join(",")]).current_dir(worktree).output().is_ok_and(|output| output.status.success());
+    let Some(tree) = covers.then(|| stdout(worktree, &["rev-parse", &format!("{from}^{{tree}}")]).ok()).flatten().map(|tree| tree.trim().to_owned()) else { return Coverage::Uncovered };
+    let built = Command::new(&north).args(["runtime", "build-ahead", "--fetch", "--tree", &tree]).current_dir(worktree).output().ok().filter(|output| output.status.success());
+    match built.and_then(|output| String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim()))).filter(|path| path.is_file()) {
+        Some(path) => Coverage::Built(path),
+        None => Coverage::Unbuilt(tree),
+    }
 }
 
 /// Runs, once each, the generator of every derived file the list at `base` names whose file, inputs or generator code
 /// the commit at HEAD changes since `picked_onto`, confined to the candidate, and folds what they write into that commit;
 /// a commit that changes none runs none. The list is read at the candidate's base, never at `picked_onto`, which holds the
-/// lanes picked before this one and not yet landed. With `installed`, the `north` generators run on the installed north.
-pub fn refresh(worktree: &Path, base: &str, picked_onto: &str, installed: bool) -> Result<Vec<String>, Unrefreshed> {
+/// lanes picked before this one and not yet landed. `generators` names the north the `north` generators may run on.
+pub fn refresh(worktree: &Path, base: &str, picked_onto: &str, generators: Generators) -> Result<Vec<String>, Unrefreshed> {
     let rules = rules_at(worktree, base)?;
     let changed = stdout(worktree, &["diff", "--name-only", "-z", picked_onto, "HEAD"])?;
     let changed = changed.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();
@@ -280,7 +311,7 @@ pub fn refresh(worktree: &Path, base: &str, picked_onto: &str, installed: bool) 
     if due.is_empty() {
         return Ok(Vec::new());
     }
-    let built = generator_north(worktree, base, &due, installed)?;
+    let built = generator_north(worktree, base, &due, generators)?;
     let mut ran: Vec<&String> = Vec::new();
     for (_, command, generator) in &due {
         if !ran.contains(command) {
