@@ -20,7 +20,7 @@ pub fn first_error(text: &str) -> Option<String> {
     let line = lines.iter().find(|line| {
         let lower = line.to_lowercase();
         ERROR_WORDS.iter().any(|word| lower.contains(word))
-    }).or_else(|| lines.last())?;
+    }).or_else(|| lines.iter().rfind(|line| !line.starts_with('{')))?;
     Some(bounded(line))
 }
 
