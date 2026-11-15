@@ -10,6 +10,7 @@ pub enum Answerer {
     Default,
     Orphaned,
     Ticked,
+    Withdrawn,
 }
 
 impl Answerer {
@@ -20,6 +21,7 @@ impl Answerer {
             Answerer::Default => "default",
             Answerer::Orphaned => "orphaned",
             Answerer::Ticked => "ticked",
+            Answerer::Withdrawn => "withdrawn",
         }
     }
 
@@ -29,6 +31,7 @@ impl Answerer {
             "default" => Some(Answerer::Default),
             "orphaned" => Some(Answerer::Orphaned),
             "ticked" => Some(Answerer::Ticked),
+            "withdrawn" => Some(Answerer::Withdrawn),
             name if !name.is_empty() => Some(Answerer::Session(name.to_owned())),
             _ => None,
         }

@@ -20,10 +20,11 @@ pub enum GatePhase {
     Answered,
     Defaulted,
     Orphaned,
+    Withdrawn,
 }
 
 impl State for GatePhase {
-    const ALL: &'static [Self] = &[Self::AskingTom, Self::CountingDown, Self::Delivering, Self::Undelivered, Self::Answered, Self::Defaulted, Self::Orphaned];
+    const ALL: &'static [Self] = &[Self::AskingTom, Self::CountingDown, Self::Delivering, Self::Undelivered, Self::Answered, Self::Defaulted, Self::Orphaned, Self::Withdrawn];
 
     fn name(self) -> &'static str {
         match self {
@@ -34,6 +35,7 @@ impl State for GatePhase {
             Self::Answered => "answered",
             Self::Defaulted => "defaulted",
             Self::Orphaned => "orphaned",
+            Self::Withdrawn => "withdrawn",
         }
     }
 }
@@ -44,7 +46,7 @@ impl GatePhase {
     }
 
     pub fn is_settled(self) -> bool {
-        matches!(self, Self::Answered | Self::Defaulted | Self::Orphaned)
+        matches!(self, Self::Answered | Self::Defaulted | Self::Orphaned | Self::Withdrawn)
     }
 
     /// The phase a gate opens in: counting down to its default, or waiting for Tom when it has none.
@@ -58,6 +60,7 @@ impl GatePhase {
             Answerer::Session(_) | Answerer::Tom | Answerer::Ticked => Self::Answered,
             Answerer::Default => Self::Defaulted,
             Answerer::Orphaned => Self::Orphaned,
+            Answerer::Withdrawn => Self::Withdrawn,
         }
     }
 
@@ -76,13 +79,13 @@ impl Lifecycle for GateLife {
     type State = GatePhase;
 
     fn legal(from: Option<GatePhase>, to: GatePhase) -> bool {
-        use GatePhase::{Answered, AskingTom, CountingDown, Defaulted, Delivering, Orphaned, Undelivered};
+        use GatePhase::{Answered, AskingTom, CountingDown, Defaulted, Delivering, Orphaned, Undelivered, Withdrawn};
         match from {
             None => true,
             Some(AskingTom | CountingDown) => to == Delivering,
-            Some(Delivering) => matches!(to, Answered | Defaulted | Orphaned | Undelivered),
+            Some(Delivering) => matches!(to, Answered | Defaulted | Orphaned | Undelivered | Withdrawn),
             Some(Undelivered) => to == Delivering,
-            Some(Answered | Defaulted | Orphaned) => false,
+            Some(Answered | Defaulted | Orphaned | Withdrawn) => false,
         }
     }
 

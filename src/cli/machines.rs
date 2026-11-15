@@ -141,7 +141,7 @@ const MACHINES: &[Machine] = &[
         sweep: None,
         explore: Some(|| {
             use north_fleet_store::gate_lifecycle::{GateLife, GatePhase};
-            explore::<GateLife>(&Promises { ends: &[GatePhase::Answered, GatePhase::Defaulted, GatePhase::Orphaned], repeats: &[] })
+            explore::<GateLife>(&Promises { ends: &[GatePhase::Answered, GatePhase::Defaulted, GatePhase::Orphaned, GatePhase::Withdrawn], repeats: &[] })
         }),
     },
     Machine {

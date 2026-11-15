@@ -240,6 +240,34 @@ mod tests {
     }
 
     #[test]
+    fn a_gate_its_asking_session_withdraws_leaves_the_digest_with_its_reason_kept_and_approves_nothing() {
+        use crate::fleet::decision_queue::digest;
+        use crate::fleet::gate_lifecycle::GatePhase;
+        use crate::fleet::gates::Withdrawer;
+        let home = tempfile::tempdir().unwrap();
+        let laptop = fleet(home.path());
+        let worker = live_under(&laptop, "worker", Some("boss"));
+        let mut asked = request("worker");
+        asked.default = 0;
+        asked.default_after_ms = 0;
+        asked.ask_once = Some("direction".into());
+        let id = laptop.open_gate(&asked).unwrap();
+        let waiting = |fleet: &Fleet| digest(&fleet.digest(0).unwrap().gates, &[], 0, now_ms());
+        assert!(waiting(&laptop).contains(&format!("- gate {id} ")));
+
+        let stranger = laptop.withdraw_gate(id, "asked in error", Withdrawer { caller: Some("intruder"), coordinator: false }).unwrap_err();
+        assert!(matches!(stranger, NorthError::Rejected(_)), "{stranger}");
+        assert!(laptop.gate(id).unwrap().unwrap().is_open());
+        let closure = laptop.withdraw_gate(id, "the owner already ruled on this", Withdrawer { caller: Some("worker"), coordinator: false }).unwrap();
+
+        assert_eq!((closure.by, closure.answer.as_str()), (Answerer::Withdrawn, "the owner already ruled on this"));
+        assert!(!waiting(&laptop).contains(&format!("- gate {id} ")));
+        let kept = laptop.gate(id).unwrap().unwrap();
+        assert_eq!((kept.phase, kept.closure.map(|closure| closure.answer)), (GatePhase::Withdrawn, Some("the owner already ruled on this".to_owned())));
+        assert!(worker.frames.lock().unwrap().is_empty(), "the session that withdrew it is not told its own withdrawal");
+    }
+
+    #[test]
     fn an_answer_row_from_a_session_that_is_not_the_parent_or_as_tom_from_a_sessions_spool_closes_nothing_and_is_consumed() {
         let home = tempfile::tempdir().unwrap();
         let laptop = fleet(home.path());

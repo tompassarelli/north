@@ -49,6 +49,12 @@ impl Fleet {
         gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: parent.as_deref(), typed }, now_ms(), deliver)
     }
 
+    /// Withdraws a gate opened in error, recording `reason`, and tells its asking session unless that session is the one withdrawing it.
+    pub fn withdraw_gate(&self, id: i64, reason: &str, by: gates::Withdrawer<'_>) -> NorthResult<Closure> {
+        let caller = by.caller;
+        gates::withdraw(self.ledger.as_ref(), id, reason, by, now_ms(), |session, text| if caller == Some(session) { Ok(()) } else { self.answer_session(session, text) })
+    }
+
     pub fn relay_gate(&self, id: i64, number: usize, turn: &gates::TomTurn, relayer: &str) -> NorthResult<Closure> {
         let parent = self.gate(id)?.and_then(|gate| self.record(&gate.request.session).ok()?.parent);
         gates::relay_gate(self.ledger.as_ref(), id, number, gates::Relay { turn, relayer, parent: parent.as_deref() }, now_ms(), |session, text| self.answer_session(session, text))
@@ -73,7 +79,7 @@ impl Fleet {
 
     /// Each decision gate naming an issue that closed since `since_ms` with an answer its asking session never read, because that session has retired.
     pub fn unread_answers(&self, since_ms: u64) -> NorthResult<Vec<Gate>> {
-        let closed = gates::decisions(self.ledger.gates(since_ms)?).into_iter().filter(|gate| gate.request.issue.is_some() && gate.closure.as_ref().is_some_and(|closure| closure.by != gates::Answerer::Orphaned));
+        let closed = gates::decisions(self.ledger.gates(since_ms)?).into_iter().filter(|gate| gate.request.issue.is_some() && gate.closure.as_ref().is_some_and(|closure| !matches!(closure.by, gates::Answerer::Orphaned | gates::Answerer::Withdrawn)));
         Ok(closed.filter(|gate| self.record(&gate.request.session).is_err()).collect())
     }
 

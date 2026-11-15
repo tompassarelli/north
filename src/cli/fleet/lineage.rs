@@ -68,7 +68,7 @@ pub(super) fn reader(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<
     }
 }
 
-pub(super) fn from_coordinator(fleet: &Fleet, caller: Option<&str>) -> bool {
+pub(in crate::cli) fn from_coordinator(fleet: &Fleet, caller: Option<&str>) -> bool {
     caller.is_some_and(|caller| caller == COORDINATOR || fleet.role_of(caller) == Some(Role::Coordinator))
 }
 

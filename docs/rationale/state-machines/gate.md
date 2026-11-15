@@ -14,24 +14,27 @@ stateDiagram-v2
     [*] --> delivering
     [*] --> orphaned
     [*] --> undelivered
+    [*] --> withdrawn
     asking_tom --> delivering
     counting_down --> delivering
     delivering --> answered
     delivering --> defaulted
     delivering --> orphaned
     delivering --> undelivered: holder gone
+    delivering --> withdrawn
     undelivered --> delivering
     answered --> [*]
     defaulted --> [*]
     orphaned --> [*]
+    withdrawn --> [*]
 ```
 
-- Checked: 20 situations and 553 steps, every ordering of three processes (two on one host, one on
+- Checked: 21 situations and 640 steps, every ordering of three processes (two on one host, one on
   another) that each try every move for every holder and settle the instance, the death of the process holding
   the state, and its dwell running out.
 - Held by a process, and left when that process is gone: delivering.
 - Dwell: delivering 5 min, undelivered 10 min.
-- Ends, which an instance never leaves: answered, defaulted, orphaned.
+- Ends, which an instance never leaves: answered, defaulted, orphaned, withdrawn.
 - May be announced again: none.
 - Promises checked: every accepted move is logged and the log alone rebuilds the record; a held state is taken
   from a live holder only by a move the machine lets replace one; an end has no way out, no dwell and no

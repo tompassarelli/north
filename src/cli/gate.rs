@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::decision_queue;
-use crate::fleet::gates::{Decision, Gate, GateRequest, due};
+use crate::fleet::gates::{Decision, Gate, GateRequest, Withdrawer, due};
 use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::sender::Sender;
@@ -14,7 +14,7 @@ use crate::platform::attribution::{self, Cause};
 use north_guard::guard::break_glass;
 use super::gate_list::{list, list_aside};
 
-const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d) | --ask-once CATEGORY [--amount TEXT]] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
+const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d) | --ask-once CATEGORY [--amount TEXT]] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate withdraw ID --reason TEXT | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
 const DEFAULT_HELP: &str = "--default and --default-after are required unless the gate names the ask-once category of its recommended option with --ask-once CATEGORY (cost, accounts, credentials, public, deletion, tom_name or direction, the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
 const FIRST_LOOK_MS: u64 = 24 * 3_600_000;
@@ -24,6 +24,7 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
         ["open", flags @ ..] => open(fleet, flags),
         ["answer", id, number, flags @ ..] => answer(fleet, id, number, flags),
+        ["withdraw", id, "--reason", reason] => withdraw(fleet, id, reason),
         ["list", "--aside"] => list_aside(fleet, false),
         ["list", "--aside", "--json"] => list_aside(fleet, true),
         ["list"] => list(fleet, false),
@@ -69,6 +70,18 @@ fn answer(fleet: &Fleet, id: &str, number: &str, flags: &[&str]) -> NorthResult<
         result => result?,
     };
     println!("gate {id} closed by {}: {}", closure.by.label(), closure.answer);
+    Ok(())
+}
+
+fn withdraw(fleet: &Fleet, id: &str, reason: &str) -> NorthResult<()> {
+    if reason.trim().is_empty() {
+        return Err(usage());
+    }
+    let id: i64 = id.parse().map_err(|_| usage())?;
+    let caller = fleet.answerer();
+    let coordinator = super::fleet::from_coordinator(fleet, caller.as_deref());
+    let closure = fleet.withdraw_gate(id, reason, Withdrawer { caller: caller.as_deref(), coordinator })?;
+    println!("gate {id} withdrawn by {}: {}", caller.as_deref().unwrap_or("tom"), closure.answer);
     Ok(())
 }
 

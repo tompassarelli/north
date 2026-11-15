@@ -110,6 +110,24 @@ pub fn orphan(book: &dyn GateBook, id: i64, now_ms: u64) -> NorthResult<Closure>
     settle_as(book, id, Decision::Text(text), Answerer::Orphaned, None, now_ms, |_, _| Ok(()))
 }
 
+/// Who asks to withdraw a gate: the caller's session name (none for Tom from his own shell) and whether that session is the coordinator.
+pub struct Withdrawer<'a> {
+    pub caller: Option<&'a str>,
+    pub coordinator: bool,
+}
+
+/// Closes a gate opened in error with the `reason` as its recorded answer: Tom, the coordinator or the gate's asking session may; no option is chosen, so nothing is approved.
+pub fn withdraw(book: &dyn GateBook, id: i64, reason: &str, by: Withdrawer<'_>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
+    if let Some(caller) = by.caller
+        && caller != gate.request.session
+        && !by.coordinator
+    {
+        return Err(NorthError::Rejected(format!("only Tom, the coordinator or the gate's asking session {} may withdraw gate {id}; {caller} is none of them", gate.request.session)));
+    }
+    settle_as(book, id, Decision::Text(reason.to_owned()), Answerer::Withdrawn, None, now_ms, deliver)
+}
+
 fn named_option(gate: &Gate, text: &str) -> Option<usize> {
     let options: Vec<String> = gate.request.options.iter().map(|option| option.trim().to_lowercase()).collect();
     let own = text.to_lowercase().replace(&gate.request.question.trim().to_lowercase(), "");
@@ -234,6 +252,7 @@ fn message(gate: &Gate, closure: &Closure) -> String {
         Answerer::Default => format!("No answer in time, so the default applies: {}", closure.answer),
         Answerer::Orphaned => format!("Closed unanswered: {}", closure.answer),
         Answerer::Ticked => format!("Closed by its box: {}", closure.answer),
+        Answerer::Withdrawn => format!("Withdrawn, no answer needed: {}", closure.answer),
     };
     format!("[gate {}] {verdict}\nYour question: {}", gate.id, gate.request.question)
 }
