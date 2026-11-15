@@ -138,6 +138,11 @@ pub fn graph_build(root: &Path, base: Option<&str>, changed: Option<&[String]>) 
     buck2::graph_build(&side, root, base.ok_or("the run names no base")?, &targets)
 }
 
+/// Whether this host holds a readable shared-store generation, which Buck2 builds under.
+pub fn has_store() -> bool {
+    Buck2::deciding(false, Path::new(buck2::generation::FILE)).is_ok()
+}
+
 /// The hosts whose `[hosts.NAME] buck2_after_run` is true in the orchestration policy, in name order; empty when none is or the policy is unreadable.
 pub fn after_run_hosts() -> Vec<String> {
     let Ok(policy) = north_base::platform::orchestration::read() else { return Vec::new() };

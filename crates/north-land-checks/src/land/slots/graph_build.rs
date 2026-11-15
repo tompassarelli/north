@@ -1,7 +1,10 @@
 //! `north land graph-build`: builds the whole Buck2 graph of the tree for a lane that changes a file defining a
 //! target (north#1115), on the workers, and judges it by Buck2's exit status alone: 0 passes, 3 (the tree's own
-//! targets or code failed) fails, any other Buck2 status says nothing of the tree. A host that holds no store generation, or a tree whose Buck2 configuration is not the base's, gets no graph build and passes, as the lint gate leaves its line as declared. The tests of
-//! such a lane stay on Cargo. With `--changed` and the packages the lane changed (`-p NAME` each), it builds those packages alone: the compile a lane gets before it queues when its other checks run after the landing.
+//! targets or code failed) fails, any other Buck2 status says nothing of the tree. A tree whose Buck2 configuration is
+//! not the base's gets no graph build and passes, as the lint gate leaves its line as declared. The tests of such a lane
+//! stay on Cargo. With `--changed` and the packages the lane changed (`-p NAME` each), it builds those packages alone:
+//! the compile a lane gets before it queues when its other checks run after the landing. On a host that holds no store
+//! generation, that run compiles the packages with `cargo check` instead of passing without a build.
 
 use north_base::foundation::exit::NO_VERDICT;
 
@@ -31,6 +34,22 @@ fn changed(selection: &[String]) -> Result<Option<Vec<String>>, ()> {
     if names.is_empty() { Err(()) } else { Ok(Some(names)) }
 }
 
+/// The compile of the changed packages on a host with no shared build store: `cargo check` of them, the clippy line's compile without its lints (north#1631).
+fn cargo_check(root: &std::path::Path, packages: Option<&[String]>) -> u8 {
+    if !root.join("Cargo.toml").is_file() || !root.join("bin/land-shell").is_file() {
+        eprintln!("north land graph-build: this tree has no Cargo workspace with bin/land-shell, so it has nothing to compile here");
+        return 0;
+    }
+    let selection: Vec<&str> = packages.map_or_else(|| vec!["--workspace"], |names| names.iter().flat_map(|name| ["-p", name.as_str()]).collect());
+    eprintln!("north land graph-build: this host has no shared build store, so cargo checks {}", selection.join(" "));
+    let status = std::process::Command::new("./bin/land-shell").current_dir(root).env("CARGO_TARGET_DIR", "target").args(["--dev", "--", "cargo", "check", "--all-targets", "--locked", "--offline"]).args(&selection).status().ok().and_then(|status| status.code());
+    match status {
+        Some(0) => 0,
+        Some(101) => FAILED,
+        _ => NO_VERDICT,
+    }
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let selection = match arguments.split_first() {
         None => Ok(None),
@@ -45,6 +64,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let Ok(root) = std::env::current_dir() else { return NO_VERDICT };
     let build = match north_build_system::graph_build(&root, base.as_deref(), selection.as_deref()) {
         Ok(build) => build,
+        Err(_) if arguments.first().is_some_and(|flag| flag == "--changed") && !north_build_system::has_store() => return cargo_check(&root, selection.as_deref()),
         Err(why) => {
             eprintln!("north land graph-build: {why}, so this lane gets no graph build here");
             return 0;
