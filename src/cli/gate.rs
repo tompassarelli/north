@@ -14,7 +14,7 @@ use crate::platform::attribution::{self, Cause};
 use north_guard::guard::break_glass;
 use super::gate_list::{list, list_aside};
 
-const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d) | --ask-once CATEGORY] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
+const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d) | --ask-once CATEGORY [--amount TEXT]] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
 const DEFAULT_HELP: &str = "--default and --default-after are required unless the gate names the ask-once category of its recommended option with --ask-once CATEGORY (cost, accounts, credentials, public, deletion, tom_name or direction, the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
 const FIRST_LOOK_MS: u64 = 24 * 3_600_000;
@@ -97,6 +97,7 @@ fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
 
 fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
     let mut request = GateRequest { verification: false, issue: None, box_text: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0, ask_once: None };
+    let mut amount = None;
     for pair in flags.chunks(2) {
         let [flag, value] = pair else { return Err(usage()) };
         match *flag {
@@ -107,6 +108,7 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
             "--default" => request.default = value.parse().map_err(|_| usage())?,
             "--default-after" => request.default_after_ms = duration_ms(value).ok_or_else(usage)?,
             "--ask-once" => request.ask_once = Some((*value).to_owned()),
+            "--amount" => amount = Some((*value).to_owned()),
             "--issue" => request.issue = Some(IssueRef::parse(value).ok_or_else(usage)?.to_string()),
             "--box" => request.box_text = Some((*value).to_owned()),
             _ => return Err(usage()),
@@ -119,6 +121,10 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
         return Err(usage());
     }
     request.validate()?;
+    if request.ask_once.as_deref() == Some("cost") {
+        let amount = amount.filter(|amount| !amount.trim().is_empty()).ok_or_else(|| NorthError::Usage("--ask-once cost needs --amount TEXT, the sum and its billing term: a cost gate is money billed, and plan usage inside a subscription is not a cost question; a gate on plan usage takes --default N --default-after DURATION".into()))?;
+        request.question = format!("{} (cost: {})", request.question.trim_end(), amount.trim());
+    }
     Ok(request)
 }
 
@@ -180,5 +186,24 @@ fn await_default(fleet: &Fleet, id: i64) -> NorthResult<()> {
             };
         }
         std::thread::sleep(WAIT_POLL.min(Duration::from_millis(at - now)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cost_flags<'a>(more: &[&'a str]) -> Vec<&'a str> {
+        let mut flags = vec!["--session", "worker", "--question", "Pay for the GPU box?", "--option", "rent it", "--option", "wait", "--recommend", "1", "--ask-once", "cost"];
+        flags.extend_from_slice(more);
+        flags
+    }
+
+    #[test]
+    fn a_cost_gate_without_an_amount_is_refused() {
+        let Err(NorthError::Usage(why)) = gate_request(&cost_flags(&[])) else { panic!("a cost gate without --amount must be refused") };
+        assert!(why.contains("--amount") && why.contains("plan usage") && why.contains("--default-after"), "{why}");
+        let named = gate_request(&cost_flags(&["--amount", "$20 a month, billed monthly"])).expect("a cost gate that names its amount opens");
+        assert_eq!(named.question, "Pay for the GPU box? (cost: $20 a month, billed monthly)", "the sum reaches the question Tom reads");
     }
 }

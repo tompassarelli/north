@@ -162,7 +162,7 @@ fn serve(root: &Path) {
     let placed = root.join("home/code/alpha/worktrees/placed");
     let placed_tip = git_text(&placed, &["rev-parse", "HEAD"]);
     let other = root.join("home/code/alpha/worktrees/other");
-    let gate = |more: &[&str]| ["gate", "open", "--question", "q", "--option", "a", "--option", "b", "--recommend", "1", "--ask-once", "cost"].iter().chain(more).map(|word| (*word).to_owned()).collect::<Vec<_>>();
+    let gate = |more: &[&str]| ["gate", "open", "--question", "q", "--option", "a", "--option", "b", "--recommend", "1", "--ask-once", "cost", "--amount", "$20 a month, billed monthly"].iter().chain(more).map(|word| (*word).to_owned()).collect::<Vec<_>>();
     let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("true", &git_text(&other, &["rev-parse", "HEAD"])), &other);
     if code != 0 || records.read(SESSION).is_none_or(|record| !record.passed || record.head != git_text(&other, &["rev-parse", "HEAD"])) || !told.is_empty() {
         failures.push(format!("a lane of another name that the session made after it launched was not admitted: exit {code}: {told}"));
