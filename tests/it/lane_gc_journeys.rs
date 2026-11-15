@@ -81,8 +81,8 @@ impl Rig {
     }
 
     fn lane_gc(&self, now: &str, extra: &[(&str, &str)], args: &[&str]) -> String {
-        let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
-            .args(["lane", "gc"])
+        let mut child = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north"))
+            .args(["lane", "gc", "--sessions-stdin"])
             .arg("--root")
             .arg(self.home.join("code"))
             .arg("--state")
@@ -91,8 +91,14 @@ impl Rig {
             .envs(self.env.iter().cloned())
             .env("LANE_GC_NOW", now)
             .envs(extra.iter().copied())
-            .output()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap();
+        let sessions = fs::read_to_string(self.root.join("fleet.json")).unwrap_or_else(|_| "[]".into());
+        child.stdin.take().unwrap().write_all(sessions.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         String::from_utf8_lossy(&output.stdout).into_owned() + &String::from_utf8_lossy(&output.stderr)
     }

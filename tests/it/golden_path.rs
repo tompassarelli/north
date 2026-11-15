@@ -218,7 +218,9 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert!(stopped.status.success(), "{}", text(&stopped));
     assert_eq!(rows(&database, "SELECT agent FROM runs", 1), vec![vec![conversation]], "the session host records its conversation's run as it exits");
     eventually("every process of the run to end", || lingering(&rig.root).is_empty().then_some(()));
-    let retired = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.root).args(["lane", "gc", "--root"]).arg(&rig.root).args(["--idle-hours", "0", "--state"]).arg(rig.root.join("gc.json")).output().unwrap();
+    let mut gc = rig.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"), &rig.root).args(["lane", "gc", "--sessions-stdin", "--root"]).arg(&rig.root).args(["--idle-hours", "0", "--state"]).arg(rig.root.join("gc.json")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    std::io::Write::write_all(&mut gc.stdin.take().unwrap(), b"[]").unwrap();
+    let retired = gc.wait_with_output().unwrap();
     assert!(retired.status.success(), "{}", text(&retired));
     assert!(text(&retired).contains("retired 1 worktrees, 1 local branches"), "{}", text(&retired));
     assert!(!rig.lane.exists(), "the landed lane is gone");
