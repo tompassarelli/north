@@ -21,6 +21,9 @@ const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 3] = [
     ("crates/north-capacity-host/src/capacity/watchdog/sampler_tests.rs", "a negative wait: load can only end the 200 ms wait later, never make the process left alone exit, so the assertion holds at any budget"),
 ];
 
+const OLD_REAPER_BUDGET: &str = "    let reaped = reap_within(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300));";
+const REAPER_BUDGET_ON_A_CLOCK: &str = "    let reaped = reap_within(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::ZERO, &|| Duration::ZERO);";
+
 fn root() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
 }
@@ -99,4 +102,9 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let budgeted = tests.iter().filter(|(path, _)| !SUB_SECOND_BUDGET_TESTS.iter().any(|(allowed, _)| path.as_str() == *allowed));
     let budgets = found_sub_second(budgeted);
     assert!(budgets.is_empty(), "a test hands the code under test a sub-second wall-clock budget, so it passes or fails on host load; decide by events through an injected clock or raise the budget:\n{}", budgets.join("\n"));
+    let reaper = "crates/north-fleet-supervisor/src/fleet/reaper_tests.rs";
+    let recorded = sub_second_budgets(reaper, OLD_REAPER_BUDGET);
+    assert_eq!(recorded.len(), 1, "the recorded line, which failed a loaded batch on 2026-11-11, is reported: {recorded:?}");
+    assert!(recorded[0].contains("Duration::from_millis(300)"), "{recorded:?}");
+    assert!(sub_second_budgets(reaper, REAPER_BUDGET_ON_A_CLOCK).is_empty(), "a budget passed beside a borrowed injected clock is spared");
 }
