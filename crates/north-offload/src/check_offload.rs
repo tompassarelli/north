@@ -1,10 +1,13 @@
 //! Where a check command that compiles runs: on a host that is not a build host it goes to one through `north capacity offload run`, so no check compiles on the laptop (north#1508).
 
-use std::process::Command;
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 const TOOLCHAIN: [&str; 5] = ["cargo", "rustc", "cargo-nextest", "bun", "nix"];
 const TIMEOUT_SECONDS: &str = "900";
 pub const NO_HOST_EXIT: i32 = 75;
+const EXIT_TO_FILE: &str = "echo $$ > \"$0.pid.tmp\" && mv \"$0.pid.tmp\" \"$0.pid\"; rc=0; \"$@\" || rc=$?; echo \"$rc\" > \"$0.tmp\" && mv \"$0.tmp\" \"$0\"";
 
 pub fn compiles(command: &str) -> bool {
     command.split(|character: char| character.is_whitespace() || "|&;()<>$`'\"".contains(character)).any(|word| TOOLCHAIN.contains(&word.rsplit('/').next().unwrap_or_default()))
@@ -31,4 +34,33 @@ pub fn offloaded(north: &str, command: &str, (base, head): (&str, &str), builds_
         words.push(word);
         words
     })))
+}
+
+pub fn detached_scope() -> bool {
+    Command::new("systemd-run").args(["--user", "--scope", "--quiet", "--collect", "true"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
+}
+
+pub fn pid_file(exit: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.pid", exit.display()))
+}
+
+pub fn launch_detached(command: &Command, log: &File, exit: &Path, scope: bool) -> bool {
+    let Ok(output) = log.try_clone() else { return false };
+    let Ok(errors) = log.try_clone() else { return false };
+    let mut detached = Command::new("setsid");
+    detached.arg("-f");
+    if scope {
+        detached.args(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=agent.slice"]);
+    }
+    detached.args(["sh", "-c", EXIT_TO_FILE]).arg(exit).arg(command.get_program()).args(command.get_args());
+    if let Some(directory) = command.get_current_dir() {
+        detached.current_dir(directory);
+    }
+    for (name, value) in command.get_envs() {
+        match value {
+            Some(value) => detached.env(name, value),
+            None => detached.env_remove(name),
+        };
+    }
+    detached.stdin(Stdio::null()).stdout(output).stderr(errors).status().is_ok_and(|status| status.success())
 }
