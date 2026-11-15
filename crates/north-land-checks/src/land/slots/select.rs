@@ -212,7 +212,7 @@ impl Config {
         self.publish.as_ref().map(|prefix| format!("{prefix}{}", &head[..head.len().min(REF_SHORT)]))
     }
 
-    fn malformed_pair(&self) -> Option<String> {
+    pub(super) fn malformed_pair(&self) -> Option<String> {
         let lists = [("land.local-only", &self.local_only), ("land.machine-bound", &self.machine_bound), ("land.after-only", &self.after_only), ("land.reports-all", &self.reports_all), ("land.host-input", &self.host_inputs), ("land.deadline", &self.deadlines)];
         lists.into_iter().find_map(|(key, entries)| entries.iter().find(|entry| !entry.contains(SEPARATOR)).map(|entry| format!("invalid {key}: {entry} (expected REASON{SEPARATOR}COMMAND)")))
     }

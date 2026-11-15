@@ -31,6 +31,23 @@ fn a_trust_boundary_lane_with_no_accept_is_judged_before_landing() {
 }
 
 #[test]
+fn a_lane_whose_own_safe_push_pair_is_cut_by_a_comment_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    git(repo, &["init", "-q", "-b", "main"]);
+    fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.safe-push"), repo.join(".safe-push")).unwrap();
+    fs::create_dir_all(repo.join("harness")).unwrap();
+    fs::write(repo.join("harness/gates.toml"), "[gate.safe-push-keys]\nmode = \"enforce\"\n").unwrap();
+    let base = commit(repo, "main enforces safe-push-keys");
+    let mut config = fs::read_to_string(repo.join(".safe-push")).unwrap();
+    config.push_str("[land]\n\tlocal-only = no build waits (north#1247) :: true\n");
+    fs::write(repo.join(".safe-push"), config).unwrap();
+    let head = commit(repo, "add a local-only reason holding a comment character");
+    let refusal = super::queue_commands(repo, &base, &head).unwrap_err();
+    assert!(refusal.contains("invalid land.local-only"), "a lane whose own .safe-push pair git config cut at a # was judged by the base's lines and landed unparsed (north#1634, 2026-11-15): {refusal}");
+}
+
+#[test]
 fn no_verdict_names_its_failing_step() {
     let dir = tempfile::tempdir().unwrap();
     let (log, outcome) = (dir.path().join("check.log"), dir.path().join("outcome.tsv"));

@@ -21,6 +21,9 @@ const LINE_SECONDS: u64 = 180;
 /// lines that compile nothing, run on this host with the installed north (north#1247); its clippy and every line that
 /// builds run after it lands. Off, its clippy and every `@enqueue` line run on a build host. No test runs here (north#1508).
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+    if let Some(refusal) = judged::own_refusal(root, base, head) {
+        return Err(refusal);
+    }
     let config = judged::config(root, base, head);
     let landing = config.after_set().commands(root, base, head)?;
     let after_landing = tests_after_landing();

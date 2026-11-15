@@ -17,3 +17,8 @@ fn by_base(repo: &Path, base: &str, head: &str) -> bool {
 pub fn config(repo: &Path, base: &str, head: &str) -> Config {
     Config::load(repo, if by_base(repo, base, head) { base } else { head })
 }
+
+/// Why the lane's own `.safe-push` cannot land when the base's lines judged it instead: a pair git config cut at a comment character is malformed in the lane's head, which the base never parses.
+pub fn own_refusal(repo: &Path, base: &str, head: &str) -> Option<String> {
+    by_base(repo, base, head).then(|| Config::load(repo, head).malformed_pair()).flatten()
+}
