@@ -282,7 +282,7 @@ fn land_ledger(state: &std::path::Path) -> (Layout, impl Fn(&str, i64, &str)) {
     (layout, decide)
 }
 
-/// On 2026-11-15 the watch rolled whiterabbit back twice for land refusals no gate decided: from c38f4787, which changes only tests, 109 s after its swap, for two regenerate steps whose head-north found no whole runtime and no build-ahead artifact and exited 75 (north#1570); and from f8ee5bf1, which only registers an evaluation directory, at 600 s for two such refusals after 300 s, against an hour before that held three of them on the previous runtime. A runtime whose every step reaches no verdict on a host that reached a verdict the hour before, or that refuses every lane from its first second, still rolls back.
+/// On 2026-11-15 the watch rolled whiterabbit back twice for land refusals no gate decided: from c38f4787, which changes only tests, 109 s after its swap, for two regenerate steps whose head-north found no whole runtime and no build-ahead artifact and exited 75 (north#1570); and from f8ee5bf1, which only registers an evaluation directory, at 600 s for two such refusals after 300 s, against an hour before that held three of them on the previous runtime. A step sent to no verdict more often than the hour before counts by its excess, so a runtime that sends every step to no verdict, or that refuses every lane from its first second, still rolls back.
 #[test]
 fn the_2026_11_15_rollbacks_of_c38f4787_and_f8ee5bf1_do_not_happen() {
     let state = tempfile::tempdir().unwrap();
@@ -294,6 +294,10 @@ fn the_2026_11_15_rollbacks_of_c38f4787_and_f8ee5bf1_do_not_happen() {
     let swaps = [Swap { runtime: c38f.into(), at: swapped, estimated: false, rollback: false }];
     assert_eq!(judge(&layout, c38f, &swaps, 1_794_705_493, "whiterabbit"), Verdict::Quiet);
     assert_eq!(judge(&layout, c38f, &swaps, swapped + 400, "whiterabbit"), Verdict::Quiet, "the install's no-verdict refusals stay uncounted once the window holds a rate");
+    for (n, after) in [320, 340, 360].into_iter().enumerate() {
+        decide(&format!("late-{n}-regen"), swapped + after, "failed");
+    }
+    assert!(matches!(judge(&layout, c38f, &swaps, swapped + 400, "whiterabbit"), Verdict::RollBack { .. }), "no-verdict refusals past the install still roll a runtime back");
 
     let state = tempfile::tempdir().unwrap();
     let (layout, decide) = land_ledger(state.path());
@@ -307,14 +311,6 @@ fn the_2026_11_15_rollbacks_of_c38f4787_and_f8ee5bf1_do_not_happen() {
     }
     let swaps = [Swap { runtime: f8ee.into(), at: swapped, estimated: false, rollback: false }];
     assert_eq!(judge(&layout, f8ee, &swaps, swapped + 600, "whiterabbit"), Verdict::Quiet, "the previous runtime reached no verdict as often the hour before");
-
-    let state = tempfile::tempdir().unwrap();
-    let (layout, decide) = land_ledger(state.path());
-    decide("before-patch", swapped - 1200, "failed");
-    for (n, after) in [320, 340, 360].into_iter().enumerate() {
-        decide(&format!("late-{n}-regen"), swapped + after, "failed");
-    }
-    assert!(matches!(judge(&layout, f8ee, &swaps, swapped + 400, "whiterabbit"), Verdict::RollBack { .. }), "no-verdict refusals past the install roll back a runtime on a host that reached a verdict the hour before");
 
     let state = tempfile::tempdir().unwrap();
     let (layout, decide) = land_ledger(state.path());
