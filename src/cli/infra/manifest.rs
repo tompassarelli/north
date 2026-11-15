@@ -234,6 +234,7 @@ monthly_usd = "unread"
         let tiers = "[tiers.\"claude:haiku\"]\nmodel = \"m\"\neffort = \"high\"\n";
         assert!(accounts(tiers).is_empty());
         assert_eq!(accounts(&tiers.replace("effort", "effor")), ["agents/orchestration.toml: tiers.claude:haiku.effort: required key is missing", "agents/orchestration.toml: tiers.claude:haiku.effor: unknown key"]);
+        assert!(accounts("[worker_sandbox]\nunreadable = [\"~/.local/state/north/nix-access-tokens\"]\n").is_empty());
         let orchestration = |text: &str| {
             std::fs::write(root.path().join("agents/orchestration.toml"), text).unwrap();
             crate::cli::operator::check::findings(root.path(), Some(&["orchestration"]))

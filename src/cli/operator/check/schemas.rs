@@ -143,7 +143,7 @@ pub(super) const SCHEMAS: &[Schema] = &[
         file: "agents/orchestration.toml",
         values: None,
         tables: &[
-            Table { path: "", keys: &[("accounts", Nested), ("tiers", Nested), ("on_request", Nested), ("mode", Any), ("dispatch_providers", Any), ("dispatch_hosts_excluded", Any), ("hosts", Any), ("dispatch", Any), ("placement", Any), ("projects", Any)], required: &[] },
+            Table { path: "", keys: &[("accounts", Nested), ("tiers", Nested), ("on_request", Nested), ("mode", Any), ("dispatch_providers", Any), ("dispatch_hosts_excluded", Any), ("hosts", Any), ("dispatch", Any), ("placement", Any), ("projects", Any), ("worker_sandbox", Any)], required: &[] },
             Table { path: "accounts", keys: &[("codex", Nested), ("claude", Nested)], required: &[] },
             Table { path: "accounts.codex", keys: &[("profiles", Any), ("target_left", Number), ("band", Any), ("thursday", Any), ("source", Text)], required: &[] },
             Table { path: "accounts.claude", keys: &[("labels", Any), ("plans", Any), ("target_left", Number), ("reserve", Any), ("api_hold", Any), ("api_beside_plans", Any), ("source", Text), ("profiles", Nested), ("api_keys", Nested), ("api_orgs", Nested)], required: &[] },
