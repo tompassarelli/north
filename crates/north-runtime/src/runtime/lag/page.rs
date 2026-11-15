@@ -2,7 +2,7 @@
 use super::behind::{self, Seen, serves_host};
 use super::samples::{self, Sample};
 use north_offload::land_offload;
-use crate::runtime::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use crate::runtime::layout::{self, Layout};
 use crate::runtime::pin;
 use crate::runtime::update;

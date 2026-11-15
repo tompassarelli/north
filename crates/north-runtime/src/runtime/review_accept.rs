@@ -2,8 +2,8 @@
 
 use north_base::platform::review_accept::{Accept as Record, Accepts, is_patch_id, patch_id};
 
-use super::failure::{Failure, failed};
-use super::review_hold::{Caller, full_sha, git};
+use north_runtime_records::failure::{Failure, failed};
+use north_runtime_records::hold_ledger::{Caller, full_sha, git};
 
 pub(crate) const VERB: &str = "review-accept";
 const WITHDRAW: &str = "--withdraw";

@@ -1,4 +1,4 @@
-use super::super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use super::super::layout::{self, Layout, TREE};
 use crate::platform::{host, process};
 use std::fs;

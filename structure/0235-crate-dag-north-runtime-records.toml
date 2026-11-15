@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-runtime-records"
+layer = 1
+paths = ["crates/north-runtime-records/src/**"]
+may_use = ["north-base"]

@@ -1,5 +1,5 @@
 use super::bounded;
-use super::failure::{Failure, code, failed};
+use north_runtime_records::failure::{Failure, code, failed};
 use crate::platform::ssh_retry::{Link, Reply, Rerun, retried};
 use std::io::ErrorKind;
 use std::process::Command;

@@ -58,7 +58,7 @@ fn a_runtime_build_a_build_host_fails_goes_to_the_next_build_host_before_this_ho
     let mut asked = Vec::new();
     let build_on = |host: &BuildHost, target: &str, runtime: &Path| {
         asked.push(host.name.clone());
-        if host.name == "cpx62b" { Err(super::super::failure::failed(255, "north runtime build on cpx62b failed: exit status: 255".to_owned())) } else { built_for(TARGET)(host, target, runtime) }
+        if host.name == "cpx62b" { Err(north_runtime_records::failure::failed(255, "north runtime build on cpx62b failed: exit status: 255".to_owned())) } else { built_for(TARGET)(host, target, runtime) }
     };
     let built = build(TARGET, &runtime, fleet, build_on).unwrap();
     assert_eq!(asked.as_slice(), ["cpx62b", "gex45"], "a build the freest host failed went to the next build host that answered, not to this host");
@@ -68,7 +68,7 @@ fn a_runtime_build_a_build_host_fails_goes_to_the_next_build_host_before_this_ho
     let mut asked = Vec::new();
     let refused = build(OTHER, &unbuilt, vec![host("gex45", Some(4.0)), host("cpx62b", Some(12.0))], |host: &BuildHost, _: &str, _: &Path| {
         asked.push(host.name.clone());
-        Err(super::super::failure::failed(255, "ssh: exit status: 255".to_owned()))
+        Err(north_runtime_records::failure::failed(255, "ssh: exit status: 255".to_owned()))
     })
     .err()
     .unwrap();

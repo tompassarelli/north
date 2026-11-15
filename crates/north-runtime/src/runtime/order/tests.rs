@@ -1,10 +1,11 @@
 use super::super::canary::{self, Machine, Ran, Rollback};
-use super::super::failure::Failure;
+use north_runtime_records::failure::Failure;
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
 use super::super::pin::{Event, read};
-use super::super::after_landing::Landing;
-use super::super::review_hold::{self, Ask, Caller, Holds, Screen, answered_in, landed_in, lane_of, now};
+use north_runtime_records::after_landing::Landing;
+use super::super::review_hold::{Screen, answered_in, landed_in};
+use north_runtime_records::hold_ledger::{self, Ask, Caller, Holds, lane_of, now};
 use super::super::main_runs::{Kept, MainRun, MainRuns};
 use super::super::trip::Trips;
 use super::super::update::{self, Flight};
@@ -386,7 +387,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: held.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());
     place(&reviewer).unwrap();
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
-    let listed = review_hold::standing(&environment, state.path()).unwrap();
+    let listed = hold_ledger::standing(&environment, state.path()).unwrap();
     assert!(matches!(listed.as_slice(), [entry] if entry.commit == held && entry.session == "f-review"), "`north holds` lists a placed hold with its commit and holder: {listed:?}");
 
     let refused = ordered().err().map(|failure| failure.message).unwrap_or_default();
@@ -402,7 +403,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     assert!(ordered().is_err(), "a lift by another session leaves the hold standing");
 
     lift(&reviewer).unwrap();
-    assert!(review_hold::standing(&environment, state.path()).unwrap().is_empty(), "and stops listing it once it is lifted");
+    assert!(hold_ledger::standing(&environment, state.path()).unwrap().is_empty(), "and stops listing it once it is lifted");
     run(&layout, &ordered().unwrap(), &settling, &[], &[], || Ok(()), |()| Ok(false)).unwrap();
     assert_eq!(settling.live.lock().unwrap().as_str(), NEW);
     assert!(update::slot::held_by_review(&layout, &screen, NEW).is_none());
@@ -600,7 +601,7 @@ fn a_hold_naming_the_lane_whose_landing_lifts_it_lifts_on_its_placers_accepted_l
     let named = screen.order(&late, &["whiterabbit"], now()).unwrap();
     assert!(named.iter().any(|line| line.contains("f-cure landed as") && line.contains(&late)), "on 2026-11-14 a hold stood about an hour after the fix it named had landed, until its placer lifted it by hand: {named:?}");
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.display().to_string())];
-    assert!(review_hold::standing(&environment, &state).unwrap().is_empty(), "the landed lane leaves no hold standing");
+    assert!(hold_ledger::standing(&environment, &state).unwrap().is_empty(), "the landed lane leaves no hold standing");
 }
 
 #[test]

@@ -1,5 +1,5 @@
 use super::super::bounded;
-use super::super::failure::{Failure, code, failed};
+use north_runtime_records::failure::{Failure, code, failed};
 use super::super::layout::{self, Layout};
 use super::super::live;
 use super::super::remote;

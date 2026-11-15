@@ -8,7 +8,7 @@ pub mod samples;
 #[cfg(test)]
 mod json_tests;
 
-use super::failure::Failure;
+use north_runtime_records::failure::Failure;
 use super::layout::Layout;
 use behind::Process;
 use north_runtime_follow::{named, runtime_of};

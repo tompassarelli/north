@@ -1,4 +1,4 @@
-use super::failure::DEFERRED;
+use north_runtime_records::failure::DEFERRED;
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Canarying, Canary};
 use super::live::Swap;

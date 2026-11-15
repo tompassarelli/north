@@ -1,5 +1,5 @@
 use super::super::cargo_build::{self, BuildLog};
-use super::super::failure::{DEFERRED, Failure, failed};
+use north_runtime_records::failure::{DEFERRED, Failure, failed};
 use super::super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::super::build_host;
 use super::super::pull;

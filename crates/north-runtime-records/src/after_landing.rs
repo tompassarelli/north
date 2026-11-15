@@ -14,7 +14,7 @@ const FRESH: &str = "fresh";
 const RUNNER: &str = "runner";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Landing {
+pub enum Landing {
     Green,
     Running { run: String, group: i32, age: u64 },
     Failed { run: String, class: String, detail: String },
@@ -23,7 +23,7 @@ pub(crate) enum Landing {
 
 impl Landing {
     /// Why a head with this verdict may not go live, or none when its run ended green.
-    pub(crate) fn refusal(&self) -> Option<String> {
+    pub fn refusal(&self) -> Option<String> {
         match self {
             Landing::Green => None,
             Landing::Running { run, group, age } => Some(format!("its after-landing run {run} is still running (process group {group}, started {age} s ago)")),
@@ -35,11 +35,11 @@ impl Landing {
 }
 
 /// Whether the screen reads the after-landing verdict, from `after_landing_green`; only `off` turns it off.
-pub(crate) fn enabled() -> bool {
+pub fn enabled() -> bool {
     document(DEFAULTS)[SWITCH]["value"].as_str() != Some("off")
 }
 
-pub(crate) type AfterLanding = Box<dyn Fn(&str) -> Landing>;
+pub type AfterLanding = Box<dyn Fn(&str) -> Landing>;
 
 #[derive(Deserialize)]
 struct Runner {
@@ -50,7 +50,7 @@ struct Runner {
     heads: Vec<String>,
 }
 
-pub(crate) struct Ledger {
+pub struct Ledger {
     pub rows: PathBuf,
     pub logs: PathBuf,
     pub repository: String,
@@ -58,17 +58,17 @@ pub(crate) struct Ledger {
 
 impl Ledger {
     /// The ledger and the lander queue, on this host, of the repository the git store `store` fetches as origin.
-    pub(crate) fn here(store: &Path) -> Self {
-        let origin = crate::platform::process::run("git", Some(store), &["remote", "get-url", "origin"]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
+    pub fn here(store: &Path) -> Self {
+        let origin = north_base::platform::process::run("git", Some(store), &["remote", "get-url", "origin"]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
         Self::of(&state_home(), &origin)
     }
 
-    pub(crate) fn of(state_home: &Path, origin: &str) -> Self {
+    pub fn of(state_home: &Path, origin: &str) -> Self {
         Self { rows: state_home.join(LEDGER), logs: land_queue::directory(state_home, origin).join("logs"), repository: repository(origin) }
     }
 
     /// The verdict of `head` at `now` (seconds since the epoch).
-    pub(crate) fn landing(&self, head: &str, now: u64) -> Landing {
+    pub fn landing(&self, head: &str, now: u64) -> Landing {
         let Ok(text) = fs::read_to_string(&self.rows) else {
             return Landing::Missing(format!("{} has no after-landing run: this host keeps no after-landing ledger at {}", run_of(head), self.rows.display()));
         };
@@ -112,9 +112,7 @@ fn covering<'a>(row: &[&'a str]) -> Option<&'a str> {
     row.get(7).copied().filter(|tip| !tip.is_empty())
 }
 
-fn run_of(head: &str) -> String {
+pub fn run_of(head: &str) -> String {
     format!("post-land-{}", &head[..head.len().min(12)])
 }
 
-#[cfg(test)]
-mod tests;

@@ -6,7 +6,7 @@
 
 use std::process::Stdio;
 
-use super::failure::{self, Failure};
+use north_runtime_records::failure::{self, Failure};
 
 const BINARY: &str = "north";
 /// The base of the range a land check checks, which a Buck2 build compares the tree's Buck2 configuration with.

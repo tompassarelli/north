@@ -2,7 +2,7 @@ use super::cadence;
 use super::canary;
 use super::bounded;
 use super::host_facts;
-use super::failure::{DEFERRED, Failure, code, failed};
+use north_runtime_records::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, BUILT_FROM, Layout, TREE};
 use super::lifecycle::{self, Promoting, Promotion};
 use super::peers;

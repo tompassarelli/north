@@ -958,3 +958,17 @@ min_n = 0
 after = ["2026-11-15", "2026-11-29"]
 review = "2026-12-01"
 owner = "tompassarelli/north#1577"
+
+[[experiment]]
+id = "north-runtime-records"
+change = "the hold ledger, the after-landing record and the failure type move out of north-runtime into the new leaf crate north-runtime-records, so the worker sandbox reads them without the runtime tree (north#1487)"
+landed = "3b9cece335"
+crates = ["north-runtime-records"]
+metric = "none"
+measure = "git log on origin/main over the 28 days after this move: commits that fold north-runtime-records back into north-runtime or move one of its three modules elsewhere; keep the crate when there are none, and record the count on north#1487"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-15", "2026-12-13"]
+review = "2026-12-15"
+owner = "tompassarelli/north#1487"

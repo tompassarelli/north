@@ -1008,6 +1008,7 @@ dependencies = [
  "north-registries",
  "north-remote-serve",
  "north-runtime",
+ "north-runtime-records",
  "north-safe-push",
  "north-session-host",
  "north-shared-config",
@@ -2041,6 +2042,7 @@ dependencies = [
  "north-pacing",
  "north-providers",
  "north-runtime-follow",
+ "north-runtime-records",
  "north-trusted-mirror",
  "north-unblocks",
  "percent-encoding",
@@ -2062,6 +2064,16 @@ dependencies = [
  "north-base",
  "rustix 0.38.44",
  "sha2",
+]
+
+[[package]]
+name = "north-runtime-records"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

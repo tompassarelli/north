@@ -1,4 +1,4 @@
-use super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS, install};
 use crate::platform::process;
 use north_base::build_inputs::rust_build_input;

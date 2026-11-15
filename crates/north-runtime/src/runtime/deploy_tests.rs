@@ -1,4 +1,4 @@
-use super::super::failure::failed;
+use north_runtime_records::failure::failed;
 use super::super::layout;
 use super::{BUILT_FROM, TREE, install_script, not_moved_back};
 use crate::foundation::shim::write_executable;

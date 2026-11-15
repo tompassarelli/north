@@ -1,5 +1,5 @@
 use super::bounded;
-use super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use super::scope::own_scope;
 use super::remote::OWN_RSH;
 use north_offload::land_offload;

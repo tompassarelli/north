@@ -409,7 +409,7 @@ fn a_canary_probe_answered_by_a_provider_limit_retries_on_the_next_account() {
     assert!(verdict.is_err_and(|unjudged| unjudged.code == NO_VERDICT), "every account refused, so the probe exits no-verdict: unrun, neither failed nor passed");
     let none = launch::judge("claude", &[], |_, _| Ok(launch::Attempt::Answered)).unwrap_err();
     assert!(none.code == NO_VERDICT && none.message.contains("no claude account has headroom"), "no account to launch on judged nothing, so exit 0 would count a pass: {none:?}");
-    let broken = launch::judge("claude", &accounts, |_, _| Err(crate::runtime::failure::failed(1, "boom")));
+    let broken = launch::judge("claude", &accounts, |_, _| Err(north_runtime_records::failure::failed(1, "boom")));
     assert!(broken.is_err(), "an answer that is no refusal still fails the probe");
 }
 
@@ -491,7 +491,7 @@ fn a_runtime_that_fails_verify_north_or_the_scratch_landing_is_not_shipped() {
         assert_eq!(host.current(), layout::link(PREVIOUS), "{failing} left the failed runtime live");
         let walked = super::super::walk::walk_of(&host.layout, "whiterabbit", host.layout.live_sha().as_deref(), Some((PROMOTED, &Verdict::RolledBack)));
         let shipped = std::cell::RefCell::new(Vec::new());
-        let screen = super::super::review_hold::Screen { holds: super::super::review_hold::Holds(host.layout.state.join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| super::super::after_landing::Landing::Green)), trips: super::super::trip::Trips(host.layout.state.join("trips")), runs: super::super::main_runs::MainRuns::none(), revert: Box::new(|_| Ok(())), replay: crate::runtime::replay::regressing() };
+        let screen = super::super::review_hold::Screen { holds: north_runtime_records::hold_ledger::Holds(host.layout.state.join("holds")), contains: Box::new(|commit, _| Ok(commit == crate::runtime::main_runs::FIXTURE_ANCESTOR)), landed: Box::new(|_| Ok(Vec::new())), answered: Box::new(|_, _| false), after_landing: Some(Box::new(|_| north_runtime_records::after_landing::Landing::Green)), trips: super::super::trip::Trips(host.layout.state.join("trips")), runs: super::super::main_runs::MainRuns::none(), revert: Box::new(|_| Ok(())), replay: crate::runtime::replay::regressing() };
         let _ = super::super::walk::ship_if_walked(&host.layout, walked, &screen, |sha: &str, _: &[String]| {
             shipped.borrow_mut().push(sha.to_owned());
             Ok(())

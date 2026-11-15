@@ -1,7 +1,7 @@
 //! The runtime promotion machines on this host (docs/rationale/state-machines.md, entry 5), each kept in `ledger.db`
 //! through `north_base::lifecycle`: a runtime's journey to `current` and back, the core-loop probes that judge it on a
 //! host, and the one judgement settle makes of each landing.
-use super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use super::layout::Layout;
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Record, Refusal, State, Store};

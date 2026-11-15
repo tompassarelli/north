@@ -1,4 +1,4 @@
-use super::super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use north_base::foundation::carry::REMOTE_MARK;
 
 const ROLE: &str = "NORTH_FLEET_ROLE";

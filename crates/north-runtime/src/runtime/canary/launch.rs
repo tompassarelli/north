@@ -1,4 +1,4 @@
-use super::super::failure::{DEFERRED, Failure, failed};
+use north_runtime_records::failure::{DEFERRED, Failure, failed};
 use crate::platform::process;
 use north_providers::threads::{client, schema, verb::Failure as LedgerFailure};
 use crate::providers::opencode::Shared;

@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use north_landing::land::review_fetch as fetch_of;
 use north_trusted_mirror::{lane_name_ok, plain_name};
 
-use super::failure::{Failure, failed};
-use super::review_hold::git;
+use north_runtime_records::failure::{Failure, failed};
+use north_runtime_records::hold_ledger::git;
 
 pub(crate) const VERB: &str = "review-fetch";
 const PROJECT: &str = "--project";

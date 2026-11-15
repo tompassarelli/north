@@ -12,7 +12,7 @@
 //! waits only while every build host is building; none builds on this host. The newest nine
 //! artifacts are kept, since builds side by side end three at a time.
 use super::super::build_host;
-use super::super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use super::super::layout::{self, BUILT_FROM, BUILT_ON, HELD_ON, Layout, PROGRAMS};
 use super::super::pin::{self, Event};
 use super::super::pull;

@@ -1,5 +1,5 @@
 use super::deadline::{self, Reached};
-use super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use super::host_facts;
 use super::layout::{self, BUILT_FROM, Layout, PROGRAMS, TREE};
 use super::pin::{self, Event};

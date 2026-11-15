@@ -622,7 +622,7 @@ fn review_pass_records_only_a_reviewer_session_s_accept_and_a_forged_session_nev
 
 #[test]
 fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
-    use crate::runtime::review_hold::{Ask, Holds};
+    use north_runtime_records::hold_ledger::{Ask, Holds};
 
     let checkout = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();

@@ -232,7 +232,7 @@ fn ops_watch(arguments: &[String]) -> u8 {
 fn review_holds() -> Vec<north_lander_doctor::facts::ReviewHold> {
     let environment: Vec<(String, String)> = ["NORTH_VERDICT_CACHE_DIR", "XDG_STATE_HOME"].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let standing = north_runtime::runtime::review_hold::standing(&environment, &home).unwrap_or_default();
+    let standing = north_runtime_records::hold_ledger::standing(&environment, &home).unwrap_or_default();
     standing.into_iter().map(|hold| north_lander_doctor::facts::ReviewHold { commit: hold.commit, session: hold.session, why: hold.why }).collect()
 }
 

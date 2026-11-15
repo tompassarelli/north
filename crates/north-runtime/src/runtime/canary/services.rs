@@ -5,7 +5,7 @@
 //! lets them, so one behind is counted and not a fault. A service a client started and no unit restarts is first asked
 //! to exit while idle (retirement.rs), and one still serving a client that no new client reaches is leaving already, so
 //! the probe names it and fails only on what a promotion cannot move.
-use super::super::failure::{Failure, failed};
+use north_runtime_records::failure::{Failure, failed};
 use super::super::layout::{self, Layout};
 use super::super::live::Swap;
 use super::{HOST_FAULT, retirement};

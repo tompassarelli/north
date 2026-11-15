@@ -7,7 +7,6 @@ mod canary;
 pub mod checkouts;
 mod deadline;
 mod deploy;
-mod failure;
 mod follow;
 mod order;
 mod main_runs;
@@ -34,7 +33,8 @@ mod scope;
 pub(crate) mod review_accept;
 pub(crate) mod review_fetch;
 pub mod review_hold;
-mod after_landing;
+#[cfg(test)]
+mod after_landing_tests;
 mod settle;
 mod store;
 mod tree_build;
@@ -46,6 +46,7 @@ mod watch;
 pub(crate) use canary::scratch_project_probes;
 
 use north_offload::land_offload;
+use north_runtime_records::failure;
 use std::path::Path;
 
 const USAGE: &str = "usage: north runtime update [--sha SHA [--ordered]] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime build SHA | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime order --reason REASON [--commit REV] [--except HOST]... | north runtime order-here canary|go-live SHA | north runtime hold COMMIT [--host HOST] [--until LANE] --why TEXT | north runtime accept [--withdraw] COMMIT | north runtime hold --lift COMMIT --why TEXT | north runtime mirror | north runtime checkouts | north runtime lag --processes|--json | north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR] | north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR] | north runtime follow --repo-dir DIR | north runtime agents|claude|agy|pi|opencode [VERSION] | north runtime probe services | north runtime probe list HOST | north runtime walk | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host

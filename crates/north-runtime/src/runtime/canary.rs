@@ -1,6 +1,6 @@
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Canarying, Canary};
-use super::failure::DEFERRED;
+use north_runtime_records::failure::DEFERRED;
 use super::pin::{self, Event};
 use super::update;
 use north_base::foundation::exit::NO_VERDICT;
