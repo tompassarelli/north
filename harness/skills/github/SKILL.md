@@ -2,9 +2,9 @@
 name: github
 description: >-
   GitHub via `gh`: issues with parent links and children, labels, a leaf's Done when; Actions workflows and runs; many agents within job and API limits.
-grounded: 2026-11-12
+grounded: 2026-11-15
 gh-version: 2.103.3
-written: 2026-11-12
+written: 2026-11-15
 metadata:
   kind: playbook
 ---
