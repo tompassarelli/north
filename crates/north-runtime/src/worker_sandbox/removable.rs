@@ -7,7 +7,7 @@ use super::except::{Entries, beneath_except};
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
 
-const HOST_PLACED: [&str; 5] = ["HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "CARGO_HOME", super::sockets::AGENT_ENV];
+const HOST_PLACED: [&str; 6] = ["HOME", "NORTH_TEST_ROOT", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "CARGO_HOME", super::sockets::AGENT_ENV];
 const CLIENT_PLACED: [&str; 2] = ["TMPDIR", "CARGO_TARGET_DIR"];
 
 /// Where a worker command runs, read from its environment.

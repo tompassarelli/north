@@ -101,3 +101,14 @@ fn capability_record_confines_a_worker_whatever_role_its_environment_forges() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn capability_record_grants_no_eval_lane_for_a_test_root_the_worker_forges() {
+    let home = Path::new("/home/t");
+    let work = home.join("eval-data/eval-a/work/task-1");
+    let lane = work.join("p/worktrees/worker");
+    let sent = [("HOME".to_owned(), home.display().to_string()), ("NORTH_TEST_ROOT".to_owned(), work.join("state").display().to_string())];
+    let own = [("HOME".to_owned(), home.display().to_string())];
+    let forged = super::super::Context::from_caller("", &lane, &sent, &own);
+    assert!(forged.named_lanes.is_empty(), "the broker granted {:?} from a NORTH_TEST_ROOT the client sent (north#1574)", forged.named_lanes);
+}
