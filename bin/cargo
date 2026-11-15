@@ -1,9 +1,10 @@
 #!/bin/sh
 # north capacity gate shim: the real program is the next one on PATH that is not a shim
 name=${0##*/}
+north=${AGENT_CAPACITY_NORTH:-north}
 if [ "$name" != rustc ] || [ -z "${CARGO_MANIFEST_DIR:-}" ]; then
-  if north capacity gate --class "$0" >/dev/null 2>&1; then
-    exec north capacity gate "$0" "$@"
+  if "$north" capacity gate --class "$0" >/dev/null 2>&1; then
+    exec "$north" capacity gate "$0" "$@"
   fi
 fi
 self=$(readlink -f "$0")
