@@ -24,17 +24,21 @@ pub enum Judgement {
     Breach(String),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decision {
     pub queued: u64,
     pub decided: Option<u64>,
     pub landed: bool,
+    pub failed_on_main: Vec<String>,
 }
 
 pub fn armed(home: &Path) -> Option<Watch> {
     let text = fs::read_to_string(home.join(FILE)).ok()?;
     let mut lines = text.lines();
-    Some(Watch { since: lines.next()?.trim().parse().ok()?, candidate: PathBuf::from(lines.next()?), previous: PathBuf::from(lines.next()?) })
+    let watch = Watch { since: lines.next()?.trim().parse().ok()?, candidate: PathBuf::from(lines.next()?), previous: PathBuf::from(lines.next()?) };
+    let runtimes = home.join("runtimes");
+    let contained = home.join(&watch.previous).starts_with(&runtimes) && !watch.previous.components().any(|part| part == std::path::Component::ParentDir);
+    contained.then_some(watch)
 }
 
 pub fn arm(home: &Path, candidate: &Path, previous: &Path, since: u64) -> std::io::Result<()> {
@@ -47,9 +51,9 @@ pub fn clear(home: &Path) {
 }
 
 pub fn judge(watch: &Watch, decisions: &[Decision], now: u64) -> Judgement {
-    let own: Vec<Decision> = decisions.iter().copied().filter(|decision| decision.queued >= watch.since).collect();
+    let own: Vec<Decision> = decisions.iter().filter(|decision| decision.queued >= watch.since).cloned().collect();
     let landed: Vec<u64> = own.iter().filter(|decision| decision.landed).filter_map(|decision| decision.decided).collect();
-    if let Some((start, end)) = own.iter().map(|decision| stretch(decision, watch.since, now)).find(|&(start, end)| end.saturating_sub(start) >= STALL_SECONDS && !landed.iter().any(|at| (start..=start + STALL_SECONDS).contains(at))) {
+    if let Some((start, end)) = own.iter().filter(|decision| decision.failed_on_main.is_empty()).map(|decision| stretch(decision, watch.since, now)).find(|&(start, end)| end.saturating_sub(start) >= STALL_SECONDS && !landed.iter().any(|at| (start..=start + STALL_SECONDS).contains(at))) {
         return Judgement::Breach(format!("a ticket waited {} s with no landing in {} minutes", end - start, STALL_SECONDS / 60));
     }
     let latencies = head_to_main(&own, watch.since);
@@ -68,7 +72,7 @@ fn stretch(decision: &Decision, since: u64, now: u64) -> (u64, u64) {
 }
 
 fn head_to_main(own: &[Decision], since: u64) -> Vec<u64> {
-    let mut decided: Vec<(u64, Decision)> = own.iter().filter_map(|decision| Some((decision.decided?, *decision))).collect();
+    let mut decided: Vec<(u64, Decision)> = own.iter().filter_map(|decision| Some((decision.decided?, decision.clone()))).collect();
     decided.sort_by_key(|(at, _)| *at);
     let mut previous = since;
     let mut latencies = Vec::new();
@@ -109,7 +113,7 @@ fn read_tickets(directory: &Path, since: u64, done: bool) -> Vec<Decision> {
                 return None;
             }
             let micros = queue::queued_micros(&path);
-            (micros != u128::MAX).then(|| Decision { queued: u64::try_from(micros / 1_000_000).unwrap_or(u64::MAX), decided, landed: ticket.verdict.as_deref().is_some_and(|verdict| replay::landed_tip(verdict).is_some()) })
+            (micros != u128::MAX).then(|| Decision { queued: u64::try_from(micros / 1_000_000).unwrap_or(u64::MAX), decided, landed: ticket.verdict.as_deref().is_some_and(|verdict| replay::landed_tip(verdict).is_some()), failed_on_main: ticket.failed_on_main.clone() })
         })
         .collect()
 }
