@@ -9,9 +9,9 @@ repos = ["south"]
 # issue title or box text matches one of claude_only: credentials, the worker sandbox and its confinement (north#1625), fleet locking (north#1020), a box
 # whose own text says a DeepSeek session cannot do it (north#1054), and a box that reads a host's own telemetry, since a
 # lane-only session reads no agent state and so opens neither the capacity database nor the watchdog samples (north#259).
-# 2026-11-15 (north#1632): cpx62 is off this list. Its sessions run as agent@cpx62 since north#1041, and that login holds no opencode key or binary and cannot enter the operator's checkouts, so every DeepSeek launch placed there failed staging with `cd: /home/tom/code/north/main: Permission denied`; its Claude workers stage in the agent's own home and are unaffected. It returns when OpenCode launches run on an agent login.
+# 2026-11-15 (north#1632): cpx62 runs OpenCode launches under the operator login, which holds the opencode key and binary.
 [dispatch]
-hosts = ["gex45", "cpx62b", "whiterabbit"]
+hosts = ["gex45", "cpx62", "cpx62b", "whiterabbit"]
 slot_cap = 16
 claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\bconfine', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex', '\bA DeepSeek session cannot do\b', 'capacity\.db', 'samples\.jsonl']
 # claude_only_ignore: text dropped from the subject before claude_only is matched, so the name of a dependency lock file is not the lock word (north#1210).
