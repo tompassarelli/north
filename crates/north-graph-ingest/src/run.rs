@@ -3,17 +3,20 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use north_base::platform::harness::{DEFAULTS, document};
-use north_graph::{Graph, Retained, Retention, Synced, Term, default_path};
+use north_graph::{Atom, Graph, Retained, Retention, Synced, Telling, Term, default_path};
 
 use crate::places::Places;
 use crate::shas::Shas;
 use crate::observations;
 use crate::source::Source;
-use crate::facts::Sourced;
+use crate::facts::{Facts, Sourced, text};
 
 const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\n       north graph retain [--db PATH]\nsources: mirror ranking ledger losses pushes touches corrections coverage crates reads observations (all when none is named)";
 
 const RETAIN_PATIENCE: Duration = Duration::from_secs(10 * 60);
+const WRITER: &str = "graph-ingest";
+const SUBJECT: &str = "graph-ingest";
+const REVISIONS: [&str; 3] = ["reads-commit", "crates-commit", "commit"];
 
 
 #[derive(Debug, Default)]
@@ -36,9 +39,10 @@ pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report 
         }
     }
     let mut replaced: HashMap<Term, &'static str> = HashMap::new();
+    let mut outcomes: Vec<(&'static str, String)> = Vec::new();
     for source in sources {
         if *source == Source::Observations {
-            observe(graph, places, &mut report);
+            outcomes.push((source.name(), observe(graph, places, &mut report)));
             continue;
         }
         let outcome = source.read(places, &shas).and_then(|Sourced { telling, notes }| {
@@ -46,20 +50,51 @@ pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report 
                 return Err(format!("it replaces {predicate}, which {other} already replaces in this run"));
             }
             replaced.extend(telling.replaces.iter().map(|predicate| (predicate.clone(), source.name())));
-            graph.sync(&telling).map(|synced| (synced, notes)).map_err(|why| why.to_string())
+            let revision = revision(&telling);
+            let facts = telling.facts.len();
+            graph.sync(&telling).map(|synced| (synced, notes, revision, facts)).map_err(|why| why.to_string())
         });
         match outcome {
-            Ok((Synced { asserted, retracted, unchanged }, notes)) => {
+            Ok((Synced { asserted, retracted, unchanged }, notes, revision, facts)) => {
                 report.lines.push(format!("{}: {asserted} asserted, {retracted} retracted, {unchanged} unchanged", source.name()));
                 report.lines.extend(notes.into_iter().map(|note| format!("{}: {note}", source.name())));
+                let revision = revision.map_or_else(String::new, |(predicate, object)| format!(", {predicate} {object}"));
+                outcomes.push((source.name(), format!("{facts} facts{revision}")));
             }
             Err(why) => {
                 report.failed = true;
                 report.lines.push(format!("{}: skipped: {why}", source.name()));
+                outcomes.push((source.name(), format!("refused: {why}")));
             }
         }
     }
+    if let Err(why) = record(graph, &outcomes) {
+        report.failed = true;
+        report.lines.push(format!("ingest outcome not recorded: {why}"));
+    }
     report
+}
+
+/// The commit a source's facts answer from: the first fact naming one of the revision predicates a source tells.
+fn revision(telling: &Telling) -> Option<(String, String)> {
+    telling.facts.iter().find_map(|told| match (&told.triple.t2, &told.triple.t3) {
+        (Term::Atom(Atom::Keyword(predicate)), Term::Atom(Atom::String(object))) if REVISIONS.contains(&predicate.as_str()) => Some((predicate.clone(), object.clone())),
+        _ => None,
+    })
+}
+
+/// Tells each source's last outcome under the `graph-ingest` subject, so `north graph show graph-ingest` says what a run of each source did; a rerun that changes nothing adds nothing.
+fn record(graph: &mut Graph, outcomes: &[(&'static str, String)]) -> Result<(), String> {
+    if outcomes.is_empty() {
+        return Ok(());
+    }
+    let predicates: Vec<String> = outcomes.iter().map(|(source, _)| format!("ingest-{source}")).collect();
+    let names: Vec<&str> = predicates.iter().map(String::as_str).collect();
+    let mut facts = Facts::new(&names);
+    for ((_, outcome), predicate) in outcomes.iter().zip(&names) {
+        facts.tell(WRITER, text(SUBJECT), predicate, text(outcome.as_str()));
+    }
+    graph.sync(&facts.finish()).map(|_| ()).map_err(|why| why.to_string())
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -160,15 +195,17 @@ fn usage(why: &str) -> u8 {
     2
 }
 
-fn observe(graph: &mut Graph, places: &Places, report: &mut Report) {
+fn observe(graph: &mut Graph, places: &Places, report: &mut Report) -> String {
     match observations::append(graph, places) {
         Ok(observations::Appended { asserted, unchanged, notes }) => {
             report.lines.push(format!("observations: {asserted} asserted, 0 retracted, {unchanged} unchanged"));
             report.lines.extend(notes.into_iter().map(|note| format!("observations: {note}")));
+            format!("{} facts", asserted + unchanged)
         }
         Err(why) => {
             report.failed = true;
             report.lines.push(format!("observations: skipped: {why}"));
+            format!("refused: {why}")
         }
     }
 }
