@@ -56,6 +56,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("spend", super::spend::run),
     ("fetch-fleet", super::fetch_fleet::run),
     ("fleet-for", super::fleet_for::run),
+    ("fleet-issue", super::fleet_issue::run),
     ("control-plane", super::control_plane::run),
     ("coordinator", |arguments| match arguments.first().map(String::as_str) {
         Some("calls") => {

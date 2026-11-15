@@ -1,0 +1,1 @@
+  fleet-issue [ARGS...]                         Run north fleet list, gh issue ARGS (list when none is named) and north fleet list again in one call

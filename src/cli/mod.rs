@@ -18,6 +18,7 @@ mod alarm_stats;
 mod box_path;
 mod fetch_fleet;
 mod fleet_for;
+mod fleet_issue;
 mod fleet;
 mod steps;
 mod gate;
