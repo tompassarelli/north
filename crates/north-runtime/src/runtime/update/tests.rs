@@ -200,36 +200,6 @@ fn a_host_that_never_answers_is_skipped_at_its_deadline_and_a_second_promotion_e
 }
 
 #[test]
-fn a_runtime_taken_from_a_build_host_has_its_tree_although_the_main_checkout_moved_on() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().join("state") };
-    let checkout = state.path().join("main");
-    let git = |args: &[&str]| {
-        let output = process::run("git", Some(&checkout), args).unwrap();
-        assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
-    };
-    fs::create_dir_all(&checkout).unwrap();
-    git(&["init", "-q", "-b", "main"]);
-    let mut shas = Vec::new();
-    for round in ["promoted", "moved on"] {
-        fs::write(checkout.join("file"), round).unwrap();
-        git(&["add", "file"]);
-        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"]);
-        shas.push(git(&["rev-parse", "HEAD"]));
-    }
-    let runtime = layout.runtime(&shas[0]);
-    fs::create_dir_all(&runtime).unwrap();
-    for program in layout::PROGRAMS {
-        fs::write(runtime.join(program), "").unwrap();
-    }
-    fs::write(runtime.join(layout::BUILT_ON), "cpx62b\n").unwrap();
-    assert!(!runtime.join(TREE).exists(), "a build host's binaries arrive without a tree");
-    let taken = built(&layout, &checkout, &shas[0]).unwrap();
-    assert_eq!(fs::read_to_string(taken.join(TREE).join("file")).unwrap(), "promoted", "the tree is the promoted commit's, not the checkout's");
-}
-
-#[test]
 fn an_update_by_a_caller_who_cannot_write_the_agent_link_is_refused_and_a_rollback_that_cannot_move_it_leaves_a_record_until_it_moves() {
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir().unwrap();

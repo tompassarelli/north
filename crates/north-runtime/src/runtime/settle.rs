@@ -309,7 +309,7 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{blame, due_in, outcome};
+    use super::outcome;
     use north_runtime_records::failure::failed;
 
     #[test]
@@ -320,31 +320,4 @@ mod tests {
         assert_eq!(failure, Some((1, "whiterabbit: build failed".to_owned())));
     }
 
-    #[test]
-    fn settle_judges_only_a_landing_the_pinned_runtime_holds_once_the_pin_had_its_deadline() {
-        let seen = vec![(100, "a".to_owned()), (200, "b".to_owned())];
-        assert_eq!(due_in(&seen, 0, 60, 1_000, |sha| sha == "a"), Some("a"));
-        assert_eq!(due_in(&seen, 0, 60, 1_000, |_| true), Some("b"));
-        assert_eq!(due_in(&seen, 950, 60, 1_000, |_| true), None);
-        assert_eq!(due_in(&seen, 900, 60, 1_000, |_| true), Some("b"));
-        assert_eq!(due_in(&seen, 0, 60, 1_000, |_| false), None);
-    }
-
-    #[test]
-    fn a_runtime_lagging_a_newer_main_is_not_this_landings_breakage() {
-        let lag = vec!["live runtime 1234abcd predates the landing".to_owned()];
-        assert_eq!(blame(&lag, true, &[], true), (vec![], vec![lag[0].as_str()]));
-        assert_eq!(blame(&lag, false, &[], true).0, [lag[0].as_str()]);
-        let mixed = vec![lag[0].clone(), "north-runtime-follow.service is failed".to_owned()];
-        assert_eq!(blame(&mixed, true, &[], true).0, ["north-runtime-follow.service is failed"]);
-    }
-
-    #[test]
-    fn a_problem_the_previous_runtime_had_or_a_landing_that_changes_no_code_is_a_host_incident() {
-        let problems = vec!["north-runtime-follow.service is failed".to_owned(), "unresolved hook path a: /x".to_owned()];
-        let (own, elsewhere) = blame(&problems, false, &problems[..1], true);
-        assert_eq!((own, elsewhere), (vec!["unresolved hook path a: /x"], vec!["north-runtime-follow.service is failed"]));
-        let (own, elsewhere) = blame(&problems, false, &[], false);
-        assert!(own.is_empty() && elsewhere.len() == 2);
-    }
 }

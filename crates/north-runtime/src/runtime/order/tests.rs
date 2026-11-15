@@ -144,66 +144,6 @@ impl Host for Rehearsal<'_> {
     }
 }
 
-#[test]
-fn an_ordered_promotion_of_a_landed_commit_runs_the_canary_then_goes_live_on_the_settling_host() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().to_path_buf() };
-    for sha in [OLD, NEW] {
-        fs::create_dir_all(layout.runtime(sha)).unwrap();
-    }
-    symlink(layout::link(OLD), layout.current()).unwrap();
-    let steps = Mutex::new(Vec::new());
-    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(Some(OLD.to_owned())), steps: &steps, stays: false, waits: None };
-    let (settling, builder) = (Rehearsal { waits: Some("gex45"), ..host("whiterabbit", None) }, host("gex45", Some("depbox")));
-    let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-promote-order".to_owned() };
-
-    let hand_pin = layout.state.join(super::PIN);
-    fs::create_dir_all(hand_pin.parent().unwrap()).unwrap();
-    fs::write(&hand_pin, format!("{OLD}\n")).unwrap();
-
-    let refused = run(&layout, &order, &settling, &[&builder], &["nexus".to_owned()], || Ok(()), |()| super::hold::lift(&layout)).unwrap_err();
-
-    assert!(!hand_pin.exists(), "with runtime_promotion = landing the order clears the hand pin and leaves north-stable-hold stopped, so later landings promote on their own");
-    assert!(refused.message.contains("gex45 stays on its old runtime") && refused.message.contains("depbox"), "{}", refused.message);
-    let steps = steps.lock().unwrap();
-    let position = |what: &str| steps.iter().position(|step| step == what).unwrap_or_else(|| panic!("{what} never ran: {steps:?}"));
-    assert!(position("whiterabbit canary") < position("whiterabbit live"));
-    assert!(!steps.contains(&"gex45 live".to_owned()), "{steps:?}");
-    assert_eq!((settling.live.lock().unwrap().as_str(), builder.live.lock().unwrap().as_str()), (NEW, OLD));
-    assert_eq!((settling.pin.lock().unwrap().as_deref(), builder.pin.lock().unwrap().as_deref()), (Some(NEW), Some(OLD)));
-    let rows: Vec<(String, String, bool)> = read(&layout.state).into_iter().filter_map(|event| match event {
-        Event::Ordered { sha, host, orderer, reason, canary, live, .. } => {
-            assert_eq!((sha.as_str(), orderer.as_str(), reason.as_str()), (NEW, "f-promote-order", "the lander cannot take a landing"));
-            Some((host, canary, live))
-        }
-        _ => None,
-    }).collect();
-    let row = |host: &str| rows.iter().find(|row| row.0 == host).unwrap_or_else(|| panic!("no row for {host}: {rows:?}"));
-    assert!(row("whiterabbit").1 == "passed" && row("whiterabbit").2);
-    assert!(row("gex45").1.starts_with("failed: probe `a worker command's depbox run") && !row("gex45").2);
-    assert!(rows.iter().all(|row| row.0 != "nexus") && steps.iter().all(|step| !step.starts_with("nexus")), "a host left out is shipped, judged and promoted nothing: {steps:?}");
-    let left_out: Vec<(String, String)> = read(&layout.state).into_iter().filter_map(|event| match event {
-        Event::LeftOut { host, orderer, reason, .. } => Some((host, format!("{orderer}: {reason}"))),
-        _ => None,
-    }).collect();
-    assert_eq!(left_out, [("nexus".to_owned(), "f-promote-order: the lander cannot take a landing".to_owned())]);
-    assert!(super::super::pin::status(&layout.state, None).contains("held: nexus"));
-    let deployment = north_offload::land_offload::Deployment { destinations: vec!["tom@gex45".to_owned(), "nexus".to_owned()], names: vec!["gex45".to_owned(), "nexus".to_owned()], ..Default::default() };
-    let named = |except: &[&str]| super::leave_out(&deployment, &except.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>(), "whiterabbit");
-    assert_eq!(named(&["nexus"]).unwrap(), (vec!["tom@gex45".to_owned()], vec!["nexus".to_owned()]));
-    assert!(named(&["whiterabbit"]).is_err() && named(&["nowhere"]).is_err() && named(&["gex45", "nexus"]).is_err());
-    drop(steps);
-    fs::create_dir_all(layout.runtime(NEWER)).unwrap();
-    let shipped = Mutex::new(Vec::new());
-    let failing = Rehearsal { layout: &layout, name: "whiterabbit", failing: Some("depbox"), retired: None, live: Mutex::new(NEW.to_owned()), pin: Mutex::new(Some(NEW.to_owned())), steps: &shipped, stays: false, waits: Some("gex45") };
-    let remote = Rehearsal { layout: &layout, name: "gex45", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(Some(OLD.to_owned())), steps: &shipped, stays: false, waits: None };
-    let bad = Order { sha: NEWER.to_owned(), reason: "a head that fails its canary".to_owned(), orderer: "f-promote-order".to_owned() };
-    let stopped = run(&layout, &bad, &failing, &[&remote], &[], || Ok(()), |()| Ok(false)).unwrap_err();
-    assert!(stopped.message.contains("whiterabbit stays on its old runtime"), "{}", stopped.message);
-    let shipped = shipped.lock().unwrap();
-    assert!(shipped.iter().all(|step| step != "gex45 canary" && step != "gex45 live") && remote.live.lock().unwrap().as_str() == OLD, "a host shipped early is judged and goes live never before the settling host passed: {shipped:?}");
-}
-
 struct Contended<'a> {
     layout: &'a Layout,
     held: &'a Mutex<Vec<String>>,

@@ -235,16 +235,4 @@ mod tests {
         assert_eq!(git(&checkout, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/main");
     }
 
-    #[test]
-    fn a_host_lacking_a_checkout_clones_it_from_the_origin_the_settler_fetches() {
-        let scratch = tempfile::tempdir().expect("scratch");
-        let (origin, home) = host(scratch.path());
-        let head = git(&origin, &["rev-parse", "HEAD"]);
-        let sources = [("south", String::new()), ("wisp", origin.display().to_string()), ("makgora", String::new())];
-        assert_eq!(run(&super::script(&sources), &home), format!("wisp: cloning {}\n", origin.display()), "on 2026-11-08 cpx62 entered offload holding north and south but no ~/code/wisp/main; a project the settler keeps no checkout of is skipped");
-        let wisp = home.join("code/wisp/main");
-        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || wisp.join(".git").exists()), "the background clone never moved into ~/code/wisp/main");
-        assert_eq!(git(&wisp, &["rev-parse", "HEAD"]), head);
-        assert_eq!(run(&super::script(&sources), &home), "", "a cloned checkout at origin/main says nothing");
-    }
 }

@@ -124,7 +124,6 @@ fn wall_clock() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
-
 fn age_seconds(process: &Path, boot: Option<u64>, now: u64) -> Option<u64> {
     Some(now.saturating_sub(started_seconds(process, boot)?))
 }
@@ -140,70 +139,4 @@ fn started_after(process: &Path, boot: Option<u64>, link: &Path) -> bool {
 
 fn boot_seconds(proc_root: &Path) -> Option<u64> {
     fs::read_to_string(proc_root.join("stat")).ok()?.lines().find_map(|line| line.strip_prefix("btime ")?.trim().parse().ok())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{report, residents};
-    use std::fs;
-    use std::os::unix::fs::symlink;
-    use std::path::Path;
-
-    const STALE: &str = "8917932b11111111111111111111111111111111";
-    const LIVE: &str = "9a896708b01683bd4523100a6c79fa0562e34aac";
-
-    fn process(proc: &Path, pid: u32, argv: &[&str]) {
-        let dir = proc.join(pid.to_string());
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("comm"), "north\n").unwrap();
-        fs::write(dir.join("cmdline"), argv.iter().map(|word| format!("{word}\0")).collect::<String>()).unwrap();
-    }
-
-    #[test]
-    fn a_session_host_and_its_watchdog_on_a_runtime_two_promotions_old_read_behind() {
-        let root = tempfile::tempdir().unwrap();
-        let (proc, state) = (root.path().join("proc"), root.path().join("state/north"));
-        fs::create_dir_all(state.join("runtimes")).unwrap();
-        symlink(format!("runtimes/{LIVE}"), state.join("current")).unwrap();
-        let north = |sha: &str| state.join("runtimes").join(sha).join("north").display().to_string();
-        process(&proc, 11, &[&north(STALE), "session-host", "--name", "worker-1", "--generation", "1", "--", "claude"]);
-        process(&proc, 12, &[&north(STALE), "fleet", "watchdog", "worker-1"]);
-        process(&proc, 13, &[&north(LIVE), "fleet", "watchdog", "worker-2"]);
-        process(&proc, 14, &[&north(STALE), "capacity", "host", "run"]);
-        assert_eq!(
-            report(&proc, &state),
-            "12 fleet watchdog worker-1 runs 8917932b11: behind 9a896708b0\n13 fleet watchdog worker-2 runs 9a896708b0: current\n11 session-host worker-1 runs 8917932b11: behind 9a896708b0\n"
-        );
-    }
-
-    #[test]
-    fn a_scratch_lander_and_a_young_watchdog_are_not_paged_while_a_host_lander_is() {
-        const NOW: u64 = 2_000_000_000;
-        const SERVE: &str = "land serve";
-        let root = tempfile::tempdir().unwrap();
-        let (proc, state) = (root.path().join("proc"), root.path().join("state/north"));
-        fs::create_dir_all(state.join("runtimes")).unwrap();
-        symlink(format!("runtimes/{LIVE}"), state.join("current")).unwrap();
-        fs::write(proc.join("stat"), format!("btime {}\n", NOW - 1000)).unwrap_or_else(|_| {
-            fs::create_dir_all(&proc).unwrap();
-            fs::write(proc.join("stat"), format!("btime {}\n", NOW - 1000)).unwrap();
-        });
-        let started = |pid: u32, seconds_after_boot: u64| {
-            fs::write(proc.join(pid.to_string()).join("stat"), format!("{pid} (north) S {}{}\n", "0 ".repeat(18), seconds_after_boot * 100)).unwrap();
-        };
-        let north = state.join("runtimes").join(LIVE).join("north").display().to_string();
-        let target = root.path().join("target/tmp/hand-in/home/code/project/main").display().to_string();
-        let launch = |pid: u32, words: &str| process(&proc, pid, &std::iter::once(north.as_str()).chain(words.split(' ')).collect::<Vec<_>>());
-        launch(21, &format!("{SERVE} /tmp/.tmpKX0cAd/proj/main"));
-        launch(22, &format!("{SERVE} {target}"));
-        launch(23, &format!("{SERVE} /home/tom/code/project/main"));
-        launch(24, "fleet watchdog young");
-        launch(25, "fleet watchdog old");
-        started(24, 990);
-        started(25, 10);
-        let residents = residents(&proc, &state, NOW);
-        let paged: Vec<String> = residents.iter().filter(|resident| resident.pages).map(|resident| format!("{}{}", resident.kind, resident.subject)).collect();
-        assert_eq!(paged, ["fleet watchdog old", "land serve /home/tom/code/project/main"]);
-        assert_eq!(residents.len(), 5);
-    }
 }

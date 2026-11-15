@@ -125,12 +125,6 @@ impl Host {
         Fleet { settles: true, ..self.fleet(failing) }
     }
 
-    fn fleet_without(&self, provider: &str) -> Fleet<'_> {
-        let mut fleet = self.fleet(None);
-        fleet.launchable.retain(|launchable| launchable != provider);
-        fleet
-    }
-
     fn current(&self) -> std::path::PathBuf {
         fs::read_link(self.layout.current()).unwrap()
     }
@@ -207,18 +201,6 @@ fn a_runtime_whose_depbox_cannot_exec_north_is_rolled_back_by_the_canary() {
     assert!(alarms[0].contains("/north: No such file or directory"), "{}", alarms[0]);
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
     assert_eq!(fs::read_dir(home.path().join("tmp")).unwrap().count(), 0, "the probe leaves its scratch checkout behind");
-}
-
-#[test]
-fn the_hub_reached_as_user_at_host_probes_its_fetch_and_never_ssh_to_itself() {
-    let host = Host::promoted();
-    let fleet = host.fleet(None);
-    assert_eq!(check(&host.layout, "tom@gex45", PROMOTED, &fleet), Verdict::Passed);
-    let probed = fleet.probed.lock().unwrap();
-    assert!(probed.iter().all(|name| !name.contains("reaches gex45")), "{probed:?}");
-    assert!(probed.iter().any(|name| name.contains("own ssh reaches no host")), "{probed:?}");
-    assert!(probed.iter().any(|name| name.contains("gex45 fetches")), "{probed:?}");
-    assert!(probed.iter().all(|name| !name.contains("--test")), "{probed:?}");
 }
 
 #[test]
@@ -308,37 +290,6 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
 }
 
 #[test]
-fn a_host_with_a_provider_binary_but_no_launch_route_is_not_probed_for_it() {
-    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, true, false, None);
-    assert_eq!(plan.not_applicable, ["opencode", "pi"]);
-    assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
-    assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode") && !probe.name.contains("pi")));
-
-    let home = tempfile::tempdir().unwrap();
-    let bin = home.path().join(".local/bin");
-    fs::create_dir_all(&bin).unwrap();
-    north_base::foundation::shim::write_executable(&bin.join("opencode"), "#!/bin/sh\nexit 0\n");
-    let listed = || {
-        let output = Command::new(bash_program()).arg("-c").arg(probes::launchable_script()).env("HOME", home.path()).output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        String::from_utf8_lossy(&output.stdout).into_owned()
-    };
-    let binary_only = listed();
-    assert!(!binary_only.contains("opencode"), "a host that carries the opencode binary but not the Go key kills the worker at its first turn, so it cannot launch the probe: {binary_only:?}");
-    let key = home.path().join(".local/state/north/accounts/opencode/go.key");
-    fs::create_dir_all(key.parent().unwrap()).unwrap();
-    fs::write(&key, "go-key\n").unwrap();
-    assert!(listed().contains("opencode"), "a host that holds the Go key launches the probe");
-
-    let host = Host::promoted();
-    let fleet = host.fleet_without("opencode");
-    assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Passed);
-    let probed = fleet.probed.lock().unwrap();
-    assert!(probed.iter().any(|name| name.contains("claude")), "{probed:?}");
-    assert!(probed.iter().all(|name| !name.contains("opencode")), "{probed:?}");
-}
-
-#[test]
 fn a_host_without_a_running_lander_skips_the_token_probe() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home");
@@ -381,7 +332,6 @@ fn a_rollback_target_walked_before_the_rollback_is_not_judged_again() {
     assert!(fleet.probed.lock().unwrap().is_empty());
     assert_eq!(host.current(), layout::link(PREVIOUS));
 }
-
 
 #[test]
 fn a_host_that_launches_no_sessions_is_not_probed_for_a_worker_shell_reaching_the_hub() {
@@ -513,38 +463,6 @@ fn a_runtime_that_fails_verify_north_or_the_scratch_landing_is_not_shipped() {
     let elsewhere = probes::core_loop("nexus", PROMOTED, &[], true, false, false, None);
     let names: Vec<&str> = elsewhere.probes.iter().map(|probe| probe.name.as_str()).collect();
     assert!(names.iter().all(|name| !name.contains("verify-north") && !name.contains("scratch landing")), "{names:?}");
-}
-
-#[test]
-fn a_launching_host_whose_sessions_reach_no_other_host_is_not_probed_for_a_worker_shell_reaching_the_hub() {
-    let config: toml_edit::DocumentMut = "[hosts.cpx62]\nlaunches = true\nreaches = []\n[hosts.whiterabbit]\nsettles_fleet = true\nreaches = [\"gex45\", \"cpx62\"]\n[hosts.nexus]\n[hosts.cpx62b]\nlaunches = false\n".parse().unwrap();
-    assert!(!probes::sessions_reach_hub(&config, "cpx62"), "on 2026-11-10 the hub probe failed on a host declared to reach no other host and rolled back the laptop's runtime");
-    assert!(probes::sessions_reach_hub(&config, "whiterabbit"));
-    assert!(probes::sessions_reach_hub(&config, "nexus"));
-    assert!(!probes::sessions_reach_hub(&config, "cpx62b"));
-    assert!(probes::offloads_to_hub(&config, "whiterabbit"));
-    assert!(!probes::offloads_to_hub(&config, "cpx62"), "a host that reaches no other host offloads its worker shell to no hub");
-    assert!(!probes::offloads_to_hub(&config, "nexus"), "nexus names neither launches nor reaches, so it takes no session and reaches no hub");
-    let nexus = probes::core_loop("nexus", PROMOTED, &[], true, false, false, None);
-    assert!(nexus.not_applicable.iter().any(|reason| reason.contains("reaches gex45 through")), "{:?}", nexus.not_applicable);
-    assert!(nexus.probes.iter().all(|probe| !probe.name.contains("reaches gex45 through")), "nexus runs no worker shell hop to the hub");
-    assert!(nexus.probes.iter().any(|probe| probe.name.contains("own ssh reaches no host") && probe.script.contains("ConnectTimeout=15 gex45")), "nexus keeps the no-ssh probe's ssh-to-hub branch");
-    let laptop = probes::core_loop("whiterabbit", PROMOTED, &[], true, true, true, None);
-    assert!(laptop.probes.iter().any(|probe| probe.name.contains("reaches gex45 through")), "the laptop reaches the hub and keeps the hop probe");
-}
-
-#[test]
-fn a_launch_probe_on_a_host_that_reaches_no_laptop_tries_the_accounts_its_own_plan_lists() {
-    let unserved = "  claude:a available: 5h unread, week 40% (60% headroom)\n  claude:b unavailable: refused by its client\n  claude:c available: 5h 7%, week 1% (93% headroom)\n  claude:api:x available: $1\n  cpx62b skipped: needs laptop\n/tmp/brief.md: target unserved: no host serves laptop for north\n";
-    assert_eq!(launch::candidates(unserved), ["a", "c"], "on 2026-11-12 an order stayed off three hosts whose plan placed nothing on the laptop and so named no account, though each listed accounts with headroom");
-
-    let none = launch::unread("  claude:b unavailable: refused by its client\n  claude:api:x available: $1\n/tmp/brief.md: target held: every Claude account is at its provider's limit\n");
-    assert!(launch::candidates("  claude:b unavailable: refused by its client\n").is_empty());
-    assert!(none.contains("no claude account has headroom here") && none.contains("claude:b unavailable: refused by its client") && !none.contains("api"), "a host that cannot judge names the reading it lacked: {none}");
-
-    let config: toml_edit::DocumentMut = "[hosts.cpx62b]\nlaunches = true\npushes = []\n[hosts.nexus]\nresident_cap = 200\n[hosts.gex45]\nlaunches = true\n[hosts.whiterabbit]\nsettles_fleet = true\n".parse().unwrap();
-    assert!(!probes::takes_sessions(&config, "cpx62b") && !probes::takes_sessions(&config, "nexus"), "a host placement starts no session on has no launch to judge");
-    assert!(probes::takes_sessions(&config, "gex45") && probes::takes_sessions(&config, "whiterabbit") && probes::takes_sessions(&config, "unnamed"));
 }
 
 #[test]

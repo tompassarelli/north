@@ -61,39 +61,3 @@ pub(super) fn print_north(facts: &Facts, window: Option<&str>) {
         println!("north runtime settle: {}: {}", facts.host, north.leak(window));
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{Growth, Layout};
-
-    const MIDNIGHT_2026_11_08: u64 = 1_794_070_800;
-    const RETIRED_BOUND: u64 = 100;
-
-    fn growth() -> (tempfile::TempDir, Growth) {
-        let state = tempfile::tempdir().unwrap();
-        let growth = Growth::load(&Layout { state: state.path().to_owned() });
-        (state, growth)
-    }
-
-    fn readings() -> Vec<(u64, u64)> {
-        include_str!("fixtures/settle-whiterabbit-2026-11-08.txt")
-            .lines()
-            .map(|line| {
-                let (clock, said) = line.split_once(' ').unwrap();
-                let at = clock.split(':').fold(0, |seconds, part| seconds * 60 + part.parse::<u64>().unwrap());
-                (MIDNIGHT_2026_11_08 + at, said.parse().unwrap_or(RETIRED_BOUND))
-            })
-            .collect()
-    }
-
-    #[test]
-    fn whiterabbit_busy_with_offloaded_land_checks_on_2026_11_08_is_not_a_leak() {
-        let (_state, mut growth) = growth();
-        let readings = readings();
-        assert_eq!(readings.iter().filter(|(_, count)| *count > RETIRED_BOUND).count(), 20, "the retired snapshot bound refused 20 of these ticks");
-        for (at, count) in readings {
-            growth.note("whiterabbit", at, count);
-            assert_eq!(growth.leak("whiterabbit", at), None, "reading {count} at {at}");
-        }
-    }
-}

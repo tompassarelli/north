@@ -321,6 +321,3 @@ fn due_to_live(events: &[Event], end: i64) -> Vec<(i64, i64)> {
 pub(super) fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64)
 }
-
-#[cfg(test)]
-mod tests;

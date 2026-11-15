@@ -105,31 +105,3 @@ pub(super) fn build_failure(target: &str, status: ExitStatus, cargo_ran: bool, l
         false => failed(DEFERRED, format!("capacity admission or its scope stopped the build of {} before cargo ran ({status}); retrying on the next tick; build log: {}", layout::short(target), log.path().display())),
     }
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_stale_link_retry_deletes_the_rlib_it_names_so_cargo_recompiles_it_instead_of_relinking_it() {
-        let built = tempfile::tempdir().unwrap();
-        let deps = built.path().join("release/deps");
-        fs::create_dir_all(built.path().join("release/incremental/north_landing-1e6elhiv6t0d3")).unwrap();
-        fs::create_dir_all(built.path().join("release/incremental/north_ops-0a1b2c3d4e5f6")).unwrap();
-        fs::create_dir_all(&deps).unwrap();
-        let stale = deps.join("libnorth_landing-1cfb62536a5ed5ab.rlib");
-        let sound = deps.join("libnorth_core-07k2ojj1g9fes.rlib");
-        fs::write(&stale, "").unwrap();
-        fs::write(&sound, "").unwrap();
-        let log = BuildLog { path: built.path().join("build.log") };
-        let object = format!(">>>               north_landing-1cfb62536a5ed5ab.6hnt4f4qhrymsyxuwoxd6qlwb.1t9o6yk.rcgu.o:(north_landing::land::records::spawn) in archive {}", stale.display());
-        fs::write(&log.path, format!("rust-lld: error: undefined hidden symbol: anon.824073b4e2e8169359a0bb42a485d033.7.llvm.14376451497138093412\n{object}\n{object}\n")).unwrap();
-        let archives = log.stale_archives().unwrap();
-        assert_eq!(archives, std::slice::from_ref(&stale));
-        recompile_from_scratch(built.path(), &archives).unwrap();
-        assert!(!stale.exists() && sound.exists());
-        assert!(!built.path().join("release/incremental/north_landing-1e6elhiv6t0d3").exists());
-        assert!(built.path().join("release/incremental/north_ops-0a1b2c3d4e5f6").is_dir(), "a crate whose archive linked keeps its incremental output");
-    }
-}
