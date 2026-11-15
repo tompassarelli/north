@@ -20,8 +20,8 @@ Spec: exact
 Scope: one-file
 Surface: shell
 Verify: local-test
-Done when: worker.txt holds the line `the worker's change`, and the `hand-in` tool returns `Done: landed` for it, landing it on main.
-In the current directory write the single line `the worker's change` to worker.txt. Then call the `mcp__north__hand-in` tool once with the message `Add the worker's change` and the paths set to the absolute path of worker.txt (the current directory followed by /worker.txt). Do not run git add or git commit first. The tool blocks until the lane lands and ends with the line `Done: landed SHA on main`; reply with that `Done: landed` line, copied exactly as the tool returned it, as your only reply.";
+Done when: worker.txt holds the line `the worker's change`, and the `hand-in` tool returns its `Done: queued` ticket at once, and the lander lands it on main.
+In the current directory write the single line `the worker's change` to worker.txt. Then call the `mcp__north__hand-in` tool once with the message `Add the worker's change` and the paths set to the absolute path of worker.txt (the current directory followed by /worker.txt). Do not run git add or git commit first. The tool queues the lane and returns at once, ending with its `Done: queued` line; reply with that `Done: queued` line, copied exactly as the tool returned it, as your only reply.";
 const CHANGED_FILE: &str = "worker.txt";
 const HAND_IN_TOOL: &str = "mcp__north__hand-in";
 const CLAUDE_MODEL: &str = "haiku";
@@ -40,7 +40,7 @@ mod hand_in;
 
 const STEPS: [(&str, &str, Step); 4] = [
     ("1", "`north land serve` serves a scratch repository's queue, the judged north's outside broker serves the worker's sandbox, and a claude haiku worker takes the brief in its lane", take_brief),
-    ("2", "the worker hands in with one `hand-in` tool call, which returns `Done: landed`", hand_in::hand_in),
+    ("2", "the worker hands in with one `hand-in` tool call, which returns `Done: queued` without waiting on its landing", hand_in::hand_in),
     ("3", "the lander landed the worker's commit on origin main", land),
     ("4", "`north ledger worker` records the run done and landed at that commit", ledger_row),
 ];

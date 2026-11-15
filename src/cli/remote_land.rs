@@ -21,7 +21,7 @@ pub fn safe_push(arguments: &[String]) -> u8 {
 }
 
 pub fn hand_in(arguments: &[String]) -> u8 {
-    north_lander::land::hand_in::run(arguments, SafePush { verb: "hand-in", flags: &["--wait"] })
+    north_lander::land::hand_in::run(arguments, SafePush { verb: "hand-in", flags: &[] })
 }
 
 pub fn finish(arguments: &[String]) -> u8 {
