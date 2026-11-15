@@ -209,6 +209,18 @@ const MACHINES: &[Machine] = &[
             explore::<SpooledWrite>(&Promises { ends: &[Phase::Sent], repeats: &[] })
         }),
     },
+    Machine {
+        name: "shadow-check",
+        kind: "ShadowCheck",
+        source: "crates/north-lander/src/land/shadow/check_phase.rs",
+        guard: &[],
+        code: &["crates/north-lander/src/land/shadow/run.rs"],
+        sweep: None,
+        explore: Some(|| {
+            use north_lander::land::shadow::check_phase::ShadowCheck;
+            explore::<ShadowCheck>(&Promises { ends: &[], repeats: &[] })
+        }),
+    },
     Machine { name: "offload-offer", kind: "OffloadOffer", source: "crates/north-capacity-host/src/capacity/host/offer_lifecycle.rs", guard: &[], code: &[], sweep: None, explore: None },
 ];
 
