@@ -77,8 +77,9 @@ fn hand_off_removal_is_refused() {
     let allowed = allowed_dir.path().join("file");
     std::fs::write(&kept, "kept").unwrap();
     std::fs::write(&allowed, "allowed").unwrap();
-    let hand_off = |target: &Path| {
-        let roots = super::broker::hand_off_roots(&["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "rm".to_owned(), "-f".to_owned(), target.to_string_lossy().into_owned()], &main, &[("HOME".to_owned(), home.to_string_lossy().into_owned())]);
+    let own = [("HOME".to_owned(), home.to_string_lossy().into_owned())];
+    let hand_off_from = |target: &Path, sent: &[(String, String)]| {
+        let roots = super::removable::hand_off_roots(&["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "rm".to_owned(), "-f".to_owned(), target.to_string_lossy().into_owned()], &main, sent, &own);
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "worker_sandbox::tests::a_hand_off_child", "--nocapture"])
             .env_clear()
@@ -88,6 +89,9 @@ fn hand_off_removal_is_refused() {
             .output()
             .unwrap()
     };
+    let hand_off = |target: &Path| hand_off_from(target, &own);
+    let forged = hand_off_from(&kept, &[("HOME".to_owned(), home.to_string_lossy().into_owned()), ("CARGO_TARGET_DIR".to_owned(), main.to_string_lossy().into_owned())]);
+    assert!(!forged.status.success() && kept.exists(), "a hand-off removed beneath the CARGO_TARGET_DIR its client sent, outside the worker's trees (north#1574): {}{}", String::from_utf8_lossy(&forged.stdout), String::from_utf8_lossy(&forged.stderr));
     let refused = hand_off(&kept);
     assert!(!refused.status.success() && kept.exists(), "a hand-off removed a path outside the worker's trees: {}{}", String::from_utf8_lossy(&refused.stdout), String::from_utf8_lossy(&refused.stderr));
     let removed = hand_off(&allowed);

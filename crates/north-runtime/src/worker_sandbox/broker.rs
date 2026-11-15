@@ -28,7 +28,7 @@ use super::typed_requests;
 use super::withdraw_request;
 use super::request_checkout;
 use super::request_env::{asking_session, caller_session, environment_for, landing, landing_choices, own_homes, own_path, request_homes, speaking_as, urgency};
-use super::{Context, FLAG, MAKER, capability, removable};
+use super::{FLAG, MAKER, capability};
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
@@ -85,10 +85,6 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
     }
 }
 
-/// The trees the worker command that sent a request may remove beneath, read from the arguments, directory and environment it sent, so the process the broker starts stays inside them.
-pub(super) fn hand_off_roots(arguments: &[String], directory: &Path, environment: &[(String, String)]) -> Vec<PathBuf> {
-    removable(&Context::from_request(&arguments.join(" "), directory, environment))
-}
 
 /// Runs `north ARGUMENTS` outside this process's Landlock domain through the broker, with this process's standard streams, working directory and environment; its exit code.
 pub fn request(arguments: &[String]) -> Result<u8, String> {
@@ -354,9 +350,9 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if let Some(asked) = finish_request::asked(&request.arguments) {
         return run_finish_check(north, asked, &checkout, streams, stream, peer, host);
     }
-    super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, peer, &host.environment)?;
+    super::brokered_reads::named_file_readable(&request.arguments, &request.directory, &request.environment, peer, host)?;
     let own_home = own_homes().into_iter().find(|(name, _)| name == "HOME").map(|(_, home)| PathBuf::from(home)).unwrap_or_default();
-    let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &checkout.top, &request.directory, &request.environment, peer, &own_home, &host.environment)?;
+    let viewed = super::brokered_reads::pinned_entries_readable(&request.arguments, &checkout.top, &request.directory, &request.environment, peer, &own_home, host)?;
     let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));
@@ -369,7 +365,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         let started = offload.start(|arguments| brokered(north, arguments, peer), [stdin, stdout, stderr]);
         return wait(started.map_err(|error| format!("{}: {error}", north.display()))?, stream);
     }
-    let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
+    let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| super::removable::hand_off_roots(&request.arguments, &request.directory, &request.environment, &host.environment));
     let homes = request_homes(&request.arguments, peer, &request.environment, own_homes());
     let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
     let mut variables = caller_session(urgency(landing(environment_for(&request.arguments, request.environment, peer, &runtime(), &homes, &host.environment), chosen), peer, host), peer, host);

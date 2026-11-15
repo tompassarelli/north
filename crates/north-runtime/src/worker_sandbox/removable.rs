@@ -3,6 +3,9 @@ use std::path::{Component, Path, PathBuf};
 
 use super::except::{Entries, beneath_except};
 
+const HOST_PLACED: [&str; 5] = ["HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "CARGO_HOME", super::sockets::AGENT_ENV];
+const CLIENT_PLACED: [&str; 2] = ["TMPDIR", "CARGO_TARGET_DIR"];
+
 /// Where a worker command runs, read from its environment.
 pub struct Context {
     pub home: PathBuf,
@@ -40,6 +43,13 @@ impl Context {
     pub fn from_request(command: &str, cwd: &Path, environment: &[(String, String)]) -> Self {
         let set = |name: &str| environment.iter().find(|(own, value)| own == name && !value.is_empty()).map(|(_, value)| PathBuf::from(value));
         Self::with(command, cwd.to_path_buf(), set)
+    }
+
+    /// The context of `command` when the broker runs it in `cwd` for a client that sent `environment`, with the variables that place the host's trees (`HOST_PLACED`: the home, the cache, configuration and cargo homes and the agent socket) taken from the broker's own `own`, and the ones that place only a client's trees (`CLIENT_PLACED`) left out, so nothing the client sent moves a tree its domain grants or refuses (north#1574).
+    pub(super) fn from_caller(command: &str, cwd: &Path, environment: &[(String, String)], own: &[(String, String)]) -> Self {
+        let host = |name: &str| HOST_PLACED.contains(&name);
+        let trusted: Vec<(String, String)> = environment.iter().filter(|(name, _)| !host(name) && !CLIENT_PLACED.contains(&name.as_str())).chain(own.iter().filter(|(name, _)| host(name))).cloned().collect();
+        Self::from_request(command, cwd, &trusted)
     }
 
     fn with(command: &str, cwd: PathBuf, set: impl Fn(&str) -> Option<PathBuf>) -> Self {
@@ -105,6 +115,13 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots.extend(lanes(context));
     roots.extend(super::buck::daemon_dirs(context));
     roots
+}
+
+/// The trees the worker command that sent a request may remove beneath: those its arguments, directory and environment name that lie beneath a tree the same request is granted with the broker's own homes ([`Context::from_caller`]), so the process the broker starts stays inside them and a variable the client sent can only narrow them (north#1574).
+pub(super) fn hand_off_roots(arguments: &[String], directory: &Path, environment: &[(String, String)], own: &[(String, String)]) -> Vec<PathBuf> {
+    let command = arguments.join(" ");
+    let granted = removable(&Context::from_caller(&command, directory, environment, own));
+    removable(&Context::from_request(&command, directory, environment)).into_iter().filter(|root| granted.iter().any(|kept| root.starts_with(kept))).collect()
 }
 
 /// The lanes a command run from `context` works in: the one it runs in and the ones it names.
