@@ -81,6 +81,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("fleet tick", Bookkeeping),
     ("fleet usage", Status),
     ("fleet", Status),
+    ("fleet-for", Status),
     ("follows-release", Diagnosis),
     ("gate digest", Status),
     ("gate", TomFacing),

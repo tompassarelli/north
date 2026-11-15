@@ -1,14 +1,14 @@
 use std::process::Command;
 
+use super::steps;
+
+const NAME: &str = "fetch-fleet";
 const VIEW: &str = "list";
 
 pub(super) fn run(arguments: &[String]) -> u8 {
-    let north = match std::env::current_exe() {
+    let north = match steps::north(NAME) {
         Ok(north) => north,
-        Err(error) => {
-            eprintln!("fetch-fleet: {error}");
-            return 1;
-        }
+        Err(code) => return code,
     };
     let mut fleet = Command::new(north);
     fleet.arg("fleet");
@@ -17,19 +17,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
     } else {
         fleet.args(arguments);
     }
-    for mut step in [fetch(), fleet, fetch()] {
-        let code = match step.status() {
-            Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1),
-            Err(error) => {
-                eprintln!("fetch-fleet: {}: {error}", step.get_program().to_string_lossy());
-                1
-            }
-        };
-        if code != 0 {
-            return code;
-        }
-    }
-    0
+    steps::run_in_order(NAME, vec![fetch(), fleet, fetch()])
 }
 
 fn fetch() -> Command {
