@@ -204,6 +204,11 @@ reason = "its after-landing run starts the candidate jail, whose mounts a remote
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
+name = "policy_replay_login::a_not_logged_in_sweep_counts_every_run_as_an_error_and_a_token_profile_authenticates_without_exporting_the_token"
+reason = "runs two replay sweeps through the north binary, which took 1.5 s to 44.5 s on hosted runners and timed out at the 120 s case limit in run 43702976453 while gex45 runs it in 0.15 to 0.35 s (north#1537)"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
 name = "safe_push::session::a_hung_land_check_times_out_and_fails_the_push"
 reason = "waits up to 60 s for a push to exit after its land check passes a 1 s deadline, which on a slowed hosted runner it did not: hosted run 43677630330 failed it after 91 s, while it passes in 0.7 s on a build host (north#1537)"
 test = "it"

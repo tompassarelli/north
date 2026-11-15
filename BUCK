@@ -792,6 +792,7 @@ north_rust_test(
         "depbox_broker::dependency_code_in_depbox_cannot_connect_to_the_broker_socket",
         "depbox_broker::a_confined_check_cannot_plant_the_north_or_the_crate_source_a_later_unconfined_run_of_another_tree_uses",
         "golden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client",
+        "policy_replay_login::a_not_logged_in_sweep_counts_every_run_as_an_error_and_a_token_profile_authenticates_without_exporting_the_token",
         "safe_push::session::a_hung_land_check_times_out_and_fails_the_push",
         "threads_ledger::the_ledger_host_over_ssh_spools_while_down_serves_a_stale_snapshot_and_flushes_in_order",
         "threads_resume::an_expired_claim_stays_held_for_its_live_holder_here_and_through_the_ledger_host",
