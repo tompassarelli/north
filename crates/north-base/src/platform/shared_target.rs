@@ -99,6 +99,10 @@ pub fn sweep_store(cache: &Path, now: SystemTime, cap: impl FnOnce(u64) -> u64) 
     Ok(trimmed)
 }
 
+pub fn sweep_checkout(target: &Path, now: SystemTime, cap: u64) -> io::Result<u64> {
+    sweep(target, cap, IDLE, now)
+}
+
 pub fn sweep_cache(cache: &Path, now: SystemTime, cap: u64) -> io::Result<Vec<(PathBuf, u64)>> {
     let mut trimmed = Vec::new();
     for target in shared_targets(cache) {

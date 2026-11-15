@@ -47,6 +47,13 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
         for (target, freed) in shared_target::sweep_cache(&inputs.cache, inputs.now, shared_target::cap_bytes(&inputs.disk_budget))? {
             removals.push(Removal { path: target, reason: "shared cargo target over its cap: idle incremental state, test binaries, libraries and profiles".to_owned(), bytes: freed });
         }
+        let main = inputs.code.join(MAIN_BUILT_CONTAINER).join("main");
+        for target in rebuildable(&main) {
+            let freed = shared_target::sweep_checkout(&target, inputs.now, shared_target::cap_bytes(&inputs.disk_budget))?;
+            if freed > 0 {
+                removals.push(Removal { path: target, reason: "main checkout cargo target over its cap: idle incremental state, test binaries, libraries and profiles".to_owned(), bytes: freed });
+            }
+        }
         for (target, freed) in shared_target::sweep_mutant(&inputs.cache, inputs.now, shared_target::mutant_cap_bytes(&inputs.disk_budget))? {
             removals.push(Removal { path: target, reason: "mutant cargo target over its cap: idle incremental state, test binaries, libraries and profiles".to_owned(), bytes: freed });
         }
