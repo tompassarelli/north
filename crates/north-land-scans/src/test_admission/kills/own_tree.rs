@@ -6,6 +6,8 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use rustix::fs::{FlockOperation, flock};
+
 use super::super::super::git;
 
 const PROFILE: &str = "target/debug";
@@ -18,6 +20,7 @@ pub(super) struct OwnTree {
     root: PathBuf,
     linked: Vec<Linked>,
     _scratch: tempfile::TempDir,
+    _owner: fs::File,
 }
 
 struct Linked {
@@ -31,12 +34,12 @@ impl OwnTree {
     pub(super) fn of(top: &Path, head: &str, sweeps: &Path) -> Result<Self, String> {
         reclaim(sweeps);
         let scratch = fs::create_dir_all(sweeps).and_then(|()| tempfile::Builder::new().prefix("sweep-").tempdir_in(sweeps)).map_err(|error| format!("{}: {error}", sweeps.display()))?;
-        fs::write(scratch.path().join(OWNER), format!("{}\n{}\n", std::process::id(), top.display())).map_err(|error| format!("{}: {error}", scratch.path().display()))?;
+        let owner = held(&scratch.path().join(OWNER), top).map_err(|error| format!("{}: {error}", scratch.path().display()))?;
         let root = scratch.path().join(TREE);
         let path = root.display().to_string();
         git::text(top, &["-c", "core.hooksPath=/dev/null", "clone", "--quiet", "--shared", "--no-checkout", ".", &path]).ok_or_else(|| format!("git clone --shared . {path} failed"))?;
         git::text(&root, &["-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", head]).ok_or_else(|| format!("git checkout {head} in {path} failed"))?;
-        let mut tree = Self { origin: top.to_path_buf(), root, linked: Vec::new(), _scratch: scratch };
+        let mut tree = Self { origin: top.to_path_buf(), root, linked: Vec::new(), _scratch: scratch, _owner: owner };
         tree.keep_times()?;
         if top.join(PROFILE).is_dir() {
             tree.mirror().map_err(|error| format!("copying {}: {error}", top.join(PROFILE).display()))?;
@@ -121,15 +124,19 @@ fn linked(relative: &Path) -> bool {
     !rewritten && (inner.components().count() == 1 || LINKED.contains(&first))
 }
 
+fn held(path: &Path, top: &Path) -> std::io::Result<fs::File> {
+    let owner = fs::File::create(path)?;
+    flock(&owner, FlockOperation::LockExclusive)?;
+    std::io::Write::write_all(&mut &owner, format!("{}\n", top.display()).as_bytes())?;
+    Ok(owner)
+}
+
 fn reclaim(sweeps: &Path) {
     let Ok(listing) = fs::read_dir(sweeps) else { return };
     for scratch in listing.flatten().map(|entry| entry.path()) {
-        let Ok(owner) = fs::read_to_string(scratch.join(OWNER)) else { continue };
-        let mut lines = owner.lines();
-        let (Some(pid), Some(_)) = (lines.next(), lines.next()) else { continue };
-        if Path::new("/proc").join(pid).exists() {
-            continue;
+        let Ok(owner) = fs::File::open(scratch.join(OWNER)) else { continue };
+        if flock(&owner, FlockOperation::NonBlockingLockExclusive).is_ok() {
+            let _ = fs::remove_dir_all(&scratch);
         }
-        let _ = fs::remove_dir_all(&scratch);
     }
 }

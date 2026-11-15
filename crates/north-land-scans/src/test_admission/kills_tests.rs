@@ -141,11 +141,10 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     let killed = OwnTree::of(repo, &second, sweeps.path()).unwrap();
     let left = killed.root().parent().unwrap().to_path_buf();
     std::mem::forget(killed);
-    let mut ended = std::process::Command::new("true").spawn().unwrap();
-    ended.wait().unwrap();
-    std::fs::write(left.join("owner"), format!("{}\n{}\n", ended.id(), repo.display())).unwrap();
+    std::fs::remove_file(left.join("owner")).unwrap();
+    std::fs::write(left.join("owner"), format!("{}\n{}\n", std::process::id(), repo.display())).unwrap();
     drop(OwnTree::of(repo, &second, sweeps.path()).unwrap());
-    assert!(!left.exists(), "on 2026-11-12 a sweep killed at its check's deadline left its tree and copied build on a build host whose disk ran short; the next sweep removes the tree its record names (north#1254)");
+    assert!(!left.exists(), "on 2026-11-15 sweeps on gex45 run in a check's jail recorded pid 3 of their own pid namespace, which the host always has, so no ended sweep was reclaimed and 24 GiB of trees stayed in one slot (north#1578); on 2026-11-12 a sweep killed at its check's deadline left its tree and copied build on a build host whose disk ran short; the next sweep removes the tree its record names (north#1254)");
     assert!(!git_in(repo, &["worktree", "list"]).contains(&left.display().to_string()));
     assert_eq!(snapshot(repo), before, "on 2026-11-12 a sweep mutated and rebuilt in place in the slot its check built, which another run then took; a sweep now writes nothing into the checkout or build directory of its check (north#1254)");
     std::fs::set_permissions(&git_dir, writable).unwrap();
