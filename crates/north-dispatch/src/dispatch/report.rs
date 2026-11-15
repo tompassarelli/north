@@ -26,6 +26,7 @@ pub(super) fn print(survey: &Survey, dry_run: bool) {
         println!("note: {note}");
     }
     if dry_run {
+        super::cpu::print(survey);
         cells(survey);
     }
 }

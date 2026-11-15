@@ -28,6 +28,7 @@ mod brief;
 pub mod cells;
 pub mod deepseek;
 mod cloud;
+mod cpu;
 mod decision;
 mod disk;
 pub mod drafts;
