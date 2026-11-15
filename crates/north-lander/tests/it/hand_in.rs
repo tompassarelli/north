@@ -537,8 +537,8 @@ fn a_handed_in_lane_keeps_its_message_and_live_fix_trailer() {
     assert_eq!(output.status.code(), Some(0), "{text}\n{journal}");
     assert_eq!(
         git(&north.origin, &["log", "-1", "--format=%B", "main"]),
-        "Name the change twice\n\nItem: north#1540\nBox: the lane head's box\nLive-fix: the lander is red\nCo-Authored-By: A <a@example.com>",
-        "a hand-in message without trailers dropped the lane head's own: {text}"
+        "Name the change twice\n\nWhy it lands.\n\nItem: north#1540\nBox: the lane head's box\nLive-fix: the lander is red\nCo-Authored-By: A <a@example.com>",
+        "a hand-in message of its subject alone dropped the lane head's body or trailers, as 5985b7d80e lost its body: {text}"
     );
 }
 

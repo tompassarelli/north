@@ -37,5 +37,5 @@ fn a_squashed_two_commit_lane_lands_under_its_stated_or_first_subject() {
     git_ok(root, &["reset", "-q", "--hard", &lane]);
     assert!(matches!(squash(root, "main", Some("Read yq's two error forms\n\nStated body.\n\nTest-contract: sync\n")).unwrap(), Squash::Squashed { commits: 2, .. }));
     let landed = git_ok(root, &["show", "-s", "--format=%B", "HEAD"]);
-    assert_eq!(landed, "Read yq's two error forms\n\nStated body.\n\nTest-contract: sync\nItem: north#1\nMain-red: yq at abc");
+    assert_eq!(landed, "Read yq's two error forms\n\nStated body.\n\nyq-error-forms body line\n\nreview-typo body line\n\nTest-contract: sync\nItem: north#1\nMain-red: yq at abc", "a stated message dropped the lane commits' bodies, as 5985b7d80e lost its own");
 }

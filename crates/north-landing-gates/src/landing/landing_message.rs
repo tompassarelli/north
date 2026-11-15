@@ -49,15 +49,31 @@ fn key(trailer: &str) -> String {
     trailer.split_once(": ").map_or(trailer, |(key, _)| key).to_ascii_lowercase()
 }
 
+fn paragraphs(text: &str) -> Vec<String> {
+    text.lines().collect::<Vec<_>>().split(|line| line.trim().is_empty()).filter(|lines| !lines.is_empty()).map(|lines| lines.join("\n")).collect()
+}
+
+fn with_lane_bodies(stated: String, lane: &[&str]) -> String {
+    let mut seen: BTreeSet<String> = paragraphs(&stated).into_iter().collect();
+    let mut text = stated;
+    for paragraph in lane.iter().flat_map(|commit| paragraphs(commit).into_iter().skip(1)) {
+        if !seen.contains(&paragraph) {
+            text.push_str("\n\n");
+            text.push_str(&paragraph);
+            seen.insert(paragraph);
+        }
+    }
+    text
+}
+
 pub(super) fn message(commits: &[&LaneCommit], supplied: Option<&str>) -> String {
     let (supplied_text, supplied_trailers) = supplied.map(split_trailers).unzip();
     let supplied_trailers = supplied_trailers.unwrap_or_default();
+    let finished: Vec<&str> = commits.iter().filter(|commit| !unfinished_subject(commit.text.lines().next().unwrap_or_default())).map(|commit| commit.text.as_str()).collect();
+    let lane = if finished.is_empty() { commits.iter().take(1).map(|commit| commit.text.as_str()).collect() } else { finished };
     let mut text = match supplied_text {
-        Some(supplied_text) => supplied_text,
-        None => {
-            let finished: Vec<&str> = commits.iter().filter(|commit| !unfinished_subject(commit.text.lines().next().unwrap_or_default())).map(|commit| commit.text.as_str()).collect();
-            if finished.is_empty() { commits[0].text.clone() } else { finished.join("\n\n") }
-        }
+        Some(stated) => with_lane_bodies(stated, &lane),
+        None => lane.join("\n\n"),
     };
     let named: BTreeSet<String> = supplied_trailers.iter().map(|trailer| key(trailer)).collect();
     let mut seen = BTreeSet::new();
