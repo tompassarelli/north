@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 use std::sync::LazyLock;
@@ -106,23 +106,30 @@ fn unreviewed_landing(directory: &Path, gate: Option<&str>, commit: &str, accept
     [crossed, after_gate, unaccepted].into_iter().all(std::convert::identity)
 }
 
-/// The test functions the lane `fork..head` removes from each Rust file it changes, by name: those its base defines and its head does not, whether it deletes or renames them.
+/// The test functions the lane `fork..head` removes: when the Rust files it changes define fewer test functions at its head than at its base, each name defined fewer times, so a test it renames or moves between files is no deletion and a second copy of a name hides none.
 fn deleted_tests(directory: &Path, fork: &str, head: &str, files: &[String]) -> Vec<String> {
-    files
-        .iter()
-        .filter(|file| file.ends_with(".rs"))
-        .flat_map(|file| test_functions(&source_at(directory, fork, file)).difference(&test_functions(&source_at(directory, head, file))).cloned().collect::<Vec<_>>())
-        .collect()
+    let defined = |revision: &str| {
+        let mut counts = BTreeMap::<String, usize>::new();
+        for name in files.iter().filter(|file| file.ends_with(".rs")).flat_map(|file| test_functions(&source_at(directory, revision, file))) {
+            *counts.entry(name).or_default() += 1;
+        }
+        counts
+    };
+    let (before, after) = (defined(fork), defined(head));
+    if after.values().sum::<usize>() >= before.values().sum::<usize>() {
+        return Vec::new();
+    }
+    before.into_iter().filter(|(name, count)| after.get(name).copied().unwrap_or(0) < *count).map(|(name, _)| name).collect()
 }
 
-/// The refusal of the shadow gate `DELETIONS` for the lane `base..head`: the test functions it removes, unless it is an exact revert of main or holds a reviewer accept of its patch from a session that did not author it.
+/// The refusal of the gate `DELETIONS` for the lane `base..head`: the test functions it removes, unless it is an exact revert of main or holds a reviewer accept of its patch from a session that did not author it.
 fn deleted_refusal(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<Option<String>, String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
     let deleted = deleted_tests(directory, &fork, head, &files);
     let reverting = patch_id(directory, &fork, head).ok().and_then(|patch| reverted(directory, &fork, head, &patch));
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
-    Ok(Some(deleted).filter(|deleted| !deleted.is_empty()).filter(|_| reverting.is_none()).filter(|_| accepted.is_empty()).map(|deleted| format!("the lane deletes test functions {} and holds no review accept of its patch {patch} from a reviewer session that did not author the lane", deleted.join(", "))))
+    Ok(Some(deleted).filter(|deleted| !deleted.is_empty()).filter(|_| reverting.is_none()).filter(|_| accepted.is_empty()).map(|deleted| format!("the lane deletes test functions {} and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", deleted.join(", "))))
 }
 
 fn source_at(directory: &Path, revision: &str, file: &str) -> String {
@@ -131,8 +138,8 @@ fn source_at(directory: &Path, revision: &str, file: &str) -> String {
 
 static TEST_FUNCTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#\[(?:[[:alnum:]_]+::)?test\](?:\s*(?:#\[[^\]]*\]|//[^\n]*))*\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([[:alnum:]_]+)").expect("test function pattern"));
 
-/// The names of the test functions in `source`: each `fn` that a `#[test]` or `#[...::test]` attribute marks, with the attributes and doc comments between.
-fn test_functions(source: &str) -> BTreeSet<String> {
+/// The names of the test functions in `source`, a name once per definition: each `fn` that a `#[test]` or `#[...::test]` attribute marks, with the attributes and doc comments between.
+fn test_functions(source: &str) -> Vec<String> {
     TEST_FUNCTION.captures_iter(source).map(|found| found[1].to_owned()).collect()
 }
 
@@ -161,20 +168,34 @@ pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, fini
     let finished = finished.all();
     let outcome = each_commit(directory, base, head, |from, to| check_listed(directory, base, from, to, accepts, &finished));
     let fork = git::merge_base(directory, base, head);
-    let deletions = deleted_refusal(directory, base, head, accepts, &finished);
-    holdlist::record(state, DELETIONS, (head, patch_id(directory, &fork, head).ok().as_deref()), deletions.as_ref().ok().and_then(|found| found.as_deref()));
+    let deletions = each_commit(directory, base, head, |from, to| match deleted_refusal(directory, from, to, accepts, &finished) {
+        Ok(Some(refusal)) | Err(refusal) if holdlist::enforcing(directory, DELETIONS, [from, to]) => Err(refusal),
+        _ => Ok(()),
+    });
+    if !holdlist::enforcing(directory, DELETIONS, [base, head]) {
+        let shadowed = deleted_refusal(directory, base, head, accepts, &finished);
+        holdlist::record(state, DELETIONS, (head, patch_id(directory, &fork, head).ok().as_deref()), shadowed.as_ref().ok().and_then(|found| found.as_deref()));
+    }
+    let deletion_exit = match deletions {
+        Ok(()) => 0,
+        Err(refusal) => {
+            let _ = writeln!(out, "{DELETIONS}: refused: {refusal}");
+            1
+        }
+    };
     let enforce = holdlist::enforcing(directory, SELF, [base, head]);
     if !enforce {
         holdlist::record(state, SELF, (head, patch_id(directory, &fork, head).ok().as_deref()), outcome.as_ref().err().map(String::as_str));
     }
-    match outcome {
+    let exit = match outcome {
         Ok(()) => 0,
         Err(refusal) => {
             let verb = if enforce { "refused" } else { "would refuse (shadow)" };
             let _ = writeln!(out, "{SELF}: {verb}: {refusal}");
             u8::from(enforce)
         }
-    }
+    };
+    exit.max(deletion_exit)
 }
 
 #[cfg(test)]

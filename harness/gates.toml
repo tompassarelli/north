@@ -111,6 +111,14 @@ correct = 17
 [gate.concern-revert]
 mode = "shadow"
 
-# A lane that removes a `#[test]` function from a Rust file it changes is refused until a reviewer accepts its patch id, as a trust-boundary path is, except an exact revert of main (north#1631, the deletion half of review-accept). Shadow rows: $XDG_STATE_HOME/north/gates/review-accept-deletions.jsonl on the host that runs the lane's checks before queueing; it refuses nothing until a reviewer reads those would-be refusals.
+# A lane that removes a `#[test]` function, so the Rust files it changes define fewer test functions at its head than at its base, is refused until a reviewer accepts its patch id, as a trust-boundary path is, except an exact revert of main (north#1631, the deletion half of review-accept). On 2026-11-15 a test-cull lane (fba0ba6c6d) deleted a guard test its reviewer had refused twice, because only trust-boundary paths needed an accept. Shadow rows: $XDG_STATE_HOME/north/gates/review-accept-deletions.jsonl on the host that runs the lane's checks before queueing. The 2026-11-15 reading on gex45 held 133 decisions over 117 lane heads, 12 of them would-be refusals: 11 named tests a crate split moved to another file (the north#1487 L15 and L22 lanes, such as 0ce249e766 and 0022d2f765), which the per-file rule then counted as deletions and the lane-wide rule does not, and one (b5189d0b7d) folded a withdrawal test into another and was right to wait for an accept. Its first enforcing landing (a2a5403ccf) was reverted because its after-landing run judged several landings as one range and counted a one-line rename (cadedbb3db) as a deletion, so it counts definitions, which a rename or move keeps, and after landing judges each landed commit by the gate mode its own tree holds, as review-accept does.
 [gate.review-accept-deletions]
-mode = "shadow"
+mode = "enforce"
+
+[gate.review-accept-deletions.review]
+reviewed = "2026-11-15"
+by = "north-1631-worker"
+issue = "north#1631"
+hosts = ["gex45"]
+decisions = 133
+correct = 122
