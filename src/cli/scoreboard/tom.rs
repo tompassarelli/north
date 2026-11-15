@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
+use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
@@ -95,27 +96,87 @@ fn conversation_turns(db: &Connection, path: &str, typed: &BTreeMap<i64, i64>) -
     Ok(turns)
 }
 
-fn parse_turns(path: &str, turns: &mut [ProxyTurn]) {
-    let Ok(file) = fs::File::open(path) else { return };
-    let mut wanted = turns.iter_mut().filter(|turn| turn.wanted()).peekable();
+const PARSED: &str = "proxy-turns.db";
+
+struct Parsed {
+    start: i64,
+    end_line: Option<i64>,
+    turn: String,
+}
+
+type Fresh = Vec<(i64, i64, Option<i64>, String)>;
+
+fn parsed_store(index: &Path) -> Option<Connection> {
+    let db = Connection::open(index.with_file_name(PARSED)).ok()?;
+    db.busy_timeout(Duration::from_secs(5)).ok()?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS turn(path TEXT NOT NULL, line INTEGER NOT NULL, start INTEGER NOT NULL, end_line INTEGER, turn TEXT NOT NULL, PRIMARY KEY(path, line)) WITHOUT ROWID").ok()?;
+    Some(db)
+}
+
+fn parsed_in(store: Option<&Connection>, path: &str) -> BTreeMap<i64, Parsed> {
+    let Some(mut query) = store.and_then(|db| db.prepare_cached("SELECT line, start, end_line, turn FROM turn WHERE path=?1").ok()) else { return BTreeMap::new() };
+    query.query_map([path], |row| Ok((row.get(0)?, Parsed { start: row.get(1)?, end_line: row.get(2)?, turn: row.get(3)? }))).map(|rows| rows.flatten().collect()).unwrap_or_default()
+}
+
+fn remember(store: Option<&Connection>, path: &str, fresh: &Fresh) {
+    let Some(db) = store.filter(|_| !fresh.is_empty()) else { return };
+    let Ok(transaction) = db.unchecked_transaction() else { return };
+    if let Ok(mut insert) = transaction.prepare_cached("INSERT OR REPLACE INTO turn VALUES (?1, ?2, ?3, ?4, ?5)") {
+        for (line, start, end_line, turn) in fresh {
+            let _ = insert.execute((path, line, start, end_line, turn));
+        }
+    }
+    let _ = transaction.commit();
+}
+
+fn parse_turns(store: Option<&Connection>, path: &str, turns: &mut [ProxyTurn]) {
+    let parsed = parsed_in(store, path);
+    let mut pending = Vec::new();
+    for turn in turns.iter_mut().filter(|turn| turn.wanted()) {
+        let closed = parsed.get(&turn.first_line).filter(|known| turn.end_line.is_some() && known.end_line == turn.end_line).and_then(|known| serde_json::from_str::<Option<Turn>>(&known.turn).ok());
+        match closed {
+            Some(closed) => turn.turn = closed,
+            None => pending.push(turn),
+        }
+    }
+    let mut fresh = Fresh::new();
+    read_turns(path, &parsed, pending, &mut fresh);
+    remember(store, path, &fresh);
+}
+
+fn read_turns(path: &str, parsed: &BTreeMap<i64, Parsed>, pending: Vec<&mut ProxyTurn>, fresh: &mut Fresh) {
+    let Some(first) = pending.first().map(|turn| turn.first_line) else { return };
+    let (start_line, start) = parsed.range(..=first).next_back().map_or((1, 0), |(line, known)| (*line, known.start));
+    let Ok(mut file) = fs::File::open(path) else { return };
+    if !u64::try_from(start).is_ok_and(|start| file.seek(SeekFrom::Start(start)).is_ok()) {
+        return;
+    }
+    let mut wanted = pending.into_iter().peekable();
     let mut slice: Vec<u8> = Vec::new();
-    for (index, line) in BufReader::new(file).split(b'\n').enumerate() {
-        let number = index as i64 + 1;
+    let (mut offset, mut begun) = (start, start);
+    for (number, line) in (start_line..).zip(BufReader::new(file).split(b'\n')) {
         let Some(turn) = wanted.peek_mut() else { return };
+        let Ok(line) = line else { return };
+        let at = offset;
+        offset = offset.saturating_add(i64::try_from(line.len() + 1).unwrap_or(i64::MAX));
         if number < turn.first_line {
             continue;
         }
-        let Ok(line) = line else { return };
+        if number == turn.first_line {
+            begun = at;
+        }
         slice.extend_from_slice(&line);
         slice.push(b'\n');
         if turn.end_line.is_some_and(|end| number + 1 >= end) {
             turn.turn = turn_in(&slice);
+            fresh.push((turn.first_line, begun, turn.end_line, serde_json::to_string(&turn.turn).unwrap_or_default()));
             slice.clear();
             wanted.next();
         }
     }
     if let Some(turn) = wanted.next() {
         turn.turn = turn_in(&slice);
+        fresh.push((turn.first_line, begun, turn.end_line, serde_json::to_string(&turn.turn).unwrap_or_default()));
     }
 }
 
@@ -132,9 +193,10 @@ impl Tom {
         if !by_conversation.is_empty() {
             let failed = |why: rusqlite::Error| format!("{}: {why}", places.convo.display());
             let db = Connection::open_with_flags(&places.convo, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
+            let store = parsed_store(&places.convo);
             for (path, messages) in &by_conversation {
                 let mut found = conversation_turns(&db, path, messages).map_err(failed)?;
-                parse_turns(path, &mut found);
+                parse_turns(store.as_ref(), path, &mut found);
                 turns.extend(found);
             }
         }
@@ -217,3 +279,7 @@ impl Tom {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tom_tests.rs"]
+mod tests;

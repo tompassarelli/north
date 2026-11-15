@@ -37,7 +37,7 @@ static THREADS_NEW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bthreads\s+
 static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"github\.com/[\w.-]+/([\w.-]+)/issues/(\d+)").unwrap());
 static CITATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^\w#/])(?:[\w.-]+/)?([A-Za-z][\w.-]*)#(\d+)\b").unwrap());
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Issue {
     pub repo: Option<String>,
     pub number: u64,
@@ -53,7 +53,7 @@ impl Issue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Turn {
     pub id: String,
     pub commands: Vec<String>,
