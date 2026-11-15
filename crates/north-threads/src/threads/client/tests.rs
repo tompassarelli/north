@@ -250,3 +250,21 @@ fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_cod
 fn logged(root: &Path) -> Vec<Value> {
     fs::read_to_string(root.join("ingest.log")).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect()
 }
+
+/// The 2026-11-14 health read listed threads-spool writes on cpx62, cpx62b and gex45 queued 4,900 to 5,300 min past their limit: each record said queued while its file had left the spool, and the flush passes over a record it holds no file for, so nothing ever moved it (north#1576).
+#[test]
+fn a_write_queued_past_its_limit_whose_file_is_gone_is_retired_once_and_reported_once() {
+    let mut rig = rig(&[]);
+    let path = rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    fs::remove_file(&path).unwrap();
+    let state = |rig: &Rig| north_base::lifecycle::Store::open(&spool::records_path(&rig.client.spool)).unwrap().current::<spool::SpooledWrite>(&name).unwrap().unwrap().state;
+    let (code, err) = call(&rig, &["spool-flush", "ledger-host"], b"");
+    assert_eq!((code, err.contains(&name), state(&rig)), (0, false, spool::Phase::Queued), "a write inside its dwell, whose file may not be published yet, was retired: {err}");
+    let later = Timestamp::from_unix_millis(Timestamp::now().unix_millis() + 16 * 60_000);
+    rig.client.clock = Arc::new(move || later);
+    let (code, err) = call(&rig, &["spool-flush", "ledger-host"], b"");
+    assert_eq!((code, err.matches(name.as_str()).count(), state(&rig)), (0, 1, spool::Phase::Sent), "{err}");
+    let (_, err) = call(&rig, &["spool-flush", "ledger-host"], b"");
+    assert!(!err.contains(&name), "a retired write was reported again: {err}");
+}

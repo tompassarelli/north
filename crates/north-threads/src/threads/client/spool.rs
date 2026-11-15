@@ -27,6 +27,8 @@ const JOINED_TIMED_OUT: &str = "the joined usage batch timed out, so each goes o
 const SET_ASIDE_AFTER: usize = 3;
 /// How the record of a batch the flush set aside begins, which the health check counts.
 pub const SET_ASIDE: &str = "set aside after";
+/// Why a queued write whose file left the spool is recorded as gone from it.
+const VANISHED: &str = "its spool file is gone, so nothing is left to send";
 
 /// Whether `fault` is a spooled batch the flush set aside after its sends kept timing out.
 pub fn set_aside(fault: &north_base::lifecycle::Fault) -> bool {
@@ -80,7 +82,7 @@ impl Lifecycle for SpooledWrite {
             (from, to),
             (None | Some(Phase::Refused), Phase::Queued)
                 | (None, Phase::Refused)
-                | (Some(Phase::Queued), Phase::Sending)
+                | (Some(Phase::Queued), Phase::Sending | Phase::Sent)
                 | (Some(Phase::Sending), Phase::Queued | Phase::Sent | Phase::Refused)
         )
     }
@@ -235,6 +237,19 @@ impl Spool {
         Ok(())
     }
 
+    /// Records as gone every write queued past its dwell whose file is no longer in the spool, which [`Self::queued`] passes over, so its record leaves queued once instead of staying past its limit for good; logs each it retires.
+    fn retire_vanished(&mut self, at: Timestamp, err: &mut dyn Write) -> NorthResult<()> {
+        let vanished = self.store.instances::<SpooledWrite>()?.into_iter().filter(|record| record.state == Phase::Queued && record.due.is_some_and(|due| due <= at) && !self.holds(&record.instance));
+        for record in vanished.collect::<Vec<_>>() {
+            match self.store.transition_from::<SpooledWrite>(&record.instance, Some(Phase::Queued), Phase::Sent, VANISHED, at)? {
+                Ok(_) => writeln!(err, "NorthThreads: retired the queued spool write {}: {VANISHED}", record.instance)?,
+                Err(Lost::AlreadyMoved { .. }) => {}
+                Err(Lost::Refused(refusal)) => return Err(refused(&record.instance, &refusal)),
+            }
+        }
+        Ok(())
+    }
+
     /// Whether `name` is a regular file directly in the spool directory: a sandboxed worker may write the records, so a record naming a path outside the spool, a dot-file or a link is never sent or removed by a flush that runs unconfined.
     fn holds(&self, name: &str) -> bool {
         !name.is_empty() && !name.starts_with('.') && !name.contains('/') && fs::symlink_metadata(self.directory.join(name)).is_ok_and(|metadata| metadata.file_type().is_file())
@@ -354,6 +369,7 @@ impl Client {
         let mut spool = self.spool_records()?;
         let started = Instant::now();
         spool.sweep_sent(err)?;
+        spool.retire_vanished((self.clock)(), err)?;
         let mut names = spool.queued((self.clock)())?;
         names.sort_by_cached_key(|name| !self.claim_or_release(name));
         let mut usage_names = Vec::new();

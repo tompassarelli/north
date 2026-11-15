@@ -8,6 +8,7 @@ stateDiagram-v2
     [*] --> queued
     [*] --> refused
     queued --> sending
+    queued --> sent
     refused --> queued
     sending --> queued: holder gone
     sending --> refused
