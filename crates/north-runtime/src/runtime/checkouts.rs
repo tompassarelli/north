@@ -135,7 +135,7 @@ fn keep_all(destinations: &[String]) -> Vec<String> {
 /// The lines `destination` printed while its checkouts caught up, or why it could not be asked.
 fn keep(destination: &str, script: &str) -> Result<Vec<String>, String> {
     let mut command = ssh(destination);
-    command.args(["sh", "-c", script]).stdin(Stdio::null());
+    command.args(["sh", "-c", &quote(script)]).stdin(Stdio::null());
     let (status, said) = bounded::output(&mut command, LIMIT).map_err(|error| error.to_string())?;
     let lines: Vec<String> = said.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
     if status.success() {
