@@ -403,10 +403,12 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     let cache = state.join("north/private-blobs");
     std::fs::create_dir_all(&cache).unwrap();
     let cache = cache.canonicalize().unwrap();
+    let lease = state.join(north_control_plane::LEASE_DATABASE);
+    let guarded = [cache, lease.clone(), PathBuf::from(format!("{}-wal", lease.display())), PathBuf::from(format!("{}-shm", lease.display()))];
     for land_check in [false, true] {
         let context = Context { home: context.home.clone(), cwd: context.cwd.clone(), uid: 0, user_runtime: context.user_runtime.clone(), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check };
         let (roots, written) = (removable(&context), super::writable(&context, &removable(&context)));
-        assert!(!roots.iter().chain(&written).any(|path| cache.starts_with(path) || path.starts_with(&cache)), "a worker may write the private-blob cache {}, which the private-file refusal trusts", cache.display());
+        assert!(!guarded.iter().any(|guard| roots.iter().chain(&written).any(|path| guard.starts_with(path) || path.starts_with(guard))), "a worker may write or remove one of {guarded:?}: the private-blob cache the private-file refusal trusts, or the control-plane lease the lander's push gate trusts (land check: {land_check})");
     }
     let written = super::writable(&context, &roots);
     let records = context.home.join(north_foundation::foundation::offload::SLOT_RECORDS);
@@ -416,9 +418,6 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     assert!(!roots.iter().chain(&written).any(|path| rewrites.starts_with(path) || path.starts_with(&rewrites)), "a worker may write the rewrites record {}, which widens a lead's launch grant", rewrites.display());
     let assignment = state.join("north/fleet/scoreboard-lead").join(north_base::platform::lead_assignment::FILE);
     assert!(!super::state::writable(&state, Some("scoreboard-lead")).iter().any(|path| assignment.starts_with(path)), "a worker may write {}, the coordinator's assignment a lead's launches and box checks are granted by", assignment.display());
-    let lease = state.join(north_control_plane::LEASE_DATABASE);
-    let databases = [lease.clone(), PathBuf::from(format!("{}-wal", lease.display())), PathBuf::from(format!("{}-shm", lease.display()))];
-    assert!(!databases.iter().any(|database| roots.iter().chain(&written).any(|path| database.starts_with(path) || path.starts_with(database))), "a worker may write or remove the control-plane lease {}, which the lander's push gate trusts", lease.display());
 }
 
 #[test]
