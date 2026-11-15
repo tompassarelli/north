@@ -9,7 +9,7 @@ use north_mutants::trees::RESULTS;
 use super::flake::{self, Reported};
 
 const RUNS: usize = 1;
-pub const SHARED: &str = "target/mutant-src";
+pub const SHARED: &str = "mutant-src";
 
 /// Builds the test executables of each tree with the host's build system and records, in each tree's `.mutant-results`, a `pass` or `fail` line for every named test whose own line its executables print; a test without that line records nothing. A tree whose tests do not compile records nothing, as a mutant that does not compile kills nothing. Each tree is mirrored into `shared` before its build, so every tree builds and runs in one directory whose target is warm: rsync's checksum comparison gives a new modification time to exactly the files that differ from the last build, which is what cargo's staleness check reads.
 pub fn run(trees: &[PathBuf], names: &BTreeSet<String>, shared: &Path, out: &mut dyn Write) -> io::Result<()> {

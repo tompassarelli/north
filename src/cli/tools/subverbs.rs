@@ -68,7 +68,8 @@ fn mutant_runs(arguments: &[String]) -> u8 {
     let names: std::collections::BTreeSet<String> = lines("MUTANT_TESTS").into_iter().collect();
     let trees: Vec<std::path::PathBuf> = lines("MUTANT_TREES").into_iter().map(std::path::PathBuf::from).collect();
     let Ok(cwd) = std::env::current_dir() else { return north_base::foundation::exit::NO_VERDICT };
-    match mutant_runs::run(&trees, &names, &cwd.join(mutant_runs::SHARED), &mut std::io::stdout()) {
+    let target = std::env::var_os(north_mutants::trees::TARGET_ENV).map(std::path::PathBuf::from).unwrap_or_else(|| cwd.join("target"));
+    match mutant_runs::run(&trees, &names, &target.join(mutant_runs::SHARED), &mut std::io::stdout()) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("north land mutant-runs: {error}");

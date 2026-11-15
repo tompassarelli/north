@@ -89,14 +89,16 @@ fn mutant_runs_judges_each_lane_tree_on_its_own_tests_and_records_a_fail_only_fr
     std::fs::write(silent_tree.join("src/silent"), "").unwrap();
     let listed = [&first_tree, &second_tree, &silent_tree].map(|tree| tree.display().to_string()).join("\n");
 
-    let ran = north_with(&home, &lane, &path, &["land", "mutant-runs"], &[("MUTANT_TESTS", "*"), ("MUTANT_TREES", listed.as_str())]);
+    let mutant_target = lane.join("target/mutant/north/runner-target");
+    let ran = north_with(&home, &lane, &path, &["land", "mutant-runs"], &[("MUTANT_TESTS", "*"), ("MUTANT_TREES", listed.as_str()), ("MUTANT_TARGET", mutant_target.to_str().unwrap())]);
     let printed = format!("{}{}", String::from_utf8_lossy(&ran.stdout), String::from_utf8_lossy(&ran.stderr));
     assert!(ran.status.success(), "land mutant-runs exits 0 once each tree's tests are run: {printed}");
     let recorded = |tree: &Path| std::fs::read_to_string(tree.join(".mutant-results")).unwrap_or_default();
     assert_eq!(recorded(&first_tree), "pass\tguards_first\n", "the wildcard records each test the first commit's executables list, and idle_second, which that commit does not have, is not judged there: {printed}");
     assert_eq!(recorded(&second_tree), "fail\tguards_first\npass\tidle_second\n", "a test whose own line says FAILED is recorded as a fail, and the second commit's idle test is judged on the second commit alone: {printed}");
     assert_eq!(recorded(&silent_tree), "", "a batch that exits non-zero without the test's own line records nothing, so it kills no mutant: {printed}");
-    assert!(lane.join("target/mutant-src/target/debug/deps/lib_tests").is_file(), "the trees are mirrored into one source directory and built into its one target, not into each tree's own: {printed}");
+    assert!(mutant_target.join("mutant-src/target/debug/deps/lib_tests").is_file(), "the trees are mirrored into one source directory and built into the target the mutant run names, not into each tree's own: {printed}");
+    assert!(!lane.join("target/mutant-src").exists() && !lane.join("target/debug/deps/lib_tests").exists(), "on 2026-11-15 a mutant run built in the checkout's own target, the one its land check and north build use, so a build there read mutant artifacts and failed on code that was not in its commit (north#1631): {printed}");
 
     let scan = north_with(&home, &lane, &path, &["land", "scan", "test-admission", "run", &format!("{base}..{second}")], &[]);
     let scanned = format!("{}{}", String::from_utf8_lossy(&scan.stdout), String::from_utf8_lossy(&scan.stderr));

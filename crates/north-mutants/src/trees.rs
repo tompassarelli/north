@@ -9,7 +9,14 @@ use crate::env::{Config, Env, Lease, Stop, git, git_text};
 
 pub const RESULTS: &str = ".mutant-results";
 pub const EVERY_TEST: &str = "*";
+/// The variable `land mutant-runs` and any runner read for the cargo target the mutant work builds in, so no mutant build shares the checkout's own `target`.
+pub const TARGET_ENV: &str = "MUTANT_TARGET";
 const TAIL_LINES: usize = 40;
+
+/// The cargo target a mutant run's runner builds in: one directory of the checkout's mutant store, never the checkout's `target` that a land check or the north build uses, and kept across runs so the runner's own build stays warm.
+pub fn runner_target(top: &Path, repo: &str) -> PathBuf {
+    top.join("target/mutant").join(repo).join("runner-target")
+}
 
 pub type Results = BTreeMap<String, bool>;
 
@@ -148,11 +155,15 @@ pub fn invoke(runner: &Runner, env: &Env, trees: &[PathBuf], tests: &BTreeSet<St
     };
     let file = fs::OpenOptions::new().create(true).append(true).open(log)?;
     let joined: Vec<String> = trees.iter().map(|tree| tree.display().to_string()).collect();
+    let target = runner_target(top, repo);
+    fs::create_dir_all(&target)?;
     command
         .args(["-c", &config.run])
         .current_dir(top)
         .env("MUTANT_TESTS", tests.iter().cloned().collect::<Vec<_>>().join("\n"))
         .env("MUTANT_TREES", joined.join("\n"))
+        .env(TARGET_ENV, &target)
+        .env("CARGO_TARGET_DIR", &target)
         .stdin(Stdio::null())
         .stdout(file.try_clone()?)
         .stderr(file);
