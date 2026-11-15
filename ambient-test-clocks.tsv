@@ -6,6 +6,5 @@ crates/north-guard/src/guard/subagent_teardown_tests.rs	1
 crates/north-lander-doctor/src/tests.rs	2
 crates/north-runtime/src/runtime/update/tests.rs	1
 src/bin/fake_claude.rs	1
-tests/it/follows_release.rs	2
 tests/it/land_serve/mod.rs	1
 tests/it/lane_gc_journeys.rs	1

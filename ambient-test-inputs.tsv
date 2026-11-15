@@ -13,7 +13,5 @@ crates/north-desktop/src/warcraft_close/tests.rs	1
 src/cli/scoreboard/workers_tests.rs	1
 tests/it/capacity_live.rs	2
 tests/it/golden_path.rs	2
-tests/it/run_bounded.rs	1
 tests/it/safe_push_tag.rs	2
-tests/it/stdio.rs	1
 tests/it/support/land_serve_template.rs	1

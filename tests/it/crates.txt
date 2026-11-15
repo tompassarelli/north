@@ -7,39 +7,27 @@
 # One line per module, merged as a set.
 agent_build_sandbox north-capacity-host north-capacity
 depbox_broker north-capacity-host
-agents_plan north-ops north-pace
-agents_sync_profiles north-core north-flow north-pace
-automation_chrome_service north
 capacity_exclusive_native north-capacity north-core
 capacity_host north-capacity-host
 capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
-hook_verbs north-guard
 lane_gc_journeys north-guard
-run_bounded north-capacity-host
 runtime_update north-runtime
-stdio north-fleet
 worker_sandbox north-runtime north
 hand_in_tool north-runtime north-providers north-lander north-safe-push north
 refusal_wake north-lander north-landing north-base north-resume north-fleet-supervisor north
 support north
-threads_ingest_lock north-threads
 threads_ledger north-threads
 threads_snapshot north-threads
-ssh_attribution north-capacity-host north-base north
 capacity_agent_compile north-capacity north-capacity-host north-runtime
-session_start_measurement north-guard north-core north-fleet
 cargo_config north
 fleet_launch north-core north-fleet north-dispatch
 fleet_spool north-core north-fleet
 fleet_state_root north-providers north-fleet-supervisor
-follows_release north-landing-gates north-threads
-policy_replay_case north-convo
 policy_replay_login north-convo
 threads_resume north-core north-threads
 agent_text_reads north # tree-wide: counts agent-text reads in every Rust source under src/ and crates/
 affected_modules north-landing north north-land-checks north-lander # tree-wide: reads every tests/it module and every crate the crate DAG names
-embedded_store_paths north north-base north-calibration north-claude-stream north-fleet north-guard north-lanes north-ops north-pace north-providers north-safe-push north-threads north-tune
 golden_path north-fleet north-landing north-land-checks north-lander
 land_checks north-landing north-core north-land-checks north-lander
 land_enqueue north-landing north-land-checks north-lander

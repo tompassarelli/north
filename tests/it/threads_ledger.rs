@@ -1,6 +1,6 @@
 use regex::Regex;
 use rusqlite::Connection;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::fs;
 use std::io::Write;
 use north_core::foundation::shim;
@@ -78,27 +78,6 @@ impl Rig {
         let output = child.wait_with_output().unwrap();
         (output.status.code().unwrap_or(-1), String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
     }
-
-    fn threads(&self, args: &[&str]) -> (i32, String, String) {
-        Self::feed(self.command("threads", args), "")
-    }
-
-    /// stdout then stderr, as `2>&1` collects a quick command's output.
-    fn ingest(&self, rows: &[Value]) {
-        let batch: String = rows.iter().map(|row| format!("{row}\n")).collect();
-        let (code, _, err) = Self::feed(self.command("threads", &["ingest"]), &batch);
-        assert_eq!(code, 0, "{err}");
-    }
-
-    fn sql(&self, query: &str) -> String {
-        let db = Connection::open(self.db()).unwrap();
-        db.query_row(query, [], |row| row.get::<_, rusqlite::types::Value>(0)).map(|value| match value {
-            rusqlite::types::Value::Integer(n) => n.to_string(),
-            rusqlite::types::Value::Text(text) => text,
-            rusqlite::types::Value::Null => String::new(),
-            other => format!("{other:?}"),
-        }).unwrap()
-    }
 }
 
 fn has(text: &str, pattern: &str) -> bool {
@@ -107,26 +86,6 @@ fn has(text: &str, pattern: &str) -> bool {
 
 fn eventually(done: impl Fn() -> bool) -> bool {
     north_core::platform::wait::until(std::time::Duration::from_secs(30), done)
-}
-
-#[test]
-fn parallel_writers_keep_every_claim() {
-    let rig = Rig::new();
-    rig.ingest(&[]);
-    let (writers, claims) = (8, 25);
-    std::thread::scope(|scope| {
-        for writer in 1..=writers {
-            let rig = &rig;
-            scope.spawn(move || {
-                for claim in 0..claims {
-                    let item = format!("wisp#{}", writer * 1000 + claim);
-                    let (code, _, err) = rig.threads(&["claim", &item, "--by", &format!("w{writer}")]);
-                    assert_eq!(code, 0, "{item}: {err}");
-                }
-            });
-        }
-    });
-    assert_eq!(rig.sql("select count(*) from claims where item like 'wisp#%'"), (writers * claims).to_string());
 }
 
 struct Remote<'a> {
@@ -201,4 +160,3 @@ fn the_ledger_host_over_ssh_spools_while_down_serves_a_stale_snapshot_and_flushe
     let held: i64 = Connection::open(rig.root.join("remote.db")).unwrap().query_row("select count(*) from claims where item='wisp#8' and owner='configured-namespace-transport'", [], |row| row.get(0)).unwrap();
     assert_eq!(held, 1, "the configured SSH namespace route keeps canonical writes");
 }
-

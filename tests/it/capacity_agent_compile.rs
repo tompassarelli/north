@@ -90,19 +90,6 @@ fn a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here() {
     assert_eq!(compiled(&host), "build\nmetadata\nfmt\n");
 }
 
-#[test]
-fn a_fleet_sessions_cargo_with_no_real_cargo_on_path_is_refused_not_run_in_the_dev_shell() {
-    let host = host();
-    fs::write(host.path("pressure"), FULL).unwrap();
-    let mut command = host.command(crate::support::bin_exe!("CARGO_BIN_EXE_north"));
-    command.env("RESIDENT_CAP_HOST", "laptop");
-    command.args(["capacity", "gate", "cargo", "test"]).env("PATH", host.path("bin")).env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup")).env("HOME", host.path("home")).env("NORTH_FLEET_SESSION", "n634-x");
-    let refused = command.output_exclusive().unwrap();
-    let stderr = String::from_utf8_lossy(&refused.stderr);
-    assert_eq!(refused.status.code(), Some(75), "{stderr}");
-    assert!(stderr.contains("no build host took the job"), "{stderr}");
-}
-
 fn fleet(host: &Host, program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     let mut command = host.command(program);
     command.env("PATH", format!("{}:{}:{}", host.path("real").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default()));

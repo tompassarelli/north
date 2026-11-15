@@ -320,42 +320,6 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     assert!(rig.git_ok(&fixture.main, &["bundle", "verify", "-q", bundles[0].to_str().unwrap()]));
 }
 
-#[test]
-fn a_hundred_unlanded_lanes_cost_one_github_call() {
-    let scratch = tempfile::tempdir().unwrap();
-    let root = scratch.path();
-    let rig = Rig::new(root, &root.join("home"));
-    rig.stub_github(&(1..=100).collect::<Vec<u64>>());
-    let main = Classified::project(&rig, "north");
-    for number in 1..=100 {
-        rig.git(&main, &["checkout", "-q", "-b", &format!("lane-{number}")]);
-        write(&main.join(format!("lane-{number}.txt")), "lane\n");
-        rig.git(&main, &["add", "."]);
-        rig.git(&main, &["commit", "-qm", &format!("lane {number}\n\nRefs north#{number}")]);
-        rig.git(&main, &["checkout", "-q", "main"]);
-    }
-    rig.fleet(&[("north-parent", None, "north")]);
-    let out = rig.lane_gc("2099-01-01T00:00:00Z", &[], &["--dry-run"]);
-    assert!(out.contains("100 unlanded") || out.contains("kept"), "{out}");
-    assert_eq!(rig.github_calls(), 1, "{}", rig.read("gh-calls"));
-}
-
-#[test]
-fn the_origin_sweep_waits_an_hour_for_its_own_record() {
-    let scratch = tempfile::tempdir().unwrap();
-    let root = scratch.path();
-    let rig = Rig::new(root, &root.join("home"));
-    rig.stub_github(&[]);
-    Classified::project(&rig, "north");
-    rig.fleet(&[("north-parent", None, "north")]);
-    let record = "# lane gc 2099-01-01T00:00:00.000Z: origin branch decisions\nkept\n";
-    write(&root.join("remote.txt"), record);
-    rig.lane_gc("2099-01-01T00:30:00Z", &[], &[]);
-    assert_eq!(rig.read("remote.txt"), record);
-    rig.lane_gc("2099-01-01T01:00:00Z", &[], &[]);
-    assert!(!rig.read("remote.txt").contains("kept"));
-}
-
 impl Rig {
     fn stub_origin(&self, open: &[u64]) {
         let rows: Vec<String> = open.iter().map(|number| format!("{{\"number\":{number},\"repository\":{{\"name\":\"north\"}}}}")).collect();

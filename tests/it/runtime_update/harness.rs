@@ -119,10 +119,6 @@ impl Host {
         self.run(args, sync_status, alert_status, &[])
     }
 
-    pub fn north_with(&self, args: &[&str], environment: &[(&str, &str)]) -> Output {
-        self.run(args, 0, 0, environment)
-    }
-
     pub fn run(&self, args: &[&str], sync_status: u8, alert_status: u8, environment: &[(&str, &str)]) -> Output {
         let isolated = !self.path("bin/agents").exists();
         let path = match isolated {
@@ -150,10 +146,4 @@ impl Host {
             .output()
             .unwrap()
     }
-}
-
-pub fn fleet(host: &Host, hosts: &str) -> PathBuf {
-    let orchestration = host.path("orchestration.toml");
-    fs::write(&orchestration, hosts).unwrap();
-    orchestration
 }

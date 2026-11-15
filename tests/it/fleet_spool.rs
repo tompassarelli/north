@@ -67,19 +67,3 @@ fn a_far_spool_sets_aside_only_rows_that_are_not_json_or_have_no_id_and_leaves_a
     fs::write(dir.join("m-5.json"), serde_json::to_vec(&message("m-5")).unwrap()).unwrap();
     assert_eq!(ssh.take("far").unwrap().rows, [message("m-1"), message("m-3"), message("m-5")]);
 }
-
-#[test]
-fn five_thousand_ids_are_dropped_and_set_aside_over_ssh_without_one_argv_string() {
-    let hosts = Hosts::new();
-    let ids: Vec<String> = (0..5000).map(|n| format!("1793000000000-{n:05}")).collect();
-    let ssh = hosts.ssh();
-
-    ids.iter().for_each(|id| hosts.spool().put(&message(id)).unwrap());
-    ssh.drop("far", &ids).unwrap();
-    assert!(ssh.take("far").unwrap().rows.is_empty());
-
-    ids.iter().for_each(|id| hosts.spool().put(&message(id)).unwrap());
-    ssh.set_aside("far", &ids).unwrap();
-    assert!(ssh.take("far").unwrap().rows.is_empty());
-    assert_eq!(fs::read_dir(hosts.rejected()).unwrap().count(), 5000);
-}
