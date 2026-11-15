@@ -177,6 +177,11 @@ reason = "starts the dependency box or a worker sandbox, which a remote worker c
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
+name = "capacity_live::a_run_past_its_timeout_has_its_scope_and_every_descendant_killed"
+reason = "runs a capacity run in a live systemd user scope and waits for it to kill its descendants, which on a slowed hosted runner never starts its command inside the 120 s case limit (north#1578)"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
 name = "carry_matrix::carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_exits_127_for_a_missing_program"
 reason = "starts the dependency box or a worker sandbox, which a remote worker cannot: bwrap there fails with Can't mount proc on /proc"
 test = "it"
@@ -189,6 +194,16 @@ test = "it"
 [[package.metadata.north.buck.host-cases]]
 name = "golden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client"
 reason = "its after-landing run starts the candidate jail, whose mounts a remote worker refuses: bwrap: Failed to make / slave: Operation not permitted"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "threads_ledger::the_ledger_host_over_ssh_spools_while_down_serves_a_stale_snapshot_and_flushes_in_order"
+reason = "reaches a fixture ledger host over ssh and waits on a detached snapshot pull, which on a slowed hosted runner does not land inside the 120 s case limit (north#1578)"
+test = "it"
+
+[[package.metadata.north.buck.host-cases]]
+name = "threads_resume::an_expired_claim_stays_held_for_its_live_holder_here_and_through_the_ledger_host"
+reason = "reaches a fixture ledger host over ssh and waits on a detached snapshot pull, which on a slowed hosted runner does not land inside the 120 s case limit (north#1578)"
 test = "it"
 
 [[package.metadata.north.buck.host-cases]]
