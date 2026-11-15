@@ -1,3 +1,4 @@
+use clap::Parser;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,28 +11,23 @@ use north_base::land_ticket::{self, Phase};
 
 const USAGE: &str = "usage: north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]";
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
 struct Options {
     ticket: String,
+    #[arg(long, allow_hyphen_values = true, default_value = "")]
     reason: String,
+    #[arg(long, allow_hyphen_values = true, default_value = ".")]
     repo: PathBuf,
+    #[arg(long, allow_hyphen_values = true, default_value = "coordinator")]
     noticed_by: String,
+    #[arg(long, allow_hyphen_values = true, default_value = "lander-withdrawn")]
     class: String,
 }
 
 fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { ticket: String::new(), reason: String::new(), repo: PathBuf::from("."), noticed_by: "coordinator".into(), class: "lander-withdrawn".into() };
-    let mut rest = arguments.iter();
-    while let Some(argument) = rest.next() {
-        match argument.as_str() {
-            "--reason" => options.reason.clone_from(rest.next()?),
-            "--repo" => options.repo = PathBuf::from(rest.next()?),
-            "--noticed-by" => options.noticed_by.clone_from(rest.next()?),
-            "--class" => options.class.clone_from(rest.next()?),
-            word if word.starts_with('-') || !options.ticket.is_empty() => return None,
-            word => options.ticket = word.to_owned(),
-        }
-    }
-    (!options.ticket.is_empty() && !options.reason.trim().is_empty() && !options.noticed_by.is_empty() && !options.class.is_empty()).then_some(options)
+    let options = Options::try_parse_from(arguments).ok()?;
+    (!options.reason.trim().is_empty() && !options.noticed_by.is_empty() && !options.class.is_empty()).then_some(options)
 }
 
 /// The queued ticket TICKET names, by file name with or without `.json` or by branch, newest first,
