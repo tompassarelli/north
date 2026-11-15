@@ -371,7 +371,7 @@ pub fn fails_first(root: &Path, base: &str, head: &str, north: &str) -> Result<(
     }
     let config = judged::config(root, base, head);
     let queued = queue_commands(root, base, head)?;
-    let commands: Vec<String> = config.added_since(&Config::load(root, base)).commands(root, base, head)?.into_iter().filter(|command| !queued.contains(&shared_build::built(command))).collect();
+    let commands: Vec<String> = config.added_since(&Config::load(root, base)).commands(root, base, head)?.into_iter().filter(|command| !queued.contains(&shared_build::built(command)) && !super::unit_reuse::runs_tests(command)).collect();
     if commands.is_empty() {
         return Ok(());
     }
@@ -383,6 +383,7 @@ pub fn fails_first(root: &Path, base: &str, head: &str, north: &str) -> Result<(
             say("safe-push: a land check this lane adds reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane");
             Ok(())
         }
+        north_base::foundation::exit::SLOTS_BUSY_STATUS => Err(format!("a land check this lane adds waits past every build host's slot line deadline (exit {status}), so the lane is not queued unchecked; run safe-push again once a build host has room")),
         _ => Err(format!("a land check this lane adds exited {status}")),
     }
 }

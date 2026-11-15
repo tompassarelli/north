@@ -325,6 +325,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         })?;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran, check: environment.session.and_then(|session| super::after::leaf::passed(&FinishRecords::here(), session, &root, &head)) };
         let queued_micros = micros();
+        let after_landing = runner::tests_after_landing(&root, &base, &lane_head);
         let ticket = Ticket {
             origin: origin.clone(),
             root: root.clone(),
@@ -342,8 +343,8 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             published: published(&root, &branch, &destination),
             gated_from,
             hand_in: Some(hand_in),
-            tests_after_landing: runner::tests_after_landing(&root, &base, &lane_head),
-            ..checked_alone(&root, head, &checked_tree, gate, &base)
+            tests_after_landing: after_landing,
+            ..checked_alone(&root, head, &checked_tree, gate, &base, after_landing)
         };
         let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
         let path = directory.join(queue::file_name(queued_micros, &branch));

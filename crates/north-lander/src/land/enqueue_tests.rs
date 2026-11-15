@@ -279,7 +279,7 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
     let bounded = commit(repo, "widen a worker sandbox grant");
     let kept = crate::land::slots::runner::queue_commands(repo, &base, &bounded).unwrap();
-    assert!(kept.iter().any(|command| command.contains("cargo nextest run")), "a lane that changes a trust-boundary path keeps its test line before queueing: {kept:#?}");
+    assert!(kept.iter().all(|command| !command.contains("cargo nextest run")), "a lane that changes a trust-boundary path runs its test line in the lander's alone check, never before queueing: {kept:#?}");
     assert!(queued.iter().all(|command| !command.contains("--shadow")), "a shadow line gates nothing and runs after landing, so none is run before queueing: {queued:#?}");
     let (store, entry) = ("~/.local/share/makgora-build-inputs/store", "14fbf7845b5d9c9705d0f0b4b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
     fs::create_dir_all(repo.join("build-inputs")).unwrap();

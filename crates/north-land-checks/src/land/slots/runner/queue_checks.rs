@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::super::clippy_first;
 use super::super::judged;
+use super::super::unit_reuse;
 use super::super::verdict_key;
 use super::line_refusals::Refusals;
 use super::log::{first_error, last_error};
@@ -18,25 +19,18 @@ const TESTS_AFTER_LANDING: &str = "tests_after_landing";
 /// The line window the checks before queueing wait in per placement; a spent window starts over, so the hand-in waits for a slot until its command ends, such as a lead's 30-minute background cap (north#1508).
 const LINE_SECONDS: u64 = 180;
 
-/// The checks a lane runs alone before its ticket is written: its clippy (build and link), the
-/// `@enqueue` land.check lines, and the land test selection the batch would otherwise run unless `tests_after_landing`
-/// leaves it to the run after landing (north#1036), or the
-/// land.check lines themselves when none of them reads a test selection, so a lane is never vouched
-/// for on tests that did not run (north#1230). Read without running them, so a test can pin the set
-/// (north#892).
+/// The checks a lane runs alone before its ticket is written: its clippy (build and link) and the `@enqueue` land.check
+/// lines, which are scans. No test runs here (north#1508): a lane's test line runs after it lands, or on a trust-boundary
+/// path in the lander's alone check before the lane joins a batch.
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = judged::config(root, base, head);
     let landing = config.after_set().commands(root, base, head)?;
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
-    let queued: Vec<String> = queued_lines.iter().map(|command| shared_build::built(command)).collect();
-    let tests = match lane_tests(&landing) {
-        Some(line) if leaves_tests(root, base, head, &line) => Vec::new(),
-        Some(selected) => vec![selected],
-        None => config.commands(root, base, head)?.iter().map(|command| shared_build::built(command)).collect(),
-    };
+    let unread = !landing.iter().any(|command| verdict_key::reads_it(std::slice::from_ref(command)));
+    let untested = if unread { config.commands(root, base, head)?.into_iter().filter(|command| !unit_reuse::runs_tests(command)).collect() } else { Vec::new() };
     let mut commands: Vec<String> = clippy.into_iter().collect();
-    for command in queued.into_iter().chain(tests) {
+    for command in queued_lines.iter().chain(&untested).map(|command| shared_build::built(command)) {
         if !commands.contains(&command) {
             commands.push(command);
         }
@@ -267,21 +261,9 @@ fn off_base(root: &Path, base: &str, head: &str) -> String {
     format!("; the checks ran against base {base}, which the lane's history does not contain: the lane stays on its older base when it cannot be rebased in place; rebase it onto {base} and hand in again")
 }
 
-fn lane_tests(landing: &[String]) -> Option<String> {
-    landing.iter().find(|command| verdict_key::reads_it(std::slice::from_ref(command))).cloned()
-}
-
 pub fn tests_after_landing(root: &Path, base: &str, head: &str) -> bool {
-    let Ok(landing) = Config::load(root, head).after_set().commands(root, base, head) else { return false };
-    lane_tests(&landing).is_some_and(|line| leaves_tests(root, base, head, &line))
-}
-
-fn leaves_tests(root: &Path, base: &str, head: &str, line: &str) -> bool {
-    let setting = |key: &str| document(DEFAULTS).get(key).and_then(|entry| entry.get("value"));
-    if setting(TESTS_AFTER_LANDING).and_then(toml_edit::Item::as_str) != Some("on") || Config::load(root, base).after_only_reason(line).is_none() {
-        return false;
-    }
-    changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(document(DEFAULTS), &files).is_some_and(|crossing| crossing.is_empty()))
+    let on = document(DEFAULTS).get(TESTS_AFTER_LANDING).and_then(|entry| entry.get("value")).and_then(toml_edit::Item::as_str) == Some("on");
+    on && changed(root, base, head, &[]).is_ok_and(|files| trust_boundary::crossing(document(DEFAULTS), &files).is_some_and(|crossing| crossing.is_empty()))
 }
 
 #[cfg(test)]
