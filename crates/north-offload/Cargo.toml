@@ -26,3 +26,7 @@ toml_edit.workspace = true
 
 [lints]
 workspace = true
+
+[[package.metadata.north.buck.host-cases]]
+name = "land_offload::ship::tests::a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue_and_ends_it_with_its_check_and_a_held_slot_takes_only_jobs_with_its_token_while_its_caller_lives"
+reason = "waits 10 s for a nested job's slot to free, which on a slowed hosted runner it did not: hosted run 43723570346 failed it, while it passes on a build host (north#1632)"

@@ -794,6 +794,7 @@ north_rust_test(
         "worker_sandbox::a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_directory_north_706",
         "worker_sandbox::a_lane_created_after_the_session_started_runs_its_scripts_in_a_fresh_domain_that_hides_every_older_lane_north_1033",
         "worker_sandbox::a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_lock_north_1172",
+        "fleet_launch::a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is",
     ],
     deps = [
         "//crates/north-base:north-base",
