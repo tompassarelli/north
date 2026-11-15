@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use north_base::foundation::clock::Timestamp;
-use north_base::platform::{session_scope, socket_peer};
+use north_base::foundation::socket_peer;
+use north_base::platform::session_scope;
 use north_base::platform::broker_wire::{Request, Response, read_request, write_response};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

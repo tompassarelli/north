@@ -23,7 +23,9 @@ rust_library(
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
+        "//third-party:nix",
         "//third-party:regex",
+        "//third-party:rustix",
         "//third-party:serde",
         "//third-party:serde_json",
         "//third-party:thiserror",
@@ -41,7 +43,9 @@ north_rust_test(
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     deps = [
+        "//third-party:nix",
         "//third-party:regex",
+        "//third-party:rustix",
         "//third-party:serde",
         "//third-party:serde_json",
         "//third-party:tempfile",

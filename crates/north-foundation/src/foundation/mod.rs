@@ -13,5 +13,6 @@ pub mod offload;
 pub mod pair;
 pub mod redact;
 pub mod shim;
+pub mod socket_peer;
 pub mod stale_rewrites;
 pub mod step;

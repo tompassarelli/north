@@ -1096,7 +1096,6 @@ name = "north-base"
 version = "0.1.0"
 dependencies = [
  "base64",
- "nix 0.31.3",
  "north-foundation",
  "north-shared-config",
  "north-strategy-types",
@@ -1543,7 +1542,9 @@ dependencies = [
 name = "north-foundation"
 version = "0.1.0"
 dependencies = [
+ "nix 0.31.3",
  "regex",
+ "rustix 0.38.44",
  "serde",
  "serde_json",
  "tempfile",
