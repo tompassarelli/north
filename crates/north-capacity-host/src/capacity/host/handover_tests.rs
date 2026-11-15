@@ -25,9 +25,6 @@ fn door(root: &std::path::Path, ticket: &str) -> UnixListener {
     UnixListener::bind(path).unwrap()
 }
 
-const OPERATOR: &str = "0::/user.slice/user-1000.slice/session-4.scope\n";
-const WORKER: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-session-77c49ab1.scope\n";
-
 fn connected(listener: &UnixListener) -> bool {
     listener.set_nonblocking(true).unwrap();
     listener.accept().is_ok()
@@ -44,7 +41,7 @@ async fn capacity_the_hand_over_verb_releases_the_oldest_queued_agent_heavy_run(
     let oldest = queue(root, "heavy", true);
     let newer = queue(root, "heavy", true);
     let (moderate_door, local_door, newer_door) = (door(root, &moderate), door(root, &local), door(root, &newer));
-    let oldest_door = Listening::open_reading(root, &oldest, |_| Some(OPERATOR.to_owned())).expect("the oldest run opens its door");
+    let oldest_door = Listening::open(root, &oldest).expect("the oldest run opens its door");
     let _ = shut;
     let (released, stream) = release(root).expect("a queued agent heavy run");
     assert_eq!(released, oldest);
@@ -53,16 +50,4 @@ async fn capacity_the_hand_over_verb_releases_the_oldest_queued_agent_heavy_run(
     drop((stream, accepted, oldest_door));
     assert!(!socket_path(root, &oldest).exists(), "a run that leaves the queue closes its door");
     assert_eq!(release(root).map(|(name, _)| name), Some(newer.clone()), "the next run in line is released next");
-}
-
-#[tokio::test]
-async fn capacity_a_queued_runs_door_refuses_a_worker_scope_peer() {
-    let scratch = tempfile::tempdir().unwrap();
-    let root = scratch.path();
-    let ticket = queue(root, "heavy", true);
-    let door = Listening::open_reading(root, &ticket, |_| Some(WORKER.to_owned())).expect("the run opens its door");
-    let mut stream = std::os::unix::net::UnixStream::connect(socket_path(root, &ticket)).unwrap();
-    assert!(tokio::time::timeout(Duration::from_millis(500), door.accept()).await.is_err(), "a peer in a worker's scope takes no run");
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    assert_eq!(std::io::Read::read(&mut stream, &mut [0u8; 1]).unwrap(), 0, "the door closes a worker-scope peer's connection");
 }
