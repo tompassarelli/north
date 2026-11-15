@@ -66,7 +66,7 @@ fn command(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result
         _ => (false, flags),
     };
     let [named] = rest else { return Err(failed(64, USAGE)) };
-    if !full_sha(named) {
+    if named.len() != 40 || !full_sha(named) {
         return Err(failed(64, format!("{named} is not a full commit sha; accept the sha that north runtime review-fetch printed\n{USAGE}")));
     }
     if !settles {

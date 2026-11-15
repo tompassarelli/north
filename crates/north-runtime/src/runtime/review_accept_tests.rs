@@ -9,7 +9,9 @@ fn a_review_accept_request_carries_a_patch_id_alone_and_is_recorded_for_the_call
     assert!(Accept::asked(&words(&["review-accept", "main"])).is_some_and(|asked| asked.is_err()));
     assert!(Accept::asked(&words(&["review-accept", PATCH, "reviewer-b"])).is_some_and(|asked| asked.is_err()));
     assert_eq!(Accept::asked(&words(&["review-hold", "lift"])), None);
-    assert!(command(&["abc1234".to_owned()], true, |_: Accept| -> Result<String, String> { panic!("a short sha reached the accept") }).is_err(), "an accept names a full sha, never a short name a worker could plant");
+    for name in ["abc1234", &"a".repeat(64)] {
+        assert!(command(&[name.to_owned()], true, |_: Accept| -> Result<String, String> { panic!("a name that is not a 40-digit sha reached the accept") }).is_err(), "an accept names a 40-digit sha, never a short name or a 64-digit name a worker could plant");
+    }
 
     let store = tempfile::tempdir().unwrap();
     let accepts = Accepts(store.path().join("accepts"));
