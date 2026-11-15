@@ -370,6 +370,35 @@ the box's 30 s. A whole-suite `buck2 test //...` cannot be run by hand from an o
 exits 1 at once (the host-case targets take the local executor by design), and without it the slot, which has no
 network, fails 177 third-party crate downloads and runs no test (cpx62b, 953661e2a5, 2026-11-14).
 
+### Tests, Measured: parity run, 2026-11-15, commit de46919d1f
+
+Both sides from a worker seat on gex45 at one commit, de46919d1f5c3ba53fc77ececb73cfeb6cb11654. A seat is itself a
+user namespace, so the dependency box and every worker sandbox cannot nest in it, and an offload slot of gex45 fails
+the same way (`bwrap: setting up uid map: Permission denied`); cpx62b is no host a seat reaches. So the verdicts of
+the host cases below are the seat's, not the landing's.
+
+- Buck2: `north land crate-tests after-landing`, the run the lander makes, ran `buck2 test --remote-only
+  --unstable-allow-compatible-tests-on-re` over 68 crates (the 69 of 2026-11-14 less one, `north-replay`, with no
+  Buck2 package): exit 0, 90 targets passed, 0 failed, 1072 cases run, 1072 passed, 33 skipped. `buck2 test //...`
+  itself still exits 1 at once under `--remote-only` (`The desired execution strategy (RemoteOnly) is incompatible
+  with the executor config that was selected`, the host-case targets), so the per-crate form is the whole suite.
+- Cargo: `cargo nextest run --workspace --no-fail-fast` in `bin/land-shell --dev`: 1104 cases run, 1091 passed (2 of
+  them leaky), 13 failed, 1 skipped, in 81 s of test time.
+- Count: 1072 Buck2 cases and the 32 entries of `build/host-cases.list` make 1104, nextest's count. The list holds
+  32 entries at this commit, not the 27 of 2026-11-14: 4 in north-base, 17 in `north::it`, 3 in north-lanes, 6 in
+  north-runtime, one in north-lander and one in `north-providers::opencode_lane` (this commit's list, by name).
+- Names: Buck2's 1072 are all among nextest's 1104, and the 32 cases only nextest ran are exactly the 32 host cases;
+  no case ran on Buck2 only, and `north buck compare-cases` for north-trusted-mirror and north-unblocks reports 0
+  cases on each side, exit 0.
+- Verdicts: Buck2 passed all 1072. Nextest failed 13 in the seat, each on `bwrap: Failed to make / slave` or
+  `mount /: Operation not permitted`: 12 are host cases, and the 13th, `north::it worker_sandbox::
+  a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_name_south_86`, passed under Buck2.
+  `north land crate-tests host-cases` in the seat ran the 32 and passed 20, the 12 being the same. The lander's own
+  runs pass the host-case step (29 of 29 at the check of 2026-11-15 07:14), on an affected subset, so the verdicts of
+  the 32 at this commit in the landing's context are still unread, and box 5g stays open for them.
+- `root//:north-test-it` took 17.0 s in this run (13 commands remote, 1416 cached), under the box's 30 s; the 35.7 s
+  of 2026-11-14 was the cold run.
+
 ### The 51 by cause, 2026-11-12
 
 At origin/main c013d6124c on gex45, tests on the workers: 1813 cases, 1762 passed and 51 failed, in 126 s. Each
