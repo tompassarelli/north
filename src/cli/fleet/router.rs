@@ -18,7 +18,6 @@ use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::providers::opencode::Deepseek;
 use crate::providers::pi::PI;
-use crate::ledger::Ledger;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
@@ -51,7 +50,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
         _ => None,
     };
     let result = listed.unwrap_or_else(|| {
-        open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
+        open_fleet_claiming(ThreadsCli::for_verb(arguments), &words).and_then(|fleet| {
             crate::cli::gate_closing::close_moot(&fleet);
             sweep_gates(&fleet);
             release_exited_claims(&fleet, arguments);
@@ -96,11 +95,12 @@ pub(in crate::cli) fn account_home(provider: &str, label: &str) -> Option<std::p
 }
 
 pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
-    open_fleet_claiming(ThreadsCli::new())
+    open_fleet_claiming(ThreadsCli::new(), &[])
 }
 
-fn open_fleet_claiming(claims: ThreadsCli) -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).reckoning_with(Arc::new(super::promises::Laptop)).showing_proxy_on(Arc::new(desktop::Desktop)).following_rewrites(Arc::new(super::rewrites::Recorded)))
+fn open_fleet_claiming(claims: ThreadsCli, words: &[&str]) -> NorthResult<Fleet> {
+    let ledger = send::ledger_for(words)?;
+    Fleet::open(runtimes(), Arc::new(ledger), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).reckoning_with(Arc::new(super::promises::Laptop)).showing_proxy_on(Arc::new(desktop::Desktop)).following_rewrites(Arc::new(super::rewrites::Recorded)))
 }
 
 fn far_machine(host: &str) -> bool {

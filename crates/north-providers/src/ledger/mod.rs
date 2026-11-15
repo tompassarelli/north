@@ -218,18 +218,22 @@ impl Ledger {
     }
 
     pub fn open_default() -> NorthResult<Self> {
-        Self::open(&carried::default_ledger().ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?)
+        Self::open(&default_path()?)
+    }
+
+    pub fn open_default_for_sending() -> NorthResult<Self> {
+        Self::open_within(&default_path()?, LOCK_WAIT, Read::Checkpointed)
     }
 
     pub fn open(path: &Path) -> NorthResult<Self> {
-        Self::open_within(path, LOCK_WAIT)
+        Self::open_within(path, LOCK_WAIT, Read::Live)
     }
 
-    fn open_within(path: &Path, lock_wait: Duration) -> NorthResult<Self> {
+    fn open_within(path: &Path, lock_wait: Duration, read: Read) -> NorthResult<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let conn = connect(path, lock_wait)?;
+        let conn = connect(path, lock_wait, read)?;
         if !conn.is_readonly(rusqlite::MAIN_DB).map_err(sql)? && schema_version(&conn).map_err(sql)? < SCHEMA_VERSION {
             let migration = std::fs::File::create(migration_lock(path))?;
             migration.lock()?;
@@ -440,8 +444,18 @@ fn sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// SQLite's read-only fallback cannot read a WAL database while no process holds its WAL files open, so a seat that may not write the ledger reads the checkpointed file as immutable.
-fn connect(path: &Path, lock_wait: Duration) -> NorthResult<Connection> {
+/// SQLite's read-only fallback cannot read a WAL database while no process holds its WAL files open; a send from a seat that may not write the ledger reads the checkpointed file as immutable, and no other open does, since that read can be stale.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Read {
+    Live,
+    Checkpointed,
+}
+
+fn default_path() -> NorthResult<PathBuf> {
+    carried::default_ledger().ok_or_else(|| NorthError::Configuration("HOME is not set".into()))
+}
+
+fn connect(path: &Path, lock_wait: Duration, read: Read) -> NorthResult<Connection> {
     let configure = |conn: Connection| -> rusqlite::Result<Connection> {
         conn.busy_timeout(lock_wait)?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
@@ -449,7 +463,7 @@ fn connect(path: &Path, lock_wait: Duration) -> NorthResult<Connection> {
     };
     match Connection::open(path).and_then(configure) {
         Ok(conn) => Ok(conn),
-        Err(error) if std::fs::OpenOptions::new().write(true).open(path).is_err_and(|denied| denied.kind() == std::io::ErrorKind::PermissionDenied) => {
+        Err(error) if read == Read::Checkpointed && std::fs::OpenOptions::new().write(true).open(path).is_err_and(|denied| denied.kind() == std::io::ErrorKind::PermissionDenied) => {
             let uri = format!("file:{}?immutable=1", path.display());
             let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI;
             Connection::open_with_flags(uri, flags).and_then(configure).map_err(|_| sql(error))

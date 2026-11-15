@@ -6,6 +6,13 @@ use crate::fleet::sender::Sender;
 
 const SEND_USAGE: &str = "Usage: north fleet send [--now] [--from service:UNIT [--key CONDITION [--cleared]]] NAME TEXT...";
 
+pub fn ledger_for(words: &[&str]) -> NorthResult<crate::ledger::Ledger> {
+    match words {
+        ["send", ..] => crate::ledger::Ledger::open_default_for_sending(),
+        _ => crate::ledger::Ledger::open_default(),
+    }
+}
+
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let (flags, rest) = leading_flags(words)?;
     let condition = condition(&flags)?;
