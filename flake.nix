@@ -19,10 +19,10 @@
               (
                 rustToolchain:
                 let
+                  gateShims = pkgs.runCommandLocal "capacity-gate-shims" { }
+                    "install -Dm755 ${./bin/cargo} $out/bin/cargo; install -Dm755 ${./bin/cargo} $out/bin/bun";
                   devPackages = [
-                    (pkgs.runCommandLocal "capacity-gate-shims" { }
-                      "install -Dm755 ${./bin/cargo} $out/bin/cargo; install -Dm755 ${./bin/cargo} $out/bin/bun"
-                    )
+                    gateShims
                     rustToolchain
                     pkgs.buck2
                     pkgs.shellcheck
@@ -57,7 +57,7 @@
                       python3 = ${pkgs.python3}/bin/python3
                     [north]
                       test_path = ${
-                        pkgs.lib.makeBinPath (devPackages ++ [ pkgs.git ] ++ pkgs.stdenv.initialPath)
+                        pkgs.lib.makeBinPath (builtins.filter (package: package != gateShims) devPackages ++ [ pkgs.git ] ++ pkgs.stdenv.initialPath)
                       }:/run/wrappers/bin:/run/current-system/sw/bin
                   '';
                   setup = pkgs.writeShellApplication {

@@ -2,9 +2,11 @@
 # north capacity gate shim: the real program is the next one on PATH that is not a shim
 name=${0##*/}
 if [ "$name" != rustc ] || [ -z "${CARGO_MANIFEST_DIR:-}" ]; then
-  if north capacity gate --class "$0" >/dev/null 2>&1; then
-    exec north capacity gate "$0" "$@"
+  if ! north capacity gate --class "$0" >/dev/null 2>&1; then
+    printf '%s: north capacity gate cannot be asked here, so the real %s does not run outside the gate (infrastructure, exit 75)\n' "$name" "$name" >&2
+    exit 75
   fi
+  exec north capacity gate "$0" "$@"
 fi
 self=$(readlink -f "$0")
 IFS=:

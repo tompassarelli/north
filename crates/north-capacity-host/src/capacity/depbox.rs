@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use super::carry::{self, Boundary};
 use super::depbox_broker;
 use super::depbox_check;
-use super::depbox_mode::Mode;
+use super::depbox_mode::{Mode, in_sandbox, pid_namespace_depth};
 use super::dev_shell;
 use super::effects::Host;
 use super::gate::{self, LEASED};
@@ -43,8 +43,9 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
     {
         return depbox_check::run(command);
     }
-    if let Some(inside) = std::env::var(MARK).ok().filter(|value| !value.is_empty()) {
-        let (mode, top) = inside.split_once(':').unwrap_or((&inside, ""));
+    let sandbox = std::env::var(MARK).unwrap_or_default();
+    if in_sandbox(&sandbox, pid_namespace_depth()) {
+        let (mode, top) = sandbox.split_once(':').unwrap_or((&sandbox, ""));
         if let [word, marker, command @ ..] = arguments
             && word == mode
             && marker == "--"
