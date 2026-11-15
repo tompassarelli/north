@@ -87,12 +87,53 @@ pub fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     pending.persist(path).map(|_| ()).map_err(|error| error.to_string())
 }
 
-pub struct Phone;
+const NTFY_TOKEN_FILE: &str = "/run/secrets/ntfy-publisher-token";
+
+pub struct Publisher {
+    pub url: Option<String>,
+    pub token: Option<String>,
+    pub curl: String,
+    pub nexus_alert: String,
+}
+
+impl Publisher {
+    pub fn from_env() -> Self {
+        let url = std::env::var("NEXUS_ALERT_NTFY_URL").ok().filter(|url| !url.is_empty());
+        let token_file = std::env::var("NEXUS_ALERT_NTFY_TOKEN_FILE").unwrap_or_else(|_| NTFY_TOKEN_FILE.to_owned());
+        let token = std::fs::read_to_string(token_file).ok().map(|token| token.trim().to_owned()).filter(|token| !token.is_empty());
+        Self { url, token, curl: "curl".to_owned(), nexus_alert: "nexus-alert".to_owned() }
+    }
+
+    fn publish(&self, url: &str, token: &str, title: &str, text: &str) -> Result<(), String> {
+        let mut headers = tempfile::NamedTempFile::new().map_err(|error| format!("phone headers: {error}"))?;
+        std::io::Write::write_all(&mut headers, format!("Authorization: Bearer {token}\nPriority: 2\nTitle: {title}\n").as_bytes()).map_err(|error| format!("phone headers: {error}"))?;
+        headers.as_file().sync_all().map_err(|error| format!("phone headers: {error}"))?;
+        let header = format!("@{}", headers.path().display());
+        let url = format!("{}/normal", url.trim_end_matches('/'));
+        let output = run_within(&self.curl, &["-fsS", "-m", "20", "-H", &header, "--data-binary", text, &url], REMOTE_WAIT).ok_or("the publisher did not run")?;
+        output.status.success().then_some(()).ok_or_else(|| format!("publisher: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+
+    fn via_nexus_alert(&self, title: &str, text: &str) -> Result<(), String> {
+        let output = run_within(&self.nexus_alert, &["normal", text, title], REMOTE_WAIT).ok_or("nexus-alert did not return in time")?;
+        output.status.success().then_some(()).ok_or_else(|| format!("nexus-alert: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+pub struct Phone {
+    pub publisher: Publisher,
+}
 
 impl Phone {
+    pub fn from_env() -> Self {
+        Self { publisher: Publisher::from_env() }
+    }
+
     pub fn phone(&mut self, title: &str, text: &str) -> Result<(), String> {
-        let output = run_within("nexus-alert", &["normal", text, title], REMOTE_WAIT).ok_or("nexus-alert did not return in time")?;
-        output.status.success().then_some(()).ok_or_else(|| format!("nexus-alert: {}", String::from_utf8_lossy(&output.stderr).trim()))
+        match (self.publisher.url.as_deref(), self.publisher.token.as_deref()) {
+            (Some(url), Some(token)) => self.publisher.publish(url, token, title, text),
+            _ => self.publisher.via_nexus_alert(title, text),
+        }
     }
 
     pub fn coordinator(&mut self, session: &str, text: &str) -> Result<(), String> {

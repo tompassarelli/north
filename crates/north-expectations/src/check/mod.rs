@@ -156,7 +156,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     if drill {
         let directory = placement::pace_directory();
-        let outcome = synthetic(&roster, &mut Phone, &directory, &host::name());
+        let outcome = synthetic(&roster, &mut Phone::from_env(), &directory, &host::name());
         outcome.lines.iter().for_each(|line| println!("{line}"));
         return u8::from(outcome.failed);
     }
@@ -165,7 +165,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let role = if host == "nexus" { "nexus" } else { "elsewhere" };
     let machine = Machine { directory: directory.clone(), host: host.clone(), at: Timestamp::now().unix_seconds_f64() };
     let mut breaches = load();
-    let outcome = tick(&roster, role, &machine, &mut Phone, &mut breaches, dry_run);
+    let outcome = tick(&roster, role, &machine, &mut Phone::from_env(), &mut breaches, dry_run);
     outcome.lines.iter().for_each(|line| println!("{line}"));
     if dry_run {
         return u8::from(outcome.failed);
