@@ -4,6 +4,7 @@ mod audit_rows;
 mod content;
 mod evidence;
 mod exec;
+mod fleet_reach;
 mod half;
 mod judged;
 mod liveness;
@@ -63,6 +64,7 @@ pub(super) struct Options {
     idle_hours: f64,
     state: PathBuf,
     archive: PathBuf,
+    sessions_stdin: bool,
 }
 
 #[derive(Debug, Default)]
@@ -121,6 +123,7 @@ fn parse(arguments: &[String], home: &Path) -> Parsed {
         idle_hours: 3.0,
         state: home.join(".local/state/agents/lane-gc/unlanded.txt"),
         archive: home.join("archive/lanes"),
+        sessions_stdin: false,
     };
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
@@ -128,6 +131,7 @@ fn parse(arguments: &[String], home: &Path) -> Parsed {
         match word.as_str() {
             "--remote" => options.remote = true,
             "--dry-run" => options.dry_run = true,
+            "--sessions-stdin" => options.sessions_stdin = true,
             "--repo" => options.repos.push(value()),
             "--root" => options.root = PathBuf::from(value()),
             "--idle-hours" => options.idle_hours = value().parse().unwrap_or(f64::NAN),
@@ -198,7 +202,11 @@ pub fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let _ = std::env::set_current_dir(&home);
     let stale = std::env::var_os("LANE_GC_STALE_FILE").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/stale.json"), PathBuf::from);
-    run_in(&home, Inputs { fleet: None, now_ms: now_ms(), stale, proc_root: PathBuf::from("/proc") }, arguments)
+    let code = run_in(&home, Inputs { fleet: None, now_ms: now_ms(), stale, proc_root: PathBuf::from("/proc") }, arguments);
+    if code == 0 && fleet_reach::on_registry_host(&home) && !arguments.iter().any(|word| word == "--sessions-stdin" || word == "--remote") {
+        fleet_reach::sweep_build_hosts(&home, arguments.iter().any(|word| word == "--dry-run"));
+    }
+    code
 }
 
 pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
@@ -208,6 +216,17 @@ pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
         Parsed::Sweep(options) => options,
         Parsed::Exit(code) => return code,
     };
+    let known = fleet.is_some();
+    let fleet = match fleet_reach::supplied(options.sessions_stdin, fleet) {
+        Ok(fleet) => fleet,
+        Err(error) => {
+            eprintln!("lane gc: {error}");
+            return 1;
+        }
+    };
+    if fleet_reach::refuses(fleet.is_some(), &home) {
+        return 0;
+    }
     let containers = match containers(&options.root, &options.repos) {
         Ok(containers) => containers,
         Err(error) => {
@@ -218,7 +237,6 @@ pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
     let mut stale = StaleReport::load(&stale_path);
     stale.notices = Vec::new();
     stale.at = Timestamp::from_unix_millis(now_ms).iso_millis();
-    let known = fleet.is_some();
     let hosts = if known {
         Hosts { laptop: Default::default(), nexus: Trees { ok: true, ..Trees::default() }, on_nexus: false }
     } else if host::name() == "nexus" {
