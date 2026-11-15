@@ -61,19 +61,38 @@ pub(super) struct Listening {
     root: PathBuf,
     ticket: String,
     republish_at: Cell<Option<Instant>>,
+    peer_cgroup: fn(i32) -> Option<String>,
+}
+
+fn read_cgroup(pid: i32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()
+}
+
+/// Whether a peer whose `/proc/PID/cgroup` reads `cgroup` may take a queued run: never one running for a fleet worker, nor one whose cgroup cannot be read, since a confined worker command that finds a door made after its view was laid would otherwise stand in for another lane's build.
+fn admits(cgroup: Option<&str>) -> bool {
+    cgroup.is_some_and(|cgroup| !north_base::platform::session_scope::worker_cgroup(cgroup))
 }
 
 impl Listening {
     pub(super) fn open(root: &Path, ticket: &str) -> Option<Self> {
+        Self::open_reading(root, ticket, read_cgroup)
+    }
+
+    pub(super) fn open_reading(root: &Path, ticket: &str, peer_cgroup: fn(i32) -> Option<String>) -> Option<Self> {
         let path = socket_path(root, ticket);
         std::fs::create_dir_all(path.parent()?).ok()?;
         let _ = std::fs::remove_file(&path);
         let listener = tokio::net::UnixListener::bind(&path).ok()?;
-        Some(Self { listener, root: root.to_path_buf(), ticket: ticket.to_owned(), republish_at: Cell::new(None) })
+        Some(Self { listener, root: root.to_path_buf(), ticket: ticket.to_owned(), republish_at: Cell::new(None), peer_cgroup })
     }
 
     pub(super) async fn accept(&self) -> Option<UnixStream> {
-        let (stream, _) = self.listener.accept().await.ok()?;
+        let stream = loop {
+            let (stream, _) = self.listener.accept().await.ok()?;
+            if admits(stream.peer_cred().ok().and_then(|cred| cred.pid()).and_then(self.peer_cgroup).as_deref()) {
+                break stream;
+            }
+        };
         self.republish_at.set(None);
         let stream = stream.into_std().ok()?;
         stream.set_nonblocking(false).ok()?;
