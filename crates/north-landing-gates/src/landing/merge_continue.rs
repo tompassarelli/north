@@ -45,17 +45,19 @@ fn in_progress(worktree: &Path) -> Result<Option<Operation>, String> {
     Ok(None)
 }
 
-fn generator(worktree: &Path, command: &str, code: &[String], tree: Option<&str>) -> Result<Command, String> {
+fn generator(worktree: &Path, command: &str, code: &[String], built: Option<&Path>) -> Result<Command, String> {
     let mut words = command.split_whitespace();
     let program = words.next().ok_or("an empty regenerate command")?;
+    if let (Some(built), "north") = (built, program) {
+        let mut run = Command::new(built);
+        run.env("NORTH_HOME", worktree).args(words);
+        return Ok(run);
+    }
     let head_north = worktree.join("bin/head-north");
     let mut command = match program {
         "north" if !code.is_empty() && head_north.is_file() => {
             let mut built = Command::new(head_north);
             built.args(["--code", &code.join(",")]);
-            if let Some(tree) = tree {
-                built.env("HEAD_NORTH_TREE", tree);
-            }
             built
         }
         "north" => Command::new(std::env::current_exe().map_err(|error| format!("the running north: {error}"))?),
@@ -96,8 +98,8 @@ impl From<String> for Unrefreshed {
     }
 }
 
-fn generate(worktree: &Path, command: &str, code: &[String], tree: Option<&str>, confinement: Confinement) -> Result<(), Unrefreshed> {
-    let output = confined(generator(worktree, command, code, tree)?, confinement)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
+fn generate(worktree: &Path, command: &str, code: &[String], built: Option<&Path>, confinement: Confinement) -> Result<(), Unrefreshed> {
+    let output = confined(generator(worktree, command, code, built)?, confinement)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
     if !output.status.success() {
         return Err(Unrefreshed { message: format!("{command} failed: {}", String::from_utf8_lossy(&output.stderr).trim()), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS) });
     }
@@ -200,6 +202,20 @@ pub fn fold(worktree: &Path, config: &Path, base: &str) -> Result<Vec<String>, S
     Ok(folded)
 }
 
+fn built_ahead(worktree: &Path, tree: &str) -> Result<PathBuf, Unrefreshed> {
+    let north = merge_set::driver_program().ok_or_else(|| format!("no north built ahead for tree {tree}: no north runs this lander"))?;
+    let commit = stdout(worktree, &["rev-parse", "HEAD"])?.trim().to_owned();
+    let output = Command::new(north)
+        .args(["runtime", "build-ahead", "--fetch", "--tree", tree, "--commit", &commit, "--checkout"])
+        .arg(worktree)
+        .output()
+        .map_err(|error| format!("no north built ahead for tree {tree}: {error}"))?;
+    if !output.status.success() {
+        return Err(Unrefreshed { message: format!("no north built ahead for tree {tree}: {}", String::from_utf8_lossy(&output.stderr).trim()), no_verdict: output.status.code() == Some(NO_VERDICT_STATUS) });
+    }
+    String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim())).filter(|path| !path.as_os_str().is_empty()).ok_or_else(|| Unrefreshed::from(format!("no north built ahead for tree {tree}: build-ahead printed no path")))
+}
+
 pub fn refresh(worktree: &Path, picked_onto: &str) -> Result<Vec<String>, Unrefreshed> {
     let rules = rules_at(worktree, picked_onto)?;
     let changed = stdout(worktree, &["diff", "--name-only", "-z", picked_onto, "HEAD"])?;
@@ -214,10 +230,15 @@ pub fn refresh(worktree: &Path, picked_onto: &str) -> Result<Vec<String>, Unrefr
     if stale.is_empty() {
         return Ok(Vec::new());
     }
-    let tree = stdout(worktree, &["rev-parse", "HEAD^{tree}"])?.trim().to_owned();
+    let built = if stale.iter().any(|(_, command, _)| command.split_whitespace().next() == Some("north")) {
+        let tree = stdout(worktree, &["rev-parse", "HEAD^{tree}"])?.trim().to_owned();
+        Some(built_ahead(worktree, &tree)?)
+    } else {
+        None
+    };
     let mut refreshed = Vec::new();
     for (rule, command, generator) in stale {
-        generate(worktree, command, generator, Some(&tree), Confinement::Candidate)?;
+        generate(worktree, command, generator, built.as_deref(), Confinement::Candidate)?;
         if !stdout(worktree, &["status", "--porcelain", "--", &rule.path])?.is_empty() {
             stdout(worktree, &["add", "--", &rule.path])?;
             refreshed.push(rule.path.clone());

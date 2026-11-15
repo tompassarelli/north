@@ -119,7 +119,9 @@ fn north_shim(home: &Path, name: &str) {
     let shim = home.join("north");
     let exe = std::env::current_exe().unwrap();
     let jailed = home.join(JAILED);
-    write_script(&shim, &format!("if [ \"$1\" = --worker-sandbox ]; then echo \"$*\" >>'{}'; shift 3; IN_CANDIDATE_JAIL=1 exec \"$@\"; fi\n{DRIVER}=\"$*\" exec '{}' {name} --exact --quiet --test-threads=1\n", jailed.display(), exe.display()));
+    let built = home.join("built-north");
+    write_script(&built, INDEX);
+    write_script(&shim, &format!("if [ \"$1\" = --worker-sandbox ]; then echo \"$*\" >>'{}'; shift 3; IN_CANDIDATE_JAIL=1 exec \"$@\"; fi\nif [ \"$1\" = runtime ] && [ \"$2\" = build-ahead ]; then echo '{}'; exit 0; fi\n{DRIVER}=\"$*\" exec '{}' {name} --exact --quiet --test-threads=1\n", jailed.display(), built.display(), exe.display()));
     merge_set::run_drivers_with(&shim);
 }
 
@@ -140,7 +142,7 @@ fn own_rules(home: &Path) {
     assert!(!home.join("unjailed").exists(), "a lane's regenerate step ran outside the candidate jail, as on 2026-11-15 for a lane that changed only a generator source");
     assert!(matches!(built.picks[..], [Pick::Included, Pick::Included]), "{:?}", built.picks.iter().map(candidate::recorded).collect::<Vec<_>>());
     let jailed = fs::read_to_string(home.join(JAILED)).unwrap_or_default();
-    assert!(jailed.starts_with("--worker-sandbox --candidate -- ") && jailed.contains("bin/head-north") && jailed.contains("structure-index"), "the landing base's regenerate command runs inside the candidate jail: {jailed:?}");
+    assert!(jailed.starts_with("--worker-sandbox --candidate -- ") && jailed.contains(&home.join("built-north").display().to_string()) && jailed.contains("structure-index"), "the landing base's regenerate command runs inside the candidate jail: {jailed:?}");
     assert_eq!(run(&worktree, &["show", "HEAD:structure.toml"]).matches("[[implicit_state.allow]]").count(), 2);
 }
 
