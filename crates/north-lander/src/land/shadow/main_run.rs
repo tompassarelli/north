@@ -5,12 +5,12 @@ use std::process::{Command, Stdio};
 use super::super::slots::select::Config;
 use north_base::verdict_cache::reuse_log;
 use super::super::slots::unit_reuse;
-use north_offload::check_offload::{detached_scope, launch_detached};
 use super::{Settings, place};
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const TIMEOUT_SECONDS: &str = "3600";
 const SHORT: usize = 12;
+const EXIT_TO_FILE: &str = "rc=0; \"$@\" || rc=$?; echo \"$rc\" > \"$0\"";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Step {
@@ -54,6 +54,25 @@ pub fn lines(worktree: &Path, main: &str) -> Vec<String> {
     Config::load(worktree, main).commands(worktree, EMPTY_TREE, main).unwrap_or_default().into_iter().filter(|line| unit_reuse::runs_nextest(line)).collect()
 }
 
+fn scoped() -> bool {
+    Command::new("systemd-run").args(["--user", "--scope", "--quiet", "--collect", "true"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
+}
+
+fn launch(command: &Command, log: &File, exit: &Path, scope: bool) -> bool {
+    let Ok(output) = log.try_clone() else { return false };
+    let Ok(errors) = log.try_clone() else { return false };
+    let mut detached = Command::new("setsid");
+    detached.arg("-f");
+    if scope {
+        detached.args(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=agent.slice"]);
+    }
+    detached.args(["sh", "-c", EXIT_TO_FILE]).arg(exit).arg(command.get_program()).args(command.get_args());
+    if let Some(directory) = command.get_current_dir() {
+        detached.current_dir(directory);
+    }
+    detached.stdin(Stdio::null()).stdout(output).stderr(errors).status().is_ok_and(|status| status.success())
+}
+
 fn start(settings: &Settings, worktree: &Path, main: &str, logs: &Path) -> Step {
     let lines = lines(worktree, main);
     if lines.is_empty() {
@@ -63,7 +82,7 @@ fn start(settings: &Settings, worktree: &Path, main: &str, logs: &Path) -> Step 
     let host = place(&settings.chooser).ok().filter(|host| !host.is_empty()).unwrap_or_else(|| settings.host.clone());
     let probe = probe(main);
     let _ = fs::create_dir_all(logs);
-    let scope = detached_scope();
+    let scope = scoped();
     let mut launched = 0;
     for (index, line) in lines.iter().enumerate() {
         let wrapped = unit_reuse::wrapped("north", &probe, true, line);
@@ -71,7 +90,7 @@ fn start(settings: &Settings, worktree: &Path, main: &str, logs: &Path) -> Step 
         let _ = fs::remove_file(&exit);
         let Some(command) = north(settings, &["capacity", "offload", "run", "--background", "--host", &host, "--base", main, "--head", main, "--timeout", TIMEOUT_SECONDS, "--", &wrapped], worktree) else { continue };
         let Ok(log) = File::create(log_of(logs, &probe, index)) else { continue };
-        if launch_detached(&command, &log, &exit, scope) {
+        if launch(&command, &log, &exit, scope) {
             launched += 1;
         } else {
             let _ = fs::write(&exit, "1\n");
@@ -117,7 +136,7 @@ mod tests {
         let mut queued = Command::new("sleep");
         queued.arg("5");
         let log = File::create(world.path().join("run.log")).unwrap();
-        assert!(launch_detached(&queued, &log, &exit, false));
+        assert!(launch(&queued, &log, &exit, false));
         assert!(!exit.exists());
     }
 }
