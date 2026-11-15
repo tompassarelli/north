@@ -1,4 +1,4 @@
-//! A reviewer's accept of a lane's patch (north#1036, base/platform/review_accept.rs): `north runtime accept COMMIT` records, for the fleet session the caller's cgroup scope names, the accept of the patch of COMMIT over its merge-base with origin/main, and `north runtime accept --withdraw COMMIT` removes that session's own accept of it (north#1492). A full sha this store lacks, such as the head of a lane handed in on a build host, is fetched from the trusted mirror beside the main checkout, where the lander publishes every lane it takes from an outbox (north#1485), so a reviewer needs no reach to that host. The session is read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or an argument; the request the broker takes is the words `review-accept PATCH-ID` or `review-accept --withdraw PATCH-ID` and nothing else of the caller's. The land scan `review-accept` counts these records.
+//! A reviewer's accept of a lane's patch (north#1036, base/platform/review_accept.rs): `north runtime accept FULL-SHA` records, for the fleet session the caller's cgroup scope names, the accept of the patch of FULL-SHA over its merge-base with origin/main, and `north runtime accept --withdraw FULL-SHA` removes that session's own accept of it (north#1492). A full sha this store lacks, such as the head of a lane handed in on a build host, is fetched from the trusted mirror beside the main checkout, where the lander publishes every lane it takes from an outbox (north#1485), so a reviewer needs no reach to that host. The session is read by the broker for a caller inside a worker sandbox and by the verb itself outside one, never from a variable or an argument; the request the broker takes is the words `review-accept PATCH-ID` or `review-accept --withdraw PATCH-ID` and nothing else of the caller's. The land scan `review-accept` counts these records.
 
 use north_base::platform::review_accept::{Accept as Record, Accepts, is_patch_id, patch_id};
 
@@ -8,7 +8,7 @@ use super::review_hold::{Caller, full_sha, git};
 pub(crate) const VERB: &str = "review-accept";
 const WITHDRAW: &str = "--withdraw";
 const BASE: &str = "origin/main";
-const USAGE: &str = "usage: north runtime accept [--withdraw] COMMIT  record the calling fleet session's accept, which only a session launched in the reviewer role may give, of the patch of COMMIT over its merge-base with origin/main, which a lane that changes a trust-boundary path needs from two sessions (one for a test-only change or an exact revert) before it lands; --withdraw removes the calling session's own accept of that patch, which then no longer counts; the accept is read on the host that settles the fleet";
+const USAGE: &str = "usage: north runtime accept [--withdraw] FULL-SHA  record the calling fleet session's accept, which only a session launched in the reviewer role may give, of the patch of FULL-SHA over its merge-base with origin/main, which a lane that changes a trust-boundary path needs from two sessions (one for a test-only change or an exact revert) before it lands; --withdraw removes the calling session's own accept of that patch, which then no longer counts; the accept is read on the host that settles the fleet";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Accept {
@@ -49,7 +49,7 @@ impl Accept {
     }
 }
 
-/// `north runtime accept [--withdraw] COMMIT` on a host that `settles` the fleet: names the patch of COMMIT in the working directory and has `serve` record or withdraw the caller's own accept of it (worker_sandbox/hold_client.rs), printing the line it says; its exit code.
+/// `north runtime accept [--withdraw] FULL-SHA` on a host that `settles` the fleet: names the patch of FULL-SHA in the working directory and has `serve` record or withdraw the caller's own accept of it (worker_sandbox/hold_client.rs), printing the line it says; its exit code.
 pub(crate) fn run(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result<String, String>) -> u8 {
     command(flags, settles, serve).map_or_else(
         |failure| {
@@ -66,8 +66,8 @@ fn command(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result
         _ => (false, flags),
     };
     let [named] = rest else { return Err(failed(64, USAGE)) };
-    if named.starts_with('-') {
-        return Err(failed(64, USAGE));
+    if !full_sha(named) {
+        return Err(failed(64, format!("{named} is not a full commit sha; accept the sha that north runtime review-fetch printed\n{USAGE}")));
     }
     if !settles {
         return Err(failed(64, format!("the host that settles the fleet reads the accepts its landing counts, and this is not it; accept from a session there\n{USAGE}")));
