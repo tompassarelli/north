@@ -124,6 +124,14 @@ fn a_probe_as_the_agent_login_runs_the_root_named_agent_runtime_never_one_in_its
     let section = |label: &str| found.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
     assert_eq!(section("live").and_then(live_count), Some(2), "the agent login's probe did not run the root-named agent runtime: {ran:?}");
     assert_eq!(held_profiles(section("accounts").map(claude_labels).unwrap_or_default(), section("profiles")), vec!["e".to_owned()], "{ran:?}");
+    let proc = root.path().join("proc");
+    for (pid, ppid, argv) in [(10, 1, "sh\0-c\0"), (11, 10, "claude\0-p\0--input-format\0stream-json\0--output-format\0stream-json\0"), (12, 10, "codex\0app-server\0--listen\0stdio://\0"), (13, 10, "claude\0-p\0hello\0")] {
+        let comm = argv.split('\0').next().unwrap();
+        std::fs::create_dir_all(proc.join(pid.to_string())).unwrap();
+        std::fs::write(proc.join(format!("{pid}/stat")), format!("{pid} ({comm}) S {ppid} 0")).unwrap();
+        std::fs::write(proc.join(format!("{pid}/cmdline")), argv).unwrap();
+    }
+    assert_eq!(crate::resident_cap::count(&crate::resident_cap::process_table(&proc), None, &[]), 2, "the agent login's headless sessions, absent from the probing login's fleet list, did not count against resident_cap");
 }
 
 #[test]

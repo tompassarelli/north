@@ -12,6 +12,7 @@ use crate::platform::{host, process};
 
 const AGENTS: [&str; 2] = ["claude", "codex"];
 const NON_RESIDENT_ARGS: [&str; 7] = ["-p", "--print", "--cloud", "exec", "app-server", "mcp-server", "cloud"];
+const SESSION_FORMS: [[&str; 2]; 2] = [["--input-format", "stream-json"], ["app-server", "--listen"]];
 const CLAUDE_ONE_SHOT: [&str; 7] = ["-p", "--print", "--cloud", "-v", "--version", "-h", "--help"];
 const CLAUDE_SUBCOMMANDS: [&str; 10] =
     ["auth", "mcp", "plugin", "doctor", "update", "install", "config", "setup-token", "migrate-installer", "agents"];
@@ -90,7 +91,8 @@ fn agent_kind(process: &Process) -> Option<&'static str> {
     let first = process.argv.first()?;
     let name = Path::new(first).file_name()?.to_str()?;
     let kind = AGENTS.iter().find(|agent| **agent == name)?;
-    let one_shot = process.argv[1..].iter().any(|word| NON_RESIDENT_ARGS.contains(&word.as_str()));
+    let session = process.argv[1..].windows(2).any(|pair| SESSION_FORMS.iter().any(|form| pair == form));
+    let one_shot = !session && process.argv[1..].iter().any(|word| NON_RESIDENT_ARGS.contains(&word.as_str()));
     (process.comm == name && !one_shot).then_some(*kind)
 }
 
