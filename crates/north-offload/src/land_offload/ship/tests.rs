@@ -232,6 +232,30 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
     assert_eq!(git(dir.path(), &["for-each-ref", "refs/land-offload/"]), "");
 }
 
+const LANE_CHECKOUT: &str = "NORTH_TEST_LANE_CHECKOUT";
+
+#[test]
+fn a_job_bundles_when_its_caller_names_its_lane_in_git_work_tree_as_a_finish_check_does() {
+    if let Some(checkout) = std::env::var_os(LANE_CHECKOUT) {
+        let checkout = Path::new(&checkout);
+        let head = CommitId::resolve(checkout, "HEAD").unwrap();
+        let reference = job_ref(&head);
+        let land = Land { ssh: "", checkout, base: None, head: head.clone(), timeout_seconds: 1, command: "", outputs: &[], class: super::SlotClass::LandCheck, confined: false, hold: super::Hold::None };
+        let listed = Command::new("git").current_dir(checkout).args(["bundle", "list-heads", "-"]).stdin(bundle(&land, &reference, None).unwrap()).output().unwrap();
+        assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
+        return;
+    }
+    let (dir, _, _) = repository_with_two_commits();
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "land_offload::ship::tests::a_job_bundles_when_its_caller_names_its_lane_in_git_work_tree_as_a_finish_check_does", "--nocapture"])
+        .env(LANE_CHECKOUT, dir.path())
+        .env("GIT_WORK_TREE", dir.path())
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&child.stdout);
+    assert!(child.status.success() && out.contains(" 1 passed"), "{out}{}", String::from_utf8_lossy(&child.stderr));
+}
+
 #[test]
 fn a_job_bundles_from_a_checkout_whose_git_directory_is_read_only_as_inside_a_land_sandbox() {
     use std::os::unix::fs::PermissionsExt;

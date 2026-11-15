@@ -8,11 +8,7 @@ use north_capacity_host::capacity::carry;
 /// The bundle of `reference` cut at the shipped base, or at each commit in `held` when the host named the commits its checkout holds; a base the head's history does not contain travels in it too, as `base_reference(reference)`, so the host reads every commit the shipped context names.
 pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) -> Result<File, String> {
     let scratch = scratch(land)?;
-    let git = || {
-        let mut command = Command::new(north_base::foundation::offload::git());
-        command.current_dir(scratch.path());
-        command
-    };
+    let git = || in_scratch(scratch.path());
     let file = tempfile::tempfile().map_err(|error| format!("bundle file: {error}"))?;
     let made = git().args(["update-ref", reference, land.head.as_str()]).status().is_ok_and(|status| status.success());
     if !made {
@@ -91,10 +87,21 @@ fn scratch(land: &Land) -> Result<tempfile::TempDir, String> {
     }
     let objects = std::path::Path::new(String::from_utf8_lossy(&common.stdout).trim()).join("objects");
     let scratch = tempfile::tempdir().map_err(|error| format!("bundle repository: {error}"))?;
-    let made = Command::new(north_base::foundation::offload::git()).args(["init", "-q", "--bare"]).arg(scratch.path()).status().is_ok_and(|status| status.success());
+    let made = in_scratch(scratch.path()).args(["init", "-q", "--bare"]).status().is_ok_and(|status| status.success());
     if !made {
         return Err("cannot make the bundle repository".to_owned());
     }
     std::fs::write(scratch.path().join("objects/info/alternates"), format!("{}\n", objects.display())).map_err(|error| format!("bundle repository alternates: {error}"))?;
     Ok(scratch)
+}
+
+/// git in the scratch repository alone: a finish check inherits its lane's `GIT_WORK_TREE`, which `git init` refuses
+/// and which would point the other commands at the lane.
+fn in_scratch(scratch: &std::path::Path) -> Command {
+    let mut command = Command::new(north_base::foundation::offload::git());
+    for name in super::REPOSITORY_ENV {
+        command.env_remove(name);
+    }
+    command.env("GIT_DIR", scratch).current_dir(scratch);
+    command
 }
