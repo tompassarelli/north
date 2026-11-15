@@ -56,6 +56,8 @@ fn a_report_keeps_only_the_promised_command_of_a_future_time_once_never_the_pros
     let listing = format!("First sentence holds no time. It lands by 9:40 AM: `git log -1`; {} then more.", "x".repeat(2000));
     let quoted = promised(&listing, 0, &Unreckoned, &|_| true);
     assert_eq!(quoted[0].line, "It lands by 9:40 AM: `git log -1`;", "a note quotes the promise's own sentence, never the listing around it");
+    let wait = promised(STOP_LINE, 0, &Unreckoned, &resolver(bin.path(), bin.path().as_os_str()));
+    assert!(wait.iter().any(|claim| claim.line.contains("`wait until 2026-11-08T03:30Z`")) && commands(&wait).iter().all(Option::is_none), "a quoted shell builtin is no program, so a reported wait until holds no promise: {:?}", commands(&wait));
     let scratch = tempfile::tempdir().unwrap();
     let book = Book::at(scratch.path());
     let turns: Vec<Promise> = (1..=3).map(|turn| Promise { session: "n842-reuse".into(), turn, line: kept[0].line.clone(), command: "git log -1".into(), when: kept[0].when.clone(), said_ms, parent: "burn-lead".into() }).collect();
@@ -66,14 +68,6 @@ fn a_report_keeps_only_the_promised_command_of_a_future_time_once_never_the_pros
     assert!(book.open().is_empty());
     book.keep(&[Promise { parent: "coordinator".into(), session: "other".into(), ..turns[0].clone() }]).unwrap();
     assert!(book.open().is_empty(), "a promise-due note goes to the reporting session's lead, never the coordinator");
-}
-
-#[test]
-fn a_quoted_shell_builtin_is_no_program_so_a_reported_wait_until_holds_no_promise() {
-    let bin = bin_with(&["git"]);
-    let claims = promised(STOP_LINE, 0, &Unreckoned, &resolver(bin.path(), bin.path().as_os_str()));
-    assert!(claims.iter().any(|claim| claim.line.contains("`wait until 2026-11-08T03:30Z`")));
-    assert!(commands(&claims).iter().all(Option::is_none), "{:?}", commands(&claims));
 }
 
 #[test]
