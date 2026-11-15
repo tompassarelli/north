@@ -1,11 +1,6 @@
-use std::process::Command;
+use north_base::test_inputs::git::git_in as git;
 
 use super::*;
-
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-}
 
 fn ticket(session: &str, branch: &str, verdict: Option<&str>) -> String {
     serde_json::json!({"origin": "origin", "root": "/lane", "host": "host", "branch": branch, "head": "head", "session": session, "queued_at": "2026-11-14T00:00:00Z", "verdict": verdict}).to_string()
