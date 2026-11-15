@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use north_base::platform::{host, records_mirror};
 use serde_json::Value;
 
 use super::follow::{self, send};
@@ -43,7 +44,7 @@ impl Reverted<'_> {
 
     fn evidence(&self) -> String {
         match &self.cause {
-            Cause::RedMain { red, failing, log } => format!("the post-land checks failed at {} on {failing}; they failed twice at the tip and passed twice on main without {} ({}) in back-to-back reruns, so the sheriff queued its revert {} ahead of the queue; log: {}", &red[..red.len().min(9)], self.branch, self.short(), self.revert, log.display()),
+            Cause::RedMain { red, failing, log } => format!("the post-land checks failed at {} on {failing}; they failed twice at the tip and passed twice on main without {} ({}) in back-to-back reruns, so the sheriff queued its revert {} ahead of the queue; log: {}", &red[..red.len().min(9)], self.branch, self.short(), self.revert, readable(log)),
             Cause::PipeStopped(why) => format!("{why}, so the sheriff queued its revert {} ahead of the queue", self.revert),
         }
     }
@@ -60,6 +61,14 @@ impl Reverted<'_> {
         lines.push(format!("Prior report: the sheriff reverted this box's landed work: {}. Start a lane from origin/main, bring the work back with `git cherry-pick {}`, fix what fails, and queue it with Follows: {}.", self.evidence(), self.commit, self.short()));
         lines.extend(kept[header..].iter().map(|line| (*line).to_owned()));
         lines.join("\n")
+    }
+}
+
+fn readable(log: &Path) -> String {
+    let state = records_mirror::state_home();
+    match log.strip_prefix(&state).map(|rest| state.join(records_mirror::ROOT).join(rest)) {
+        Ok(copy) => format!("{} on {}, or its records-mirror copy {} on any other host", log.display(), host::name(), copy.display()),
+        Err(_) => log.display().to_string(),
     }
 }
 
