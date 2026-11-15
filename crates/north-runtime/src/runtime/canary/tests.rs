@@ -45,6 +45,7 @@ impl Machine for Fleet<'_> {
         match failing {
             Some((name, Ran::Exited { code, log })) if probe.name.contains(name) => Ran::Exited { code: *code, log: log.clone() },
             Some((name, Ran::Unrun(why))) if probe.name.contains(name) => Ran::Unrun(why.clone()),
+            Some((name, Ran::Unexecuted { code, log })) if probe.name.contains(name) => Ran::Unexecuted { code: *code, log: log.clone() },
             Some((name, Ran::HostFault(why))) if probe.name.contains(name) => Ran::HostFault(why.clone()),
             _ => Ran::Exited { code: 0, log: String::new() },
         }
@@ -178,6 +179,9 @@ fn a_shipped_runtime_that_fails_a_worker_cargo_run_stays_off_the_host() {
 
     let deferred = Fleet { builds: true, ..host.fleet(Some(("a worker cargo run", Ran::Unrun("admission deferred the run".to_owned())))) };
     assert_eq!(preflight(&host.layout, "cpx62b", PROMOTED, Some(PREVIOUS), &deferred), Ok(()), "a run admission defers is not run and holds no repair off the host");
+
+    let unexecuted = Fleet { builds: true, ..host.fleet(Some(("a worker cargo run", classify(Some(127), "north: command not found\n".to_owned())))) };
+    assert!(preflight(&host.layout, "gex45", PROMOTED, Some(PREVIOUS), &unexecuted).unwrap_err().contains("exited 127"), "a worker cargo run the judged runtime could not execute was released as not run");
 }
 
 #[test]

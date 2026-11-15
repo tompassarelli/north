@@ -37,6 +37,7 @@ const REMOTE_ROLLBACK_LIMIT: Duration = Duration::from_secs(180);
 pub(super) enum Ran {
     Exited { code: u8, log: String },
     Unrun(String),
+    Unexecuted { code: u8, log: String },
     HostFault(String),
 }
 
@@ -202,13 +203,14 @@ pub(super) fn preflight(layout: &Layout, host: &str, sha: &str, live: Option<&st
     }
 }
 
-/// A worker cargo run that admission deferred or that passed its time bound is reported as not run and does not hold the promotion, so a repair is never kept off the host it repairs.
+/// A worker cargo run that admission deferred or that passed its time bound is reported as not run and does not hold the promotion, so a repair is never kept off the host it repairs; one the judged runtime could not execute (exit 64, 126 or 127) failed.
 fn release_unrun_cargo_run(host: &str, short: &str, probes: &[Probe], ran: Vec<Ran>) -> Vec<Ran> {
     probes.iter().zip(ran).map(|(probe, ran)| match ran {
         Ran::Unrun(why) if probe.name == probes::WORKER_CARGO_RUN_PROBE => {
             println!("north runtime canary: {host}: {short}: probe `{}` not run, so it does not hold the promotion: {why}", probe.name);
             Ran::Exited { code: 0, log: String::new() }
         }
+        Ran::Unexecuted { code, log } if probe.name == probes::WORKER_CARGO_RUN_PROBE => Ran::Exited { code, log },
         other => other,
     }).collect()
 }
@@ -231,6 +233,7 @@ fn tallies(layout: &Layout, probes: &[Probe], ran: &[Ran]) -> Tallies {
                 tallies.broken.push(baseline::Broken::of(probe, log));
             }
             Ran::Unrun(why) => tallies.unrun.push(format!("probe `{}` not run: {why}", probe.name)),
+            Ran::Unexecuted { code, log } => tallies.unrun.push(format!("probe `{}` not run: {}", probe.name, unexecuted(*code, log))),
             Ran::HostFault(why) => tallies.faults.push(format!("probe `{}` found a host fault: {why}", probe.name)),
         }
     }
@@ -261,10 +264,15 @@ pub(super) fn tail(log: &str) -> String {
     joined[start..].to_owned()
 }
 
+pub(super) fn unexecuted(code: u8, log: &str) -> String {
+    format!("the judged runtime could not run the probe (exit {code}): {}", tail(log))
+}
+
 pub(super) fn classify(code: Option<i32>, log: String) -> Ran {
     match code.and_then(|code| u8::try_from(code).ok()) {
         Some(HOST_FAULT) => Ran::HostFault(tail(&log)),
-        Some(code @ (USAGE | NOT_EXECUTABLE | NOT_FOUND | NO_VERDICT)) => Ran::Unrun(format!("the judged runtime could not run the probe (exit {code}): {}", tail(&log))),
+        Some(code @ (USAGE | NOT_EXECUTABLE | NOT_FOUND)) => Ran::Unexecuted { code, log },
+        Some(NO_VERDICT) => Ran::Unrun(format!("the judged runtime could not run the probe (exit {NO_VERDICT}): {}", tail(&log))),
         Some(code) => Ran::Exited { code, log },
         None => Ran::Unrun(format!("the probe was killed by a signal: {}", tail(&log))),
     }

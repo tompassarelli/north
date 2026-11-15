@@ -75,6 +75,10 @@ fn walk(layout: &Layout, host: &str, failed_sha: &str, sha: String, broken: &[Br
                 unrun.push(format!("probe `{}` not run: {why}", probe.name));
                 Outcome::Unknown
             }
+            Ran::Unexecuted { code, log } => {
+                unrun.push(format!("probe `{}` not run: {}", probe.name, super::unexecuted(*code, log)));
+                Outcome::Unknown
+            }
         };
         failed.push((probe.name.clone(), outcome));
     }
