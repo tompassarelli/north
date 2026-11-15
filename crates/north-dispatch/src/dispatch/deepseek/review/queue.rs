@@ -48,6 +48,7 @@ pub fn queue(found: &Found, here: &str, laptop: Option<&str>, remote: &Remote<'_
             }
         })
         .collect();
+    lines.extend(found.held.iter().map(|held| format!("{} on {} reported Done but a review mark keeps it from waiting ({}); tried again in {} min", held.name, held.host, held.mark.failed.as_deref().map_or_else(|| "plain".to_owned(), |why| format!("failed={why}")), (held.mark.retry_in_s / 60.0).ceil().max(0.0) as u64)));
     lines.extend(found.done.iter().take(PER_RUN).map(|done| {
         let line = format!("review {} on {} ({}, {})", done.name, done.host, done.item, done.category);
         if dry_run {

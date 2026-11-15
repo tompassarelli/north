@@ -103,7 +103,7 @@ fn an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_
     let said = |text: &str| json!({"entries": [{"kind": "tool", "text": "Bash cargo test"}, {"kind": "assistant", "text": text}, {"kind": "turn_end", "text": "completed"}]});
     let reports = vec![("whiterabbit".to_owned(), json!({"ds-done": said("Done: the box landed in the lane."), "ds-busy": said("Done: earlier"), "ds-stuck": said("Not done: tests fail.\nStop: reasoning"), "cl-done": said("Done: x"), "ds-queued": said("Done: y"), "ds-parked": said("Done: z")}))];
     let landing = issue("north", 7, "- [ ] the box", &["area:landing"]);
-    let queued = review::Marked { recent: BTreeSet::from(["ds-queued".to_owned()]), ever: BTreeSet::from(["ds-queued".to_owned()]) };
+    let queued = review::Marked { recent: BTreeSet::from(["ds-queued".to_owned()]), ever: BTreeSet::from(["ds-queued".to_owned()]), ..Default::default() };
 
     let found = review::done(&lists, &reports, &[], &[landing], &queued).done;
 

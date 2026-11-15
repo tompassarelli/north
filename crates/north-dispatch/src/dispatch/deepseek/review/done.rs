@@ -7,7 +7,7 @@ use super::super::super::{facets, fleets};
 use super::super::PROVIDER;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 
@@ -47,6 +47,22 @@ pub struct Left {
 pub struct Found {
     pub done: Vec<Done>,
     pub left: Vec<Left>,
+    pub held: Vec<Held>,
+}
+
+/// A live DeepSeek session that reported Done which a recent review mark keeps out of the waiting ones.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Held {
+    pub name: String,
+    pub host: String,
+    pub mark: Mark,
+}
+
+/// A session's latest review mark still in its window: why its job failed, if it did, and the seconds until it is tried again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mark {
+    pub failed: Option<String>,
+    pub retry_in_s: f64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -65,6 +81,7 @@ struct Queued {
 pub struct Marked {
     pub recent: BTreeSet<String>,
     pub ever: BTreeSet<String>,
+    pub latest: BTreeMap<String, Mark>,
 }
 
 /// The sessions dispatch queued a review job for, as of `at`.
@@ -72,7 +89,9 @@ pub fn queued(directory: &Path, at: f64) -> Marked {
     let text = std::fs::read_to_string(directory.join(QUEUED)).unwrap_or_default();
     let marks: Vec<Queued> = text.lines().filter_map(|line| serde_json::from_str::<Queued>(line).ok()).collect();
     let within = |queued: &&Queued| at - queued.at < if queued.failed.is_some() { RETRY_S } else { REQUEUE_S };
-    Marked { recent: marks.iter().filter(within).map(|queued| queued.name.clone()).collect(), ever: marks.into_iter().filter(|queued| queued.failed.is_none()).map(|queued| queued.name).collect() }
+    let window = |queued: &Queued| if queued.failed.is_some() { RETRY_S } else { REQUEUE_S };
+    let latest = marks.iter().filter(within).map(|queued| (queued.name.clone(), Mark { failed: queued.failed.clone(), retry_in_s: queued.at + window(queued) - at })).collect();
+    Marked { recent: marks.iter().filter(within).map(|queued| queued.name.clone()).collect(), latest, ever: marks.into_iter().filter(|queued| queued.failed.is_none()).map(|queued| queued.name).collect() }
 }
 
 pub(super) fn mark(directory: &Path, name: &str, at: f64, left: Option<&str>, failed: Option<&str>) -> Result<(), String> {
@@ -94,9 +113,14 @@ fn waits(session: &Value, marked: &Marked) -> bool {
         && if session["past"] == true { session["ended"] == "retired" && !marked.ever.contains(name) && !marked.recent.contains(name) } else { RESTING.contains(&session["status"].as_str().unwrap_or_default()) && !marked.recent.contains(name) }
 }
 
+/// The recent mark that keeps `session`, a live resting session of the provider, out of the waiting ones.
+fn kept<'a>(session: &Value, marked: &'a Marked) -> Option<&'a Mark> {
+    (session["provider"] == PROVIDER && session["past"] != true && RESTING.contains(&session["status"].as_str().unwrap_or_default())).then(|| marked.latest.get(session["name"].as_str().unwrap_or_default())).flatten()
+}
+
 /// Whether `listing` holds a session of the provider that waits for its review job.
 pub fn has_waiting(listing: &Value, marked: &Marked) -> bool {
-    listing.as_array().into_iter().flatten().any(|session| waits(session, marked))
+    listing.as_array().into_iter().flatten().any(|session| waits(session, marked) || kept(session, marked).is_some())
 }
 
 /// Why the work of a session on `issue`'s box `box_text` is left alone, or `None` while that box is open.
@@ -116,6 +140,12 @@ pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[R
     let mut found = Found::default();
     for (host, listing) in lists {
         let Some(report) = reports.iter().find(|(name, _)| name == host).map(|(_, report)| report) else { continue };
+        for session in listing.as_array().into_iter().flatten() {
+            let name = session["name"].as_str().unwrap_or_default();
+            if let Some(mark) = kept(session, marked).filter(|_| reported_done(&report[name])) {
+                found.held.push(Held { name: name.to_owned(), host: host.clone(), mark: mark.clone() });
+            }
+        }
         for session in listing.as_array().into_iter().flatten().filter(|session| waits(session, marked)) {
             let name = session["name"].as_str().unwrap_or_default();
             if !reported_done(&report[name]) {
