@@ -168,12 +168,19 @@ fn state(head: &str) -> Option<Run> {
     lifecycle::host().ok().and_then(|store| lifecycle::current::<AfterLandingRun>(&store, head)).map(|record| record.state)
 }
 
-fn unsettled(batch: &Batch, detail: &str) {
+/// Records the run of `batch` as unsettled, and whether it has now missed `UNSETTLED` times in a row, when it ends with that miss recorded as its verdict instead of running again: a run whose own tree cannot run its checks, such as one whose land.local-only line its safe-push refuses, otherwise ran every 30 s without limit (north#1578).
+fn unsettled(batch: &Batch, detail: &str) -> bool {
     moved(heads(batch), Run::Unsettled, detail);
     let misses = lifecycle::host().map_or(0, |store| heads(batch).map(|head| lifecycle::misses(&store, head)).max().unwrap_or(0));
-    if misses == UNSETTLED {
-        after::send("coordinator", &format!("north land: the after-landing run of {} reached no verdict {UNSETTLED} times in a row ({detail}); main is unverified until one does, and it keeps running every {} s", batch.head, RETRY.as_secs()));
+    if misses < UNSETTLED {
+        return false;
     }
+    let message = format!("north land: the after-landing run of {} reached no verdict {misses} times in a row ({detail}); it ends with that recorded as its verdict and runs no more, so main is unverified until a later landing's run reaches one", batch.head);
+    println!("{message}");
+    if misses == UNSETTLED {
+        after::send("coordinator", &message);
+    }
+    true
 }
 
 impl Watch {
@@ -389,10 +396,11 @@ impl Watch {
             self.pending.retry(batch);
             return;
         }
-        if let Verdict::Transient(detail) = &outcome.verdict {
+        if let Verdict::Transient(detail) = &outcome.verdict
+            && !unsettled(&batch, detail)
+        {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
             batch.retry_at = ended + RETRY.as_secs_f64();
-            unsettled(&batch, detail);
             release(&mut self.hosts, &host);
             for followed in &mut batch.heads {
                 followed.at = ended;
