@@ -74,6 +74,10 @@ pub trait BuildSystem {
     fn test_lock(&self, _root: &Path) -> Result<Option<std::fs::File>, String> {
         Ok(None)
     }
+    /// Whether this side's release build of the runtime programs bypasses its compile cache: Buck2 builds them from source on the workers, Cargo keeps its compile cache.
+    fn release_uncached(&self) -> bool {
+        false
+    }
 }
 
 /// The build system this host runs: Buck2 when `[hosts.NAME] build_system` in the orchestration policy says `buck2`, with its test run once `buck2_tests` is set too, and Cargo when the key is unset, the policy unreadable, or the host holds no readable store generation, which it says.

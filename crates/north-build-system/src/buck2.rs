@@ -569,6 +569,10 @@ impl BuildSystem for Buck2 {
         generation::held(root, self.isolation.as_deref())
     }
 
+    fn release_uncached(&self) -> bool {
+        true
+    }
+
     fn copies_out(&self) -> bool {
         true
     }
