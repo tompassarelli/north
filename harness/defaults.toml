@@ -1959,7 +1959,7 @@ fallback = "any value but false reads as true"
 consumers = ["crates/north-lander/src/land/serve/ahead.rs"]
 
 [tests_after_landing]
-value = "off"
+value = "on"
 allowed = { one_of = ["on", "off"] }
 unit = "on: a hand-in's checks before queueing leave out the lane test line (the land.check line that reads the test selection) when the landing base's .safe-push names that command in a land.after-only line, which only north does, so the lane lands once clippy, the @enqueue scans, the lane gates and the compile after its rebase pass, and the test line decides on the landed commit in the after-landing run, which reverts the culprit lane when it is red; a lane that changes a path in trust_boundary_paths, and every repository whose base names no such line, keep the test line before queueing; off runs the test line before queueing for every lane of every repository"
 source = "north#1036 (2026-11-13): the test line cost 112 s of a one-line north-core hand-in with everything else cached, and ten north hand-ins ran p50 399 s and p90 853 s from hand-in to main, against the owner's landing p90 target of 60 s"
