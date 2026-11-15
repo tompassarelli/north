@@ -131,7 +131,7 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
 fn packages_of(scope: &Scope) -> graph_selection::Scope {
     match scope {
         Scope::Workspace => graph_selection::Scope::Workspace,
-        Scope::Packages { affected, .. } => graph_selection::Scope::Packages(affected.iter().cloned().collect()),
+        Scope::Packages { affected, .. } | Scope::Nearby { affected } => graph_selection::Scope::Packages(affected.iter().cloned().collect()),
     }
 }
 

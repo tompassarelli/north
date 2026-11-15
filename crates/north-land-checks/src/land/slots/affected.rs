@@ -52,19 +52,20 @@ struct Dependency {
 pub enum Scope {
     Workspace,
     Packages { affected: Vec<String>, changed: Vec<String> },
+    Nearby { affected: Vec<String> },
 }
 
 impl Scope {
     pub fn arguments(&self) -> String {
         match self {
             Self::Workspace => WORKSPACE.to_owned(),
-            Self::Packages { affected, .. } => flags(affected),
+            Self::Packages { affected, .. } | Self::Nearby { affected } => flags(affected),
         }
     }
 
     pub fn changed_arguments(&self) -> String {
         match self {
-            Self::Workspace => WORKSPACE.to_owned(),
+            Self::Workspace | Self::Nearby { .. } => WORKSPACE.to_owned(),
             Self::Packages { changed, .. } => flags(changed),
         }
     }
@@ -76,13 +77,14 @@ impl Scope {
                 let affected: BTreeSet<String> = affected.into_iter().chain(packages.iter().cloned()).collect();
                 Self::Packages { affected: affected.into_iter().collect(), changed }
             }
+            Self::Nearby { affected } => Self::Nearby { affected: affected.into_iter().chain(packages.iter().cloned()).collect::<BTreeSet<_>>().into_iter().collect() },
         }
     }
 
     pub fn cpus(&self) -> Option<usize> {
         match self {
             Self::Workspace => None,
-            Self::Packages { affected, .. } => Some((affected.len() * CPUS_PER_PACKAGE).max(MINIMUM_CPUS)),
+            Self::Packages { affected, .. } | Self::Nearby { affected } => Some((affected.len() * CPUS_PER_PACKAGE).max(MINIMUM_CPUS)),
         }
     }
 }
@@ -142,10 +144,33 @@ pub fn select(metadata: &str, files: &[String], dep_info: &[DepInfo]) -> Result<
         }
     }
     let affected = dependents(&members, changed.clone());
-    if affected.is_empty() || affected.len() == members.len() || !library(&members, &affected) {
+    if affected.is_empty() {
         return Ok(Scope::Workspace);
     }
+    if affected.len() == members.len() || !library(&members, &affected) {
+        return Ok(nearby(&members, &changed));
+    }
     Ok(Scope::Packages { affected: affected.into_iter().map(str::to_owned).collect(), changed: changed.into_iter().map(str::to_owned).collect() })
+}
+
+fn nearby(members: &[Member], changed: &BTreeSet<&str>) -> Scope {
+    let reverse = reverse(members);
+    let near: BTreeSet<&str> = changed.iter().copied().chain(changed.iter().flat_map(|name| reverse.get(name).into_iter().flatten().copied())).collect();
+    let root_alone = near.len() == 1 && members.iter().any(|member| member.directory.is_empty() && near.contains(member.package.name.as_str()));
+    if !root_alone && !library(members, &near) {
+        return Scope::Workspace;
+    }
+    Scope::Nearby { affected: near.into_iter().map(str::to_owned).collect() }
+}
+
+fn reverse<'a>(members: &[Member<'a>]) -> HashMap<&'a str, Vec<&'a str>> {
+    let mut reverse: HashMap<&str, Vec<&str>> = HashMap::new();
+    for member in members {
+        for dependency in member.package.dependencies.iter().filter(|dependency| dependency.path.is_some()) {
+            reverse.entry(dependency.name.as_str()).or_default().push(member.package.name.as_str());
+        }
+    }
+    reverse
 }
 
 fn library(members: &[Member], affected: &BTreeSet<&str>) -> bool {
@@ -216,12 +241,7 @@ fn read_dep_info(metadata: &str) -> Vec<DepInfo> {
 }
 
 fn dependents<'a>(members: &[Member<'a>], changed: BTreeSet<&'a str>) -> BTreeSet<&'a str> {
-    let mut reverse: HashMap<&str, Vec<&str>> = HashMap::new();
-    for member in members {
-        for dependency in member.package.dependencies.iter().filter(|dependency| dependency.path.is_some()) {
-            reverse.entry(dependency.name.as_str()).or_default().push(member.package.name.as_str());
-        }
-    }
+    let reverse = reverse(members);
     let mut affected = changed.clone();
     let mut pending: Vec<&str> = changed.into_iter().collect();
     while let Some(name) = pending.pop() {
