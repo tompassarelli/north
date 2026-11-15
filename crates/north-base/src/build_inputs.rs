@@ -4,6 +4,7 @@ const ROOT_FILES: [&str; 8] = ["Cargo.toml", "Cargo.lock", "build.rs", "rust-too
 const ROOT_DIRS: [&str; 3] = ["crates/", "src/", ".cargo/"];
 const EMBEDDED: &[&str] = &[
     ".safe-push",
+    "docs/readme/comparison.toml",
     "harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json",
 ];
 pub const RUN_TIME_DATA: [&str; 19] = [
