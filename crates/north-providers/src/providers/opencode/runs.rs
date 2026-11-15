@@ -34,8 +34,9 @@ pub fn rows(shared: &Shared, sources: &Sources, cutoff: f64) -> Vec<Value> {
     let mut out = Vec::new();
     for (name, turns) in sessions {
         let skipped = shared.known.contains(name) || !asked(shared.session, sources.nodes, name) || live(sources.nodes, name);
-        let Some((row, started_ms, ended_ms)) = (!skipped).then(|| run_row(shared, name, &turns, sources.prompts.get(name).map_or("", String::as_str))).flatten() else { continue };
+        let Some((mut row, started_ms, ended_ms)) = (!skipped).then(|| run_row(shared, name, &turns, sources.prompts.get(name).map_or("", String::as_str))).flatten() else { continue };
         if (ended_ms as f64) / 1000.0 >= cutoff {
+            hand_in(&mut row, name, started_ms, sources);
             out.push(row);
             out.extend(landings(name, started_ms, sources));
         }
@@ -54,6 +55,7 @@ fn run_row(shared: &Shared, name: &str, turns: &[&Run], brief: &str) -> Option<(
     let effort = last.effort.clone().unwrap_or_else(|| "default".to_owned());
     let row = json!({
         "id": name,
+        "session": name,
         "fleet_name": name,
         "role": "worker",
         "provider": first.provider,
@@ -71,6 +73,8 @@ fn run_row(shared: &Shared, name: &str, turns: &[&Run], brief: &str) -> Option<(
         "status": "finished",
         "actual_min": rows::minutes(first.started_ms as f64 / 1000.0, last.ended_ms as f64 / 1000.0),
         "tokens": turns.iter().map(|turn| turn.tokens_out).sum::<i64>(),
+        "input_tokens": turns.iter().map(|turn| turn.tokens_in).sum::<i64>(),
+        "cache_read_tokens": turns.iter().map(|turn| turn.tokens_cache_read).sum::<i64>(),
         "peak_ctx": turns.iter().map(|turn| turn.tokens_in + turn.tokens_cache_read).max().unwrap_or(0),
         "turns": turns.iter().map(|turn| turn.turns).sum::<i64>(),
         "tool_calls": turns.iter().map(|turn| turn.tool_calls).sum::<Option<i64>>(),
@@ -85,6 +89,22 @@ fn run_row(shared: &Shared, name: &str, turns: &[&Run], brief: &str) -> Option<(
         "backfill": shared.recorded.contains(name),
     });
     Some((row, first.started_ms, last.ended_ms))
+}
+
+/// A session that pushed hands in: expects_landing is 1, and landed and landed_sha name its own push that landed, as a Claude
+/// row records them. A session that never pushed keeps the row with no hand-in, as before.
+fn hand_in(row: &mut Value, name: &str, started_ms: i64, sources: &Sources) {
+    let own: Vec<&Push> = sources.pushes.iter().filter(|push| push.session == name && push.at_ms as i64 >= started_ms).collect();
+    if own.is_empty() {
+        return;
+    }
+    row["expects_landing"] = json!(1);
+    row["landed"] = json!(0);
+    if let Some(push) = own.iter().find(|push| !push.landed.is_empty()) {
+        row["landed"] = json!(1);
+        row["landed_sha"] = json!(push.landed);
+        row["landed_at"] = json!(Timestamp::from_unix_millis(push.at_ms as i64).iso());
+    }
 }
 
 /// The landings of `name`'s commits by its Sonnet reviewer or by a push of a commit its verdicts name, as push_join rows.

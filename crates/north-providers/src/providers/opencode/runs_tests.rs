@@ -51,13 +51,14 @@ fn a_finished_deepseek_session_is_a_worker_run_that_its_reviewers_landing_joins(
     let prompts = HashMap::from([("ds-done".to_owned(), "Item: north#1020 a box\nCategory: feature\nDo it.".to_owned())]);
     let nodes = [json!({"name": "ds-busy", "status": "working"}), json!({"name": "ds-done", "status": "idle"})];
     let push = |session: &str, oid: &str, landed: &str| Push { at_ms: (AT + 600_000) as u64, repository: "north".into(), branch: "main".into(), oid: oid.into(), landed: landed.into(), session: session.into() };
-    let pushes = [push("ds-done-rv", "abc", "def"), push("other", "zzz", "yyy"), push("", "lane-head", "landed-head")];
+    let pushes = [push("ds-done-rv", "abc", "def"), push("other", "zzz", "yyy"), push("", "lane-head", "landed-head"), push("ds-done", "refused-head", "")];
     let reviewed = HashMap::from([("ds-done".to_owned(), vec!["lane-head".to_owned()])]);
     let sources = Sources { turns: &turns, prompts: &prompts, nodes: Some(&nodes), pushes: &pushes, reviewed: &reviewed };
     let out = rows(&shared, &sources, (AT / 1000) as f64);
     assert_eq!(out.len(), 3, "{out:?}");
     let run = &out[0];
     assert_eq!((run["id"].as_str(), run["fleet_name"].as_str(), run["provider"].as_str(), run["role"].as_str()), (Some("ds-done"), Some("ds-done"), Some("opencode"), Some("worker")));
+    assert_eq!((run["session"].as_str(), run["input_tokens"].as_i64(), run["cache_read_tokens"].as_i64(), run["expects_landing"].as_i64(), run["landed"].as_i64()), (Some("ds-done"), Some(2000), Some(1000), Some(1), Some(0)), "a Claude row carries its session, input and cache tokens, and its hand-in and refusal, which a DeepSeek row lacked on 2026-11-15: {run}");
     assert!(run["brief"].as_str().is_some_and(|brief| brief.contains("Category: feature")), "{run}");
     assert_eq!((run["brief_text"].as_str(), run["active_min"].as_f64(), run["wait_min"].as_f64()), (prompts.get("ds-done").map(String::as_str), Some(2.0), Some(1.0)), "on 2026-11-13 every opencode and pi run of the day lacked brief text and active minutes: {run}");
     assert_eq!((run["tool_calls"].as_i64(), run["compactions"].as_i64(), run["cost_usd"].as_f64()), (Some(8), Some(0), Some(0.5)), "on 2026-11-14 a third of the day's runs, the opencode and pi ones, lacked tool calls, compactions and cost: {run}");
