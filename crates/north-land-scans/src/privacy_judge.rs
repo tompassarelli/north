@@ -2,15 +2,18 @@ mod judge;
 mod kinds;
 mod turn;
 
+pub use judge::{Tier, SYSTEM};
+
 use std::io::Read;
 
 use north_base::platform::private_text::{self, ASKING_STATUS, AT_ONCE_ENV, Finding, render};
 
-use crate::runtime_access::RuntimeAccess;
-
 const USAGE: &str = "usage: north check privacy judge --text FILE|- [--kinds FILE]";
 
-pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
+/// The model call is the caller's: it answers one prompt for a tier and names who answered.
+pub type Model<'a> = dyn Fn(&Tier, &str) -> Result<(String, String), String> + Sync + 'a;
+
+pub fn run(arguments: &[String], model: &Model) -> u8 {
     let Some(("judge", options)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {
         eprintln!("{USAGE}");
         return 2;
@@ -31,7 +34,7 @@ pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
-    match judged(text, kinds.map(String::as_str), access) {
+    match judged(text, kinds.map(String::as_str), model) {
         Ok(None) => u8::try_from(ASKING_STATUS).unwrap_or(2),
         Ok(Some(findings)) if findings.is_empty() => 0,
         Ok(Some(findings)) => {
@@ -45,7 +48,7 @@ pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
     }
 }
 
-fn judged(text: &str, kinds: Option<&str>, access: &RuntimeAccess) -> Result<Option<Vec<Finding>>, String> {
+fn judged(text: &str, kinds: Option<&str>, model: &Model) -> Result<Option<Vec<Finding>>, String> {
     let text = match text {
         "-" => {
             let mut held = String::new();
@@ -63,7 +66,7 @@ fn judged(text: &str, kinds: Option<&str>, access: &RuntimeAccess) -> Result<Opt
     let Some(_turn) = cache.turn(&text, !at_once) else { return Ok(None) };
     let ran = std::sync::Mutex::new(std::collections::BTreeSet::new());
     let judged = judge::judge(&list, &text, &cache, &|tier, prompt| {
-        let (answer, by) = judge::ask_subscription(tier, prompt, access)?;
+        let (answer, by) = model(tier, prompt)?;
         ran.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert((tier.name, by));
         Ok(answer)
     });

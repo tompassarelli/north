@@ -220,7 +220,7 @@ const CHECK: &[(&str, Run)] = &[
     ("citations", citation_check),
     ("concerns", concerns),
     ("harness", agent_config_check::run),
-    ("privacy", |arguments| north_runtime::worker_sandbox::judge_client::command(arguments).unwrap_or_else(|| crate::privacy::run(arguments, &super::agents::claude_access()))),
+    ("privacy", |arguments| north_runtime::worker_sandbox::judge_client::command(arguments).unwrap_or_else(|| privacy_judge(arguments))),
     ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
     ("experiments", crate::experiments::run),
     ("issue-boxes", issue_box_lint::run),
@@ -228,6 +228,13 @@ const CHECK: &[(&str, Run)] = &[
     ("nix", super::nix::doctor),
     ("provenance", provenance::run),
 ];
+
+fn privacy_judge(arguments: &[String]) -> u8 {
+    let access = super::agents::claude_access();
+    north_land_scans::privacy_judge::run(arguments, &|tier, prompt| {
+        north_timers::judge_model::ask_subscription(&north_timers::judge_model::Model { model: tier.model, effort: tier.effort, system: north_land_scans::privacy_judge::SYSTEM }, prompt, &access)
+    })
+}
 
 fn concerns(arguments: &[String]) -> u8 {
     north_concerns::run(arguments, &super::concern_history::LedgerHistory)

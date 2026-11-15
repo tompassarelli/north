@@ -1039,6 +1039,7 @@ dependencies = [
  "north-guard",
  "north-health",
  "north-issue-boxes",
+ "north-land-scans",
  "north-land-watch",
  "north-lander",
  "north-lander-doctor",

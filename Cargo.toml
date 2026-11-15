@@ -93,6 +93,7 @@ north-graph-loops = { path = "crates/north-graph-loops" }
 north-graph-change = { path = "crates/north-graph-change" }
 north-runtime = { path = "crates/north-runtime" }
 north-timers = { path = "crates/north-timers" }
+north-land-scans = { path = "crates/north-land-scans" }
 north-offload = { path = "crates/north-offload" }
 north-build-system = { path = "crates/north-build-system" }
 north-guard = { path = "crates/north-guard" }
