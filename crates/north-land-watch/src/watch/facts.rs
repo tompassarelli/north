@@ -145,6 +145,7 @@ pub use north_land_scans::slug::slug_of;
 
 const BUCK2_WORKFLOW: &str = "buck2.yml";
 const FAILED: [&str; 3] = ["failure", "timed_out", "startup_failure"];
+const CANCELLED: &str = "cancelled";
 
 fn repo_facts(name: &str, state: &Path) -> Option<RepoFacts> {
     let checkout = home().join("code").join(name).join("main");
@@ -177,15 +178,25 @@ fn mark_environment_failures(runs: &mut [Run], slug: &str) {
     }
     let timings = crate::landing::check_timings::Timings::standard();
     for index in newest.into_values() {
-        runs[index].unjudged = timings.buck2_unjudged(&runs[index].head_sha, runs[index].id) || buck2_not_judged(&runs[index], slug);
+        runs[index].unjudged = timings.buck2_unjudged(&runs[index].head_sha, runs[index].id) || buck2_not_judged(runs, index, slug);
         let jobs = output("gh", None, &["api", &format!("repos/{slug}/actions/runs/{}/jobs?per_page=100", runs[index].id)]);
         runs[index].started_no_job = jobs.as_deref().is_ok_and(started_no_job);
         runs[index].environment_only = jobs.is_ok_and(|text| failed_only_in_environment_steps(&text));
     }
 }
 
-fn buck2_not_judged(run: &Run, slug: &str) -> bool {
-    run.path.ends_with(BUCK2_WORKFLOW) && judge(true, || kept(slug, &run.id.to_string())).is_ok_and(|verdict| !verdict.pages())
+fn buck2_not_judged(runs: &[Run], index: usize, slug: &str) -> bool {
+    let run = &runs[index];
+    run.path.ends_with(BUCK2_WORKFLOW) && judge(true, || kept(slug, &run.id.to_string()), |count| earlier(runs, run, count).into_iter().map(|id| kept(slug, &id.to_string())).collect()).is_ok_and(|verdict| !verdict.pages())
+}
+
+/// The ids of up to `count` red completed push runs of `run`'s workflow on main just before it, newest first, one per head other than its own; a green run ends them.
+fn earlier(runs: &[Run], run: &Run, count: usize) -> Vec<u64> {
+    let mut before: Vec<&Run> = runs.iter().filter(|other| other.path == run.path && other.head_branch == run.head_branch && other.event == run.event && other.status == run.status && other.created_at < run.created_at).collect();
+    before.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    let mut heads = vec![run.head_sha.as_str()];
+    let red = before.into_iter().filter(|other| other.conclusion.as_deref() != Some(CANCELLED)).take_while(|other| other.conclusion.as_deref().is_some_and(|conclusion| FAILED.contains(&conclusion)));
+    red.filter(|other| !heads.contains(&other.head_sha.as_str()) && { heads.push(&other.head_sha); true }).take(count).map(|other| other.id).collect()
 }
 
 pub fn started_no_job(jobs: &str) -> bool {

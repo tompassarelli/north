@@ -97,21 +97,34 @@ impl Screen {
         if self.trips.unjudged(&run.head)? {
             return Ok(true);
         }
-        let mut log = String::new();
-        let verdict = main_runs::judge(run.red, || {
-            let kept = (self.runs.kept)(&run.id)?;
-            if let Kept::Log(text) = &kept {
-                log.clone_from(text);
+        let cases = match main_runs::judge(run.red, || (self.runs.kept)(&run.id), |count| self.earlier(run, count))? {
+            main_runs::Verdict::NotJudged(why) => {
+                self.trips.write_unjudged(&run.head, &run.id, &why)?;
+                (self.runs.alert)(&format!("north runtime: the hosted Buck2 run {} on {} is not judged and trips nothing: {why}", run.id, run.head));
+                return Ok(true);
             }
-            Ok(kept)
-        })?;
-        if let main_runs::Verdict::NotJudged(why) = verdict {
-            self.trips.write_unjudged(&run.head, &run.id, &why)?;
-            (self.runs.alert)(&format!("north runtime: the hosted Buck2 run {} on {} is not judged and trips nothing: {why}", run.id, run.head));
-            return Ok(true);
-        }
-        self.trips.write_failed(&Trip { head: run.head.clone(), run: Some(run.id.clone()), cases: main_runs::failed_cases(&log) })?;
+            main_runs::Verdict::Red(cases) => cases,
+            main_runs::Verdict::Green => Vec::new(),
+        };
+        self.trips.write_failed(&Trip { head: run.head.clone(), run: Some(run.id.clone()), cases })?;
         Ok(false)
+    }
+
+    /// The kept records of up to `count` red runs of main just before `run`, newest first, one per head other than its own; a green run ends them.
+    fn earlier(&self, run: &MainRun, count: usize) -> Result<Vec<Kept>, String> {
+        let (mut runs, mut number) = (Vec::new(), 1);
+        while let Some(page) = (self.runs.page)(number)? {
+            let found = runs.iter().any(|other: &MainRun| other.id == run.id);
+            runs.extend(page);
+            number += 1;
+            if found {
+                break;
+            }
+        }
+        let mut heads = vec![run.head.as_str()];
+        let older = runs.iter().skip_while(|other| other.id != run.id).skip(1).take_while(|other| other.red);
+        let picked: Vec<&MainRun> = older.filter(|other| !heads.contains(&other.head.as_str()) && { heads.push(&other.head); true }).take(count).collect();
+        picked.iter().map(|other| (self.runs.kept)(&other.id)).collect()
     }
 
     /// The failed cases of red judged `run`, as `unjudged` kept them, or a trip record written before they were kept.

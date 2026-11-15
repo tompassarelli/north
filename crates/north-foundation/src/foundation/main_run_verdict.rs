@@ -1,5 +1,5 @@
 //! The one verdict on a red hosted run of main's Buck2 workflow (north#1115, north#1576): the runtime's trip screen and the
-//! landing watch's red-main page both read it, so a run that only timed out trips nothing and pages nothing.
+//! landing watch's red-main page both read it, so a run that only timed out trips nothing and pages nothing unless one case keeps timing out (north#1537).
 use std::collections::BTreeSet;
 
 use serde::Deserialize;
@@ -17,26 +17,55 @@ pub enum Kept {
     Log(String),
 }
 
-/// What a completed run says about its head: nothing is wrong, a fault was found, or the run ended without judging the commit.
+/// How many consecutive red runs of different heads one case must time out or fail in before its timeout is a fault of main rather
+/// than of the runner: a guess, settled by counting how often a case that timed out on that many runs in a row passed on the next.
+pub const REPEATED: usize = 3;
+
+/// What a completed run says about its head: nothing is wrong, a fault was found with the cases it names, or the run ended without judging the commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
     Green,
-    Red,
+    Red(Vec<(String, String)>),
     NotJudged(String),
 }
 
 impl Verdict {
     pub fn pages(&self) -> bool {
-        matches!(self, Self::Red)
+        matches!(self, Self::Red(_))
     }
 }
 
 /// The verdict on a run whose conclusion is `red` or not; the run's kept record is read only for a red one, and a read that fails is an error, so nothing is judged from it.
-pub fn judge(red: bool, kept: impl FnOnce() -> Result<Kept, String>) -> Result<Verdict, String> {
+/// A run that only timed out is still red, naming the case, when a case it timed out on also timed out or failed on each of the
+/// `REPEATED - 1` red runs of other heads just before it: `earlier` reads their kept records, newest first, and only then.
+pub fn judge(red: bool, kept: impl FnOnce() -> Result<Kept, String>, earlier: impl FnOnce(usize) -> Result<Vec<Kept>, String>) -> Result<Verdict, String> {
     if !red {
         return Ok(Verdict::Green);
     }
-    Ok(not_judged(&kept()?).map_or(Verdict::Red, Verdict::NotJudged))
+    let kept = kept()?;
+    let Some(why) = not_judged(&kept) else { return Ok(Verdict::Red(failed_cases(log_of(&kept)))) };
+    let timed_out = timed_out_cases(log_of(&kept));
+    let repeated = if timed_out.is_empty() { timed_out } else { repeated(timed_out, &earlier(REPEATED - 1)?) };
+    Ok(if repeated.is_empty() { Verdict::NotJudged(why) } else { Verdict::Red(repeated) })
+}
+
+fn log_of(kept: &Kept) -> &str {
+    match kept {
+        Kept::Log(log) => log,
+        Kept::CutOff(_) => "",
+    }
+}
+
+/// The cases of `cases` that also timed out or failed on every run of `earlier`, none when fewer than `REPEATED - 1` runs came before.
+fn repeated(mut cases: Vec<(String, String)>, earlier: &[Kept]) -> Vec<(String, String)> {
+    if earlier.len() < REPEATED - 1 {
+        return Vec::new();
+    }
+    for run in earlier {
+        let stuck: Vec<(String, String)> = timed_out_cases(log_of(run)).into_iter().chain(failed_cases(log_of(run))).collect();
+        cases.retain(|case| stuck.contains(case));
+    }
+    cases
 }
 
 #[derive(Deserialize)]
@@ -93,6 +122,15 @@ pub fn gh(arguments: &[&str]) -> Result<String, String> {
 
 /// The failed crates and cases of a run's log: the nextest `FAIL [ TIME] (N/M) BINARY CASE` lines, each line read past its GitHub stamp and step.
 pub fn failed_cases(log: &str) -> Vec<(String, String)> {
+    cases(log, "FAIL [")
+}
+
+/// The crates and cases a run's log names as timed out: the nextest `TIMEOUT [ TIME] (N/M) BINARY CASE` lines.
+pub fn timed_out_cases(log: &str) -> Vec<(String, String)> {
+    cases(log, "TIMEOUT [")
+}
+
+fn cases(log: &str, marker: &str) -> Vec<(String, String)> {
     let mut cases = BTreeSet::new();
     for line in log.lines() {
         let text = log_text(line);
@@ -100,7 +138,7 @@ pub fn failed_cases(log: &str) -> Vec<(String, String)> {
             Some((_, rest)) => rest.trim(),
             None => text,
         };
-        let Some((took, rest)) = text.strip_prefix("FAIL [").and_then(|rest| rest.split_once(']')) else { continue };
+        let Some((took, rest)) = text.strip_prefix(marker).and_then(|rest| rest.split_once(']')) else { continue };
         if !took.trim().ends_with('s') {
             continue;
         }
