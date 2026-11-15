@@ -1,6 +1,10 @@
 use super::*;
 use serde_json::{Value, json};
 
+fn hook(name: &str) -> &'static Hook {
+    Hook::named(name).expect("the test names a hook in the dispatch table")
+}
+
 #[test]
 fn provider_events_select_matching_guard_list() {
     crate::guard::activation::TEST_GUARDS_OFF.with(|off| off.set(true));
@@ -9,7 +13,7 @@ fn provider_events_select_matching_guard_list() {
             "PreToolUse",
             vec!["Bash", "exec_command", "functions.exec_command"],
             "pre-bash",
-            HookKind::PreBash,
+            "pre-bash",
         ),
         (
             "PreToolUse",
@@ -22,64 +26,64 @@ fn provider_events_select_matching_guard_list() {
                 "functions.apply_patch",
             ],
             "pre-edit",
-            HookKind::PreEdit,
+            "pre-edit",
         ),
         (
             "PreToolUse",
             vec!["Agent", "spawn_agent", "functions.spawn_agent"],
             "pre-agent",
-            HookKind::PreAgent,
+            "pre-agent",
         ),
         (
             "PreToolUse",
             vec!["ScheduleWakeup", "CronCreate"],
             "pre-timer",
-            HookKind::PreTimer,
+            "pre-timer",
         ),
-        ("PreToolUse", vec!["SendMessage"], "pre-message", HookKind::PreMessage),
+        ("PreToolUse", vec!["SendMessage"], "pre-message", "pre-message"),
         (
             "PostToolUse",
             vec!["Bash", "functions.exec_command"],
             "post-tool",
-            HookKind::PostTool,
+            "post-tool",
         ),
         (
             "PermissionRequest",
             vec!["Bash"],
             "permission-request",
-            HookKind::PermissionRequest,
+            "permission-request",
         ),
-        ("Stop", vec![""], "stop", HookKind::Stop),
+        ("Stop", vec![""], "stop", "stop"),
         (
             "SubagentStop",
             vec![""],
             "subagent-stop",
-            HookKind::SubagentStop,
+            "subagent-stop",
         ),
         (
             "SessionStart",
             vec![""],
             "session-start",
-            HookKind::SessionStart,
+            "session-start",
         ),
         (
             "UserPromptSubmit",
             vec![""],
             "user-prompt-submit",
-            HookKind::UserPromptSubmit,
+            "user-prompt-submit",
         ),
     ] {
-        assert_eq!(HookKind::explicit(explicit), Some(expected));
+        assert_eq!(Hook::named(explicit).map(|hook| hook.name), Some(expected));
         for tool in tools {
             for tool_input in [json!({}), json!("{}")] {
                 let bytes = serde_json::to_vec(&json!({"hook_event_name":event, "tool_name":tool, "tool_input":tool_input})).unwrap();
                 let input = HookInput::parse(&bytes).unwrap();
                 assert_eq!(
-                    HookKind::from_input(&input),
+                    Hook::of(&input).map(|hook| hook.name),
                     Some(expected),
                     "{event} {tool}"
                 );
-                assert_eq!(expected.event(), event);
+                assert_eq!(hook(expected).event(), event);
                 let mut output = Vec::new();
                 process(bytes.as_slice(), &mut output, &[], "").unwrap();
                 assert!(output.is_empty());
@@ -93,7 +97,7 @@ fn provider_events_select_matching_guard_list() {
     ] {
         let bytes = serde_json::to_vec(&payload).unwrap();
         assert_eq!(
-            HookKind::from_input(&HookInput::parse(&bytes).unwrap()),
+            Hook::of(&HookInput::parse(&bytes).unwrap()).map(|hook| hook.name),
             None
         );
         let mut output = Vec::new();
@@ -106,8 +110,8 @@ fn provider_events_select_matching_guard_list() {
         .unwrap();
         assert!(output.is_empty());
     }
-    assert_eq!(HookKind::explicit("pre-read"), Some(HookKind::PreRead));
-    assert!(HookKind::PreRead.guards().iter().all(|guard| guard.0.is_empty()), "no unit name switches the reading guard off");
+    assert_eq!(Hook::named("pre-read").map(|hook| hook.name), Some("pre-read"));
+    assert!(hook("pre-read").guards().iter().all(|guard| guard.0.is_empty()), "no unit name switches the reading guard off");
     let reached = |tool: &str, tool_input: Value| crate::guard::file_read_reach::reached(&HookInput::parse(json!({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}).to_string().as_bytes()).unwrap());
     assert_eq!(reached("Read", json!({"file_path": "/a/b"})), ["/a/b"]);
     assert_eq!(reached("NotebookRead", json!({"notebook_path": "/a/n.ipynb"})), ["/a/n.ipynb"]);
@@ -117,7 +121,7 @@ fn provider_events_select_matching_guard_list() {
     assert_eq!(reached("Glob", json!({"pattern": "/h/.ssh/*"})), ["/h/.ssh/"]);
     assert_eq!(reached("Glob", json!({"pattern": "src/x*/y", "path": "/a"})), ["/a/src/"]);
     assert!(reached("Bash", json!({"command": "ls"})).is_empty());
-    let (start, prompt) = (HookKind::SessionStart.guards(), HookKind::UserPromptSubmit.guards());
+    let (start, prompt) = (hook("session-start").guards(), hook("user-prompt-submit").guards());
     assert!(spare_guards(start, "SessionStart", Binding::Awaited, || true).is_empty(), "a spare no launch has taken gives no session-start context, which would be the spare's");
     assert_eq!(spare_guards(prompt, "UserPromptSubmit", Binding::Written, || true).len(), start.len() + prompt.len(), "a taken spare's first prompt gets the session-start context of the session it was bound to");
     assert_eq!(spare_guards(prompt, "UserPromptSubmit", Binding::Written, || false).len(), prompt.len(), "and only its first");
@@ -247,7 +251,7 @@ fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree
     }
     let app = fleet.path().join("app");
     std::fs::create_dir_all(app.join("john")).unwrap();
-    let host_guards: Vec<Guard> = HookKind::PreBash.guards().iter().filter(|guard| ["session-kill-guard", "modern-search-guard"].contains(&guard.0)).map(|guard| Guard("", guard.1, guard.2)).collect();
+    let host_guards: Vec<Guard> = hook("pre-bash").guards().iter().filter(|guard| ["session-kill-guard", "modern-search-guard"].contains(&guard.0)).map(|guard| Guard("", guard.1, guard.2)).collect();
     let guards = [host_guards, vec![guard("", crate::guard::sops_decrypt::evaluate)]].concat();
     let judged = |session: &str, command: &str| {
         let call = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": app, "tool_input": {"command": command}});
