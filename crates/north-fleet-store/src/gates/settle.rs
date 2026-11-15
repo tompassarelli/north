@@ -111,14 +111,46 @@ pub fn orphan(book: &dyn GateBook, id: i64, now_ms: u64) -> NorthResult<Closure>
 }
 
 fn named_option(gate: &Gate, text: &str) -> Option<usize> {
-    let text = text.trim_start();
-    let digits = text.len() - text.trim_start_matches(|character: char| character.is_ascii_digit()).len();
-    if digits > 0 && text[digits..].chars().next().is_none_or(|next| !next.is_alphanumeric()) {
-        return text[..digits].parse().ok().filter(|number| gate.option(*number).is_some());
+    let options: Vec<String> = gate.request.options.iter().map(|option| option.trim().to_lowercase()).collect();
+    let own = text.to_lowercase().replace(&gate.request.question.trim().to_lowercase(), "");
+    let spelled = options.iter().enumerate().filter(|(_, option)| own.contains(option.as_str())).map(|(index, _)| index + 1);
+    let answer = options.iter().fold(own.clone(), |rest, option| rest.replace(option.as_str(), ""));
+    let numbered = answer.lines().filter(|line| !line.trim_start().starts_with('>')).flat_map(answer_numbers).filter(|number| gate.option(*number).is_some());
+    let mut named: Vec<usize> = spelled.chain(numbered).collect();
+    named.sort_unstable();
+    named.dedup();
+    match named[..] {
+        [only] => Some(only),
+        _ => None,
     }
-    let lower = text.to_lowercase();
-    let mut named = gate.request.options.iter().enumerate().filter(|(_, option)| lower.contains(&option.trim().to_lowercase())).map(|(index, _)| index + 1);
-    named.next().filter(|_| named.next().is_none())
+}
+
+fn answer_numbers(line: &str) -> Vec<usize> {
+    if asks_or_denies(line) {
+        return Vec::new();
+    }
+    let words: Vec<&str> = line.split_whitespace().collect();
+    (0..words.len()).filter(|index| answers_at(&words, *index)).filter_map(|index| number(words[index])).collect()
+}
+
+fn asks_or_denies(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    lower.contains('?') || lower.split(|character: char| !character.is_alphanumeric() && character != '\'').any(|word| word.ends_with("n't") || matches!(word, "not" | "no" | "never" | "except" | "instead" | "without" | "rather" | "why"))
+}
+
+fn number(word: &str) -> Option<usize> {
+    let digits = word.trim_end_matches(['.', ')', ':', ',', '!']);
+    if digits.is_empty() || !digits.chars().all(|character| character.is_ascii_digit()) { None } else { digits.parse().ok() }
+}
+
+fn answers_at(words: &[&str], index: usize) -> bool {
+    let previous = index.checked_sub(1).map(|before| words[before]);
+    if previous == Some("gate") {
+        return false;
+    }
+    let cue = |word: &str| matches!(word, "option" | "choice" | "choose" | "pick" | "take" | "say");
+    let closing = index + 1 == words.len() && previous.is_none_or(|word| word.ends_with(['.', '!', '>', '→']) || cue(word));
+    index == 0 || closing || previous.is_some_and(cue) || (index >= 2 && words[index - 2] == "go" && words[index - 1] == "with")
 }
 
 pub(super) fn settle_as(book: &dyn GateBook, id: i64, decision: Decision, by: Answerer, note: Option<&str>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {

@@ -106,7 +106,7 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_strangers_a
     let ask =GateRequest { default: 0, default_after_ms: 0, options: vec!["encrypt it".into(), "keep it local".into()], ..request("proxy", 0) };
     let relayed = book.open_gate(&ask, 1_000).unwrap();
     let turn = |id: i64, at_ms: u64, text: &str| TomTurn { id, at_ms, text: text.into() };
-    let refusals = [(turn(7, 900, "2. keep it local"), 2, "before the gate opened"), (turn(8, 2_000, "1. encrypt it"), 2, "names option 1, not 2"), (turn(9, 2_000, "sounds fine"), 2, "names no single option")];
+    let refusals = [(turn(7, 900, "2. keep it local"), 2, "before the gate opened"), (turn(8, 2_000, "1. encrypt it"), 2, "names option 1, not 2"), (turn(9, 2_000, "sounds fine"), 2, "names no single option"), (turn(12, 2_000, "see gate 261 and the 290 verbs, then step 1 of 10: go with 1."), 2, "names option 1, not 2"), (turn(13, 2_000, "1. 2."), 2, "names no single option"), (turn(14, 2_000, "wait 1 more day, give it a day or 2"), 2, "names no single option"), (turn(16, 2_000, "what does option 2 do?"), 2, "names no single option"), (turn(17, 2_000, "not 2"), 2, "names no single option"), (turn(18, 2_000, "don't go with 1"), 2, "names no single option"), (turn(19, 2_000, "why would we pick 2"), 2, "names no single option"), (turn(15, 2_000, "> release condition 1 is open\nok"), 2, "names no single option")];
     for (evidence, number, why) in refusals {
         let refused = relay_gate(&book, relayed, number, Relay { turn: &evidence, relayer: "proxy", parent: None }, 3_000, |_, _| panic!("a refused relay delivered")).unwrap_err().user_message();
         assert!(refused.contains(why), "{refused}");
