@@ -2,7 +2,7 @@
 
 Owner: north#1435
 
-An outside review of the workspace layout on 2026-11-14 named `north-ops` the one escape valve in an otherwise partitioned workspace: thirty modules under `crates/north-ops/src/ops/`, about 20,000 lines with tests, of which one names another. The owner asked for a proper fix before the public launch (2026-11-14). This note maps every family to its destination and states what the check that keeps a grab-bag from forming again must tell apart; the moves are the second box of north#1435.
+An outside review of the workspace layout on 2026-11-14 named `north-ops` the one escape valve in an otherwise partitioned workspace: thirty modules under `crates/north-ops/src/ops/`, about 20,000 lines with tests, of which one names another. The owner asked for a proper fix before the public launch (2026-11-14). This note maps every family to its destination and states what the check that keeps a grab-bag from forming again must tell apart; the moves landed as the second box of north#1435 on 2026-11-14 and 2026-11-15.
 
 Read at commit 15fc1ebdb0. Line counts include each family's tests.
 
@@ -112,4 +112,14 @@ All of them stay in the public workspace, in the crate of their domain. The priv
 
 ## What the fitness check must tell apart
 
-Box 3 adds a code-health rule that refuses a crate spanning unrelated domains. A text scan at this commit, counting the islands of each crate's top-level modules joined by `crate::` paths, shows that island count alone cannot be that rule: north-land-scans has 11 islands, north-graph-ingest 8 and north-docs 6, yet each is a family of independent peers serving one domain (the scans a landing runs, the loaders into the graph, the generated indexes). What sets the old north-ops apart is that its islands also reach disjoint parts of the workspace: `gh_broker` names only north-base, `ci_watch` the GitHub mirror, `private_desktop` capacity and pacing, `defaults_measure` the router. So the rule joins two modules when one names the other or both name the same workspace crate beyond north-base (`north code-health domains` joins on the crate a module names, not on the item it names), counts the islands left, and refuses above `max_islands` = 10, the count north-land-scans measures on main; north-fleet (14 islands on 2026-11-15) carries a dated allowance until its split is filed under north#1435. A fixture crate built like the old north-ops, modules that name nothing of each other and reach disjoint crates, must fail, and north-land-scans must pass.
+Box 3 added a code-health rule that refuses a crate spanning unrelated domains. A text scan at this commit, counting the islands of each crate's top-level modules joined by `crate::` paths, shows that island count alone cannot be that rule: north-land-scans has 11 islands, north-graph-ingest 8 and north-docs 6, yet each is a family of independent peers serving one domain (the scans a landing runs, the loaders into the graph, the generated indexes). What sets the old north-ops apart is that its islands also reach disjoint parts of the workspace: `gh_broker` names only north-base, `ci_watch` the GitHub mirror, `private_desktop` capacity and pacing, `defaults_measure` the router. So the rule joins two modules when one names the other or both name the same workspace crate beyond north-base (`north code-health domains` joins on the crate a module names, not on the item it names), counts the islands left, and refuses above `max_islands` = 10, the count north-land-scans measures on main; north-fleet (14 islands on 2026-11-15) carries a dated allowance until its split is filed under north#1435. A fixture crate built like the old north-ops, modules that name nothing of each other and reach disjoint crates, must fail, and north-land-scans must pass.
+
+## Result
+
+`crates/north-ops/` is gone: `test ! -d crates/north-ops` exits 0 on main, and the persisted check `n1435-north-ops-stays-gone` in `docs/rationale/experiments.toml` runs the same test until 2026-12-15.
+
+The second box's Done when has two parts, read on main on 2026-11-15:
+
+- `north --help` lists the same top-level verbs before and after the split: the verb lines of `src/cli/help.txt` at the design's base commit `15fc1ebdb0` and on main both number 27, and a `diff` of the two sorted lists exits 0. No verb moved out of the public workspace.
+- `north code-health domains --repo .` exits 0 with `domains: no crate spans more unrelated domains than its bound`. The two dated allowances in `structure/0235-domains.toml` are north-land-scans (under north#1487) and north-fleet (until its split is filed).
+
