@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use north_base::foundation::offload::ONE_LANE_ENV;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use north_base::platform::harness::DEFAULTS;
 use north_base::platform::review_accept::{Accepts, patch_id};
 use north_base::platform::trust_boundary;
+use regex::Regex;
 use toml_edit::DocumentMut;
 
 use crate::{Range, git, holdlist};
@@ -61,7 +63,7 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
     Ok((patch, accepted))
 }
 
-/// `Err` is a lane that changes a `trust_boundary_paths` file of the harness/defaults.toml at its landing `base` and holds no accept of its patch id from a reviewer session that did not author the lane.
+/// `Err` is a lane that changes a `trust_boundary_paths` file of the harness/defaults.toml at its landing `base` or deletes a test function, and holds no accept of its patch id from a reviewer session that did not author the lane.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     check_listed(directory, base, base, head, accepts, finished)
 }
@@ -71,14 +73,36 @@ fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accep
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
     let lists = lists_at(directory, listed_at)?;
     let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {listed_at} lists no trust_boundary_paths, so no change can be told to cross one"))?;
-    if crossing.is_empty() {
+    let deleted = deleted_tests(directory, &fork, head, &files);
+    let changes: Vec<String> = [(!crossing.is_empty()).then(|| format!("changes {} of trust_boundary_paths", crossing.join(", "))), (!deleted.is_empty()).then(|| format!("deletes test functions {}", deleted.join(", ")))].into_iter().flatten().collect();
+    if changes.is_empty() {
         return Ok(());
     }
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
     if !accepted.is_empty() {
         return Ok(());
     }
-    Err(format!("the lane changes {} of trust_boundary_paths and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
+    Err(format!("the lane {} and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", changes.join(" and ")))
+}
+
+/// The test functions the lane `fork..head` removes from each Rust file it changes, by name: those its base defines and its head does not, whether it deletes or renames them.
+fn deleted_tests(directory: &Path, fork: &str, head: &str, files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|file| file.ends_with(".rs"))
+        .flat_map(|file| test_functions(&source_at(directory, fork, file)).difference(&test_functions(&source_at(directory, head, file))).cloned().collect::<Vec<_>>())
+        .collect()
+}
+
+fn source_at(directory: &Path, revision: &str, file: &str) -> String {
+    git::text(directory, &["show", &format!("{revision}:{file}")]).unwrap_or_default()
+}
+
+static TEST_FUNCTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#\[(?:[[:alnum:]_]+::)?test\](?:\s*(?:#\[[^\]]*\]|//[^\n]*))*\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([[:alnum:]_]+)").expect("test function pattern"));
+
+/// The names of the test functions in `source`: each `fn` that a `#[test]` or `#[...::test]` attribute marks, with the attributes and doc comments between.
+fn test_functions(source: &str) -> BTreeSet<String> {
+    TEST_FUNCTION.captures_iter(source).map(|found| found[1].to_owned()).collect()
 }
 
 pub(crate) fn each_commit(directory: &Path, base: &str, head: &str, judge: impl Fn(&str, &str) -> Result<(), String>) -> Result<(), String> {
