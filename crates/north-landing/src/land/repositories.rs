@@ -48,6 +48,7 @@ pub fn map(queue: &Path, host: &str) -> Mapping {
     for (_, ticket) in recent(queue, host) {
         let found = if ticket.root.is_dir() { checkout(&ticket.root).and_then(|checkout| origin_key(&checkout).map(|found| (checkout, found))) } else { Err(format!("{} no longer exists", ticket.root.display())) };
         match found {
+            Ok((checkout, _)) if queue.parent().is_some_and(|queues| checkout.starts_with(queues)) => refusals.push(format!("{} is an after-landing scratch under the land queues, not a checkout", checkout.display())),
             Ok((checkout, found)) if found == key => return Mapping::Checkout(checkout),
             Ok((checkout, found)) => refusals.push(format!("{} pushes to queue {found}, not {key}", checkout.display())),
             Err(error) => refusals.push(error),
