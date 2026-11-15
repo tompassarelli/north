@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::Gc;
 use super::evidence::item_ref;
-use super::exec::{api, command, git, real, text, verified};
+use super::exec::{api, command, git, in_dir, real, text, verified};
 use north_github_mirror::read;
 use north_github_mirror::store::{self, Mirror};
 use north_base::foundation::clock::Timestamp;
@@ -79,11 +79,11 @@ impl Gc {
         }))
     }
 
-    pub(super) fn live_claims(&mut self) -> Result<HashSet<String>, String> {
+    pub(super) fn live_claims(&mut self, main: &Path) -> Result<HashSet<String>, String> {
         if let Some(claims) = &self.claims {
             return Ok(claims.clone());
         }
-        let listed = command(&["north", "threads", "list"]);
+        let listed = in_dir(main, &["north", "threads", "list"]);
         if !listed.ok || !listed.out.starts_with("item") {
             return Err("NorthThread claims unavailable".into());
         }
@@ -125,7 +125,7 @@ impl Gc {
     }
 
     fn archive_guard(&mut self, main: &Path, name: &str, issues: &[String], branch: &str, path: Option<&Path>) -> Result<String, String> {
-        let claims = self.live_claims()?;
+        let claims = self.live_claims(main)?;
         if issues.iter().any(|item| claims.contains(item)) {
             return Ok("live holder session".into());
         }

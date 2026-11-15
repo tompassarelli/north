@@ -197,7 +197,7 @@ impl Gc {
     }
 
     fn holder_reason(&mut self, name: &str, main: &Path, branch: &Branch) -> Result<String, String> {
-        let claims = self.live_claims()?;
+        let claims = self.live_claims(main)?;
         let source = if branch.landing { source_of(branch.name) } else { String::new() };
         let prefix = format!("{name}:");
         let (laptop, nexus) = (&self.hosts.laptop, &self.hosts.nexus);
