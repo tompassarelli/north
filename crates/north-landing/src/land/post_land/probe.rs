@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use north_base::foundation::offload::OWNER_ENV;
 
-use super::{Landed, Run, check, failing, superseded};
+use super::{Landed, Run, check, failing, rerun_host, superseded};
 use crate::land::after::follow;
 use crate::land::blame;
 use crate::land::candidate::git;
@@ -82,7 +82,9 @@ fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> 
         })
         .cloned()
         .collect();
-    let host = run.host.clone().unwrap_or_else(north_base::platform::host::name);
+    let Some(host) = rerun_host(&landed.repo, run) else {
+        return blame::Probe { verdict: Verdict::Transient(format!("no build host takes the failed tests to rerun them on {tree}")), failing: BTreeSet::new() };
+    };
     let Some(command) = red_check::rerun_on(&host, &present) else { return blame::Probe { verdict: Verdict::Green, failing: BTreeSet::new() } };
     let timeout = run.deadline.as_secs().to_string();
     let ran = Command::new(follow::program())

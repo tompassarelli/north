@@ -173,6 +173,15 @@ pub fn choose_host(repo: &Path, avoid: Option<&str>) -> Option<String> {
     Some(if host.is_empty() { north_base::platform::host::name() } else { host })
 }
 
+pub(super) fn rerun_host(repo: &Path, run: &Run) -> Option<String> {
+    let host = match &run.host {
+        Some(host) => host.clone(),
+        None => choose_host(repo, None)?,
+    };
+    let closed_here = Command::new(follow::program()).args(["capacity", "offload", "closed"]).current_dir(repo).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.code() == Some(75));
+    (!closed_here || host != north_base::platform::host::name()).then_some(host)
+}
+
 impl Run {
     fn at(&self, head: &str, tree: &str) -> Self {
         let name = if tree == head { format!("post-land-{}", short(head)) } else { format!("post-land-{}-on-{}", short(head), short(tree)) };
@@ -334,6 +343,10 @@ fn at_the_tip(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Result
     let again = run.again(&landed.head);
     let probe = Probe::of(failing);
     let rerun = probe::probe(landed, &again, &landed.head, &probe);
+    if let Verdict::Transient(detail) = &rerun.verdict {
+        println!("north land: the failed checks of {} reached no verdict when rerun at the tip ({detail}), so they stand as failing (north#1631)", landed.head);
+        return Ok(failing.clone());
+    }
     if !matches!(rerun.verdict, Verdict::RedMain(_)) {
         println!("north land: the failed checks of {} ended {:?} when rerun at the tip, so no lane is blamed", landed.head, rerun.verdict);
         return Err(again.log);

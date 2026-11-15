@@ -117,7 +117,10 @@ pub(super) fn rerun_red(landed: &Landed, run: &Run, rerun: impl Fn(&str) -> Stri
 }
 
 pub(super) fn offload_rerun(landed: &Landed, run: &Run, command: &str) -> String {
-    let host = run.host.clone().unwrap_or_else(north_base::platform::host::name);
+    let Some(host) = super::rerun_host(&landed.repo, run) else {
+        eprintln!("north land: no build host takes main's red tests to rerun them");
+        return String::new();
+    };
     let timeout = run.deadline.as_secs().to_string();
     let ran = Command::new(follow::program())
         .args(["capacity", "offload", "run", "--host", &host, "--base", &landed.head, "--head", &landed.head, "--timeout", &timeout, "--", command])
