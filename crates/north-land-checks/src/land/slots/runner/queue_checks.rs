@@ -38,12 +38,18 @@ pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>
         }
     }
     if after_landing {
-        let built = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.arguments());
-        if !built.is_empty() {
-            commands.push(format!("north land graph-build --changed {built}"));
-        }
+        commands.extend(graph_build(root, base, head));
     }
     Ok(commands)
+}
+
+/// The compile of the crates a lane changes, which a repository without a Cargo workspace has none of (north#1632).
+fn graph_build(root: &Path, base: &str, head: &str) -> Option<String> {
+    if !root.join("Cargo.toml").is_file() {
+        return None;
+    }
+    let built = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.arguments());
+    (!built.is_empty()).then(|| format!("north land graph-build --changed {built}"))
 }
 
 /// Why the checks before queueing refuse a lane: one of them ran and failed, or none reached a verdict, which says
