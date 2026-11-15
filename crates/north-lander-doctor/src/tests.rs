@@ -311,3 +311,16 @@ fn a_lander_on_a_descendant_of_the_fleet_pin_is_on_current_and_pages_no_one() {
     assert!(shown.contains("bound link-behind lander: on current"), "{shown}");
     assert!(hands.pages.borrow().is_empty(), "{:?}", hands.pages.borrow());
 }
+
+#[test]
+fn the_evict_remedy_reports_the_disk_pass_exit_and_last_line_when_it_fails() {
+    let home = tempfile::tempdir().unwrap();
+    let bin = home.path().join(".local/bin");
+    fs::create_dir_all(&bin).unwrap();
+    let north = bin.join("north");
+    fs::write(&north, "#!/bin/sh\necho 'north capacity: disk pass reclaim failed: Permission denied' >&2\nexit 3\n").unwrap();
+    fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let place = Place { name: "here".to_owned(), reach: Reach::Scratch { env: vec![("HOME".to_owned(), home.path().to_string_lossy().into_owned())], namespace: None } };
+    let said = hands::Host.apply(&Remedy::Evict { place }).unwrap();
+    assert!(said.contains("disk pass exited 3: north capacity: disk pass reclaim failed: Permission denied"), "{said}");
+}

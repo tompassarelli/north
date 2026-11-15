@@ -53,7 +53,9 @@ pub fn release() -> String {
 }
 
 const EVICT: &str = r#"PATH=$HOME/.local/bin:$PATH
-north capacity disk keep >/dev/null 2>&1 || true
+said=$(north capacity disk keep 2>&1 </dev/null); code=$?
+last=$(printf "%s\n" "$said" | awk 'NF { line = $0 } END { print line }')
+echo "disk pass exited $code: ${last:-printed nothing}"
 df -Pk "$HOME" | awk 'NR == 2 { printf "%.0f%% free after eviction\n", $4 * 100 / ($3 + $4) }'
 "#;
 
