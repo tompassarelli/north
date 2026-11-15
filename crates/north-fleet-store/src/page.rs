@@ -19,6 +19,11 @@ pub fn wakes(sender: &Sender, text: &str) -> bool {
     }
 }
 
+/// Whether a message only informs the digest whoever it is sent to: the runtime update unit's notice that a hosted run gives no verdict, which trips nothing and asks nothing of the proxy.
+pub fn digest_only(sender: &Sender, text: &str) -> bool {
+    matches!(sender, Sender::Service(unit) if unit.split('@').next() == Some("north-runtime-update")) && text.contains(" is not judged and trips nothing: ")
+}
+
 pub fn clear_wakes(sender: &Sender, text: &str) -> bool {
     matches!(sender, Sender::Service(unit) if unit.split('@').next() == Some("north-land-watch")) && lost_checks(&text.to_lowercase())
 }

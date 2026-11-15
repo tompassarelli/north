@@ -76,6 +76,9 @@ pub fn admit(root: &Path, sender: &Sender, to: &str, text: &str, condition: Opti
 /// As [`admit`], for a message that reaches `route.recipient`: an alike message past the first of its group folds into the group's follow-up before the ceiling counts it.
 pub fn admit_via(root: &Path, sender: &Sender, route: &Route, text: &str, condition: Option<&Condition>, now_ms: u64) -> Admit {
     let Sender::Service(_) = sender else { return Admit::Send };
+    if crate::page::digest_only(sender, text) {
+        return Admit::Hold;
+    }
     let _lock = lock(root);
     match fold(root, sender, route.to, text, condition, now_ms) {
         Admit::Send if !text.starts_with(GATE) => {
@@ -269,5 +272,14 @@ mod tests {
 
         let ticks: Vec<Admit> = (0..4_u64).map(|tick| admit(root.path(), &relay, PROXY, &format!("north fleet: trip {tick} opened"), None, 500_000 + tick)).collect();
         assert!(matches!(&ticks[3], Admit::Flood(line) if line.contains("service:north-fleet sent 4 messages")), "the relay's own messages still count against it: {ticks:?}");
+    }
+
+    #[test]
+    fn a_hosted_run_that_is_not_judged_waits_in_the_digest_while_a_trip_still_reaches_the_proxy() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = Sender::Service("north-runtime-update".into());
+        let unjudged = "north runtime: the hosted Buck2 run 43669991068 on f4c133fdb5 is not judged and trips nothing: its cases and targets only timed out, none failed";
+        assert_eq!(admit(root.path(), &runtime, PROXY, unjudged, None, 0), Admit::Hold, "the notice of a run that trips nothing woke the proxy");
+        assert_eq!(admit(root.path(), &runtime, PROXY, "north runtime: hosted run 43664341671 on da00e6f468 trips promotion of its head", None, 1000), Admit::Send, "a trip waited in the digest");
     }
 }
