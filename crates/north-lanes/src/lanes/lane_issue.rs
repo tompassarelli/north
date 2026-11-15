@@ -71,3 +71,7 @@ pub(super) fn forget(main: &Path, branch: &str) {
     }
 }
 
+/// The issue `north lane new` recorded for `branch` in the repository of the main checkout `main`.
+pub fn of_branch(main: &Path, branch: &str) -> Option<String> {
+    recorded(main, branch)
+}

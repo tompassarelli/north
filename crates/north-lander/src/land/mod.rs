@@ -1,5 +1,6 @@
 pub use north_landing::land::*;
 
+pub mod adopt;
 pub mod break_glass;
 pub mod build_lag;
 pub mod divergence;
