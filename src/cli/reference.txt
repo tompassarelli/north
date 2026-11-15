@@ -168,6 +168,7 @@ Commands:
   cloud collect EVENTS.jsonl OUT.mbox           Decode a saved handback to an mbox
   cloud land EVENTS.jsonl [--repo DIR]          Apply a handback in a fresh lane and land it
   cloud reap                                    Land every finished handback launched in the last 7 days
+  fetch-fleet [VIEW [ARGS...]]                  Run git fetch, north fleet VIEW (list when none is named) and git fetch again in one call
   fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready boxes of every unpaused project in orchestration.toml (its dispatch_repos, else repos) on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
   coordinator [--interactive] | coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises

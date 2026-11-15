@@ -16,6 +16,7 @@ mod cloud_reap;
 mod token_usage;
 mod alarm_stats;
 mod box_path;
+mod fetch_fleet;
 mod fleet;
 mod gate;
 mod gate_closing;

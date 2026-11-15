@@ -58,6 +58,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("docs", Diagnosis),
     ("eta-calibration", Bookkeeping),
     ("evidence", Diagnosis),
+    ("fetch-fleet", Status),
     ("finish", Landing),
     ("fleet adopt", Bookkeeping),
     ("fleet ask", ChildMessage),
