@@ -12,6 +12,7 @@ use north_base::platform::finish_record::{FinishRecords, Finished};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen, Stand};
 
 mod acceptance;
+pub use acceptance::session_confinement;
 mod early_facts;
 mod kept;
 mod lane_sync;

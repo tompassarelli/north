@@ -69,15 +69,20 @@ fn passes(root: &Path, check: &str, at: Option<(&str, &str)>, north: &str) -> Re
         return Err(("is empty".to_owned(), String::new()));
     }
     let placed = at.map(|range| check_offload::offloaded(north, check, range, check_offload::this_host_builds(), || check_offload::chosen_host(north)));
-    passes_placed(root, check, placed.unwrap_or(Ok(None)))
+    passes_placed(root, check, placed.unwrap_or(Ok(None)), &session_confinement(north))
 }
 
-fn passes_placed(root: &Path, check: &str, placed: Result<Option<Vec<String>>, String>) -> Result<(), (String, String)> {
+/// The words that start a lane's own check under the confinement of the session's own commands: the worker sandbox reads which domain applies from the session's capability record, never from the caller (north#1397).
+pub fn session_confinement(north: &str) -> Vec<String> {
+    [north, "--worker-sandbox", "--program", "--"].map(str::to_owned).to_vec()
+}
+
+fn passes_placed(root: &Path, check: &str, placed: Result<Option<Vec<String>>, String>, confinement: &[String]) -> Result<(), (String, String)> {
     let command = placed.map_err(|why| (format!("exited {NO_HOST_EXIT}"), why))?;
     let unstarted = |error: io::Error| (format!("did not start: {error}"), String::new());
     let mut log = tempfile::tempfile().map_err(unstarted)?;
     let (out, err) = (log.try_clone().map_err(unstarted)?, log.try_clone().map_err(unstarted)?);
-    let words = command.unwrap_or_else(|| ["sh", "-c", check].map(str::to_owned).to_vec());
+    let words: Vec<String> = confinement.iter().cloned().chain(command.unwrap_or_else(|| ["sh", "-c", check].map(str::to_owned).to_vec())).collect();
     let status = Command::new(&words[0]).args(&words[1..]).current_dir(root).stdin(Stdio::null()).stdout(out).stderr(err).status().map_err(unstarted)?;
     let mut output = String::new();
     let _ = io::Seek::rewind(&mut log).and_then(|()| io::Read::read_to_string(&mut log, &mut output));

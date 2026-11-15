@@ -57,7 +57,8 @@ fn on_base(root: &Path, mark: &Mark, files: &[String]) -> Option<i32> {
         return None;
     }
     let restore = |source: &str| Command::new("git").arg("-C").arg(root).args(["restore", "--source", source, "--worktree", "--"]).args(files).stdin(Stdio::null()).status().is_ok_and(|status| status.success());
-    let exit = restore(&mark.base).then(|| Command::new("sh").arg("-c").arg(&mark.check).current_dir(root).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().and_then(|status| status.code())).flatten();
+    let confined = north_lander::land::hand_in::session_confinement(&north_base::platform::north_binary::land_north());
+    let exit = restore(&mark.base).then(|| Command::new(&confined[0]).args(&confined[1..]).args(["sh", "-c", &mark.check]).current_dir(root).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().and_then(|status| status.code())).flatten();
     restore("HEAD");
     exit
 }
