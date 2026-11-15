@@ -44,7 +44,6 @@ mod dash;
 mod infra;
 pub(crate) mod scoreboard;
 mod send;
-mod strategy;
 mod session;
 mod spend;
 #[cfg(test)]

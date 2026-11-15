@@ -69,7 +69,6 @@ crates_before = [
   "north-publish",
   "north-reclaim",
   "north-registries",
-  "north-replay",
   "north-resume",
   "north-runtime",
   "north-runtime-follow",
@@ -653,12 +652,6 @@ command = "v=$(north land profile --since 24h --repo north --metric landing-p90)
 review = "2026-11-07"
 owner = "tompassarelli/north#634"
 
-[[check]]
-id = "n643-placement-and-admission-run-as"
-box = "Placement and admission run as pure strategy over recorded inputs"
-command = "north ops strategy replay --since 7d --budget"
-review = "2026-11-13"
-owner = "tompassarelli/north#643"
 
 [[check]]
 id = "n636-checkpoint-live"

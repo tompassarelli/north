@@ -13,8 +13,6 @@ const TEST_TIMING: &str = r"sleep\(|Instant::now\(|\.elapsed\(\)|/proc/loadavg|/
 const MEASURED: &str = r"(took|elapsed|duration|latency|wall|(stage|own|wall|run|spent)_(ms|secs))";
 const THIS_FILE: &str = "crates/north-land-checks/src/land/wall_time_tests.rs";
 const REAL_BUDGETS: (&str, &str) = ("crates/north-providers/src/providers/claude/fleet_tick_tests.rs", "the tick measures hung stages against real budgets through Instant deadlines in north-fleet-supervisor tick.rs; an injected tick clock is north#892 follow-up");
-const JUDGED_BY_COST: [&str; 1] = ["crates/north-replay/src/"];
-const COST_TIMING: &str = r"Instant::now\(|\.elapsed\(\)|SystemTime::now\(|/proc/loadavg|/proc/pressure";
 const SUB_SECOND_BUDGET: &str = r"[(,]\s*Duration::from_millis\(\s*\d{1,3}\s*\)\s*[,)]";
 const INJECTED_CLOCK: &str = r"&\|\|";
 const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 3] = [
@@ -68,10 +66,6 @@ fn test_text(path: &str) -> String {
     if TEST_PATH.is_match(path) { text } else { inline_test_modules(&text) }
 }
 
-fn found(paths: &[String], pattern: &Regex) -> Vec<String> {
-    paths.iter().flat_map(|path| found_in(path, &std::fs::read_to_string(root().join(path)).unwrap_or_default(), pattern)).collect()
-}
-
 fn found_in_tests(paths: &[String], pattern: &Regex) -> Vec<String> {
     paths.iter().flat_map(|path| found_in(path, &test_text(path), pattern)).collect()
 }
@@ -98,8 +92,6 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let tests: Vec<String> = rust.iter().filter(|path| !path.starts_with(RECORDED_LOGS) && *path != THIS_FILE).cloned().collect();
     let inline = tests.iter().filter(|path| !test_code.is_match(path) && !test_text(path).trim().is_empty()).count();
     assert!(inline > 20, "only {inline} files with an inline test module were scanned");
-    let checks: Vec<String> = rust.iter().filter(|path| JUDGED_BY_COST.iter().any(|check| path.starts_with(check)) && !test_code.is_match(path)).cloned().collect();
-    assert!(!checks.is_empty(), "no source under {JUDGED_BY_COST:?}");
     let timed_tests = found_in_tests(&tests, &Regex::new(TEST_TIMING).unwrap());
     assert!(timed_tests.is_empty(), "test code reads the wall clock or the host's load; wait on the event through north_base::platform::wait or inject the clock:\n{}", timed_tests.join("\n"));
     let judged: Vec<String> = tests.iter().filter(|path| path.as_str() != REAL_BUDGETS.0).cloned().collect();
@@ -108,8 +100,6 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let budgeted: Vec<String> = tests.iter().filter(|path| !SUB_SECOND_BUDGET_TESTS.iter().any(|(allowed, _)| path.as_str() == *allowed)).cloned().collect();
     let budgets = found_sub_second(&budgeted);
     assert!(budgets.is_empty(), "a test hands the code under test a sub-second wall-clock budget, so it passes or fails on host load; decide by events through an injected clock or raise the budget:\n{}", budgets.join("\n"));
-    let timed_checks = found(&checks, &Regex::new(COST_TIMING).unwrap());
-    assert!(timed_checks.is_empty(), "a land check judges a lane by wall time or host load; measure its thread or process CPU instead:\n{}", timed_checks.join("\n"));
 }
 
 const OLD_SSH_MASTER_TEST: &str = r#"    let (health, took) = wait::timed(|| probe(&program, &env, "testhost", &mut Respawned { fixture: &mut fixture, marker, words }));

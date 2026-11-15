@@ -19,7 +19,6 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["warcraft-close"], "desktop warcraft close", &[]),
     (&["wc3-login-field"], "desktop warcraft login-field", &[]),
     (&["watch"], "ops watch", &[]),
-    (&["strategy"], "ops strategy", &[]),
     (&["mutant"], "test mutant", &[]),
     (&["coverage"], "test coverage", &[]),
     (&["agents"], "config agents", &[]),

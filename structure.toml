@@ -393,12 +393,6 @@ paths = ["crates/north-tune/src/**"]
 may_use = ["north-dispatch", "north-graph-loops"]
 
 [[crate_dag.crate]]
-name = "north-replay"
-layer = 6
-paths = ["crates/north-replay/src/**"]
-may_use = ["north-base", "north-capacity", "north-dispatch", "north-landing"]
-
-[[crate_dag.crate]]
 name = "north-lander-doctor"
 layer = 6
 paths = ["crates/north-lander-doctor/src/**"]
@@ -527,7 +521,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/bin/push_trace_git.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["agent_starts", "strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "replay", "concerns", "graph_ground", "nix_upkeep", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks", "broker", "machine_model", "verify", "build_system", "monitor", "rust_files", "runtime_follow", "check_offload", "unblocks"]
+may_use = ["agent_starts", "strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "concerns", "graph_ground", "nix_upkeep", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks", "broker", "machine_model", "verify", "build_system", "monitor", "rust_files", "runtime_follow", "check_offload", "unblocks"]
 
 [[module]]
 name = "git_locks"
@@ -563,12 +557,6 @@ name = "strategy_types"
 paths = ["crates/north-strategy-types/src/**"]
 responsibility = "The decision records the kernel writes and strategies read: one Case and one Decision per decision kind, and the brief vocabulary, token counts and api-spend snapshot the pace and store crates share."
 may_use = []
-
-[[module]]
-name = "replay"
-paths = ["crates/north-replay/src/**"]
-responsibility = "Strategy replay: the logged decision cases decided again by the linked code, their outcome counts beside the logged ones, and the declared invariants checked over the replayed decisions."
-may_use = ["capacity", "crate-roots", "foundation", "landing", "ops", "strategy_types", "lifecycle", "platform.records", "platform.git", "platform.harness"]
 
 [[module]]
 name = "lander-doctor"
@@ -981,7 +969,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle", "unblocks"]
+may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle", "unblocks"]
 
 [[module]]
 name = "verify"

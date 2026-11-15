@@ -250,17 +250,6 @@ unit = "% of time"
 min = 99
 class = "ready"
 
-[[concern]]
-name = "launch-refusals-per-hour"
-source = "north#643: a launch that placement refuses is a worker not staffed; north#641's readiness bar counts first tries lost to the harness, and a refused launch is the earliest such loss"
-oracle = "north ops strategy refusals --since 3h"
-unit = "per h"
-max = 1
-class = "debt"
-reads = "host"
-ceiling = 6
-owner = "tompassarelli/north#643"
-revisit = "launches refused by placement, counting each launch by its last placement, stay over 6 an hour for a day"
 
 [[concern]]
 name = "ready-usage-per-landing"

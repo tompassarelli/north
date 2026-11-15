@@ -994,7 +994,6 @@ dependencies = [
  "north-reclaim",
  "north-registries",
  "north-remote-serve",
- "north-replay",
  "north-runtime",
  "north-safe-push",
  "north-session-host",
@@ -2003,22 +2002,6 @@ dependencies = [
  "rustix 0.38.44",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "north-replay"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-capacity",
- "north-dispatch",
- "north-landing",
- "north-strategy-types",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "tempfile",
- "toml_edit",
 ]
 
 [[package]]
