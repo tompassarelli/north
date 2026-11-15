@@ -88,6 +88,11 @@ pub(super) fn own_lane(name: &str, record: &Value) -> Result<PathBuf, String> {
     }
 }
 
+/// The lane of the fleet session the caller `peer` runs in on `host` ([`own_lane`] of its [`own_session`] record), whatever directory or words its request sends.
+pub(super) fn caller_lane(peer: &Peer, host: &Host) -> Result<PathBuf, String> {
+    own_session(peer, host, "the caller runs in no fleet session").and_then(|(_, record)| own_lane(record["name"].as_str().unwrap_or_default(), &record))
+}
+
 /// The directory under `fleet` of the session that runs in the scope `unit`, and its record.
 pub(super) fn recorded(unit: &str, fleet: &Path) -> Result<(PathBuf, Value), String> {
     let directory = std::fs::read_dir(fleet)

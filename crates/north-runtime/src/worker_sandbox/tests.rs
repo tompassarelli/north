@@ -78,8 +78,20 @@ fn hand_off_removal_is_refused() {
     std::fs::write(&kept, "kept").unwrap();
     std::fs::write(&allowed, "allowed").unwrap();
     let own = [("HOME".to_owned(), home.to_string_lossy().into_owned())];
-    let hand_off_from = |target: &Path, sent: &[(String, String)]| {
-        let roots = super::removable::hand_off_roots(&["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "rm".to_owned(), "-f".to_owned(), target.to_string_lossy().into_owned()], &main, sent, &own);
+    let (lane, other) = (home.join("code/alpha/worktrees/n1"), home.join("code/alpha/worktrees/other"));
+    std::fs::create_dir_all(&lane).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let foreign = other.join("foreign.txt");
+    std::fs::write(&foreign, "foreign").unwrap();
+    let session = home.join("fleet/n1");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(north_base::platform::session_host_files::scope_path(&session), "north-session-lane-0f0f0f0f-n1.scope\n").unwrap();
+    std::fs::write(crate::fleet::records::record_file(&session), json!({ "name": "n1", "cwd": lane }).to_string()).unwrap();
+    let host = super::lane_grant::Host { fleet: home.join("fleet"), code: vec![home.join("code")], home: home.clone(), environment: own.to_vec(), cgroups: home.join("cgroup") };
+    let worker = Peer::from(Some("0::/user.slice/north-worker-n1.scope"));
+    let lane_only = Peer::from(Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-lane-0f0f0f0f-n1.scope\n"));
+    let handed = |target: &Path, directory: &Path, sent: &[(String, String)], peer: &Peer| {
+        let roots = super::removable::hand_off_roots(&["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "rm".to_owned(), "-f".to_owned(), target.to_string_lossy().into_owned()], directory, sent, peer, &host);
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "worker_sandbox::tests::a_hand_off_child", "--nocapture"])
             .env_clear()
@@ -89,7 +101,10 @@ fn hand_off_removal_is_refused() {
             .output()
             .unwrap()
     };
+    let hand_off_from = |target: &Path, sent: &[(String, String)]| handed(target, &main, sent, &worker);
     let hand_off = |target: &Path| hand_off_from(target, &own);
+    let crossed = handed(&foreign, &other, &own, &lane_only);
+    assert!(!crossed.status.success() && foreign.exists(), "a lane-only client's hand-off removed in the lane its request named as its directory, not the one its record names (north#1574): {}{}", String::from_utf8_lossy(&crossed.stdout), String::from_utf8_lossy(&crossed.stderr));
     let forged = hand_off_from(&kept, &[("HOME".to_owned(), home.to_string_lossy().into_owned()), ("CARGO_TARGET_DIR".to_owned(), main.to_string_lossy().into_owned())]);
     assert!(!forged.status.success() && kept.exists(), "a hand-off removed beneath the CARGO_TARGET_DIR its client sent, outside the worker's trees (north#1574): {}{}", String::from_utf8_lossy(&forged.stdout), String::from_utf8_lossy(&forged.stderr));
     let refused = hand_off(&kept);

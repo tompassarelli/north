@@ -365,7 +365,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         let started = offload.start(|arguments| brokered(north, arguments, peer), [stdin, stdout, stderr]);
         return wait(started.map_err(|error| format!("{}: {error}", north.display()))?, stream);
     }
-    let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| super::removable::hand_off_roots(&request.arguments, &request.directory, &request.environment, &host.environment));
+    let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| super::removable::hand_off_roots(&request.arguments, &request.directory, &request.environment, peer, host));
     let homes = request_homes(&request.arguments, peer, &request.environment, own_homes());
     let chosen = landing_choices(&request.arguments, &host.home, &host.environment, north);
     let mut variables = caller_session(urgency(landing(environment_for(&request.arguments, request.environment, peer, &runtime(), &homes, &host.environment), chosen), peer, host), peer, host);

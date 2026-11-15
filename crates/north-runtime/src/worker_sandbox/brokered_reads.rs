@@ -41,8 +41,7 @@ fn caller_readable(arguments: &[String], directory: &Path, environment: &[(Strin
     if !peer.cgroup().is_none_or(session_scope::lane_only_cgroup) {
         return readable(&Context::from_caller(&command, directory, environment, &host.environment), Reader::Worker);
     }
-    let lane = lane_grant::own_session(peer, host, "").and_then(|(_, record)| lane_grant::own_lane(record["name"].as_str().unwrap_or_default(), &record));
-    lane.map_or_else(|_| Vec::new(), |lane| readable_in_lane(&Context::from_caller(&command, &lane, environment, &host.environment), &[]))
+    lane_grant::caller_lane(peer, host).map_or_else(|_| Vec::new(), |lane| readable_in_lane(&Context::from_caller(&command, &lane, environment, &host.environment), &[]))
 }
 
 /// Refuses a brokered verb that would read a file its client cannot: `north home move` opens its plan and `safe-push` its `--message` file from outside the client's domain, so a path beyond what the client's domain lets it read (the logins, a lane-only client's other lanes and state) would hand back the first two tab fields of that file in a failure message, or publish it as a commit message. Every other brokered verb reads nothing the client names: depbox, the capacity gate and the `--built`, `--lane` and `--program` commands run the client's program in a new domain at least as narrow, `lane unlock|stray|remove|gc|sync` read lane names or checkout paths and enforce their own removal rule, and the `lane_grant` verbs read only the session's own lane.

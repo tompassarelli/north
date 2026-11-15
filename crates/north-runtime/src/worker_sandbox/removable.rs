@@ -1,7 +1,11 @@
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Component, Path, PathBuf};
 
+use north_base::platform::session_scope;
+
 use super::except::{Entries, beneath_except};
+use super::lane_grant::{self, Host};
+use super::peer::Peer;
 
 const HOST_PLACED: [&str; 5] = ["HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "CARGO_HOME", super::sockets::AGENT_ENV];
 const CLIENT_PLACED: [&str; 2] = ["TMPDIR", "CARGO_TARGET_DIR"];
@@ -117,10 +121,15 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots
 }
 
-/// The trees the worker command that sent a request may remove beneath: those its arguments, directory and environment name that lie beneath a tree the same request is granted with the broker's own homes ([`Context::from_caller`]), so the process the broker starts stays inside them and a variable the client sent can only narrow them (north#1574).
-pub(super) fn hand_off_roots(arguments: &[String], directory: &Path, environment: &[(String, String)], own: &[(String, String)]) -> Vec<PathBuf> {
+/// The trees the worker command that sent a request may remove beneath: those its arguments, directory and environment name that lie beneath a tree the caller `peer` is granted with the broker's own homes on `host` ([`Context::from_caller`]), so the process the broker starts stays inside them and a variable the client sent can only narrow them. A lane-only caller is granted the lane its session's record names ([`lane_grant::caller_lane`]), never the directory or lanes its request names, and nothing without a record (north#1574).
+pub(super) fn hand_off_roots(arguments: &[String], directory: &Path, environment: &[(String, String)], peer: &Peer, host: &Host) -> Vec<PathBuf> {
     let command = arguments.join(" ");
-    let granted = removable(&Context::from_caller(&command, directory, environment, own));
+    let granted = if peer.cgroup().is_none_or(session_scope::lane_only_cgroup) {
+        let Ok(lane) = lane_grant::caller_lane(peer, host) else { return Vec::new() };
+        removable(&Context::from_caller("", &lane, environment, &host.environment))
+    } else {
+        removable(&Context::from_caller(&command, directory, environment, &host.environment))
+    };
     removable(&Context::from_request(&command, directory, environment)).into_iter().filter(|root| granted.iter().any(|kept| root.starts_with(kept))).collect()
 }
 
