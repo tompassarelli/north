@@ -8,7 +8,8 @@ use north_lander::land::jobs::Chores;
 use north_lander::land::lander::Lander;
 use north_lander::land::queue::{self, Ticket};
 
-use super::serve::{HANG, Repository, World, git};
+use super::land_first::{NO_SECRETS, PUBLIC_REPO, queueing};
+use super::serve::{HANG, HOST, Repository, World, git, report};
 
 const CHECKOUT: &str = "NORTH_LAND_IT_OUTBOX_CHECKOUT";
 const REMOTE_SSH: &str = r#"#!/bin/sh
@@ -297,4 +298,47 @@ fn a_refusal_reaches_the_hand_in_on_the_lanes_host_by_the_landers_push_with_no_r
     assert!(pushed, "the lander sent no verdict to gex45 on the decision event:\n{}", journal.join("\n"));
     assert!(answered, "the hand-in on gex45 never heard the lander's refusal:\n{transcript}");
     assert!(output.status.code() == Some(1) && transcript.contains(verdict), "{transcript}");
+}
+
+#[test]
+fn remote_lane_lands_through_the_landers_pull_of_its_hosts_outbox_with_no_patch_carried() {
+    let pull = Pull::new();
+    let bin = pull.world.path().join("bin");
+    write_executable(&bin.join("judge"), "#!/bin/sh\ncat > /dev/null\nexit 0\n");
+    write_executable(&bin.join("betterleaks"), NO_SECRETS);
+    write_executable(&bin.join("gh"), PUBLIC_REPO);
+    std::fs::write(pull.world.path().join("denylist.toml"), "[[rules]]\nid = \"fixture\"\n").unwrap();
+    std::fs::write(pull.world.path().join("private-kinds.toml"), "[[kind]]\nid = \"address\"\n").unwrap();
+    let south = pull.world.path().join("code/south/main");
+    git(pull.world.path(), &["init", "-q", south.to_str().unwrap()]);
+    git(&south, &["add", "-A"]);
+    git(&south, &["commit", "-q", "-m", "south"]);
+    let main = &pull.repository.checkout;
+    std::fs::write(main.join(".safe-push"), format!("[landing]\n\tpush-app = lander\n\tlander-host = {HOST}\n")).unwrap();
+    git(main, &["add", "-A"]);
+    git(main, &["commit", "-q", "-m", "Name the lander host"]);
+    git(main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+
+    let build_host = pull.world.path().join("gex45/north");
+    git(pull.world.path(), &["clone", "-q", pull.repository.origin.to_str().unwrap(), build_host.to_str().unwrap()]);
+    git(&build_host, &["checkout", "-q", "-b", "remote-lane"]);
+    std::fs::write(build_host.join("finished.txt"), "committed on a build host\n").unwrap();
+    git(&build_host, &["add", "-A"]);
+    git(&build_host, &["commit", "-q", "-m", "Finish on a build host"]);
+
+    let mut enqueue = queueing(&pull.world, "serve::enqueue_process", "NORTH_LAND_IT_ARGUMENTS", &["--repo", build_host.to_str().unwrap()]);
+    enqueue.env("XDG_STATE_HOME", &pull.remote).env("RESIDENT_CAP_HOST", "gex45");
+    let queued = enqueue.output().unwrap();
+    let text = report(&queued);
+    assert!(queued.status.success() && text.contains("Done: queued (outbox)"), "{text}");
+    assert!(pull.outbox().read_dir().unwrap().flatten().any(|entry| entry.path().extension().is_some_and(|extension| extension == "bundle")), "the build host wrote no bundle: {text}");
+
+    let mut serve = pull.world.serve_command(&pull.repository, None);
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    serve.env("PATH", path).env("FAKE_REMOTE_STATE", &pull.remote).env("FAKE_AGENT_STATE", pull.agent_state()).env("FAKE_AGENT_HOME", pull.world.path().join("agent-root"));
+    let served = serve.spawn().unwrap().wait_with_output().unwrap();
+    let journal = report(&served);
+    let subjects = git(&pull.repository.origin, &["log", "--format=%s", "main"]);
+    assert!(subjects.lines().any(|subject| subject == "Finish on a build host"), "the lane committed on the build host did not land:\n{journal}\n{subjects}");
+    assert!(pull.outbox().join("taken").read_dir().is_ok_and(|taken| taken.flatten().next().is_some()), "the build host's ticket was not settled:\n{journal}");
 }
