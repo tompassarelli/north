@@ -20,6 +20,7 @@ mod closed_source;
 pub mod corroborated;
 pub mod outcome;
 pub mod rises;
+pub mod turns;
 mod gates;
 mod grounding;
 mod leaf;
@@ -29,6 +30,7 @@ mod verdict;
 
 pub use closed::{ClosedBox, ClosedReport, Figures};
 pub use leaf::{Closed, SplitBox};
+pub use turns::{WorkerTurn, worker_turns};
 #[doc(hidden)]
 pub use closed::{SpendRun, summarize};
 pub use corroborated::{Census, census};

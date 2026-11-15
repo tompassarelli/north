@@ -6,6 +6,7 @@ use crate::fleet::digest_report::{Facts, GateLine, render as digest_text};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::SessionRow;
 use crate::foundation::clock::Timestamp;
+use crate::ledger::WorkerTurn;
 use crate::router::moment::Moment;
 use north_unblocks::review::{self, ClassLoss, Owners, classes, mirror_closed, threads_db};
 
@@ -101,8 +102,13 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
         Ok(landed) => landed.lines(),
         Err(why) => format!("Landed today: unread: {why}\n"),
     };
-    let text = format!("{headline}\n{}", text(window, &digest, &sessions, &tree, &report, &lane_lines, &losses));
+    let turns = crate::ledger::worker_turns(window).map_err(|error| error.user_message());
+    let text = format!("{headline}\n{}{}", text(window, &digest, &sessions, &tree, &report, &lane_lines, &losses), turn_section(&turns));
     let json = json!({
+        "worker_turns": match &turns {
+            Ok(found) => Value::Array(found.iter().map(|turn| json!({"agent": turn.agent, "provider": turn.provider, "started": turn.started, "minutes": turn.minutes, "tokens_in": turn.tokens_in, "tokens_out": turn.tokens_out, "outcome": turn.outcome, "landed": turn.landed, "landed_sha": turn.landed_sha})).collect()),
+            Err(why) => json!({"unread": why}),
+        },
         "at": at.iso(),
         "now_ms": now,
         "window": window,
@@ -131,6 +137,22 @@ fn gate_line(label: &str, session: String, question: String, recommended: String
 
 fn recommended(options: &[String], number: usize) -> String {
     number.checked_sub(1).and_then(|index| options.get(index)).map_or_else(|| "none".to_owned(), |option| format!("{number}. {option}"))
+}
+
+fn turn_section(turns: &Result<Vec<WorkerTurn>, String>) -> String {
+    let mut out = String::from("\nWorker turns:\n");
+    match turns {
+        Ok(found) if found.is_empty() => out.push_str("  none\n"),
+        Ok(found) => found.iter().for_each(|turn| out.push_str(&format!("  {}\n", turn_line(turn)))),
+        Err(why) => out.push_str(&format!("  unread: {why}\n")),
+    }
+    out
+}
+
+fn turn_line(turn: &WorkerTurn) -> String {
+    let landed = if turn.landed_sha.is_empty() { "landed".to_owned() } else { format!("landed {}", turn.landed_sha) };
+    let landed = if turn.landed { landed } else { "not landed".to_owned() };
+    format!("{} [{}] started {}, {}m wall, tokens in {} out {}, exit {}, {landed}", turn.agent, turn.provider, turn.started, turn.minutes, turn.tokens_in, turn.tokens_out, turn.outcome)
 }
 
 fn text(window: &str, digest: &str, sessions: &[SessionRow], tree: &[String], report: &[String], lanes: &[String], losses: &Result<Vec<ClassLoss>, String>) -> String {
