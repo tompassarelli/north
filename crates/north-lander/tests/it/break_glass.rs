@@ -8,6 +8,12 @@ const BRANCH: &str = "q902-deadcode";
 
 fn gates(answered_by: &str) -> String {
     serde_json::json!([{
+        "id": "nexus:42",
+        "question": "Open a nexus question about the cache?",
+        "options": ["Yes", "No"],
+        "answer": null,
+        "answered_by": null,
+    }, {
         "id": 41,
         "question": format!("Land {BRANCH} by break-glass, straight to main without a lander round?"),
         "options": ["Yes: break glass for it", "No: let it wait for the lander"],

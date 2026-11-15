@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::after::{self, LandedLane};
 use super::candidate::{self, Pick};
@@ -23,34 +24,40 @@ const WORKTREE: &str = "lander-break-glass";
 struct Options {
     ticket: String,
     reason: String,
-    approval: i64,
+    approval: String,
     repo: PathBuf,
     app_token: Option<String>,
 }
 
 fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { ticket: String::new(), reason: String::new(), approval: 0, repo: PathBuf::from("."), app_token: None };
+    let mut options = Options { ticket: String::new(), reason: String::new(), approval: String::new(), repo: PathBuf::from("."), app_token: None };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {
             "--reason" => options.reason.clone_from(rest.next()?),
-            "--approval" => options.approval = rest.next()?.trim_start_matches('#').parse().ok()?,
+            "--approval" => options.approval = rest.next()?.trim_start_matches('#').to_owned(),
             "--repo" => options.repo = PathBuf::from(rest.next()?),
             "--app-token" => options.app_token = Some(rest.next()?.clone()),
             word if word.starts_with('-') || !options.ticket.is_empty() => return None,
             word => options.ticket = word.to_owned(),
         }
     }
-    (!options.ticket.is_empty() && !options.reason.trim().is_empty() && options.approval > 0).then_some(options)
+    (!options.ticket.is_empty() && !options.reason.trim().is_empty() && !options.approval.is_empty()).then_some(options)
 }
 
 #[derive(Deserialize)]
 struct Gate {
-    id: i64,
+    id: Value,
     question: String,
     options: Vec<String>,
     answer: Option<String>,
     answered_by: Option<String>,
+}
+
+impl Gate {
+    fn label(&self) -> String {
+        self.id.as_str().map_or_else(|| self.id.to_string(), str::to_owned)
+    }
 }
 
 fn gates() -> Result<Vec<Gate>, String> {
@@ -61,9 +68,9 @@ fn gates() -> Result<Vec<Gate>, String> {
     serde_json::from_slice(&output.stdout).map_err(|error| format!("north gate list printed no gates: {error}"))
 }
 
-fn approved(gates: &[Gate], id: i64, branch: &str) -> Result<String, String> {
+fn approved(gates: &[Gate], id: &str, branch: &str) -> Result<String, String> {
     let refused = |why: String| Err(format!("no recorded approval from Tom: {why}"));
-    let Some(gate) = gates.iter().find(|gate| gate.id == id) else { return refused(format!("there is no gate {id}")) };
+    let Some(gate) = gates.iter().find(|gate| gate.label() == id) else { return refused(format!("there is no gate {id}")) };
     if gate.answered_by.as_deref() != Some("tom") {
         return refused(format!("gate {id} was answered by {}, not by Tom", gate.answered_by.as_deref().unwrap_or("nobody yet")));
     }
@@ -127,7 +134,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let outcome = find(&lander.queue, &options.ticket).and_then(|(path, ticket)| {
-        let answer = approved(&gates()?, options.approval, &ticket.branch)?;
+        let answer = approved(&gates()?, &options.approval, &ticket.branch)?;
         println!("north land: breaking glass for {} under gate {}, answered by Tom: {answer}", ticket.branch, options.approval);
         land(&lander, &path, &ticket, options.reason.trim()).map(|tip| (ticket, tip))
     });
