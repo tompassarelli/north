@@ -198,7 +198,7 @@ pub fn lander_unit(checkout: &Path) -> String {
 
 pub const REST_UNIT: &str = "north-land-rest.service";
 
-fn unit_declared(unit: &str) -> bool {
+pub fn unit_declared(unit: &str) -> bool {
     let config = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
     config.is_some_and(|config| config.join("systemd/user").join(unit).exists())
 }

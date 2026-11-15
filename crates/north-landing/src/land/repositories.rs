@@ -19,8 +19,12 @@ pub fn checkout(root: &Path) -> Result<PathBuf, String> {
     named.or(worktrees.first()).cloned().ok_or_else(|| format!("{} is a bare repository with no worktree, so a lander has no checkout to give it worktrees", root.display()))
 }
 
+pub fn origin(checkout: &Path) -> Result<String, String> {
+    git(checkout, &["remote", "get-url", "--push", "origin"])
+}
+
 fn origin_key(checkout: &Path) -> Result<String, String> {
-    git(checkout, &["remote", "get-url", "--push", "origin"]).map(|origin| queue::key(&origin))
+    origin(checkout).map(|origin| queue::key(&origin))
 }
 
 pub fn servable(root: &Path) -> Result<PathBuf, String> {

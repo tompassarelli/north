@@ -252,12 +252,17 @@ fn targets(options: &Options) -> (Vec<PathBuf>, Vec<String>) {
     let mut unserved = Vec::new();
     if options.all {
         let found = repositories::discovered(&state_home(), &repositories::local_host());
-        repos.extend(found.checkouts.into_iter().filter(|checkout| !crate::platform::land_queue::lander_declared(checkout)));
+        repos.extend(found.checkouts.into_iter().filter(|checkout| !has_own_lander(checkout)));
         unserved = found.unserved;
     }
     repos.sort();
     repos.dedup();
     (repos, unserved)
+}
+
+fn has_own_lander(checkout: &Path) -> bool {
+    let own_by_name = |origin: String| crate::platform::land_queue::unit_declared(&format!("north-land@{}.service", crate::platform::land_queue::repo_name(&origin)));
+    crate::platform::land_queue::lander_declared(checkout) || repositories::origin(checkout).is_ok_and(own_by_name)
 }
 
 fn reap_offloads(lander: &Lander) {
