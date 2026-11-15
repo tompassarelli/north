@@ -6,6 +6,7 @@ use std::thread::ScopedJoinHandle;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Predicted, Role, SessionRecord};
 use crate::fleet::hops;
+use crate::fleet::remote::{self, LaunchReads, ProfileReads};
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid};
 use crate::fleet::spares::{self, Place, Taken};
 use crate::fleet::store::Claim;
@@ -28,16 +29,27 @@ impl Fleet {
         (spare, served, built_then_left(shown, left))
     }
 
-    /// A spare on the request's build host whose spec is the one this launch would start, taken and bound to the launch's name; None for any launch a spare cannot serve, and when none fits.
+    /// A spare on the request's build host whose spec is the one this launch would start, taken and bound to the launch's name; None for any launch a spare cannot serve, and when none fits. The fingerprint is built from the build-host answers the last fill of this kind recorded, which the take checks there in its one round trip, so no ssh read runs before it: those reads cost every warm launch 525 to 821 ms after registration on 2026-11-15 (north#1531).
     pub(super) fn take_spare(&self, request: &LaunchRequest, account: &Account, runtime: &dyn Runtime, effort: Option<Effort>) -> Option<Taken> {
         let machine = request.machine.as_ref().filter(|_| request.role() == Role::Worker && request.resume.is_none())?;
-        let spec = hops::timed("spare fingerprint", || self.worker_spec(request, account, runtime, effort, &new_uuid().ok()?).ok())?;
+        let kind = spares::kind(&account.recorded_label(), request.model.as_deref(), effort.map(Effort::label), request.window(), &request.cwd);
+        let login = machine.session_login();
+        let recorded = LaunchReads::recorded(login, spares::recorded_reads(&self.spares_reads(machine, &kind))?);
+        let spec = {
+            let _reads = recorded.clone().enter();
+            hops::timed("spare fingerprint", || self.worker_spec(request, account, runtime, effort, &new_uuid().ok()?).ok())?
+        };
         let fingerprint = spares::fingerprint(&spec, spares::current_runtime().as_deref());
         if !std::fs::read_to_string(self.spares_hint(machine, &fingerprint)).is_ok_and(|count| count.trim() != "0") {
             return None;
         }
-        let (ssh, home) = (binary("ssh"), home()?);
-        hops::timed("spare take ssh", || spares::take(&Place { ssh: &ssh, machine, home: &home }, &fingerprint, &request.name, &request.cwd, &spares::binding(&request.name, request.capacity_need.as_deref())))
+        let (ssh, home, still) = (binary("ssh"), home()?, remote::still_seen(&recorded.read_on(login)));
+        let taken = hops::timed("spare take ssh", || spares::take(&Place { ssh: &ssh, machine, home: &home }, &fingerprint, &request.name, &request.cwd, &spares::binding(&request.name, request.capacity_need.as_deref()), &still))?;
+        if let Some(own) = ProfileReads::shared() {
+            own.adopt(&recorded);
+        }
+        hops::timed("spare taken", || ());
+        Some(taken)
     }
 
     pub(super) fn release_spare(&self, machine: &Machine, taken: &Taken) {
@@ -87,6 +99,7 @@ impl Fleet {
         if lock.try_lock().is_err() {
             return Ok(format!("a fill for {} is already running", machine.name));
         }
+        let reads = ProfileReads::hold();
         let pool = spares::survey(&place).ok_or_else(|| NorthError::State(format!("{} did not answer the spare survey", machine.name)))?;
         let kind = spares::kind(&account.recorded_label(), template.model.as_deref(), effort.map(Effort::label), template.window(), &template.cwd);
         let fingerprint = spares::fingerprint(&self.worker_spec(&template, &account, runtime.as_ref(), effort, &new_uuid()?)?, spares::current_runtime().as_deref());
@@ -104,12 +117,20 @@ impl Fleet {
             spares::start(&place, &spec, &kind, &fingerprint, &spare, &conversation)?;
         }
         std::fs::write(self.spares_hint(&machine, &fingerprint), (held + start).to_string())?;
+        let answers = ProfileReads::shared().map(|own| own.read_on(machine.session_login())).unwrap_or_default();
+        drop(reads);
+        spares::record_reads(&self.spares_reads(&machine, &kind), &answers)?;
         Ok(format!("retired {} and started {start} spares on {}", stale.len(), machine.name))
     }
 
     /// The file where the last fill on `machine` left how many spares of `fingerprint` it holds, so a launch asks the host for one only when there may be one.
     fn spares_hint(&self, machine: &Machine, fingerprint: &str) -> PathBuf {
         self.root.join(format!(".spares-{}-{fingerprint}", machine.name.replace('/', "_")))
+    }
+
+    /// The file where the last fill on `machine` of `kind` left the build-host answers its fingerprint was built from, which [`Self::take_spare`] builds a launch's fingerprint from.
+    fn spares_reads(&self, machine: &Machine, kind: &str) -> PathBuf {
+        self.root.join(format!(".spares-{}-{kind}.reads", machine.name.replace('/', "_")))
     }
 
     fn worker_spec(&self, request: &LaunchRequest, account: &Account, runtime: &dyn Runtime, effort: Option<Effort>, conversation: &str) -> NorthResult<HostSpec> {

@@ -1,7 +1,7 @@
 //! The survey keeper: while launches place work, one process per placing host asks every build host what placement reads each
 //! `EVERY`, with a saturation reading taken then, so a launch finds an answer under 30 s old instead of asking the host itself,
 //! which cost a launch to a build host about 1 s before it registered on 2026-11-12. It runs apart from the launch that started
-//! it, and stops once no launch has placed work for `IDLE_SECONDS`.
+//! it, stops once no launch has placed work for `IDLE_SECONDS`, and hands its work to a keeper of the current runtime once the one it started from is no longer current.
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,8 @@ use std::time::Duration;
 use super::super::storage;
 
 const EVERY: Duration = Duration::from_secs(20);
-const IDLE_SECONDS: f64 = 300.0;
+/// A guess at the longest quiet stretch between launches of a working day, which the share of launches that find a cold survey would settle: at 300 s the first of five launches at 6:56 AM on 2026-11-15 waited 2000 ms on the survey and 1694 ms on the spend view (north#1531).
+const IDLE_SECONDS: f64 = 4.0 * 60.0 * 60.0;
 const USAGE: &str = "Usage: north placement-survey keep";
 
 /// Marks that a launch is placing work, and starts the keeper when none runs.
@@ -43,7 +44,13 @@ pub fn run(arguments: &[String], refresh_every_host: impl Fn()) -> u8 {
     if lock.try_lock().is_err() {
         return 0;
     }
+    let started_on = current_runtime();
     while storage::now() - wanted_at(&dir) < IDLE_SECONDS {
+        if current_runtime() != started_on {
+            drop(lock);
+            let _ = Command::new(crate::platform::north_binary::north_binary()).args(["placement-survey", "keep"]).process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+            return 0;
+        }
         refresh_every_host();
         std::thread::sleep(EVERY);
     }
@@ -60,4 +67,9 @@ fn lock_file(dir: &Path) -> Option<File> {
 
 fn wanted_at(dir: &Path) -> f64 {
     fs::read_to_string(dir.join("wanted")).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(0.0)
+}
+
+fn current_runtime() -> Option<PathBuf> {
+    let state = std::env::var_os("XDG_STATE_HOME").filter(|dir| !dir.is_empty()).map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), PathBuf::from);
+    fs::canonicalize(state.join("north/current")).ok()
 }

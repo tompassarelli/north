@@ -110,9 +110,42 @@ impl LaunchReads {
         ProfileReads { before: LAUNCH_READS.replace(Some(self.clone())), _launch: self }
     }
 
+    /// Answers of their own, `answers` read on `login` by an earlier process, for a launch to build its spare fingerprint from without asking the host.
+    pub fn recorded(login: &str, answers: Vec<(String, Seen)>) -> Self {
+        let reads = Self(Arc::new(Launch(LAUNCHES.fetch_add(1, Ordering::Relaxed))));
+        reads.seen(|held| held.extend(answers.into_iter().map(|(script, seen)| ((login.to_owned(), script), seen))));
+        reads
+    }
+
+    /// Every answer these reads hold from `login`, each the script asked and what it saw.
+    pub fn read_on(&self, login: &str) -> Vec<(String, Seen)> {
+        self.seen(|held| held.iter().filter(|((asked, _), _)| asked == login).map(|((_, script), seen)| (script.clone(), seen.clone())).collect())
+    }
+
+    /// Takes every answer `other` holds into these reads, once a spare take has shown they still hold.
+    pub fn adopt(&self, other: &Self) {
+        let answers = other.seen(|held| held.clone());
+        self.seen(|held| held.extend(answers));
+    }
+
     fn seen<T>(&self, answer: impl FnOnce(&mut Answers) -> T) -> T {
         answer(profile_reads().entry(self.0.0).or_default())
     }
+}
+
+/// A shell test that passes only while each of `answers` still reads as it did on the host it runs on: a text answer by the digest of its output and status, an absent one by its status.
+pub fn still_seen(answers: &[(String, Seen)]) -> String {
+    let check = |(script, seen): &(String, Seen)| match seen {
+        Seen::Text(text) => Some(format!("[ \"$(printf %s \"$(sh -c {} 2>/dev/null; printf '\\n%s' \"$?\")\" | sha256sum | cut -d' ' -f1)\" = {} ]", quote(script), sha256_hex(&format!("{text}\n0")))),
+        Seen::Absent => Some(format!("{{ sh -c {} >/dev/null 2>&1; [ \"$?\" = {ABSENT} ]; }}", quote(script))),
+        Seen::Unreachable => None,
+    };
+    answers.iter().filter_map(check).chain(std::iter::once(":".to_owned())).collect::<Vec<_>>().join(" && ")
+}
+
+fn sha256_hex(text: &str) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 struct Launch(u64);

@@ -22,7 +22,7 @@ use crate::platform::process::try_run_command_within;
 use super::link::quote;
 use super::model::{LaunchRequest, Machine, Role};
 use super::remote::{self, Running};
-use super::runtime::{ACTOR_ENV, BINDING_ENV, CAPACITY_NEED_ENV, HostSpec, SESSION_ENV, new_uuid};
+use super::runtime::{ACTOR_ENV, BINDING_ENV, CAPACITY_NEED_ENV, HostSpec, SESSION_ENV, Seen, new_uuid};
 use super::store::{SESSIONS_DIR, SPOOL_DIR};
 use super::ssh::SSH_WAIT;
 
@@ -134,8 +134,8 @@ pub fn spare_spec(spec: HostSpec, place: &Place, spare: &str) -> HostSpec {
     spec
 }
 
-/// Takes a spare of `fingerprint` for the session `name` launching in `cwd` and writes `binding` before returning it, or None when none fits or the host does not answer, and the launch starts its client as before. For a launch into a lane, the spare's lane takes the lane's branch, and [`remove_left_lane`] removes the lane once the launch's first prompt is built from it; a spare whose lane does not fit stays in the pool. Every git the take runs reads its repository from the project's main checkout, never from a lane's `.git`, which a confined worker may write. Run twice for one name, it returns the spare the first run took.
-pub fn take(place: &Place, fingerprint: &str, name: &str, cwd: &Path, binding: &str) -> Option<Taken> {
+/// Takes a spare of `fingerprint` for the session `name` launching in `cwd` and writes `binding` before returning it, or None when none fits, the shell test `still` (see [`super::remote::still_seen`]) fails there or the host does not answer, and the launch starts its client as before. For a launch into a lane, the spare's lane takes the lane's branch, and [`remove_left_lane`] removes the lane once the launch's first prompt is built from it; a spare whose lane does not fit stays in the pool. Every git the take runs reads its repository from the project's main checkout, never from a lane's `.git`, which a confined worker may write. Run twice for one name, it returns the spare the first run took.
+pub fn take(place: &Place, fingerprint: &str, name: &str, cwd: &Path, binding: &str, still: &str) -> Option<Taken> {
     let staged = |path: &Path| place.machine.session_path(path, place.home).to_string_lossy().into_owned();
     let (lane, common) = lane_root(cwd).map_or_else(Default::default, |main| (staged(cwd), staged(&main.join(".git"))));
     let script = format!(
@@ -146,6 +146,7 @@ for b in "$held"/north-spare-*.service/bound/binding; do
   d=${{b%/bound/binding}}; u=${{d##*/}}
   systemctl --user -q is-active "$u" && echo "$u $d $(cat "$d/nonce") $(cat "$d/conversation") $(cat "$d/bound/cwd")" && exit 0
 done
+{STILL} || exit 1
 [ ! -e "$spools/$name" ] || rmdir "$spools/$name" 2>/dev/null || exit 1
 {GIT}
 for e in "$pool"/*-"$fp"-*; do
@@ -172,7 +173,8 @@ exit 1"#,
         quote(&lane),
         quote(&common),
         TAKEN_DETACHED.as_secs(),
-        GIT = PINNED_GIT
+        GIT = PINNED_GIT,
+        STILL = still
     );
     let (code, out) = run(place, &script)?;
     let mut words = out.split_whitespace().map(str::to_owned);
@@ -352,4 +354,22 @@ fn plain(place: &Place, script: &str) -> Option<(i32, String)> {
 pub fn binding(name: &str, capacity_need: Option<&str>) -> String {
     let pairs = [(SESSION_ENV, Some(name)), (ACTOR_ENV, Some(name)), (CAPACITY_NEED_ENV, capacity_need)];
     pairs.into_iter().filter_map(|(key, value)| value.filter(|value| !value.is_empty() && !value.contains('\n')).map(|value| format!("{key}={value}\n"))).collect()
+}
+
+/// Writes the build-host answers `answers` a fill built its spares' fingerprint from to `path`, so a launch of the same kind builds its fingerprint from them and its take checks they still hold (north#1531).
+pub fn record_reads(path: &Path, answers: &[(String, Seen)]) -> std::io::Result<()> {
+    let rows: Vec<(&str, Option<&str>)> = answers.iter().filter_map(|(script, seen)| match seen {
+        Seen::Text(text) => Some((script.as_str(), Some(text.as_str()))),
+        Seen::Absent => Some((script.as_str(), None)),
+        Seen::Unreachable => None,
+    }).collect();
+    let fresh = path.with_extension(format!("new-{}", std::process::id()));
+    std::fs::write(&fresh, serde_json::to_vec(&rows)?)?;
+    std::fs::rename(&fresh, path)
+}
+
+/// The answers [`record_reads`] left at `path`; None when no fill recorded any.
+pub fn recorded_reads(path: &Path) -> Option<Vec<(String, Seen)>> {
+    let rows: Vec<(String, Option<String>)> = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    Some(rows.into_iter().map(|(script, text)| (script, text.map_or(Seen::Absent, Seen::Text))).collect())
 }
