@@ -19,7 +19,7 @@ const LINE_SECONDS: u64 = 180;
 
 /// The checks a lane runs alone before its ticket is written. With `tests_after_landing` on, only the `@enqueue` land.check
 /// lines that compile nothing, run on this host with the installed north (north#1247), and the crates the lane changes
-/// compile on the workers through the shared store (north#1631); its clippy and every line that builds run after it lands. Off, its clippy and every `@enqueue` line run on a build host. No test runs here (north#1508).
+/// and the crates that depend on them compile on the workers through the shared store (north#1631); its clippy and every line that builds run after it lands. Off, its clippy and every `@enqueue` line run on a build host. No test runs here (north#1508).
 pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     if let Some(refusal) = judged::own_refusal(root, base, head) {
         return Err(refusal);
@@ -38,9 +38,9 @@ pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>
         }
     }
     if after_landing {
-        let changed = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.changed_arguments());
-        if !changed.is_empty() {
-            commands.push(format!("north land graph-build --changed {changed}"));
+        let built = affected::scope(root, base, head).map_or_else(|_| "--workspace".to_owned(), |scope| scope.arguments());
+        if !built.is_empty() {
+            commands.push(format!("north land graph-build --changed {built}"));
         }
     }
     Ok(commands)
