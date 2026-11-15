@@ -6,6 +6,7 @@ pub use rustup::{Reference as RustupReference, missing as missing_rustup, refere
 pub use shells::{Shell, live as live_shells};
 pub use north_base::platform::store_refs::{RUNTIME_PROGRAMS, paths as store_paths, root_of as store_root, roots as store_roots};
 
+use clap::Parser;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -169,23 +170,23 @@ fn prune(env: &Env, roots: &[Root]) {
     }
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Options {
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long, value_name = "SIZE", allow_hyphen_values = true)]
+    max_freed: Option<String>,
+}
+
+fn parse(arguments: &[String]) -> Result<Options, String> {
+    crate::arguments::parse_allowing_inline_values(arguments)
+}
+
 pub fn run(arguments: &[String], env: &Env, host: &dyn Host) -> u8 {
-    let mut dry = false;
-    let mut max_freed = None;
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--dry-run" => dry = true,
-            "--max-freed" => match words.next() {
-                Some(size) => max_freed = Some(size.clone()),
-                None => return usage(),
-            },
-            other => match other.strip_prefix("--max-freed=") {
-                Some(size) => max_freed = Some(size.to_owned()),
-                None => return usage(),
-            },
-        }
-    }
+    let Ok(Options { dry_run: dry, max_freed }) = parse(arguments) else {
+        return usage();
+    };
     let roots = plan(env);
     println!("{}", render(&roots));
     if dry {
@@ -217,3 +218,7 @@ fn usage() -> u8 {
     eprintln!("{USAGE}");
     2
 }
+
+#[cfg(test)]
+#[path = "arguments_tests.rs"]
+mod tests;
