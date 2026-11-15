@@ -71,7 +71,7 @@ impl Host {
         let mut command = Command::new(binary("setsid"));
         command
             .arg(binary("systemd-run"))
-            .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=KillMode=control-group", "--property=IOAccounting=yes"])
+            .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=KillMode=control-group", "--property=IOAccounting=yes", "--expand-environment=no"])
             .arg(format!("--property=TimeoutStopSec={}s", session_host_files::HOST_STOP.as_secs()))
             .arg("--unit")
             .arg(&unit)

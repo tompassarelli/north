@@ -13,7 +13,7 @@ pub fn wrap(status: &Path, max_secs: Option<u64>, argv: Vec<OsString>) -> Vec<Os
     let _ = fs::remove_file(status);
     let mut wrapped: Vec<OsString> = Vec::new();
     if let Some(slice) = std::env::var_os(SLICE_ENV).filter(|slice| !slice.is_empty()) {
-        wrapped.extend(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice"].map(OsString::from));
+        wrapped.extend(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--expand-environment=no", "--slice"].map(OsString::from));
         wrapped.push(slice);
         if let Some(secs) = max_secs {
             wrapped.extend(["--property".into(), format!("RuntimeMaxSec={secs}").into()]);
