@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -120,7 +121,13 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
     if !verified.is_empty() {
         let _ = writeln!(out, "verification after the push: p50 {}, p90 {} over {} landing{}", seconds(percentile(&verified, 0.5)), seconds(percentile(&verified, 0.9)), verified.len(), if verified.len() == 1 { "" } else { "s" });
     }
-    let (reused, ran): (usize, usize) = profiles.iter().fold((0, 0), |(reused, ran), profile| (reused + profile.after_reused, ran + profile.after_ran));
+    let runs: BTreeSet<&str> = profiles.iter().flat_map(|profile| &profile.after_runs).map(|span| span.id.as_str()).collect();
+    if !runs.is_empty() {
+        let _ = writeln!(out, "after-landing runs: {} for {} landing{}", runs.len(), profiles.len(), if profiles.len() == 1 { "" } else { "s" });
+    }
+    let checks: BTreeMap<&str, &Span> = profiles.iter().flat_map(|profile| &profile.after_checks).map(|span| (span.id.as_str(), *span)).collect();
+    let cached = |state: &str| checks.values().filter(|span| span.attribute("cache") == Some(state)).count();
+    let (reused, ran) = (cached("hit"), cached("miss"));
     if reused + ran > 0 {
         let _ = writeln!(out, "after-landing checks: {reused} reused a verdict, {ran} ran ({:.0}% reused)", reused as f64 / (reused + ran) as f64 * 100.0);
     }

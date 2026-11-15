@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use super::landing::HAND_IN;
 use super::{AFTER, COVERED_BY, Category, PHASE, REFUSED, Span, VERDICT};
 
+const RUN: &str = "post-land checks";
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Split {
     pub categories: BTreeMap<Category, f64>,
@@ -35,8 +37,8 @@ pub struct Profile<'a> {
     pub before: Split,
     pub after: Split,
     pub after_wall: f64,
-    pub after_reused: usize,
-    pub after_ran: usize,
+    pub after_checks: Vec<&'a Span>,
+    pub after_runs: Vec<&'a Span>,
     pub verdicts: Vec<&'a str>,
     pub spans: Vec<&'a Span>,
     pub handed_in: Option<f64>,
@@ -140,11 +142,11 @@ impl<'a> Trace<'a> {
         let after_wall = union(&after);
         let before_split = attribute(&before, Some(landing), window);
         let after_split = attribute(&after, None, (after.iter().map(|span| span.start).fold(f64::INFINITY, f64::min), after.iter().map(|span| span.end).fold(f64::NEG_INFINITY, f64::max)));
-        let cached = |state: &str| after.iter().filter(|span| span.attribute("cache") == Some(state)).count();
-        let (after_reused, after_ran) = (cached("hit"), cached("miss"));
+        let after_checks = after.iter().copied().filter(|span| span.attribute("cache").is_some()).collect();
+        let after_runs = after.iter().copied().filter(|span| span.parent.is_none() && span.name == RUN).collect();
         before.extend(after);
         let handed_in = self.children.get(landing.id.as_str()).into_iter().flatten().find(|span| span.name == HAND_IN && span.start > 0.0).map(|span| span.start);
-        Profile { landing, before: before_split, after: after_split, after_wall, after_reused, after_ran, verdicts, spans: before, handed_in }
+        Profile { landing, before: before_split, after: after_split, after_wall, after_checks, after_runs, verdicts, spans: before, handed_in }
     }
 }
 
