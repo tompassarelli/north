@@ -64,6 +64,17 @@ impl Mirror {
         Ok(mirror)
     }
 
+    /// The mirror beside `main` only when it already exists, neither made nor written, so a reader outside every domain takes nothing from the main checkout's configuration.
+    pub fn existing(main: &Path) -> Result<Self, String> {
+        let git_dir = Self::repository(main)?;
+        git_dir.join("HEAD").is_file().then_some(Self { git_dir }).ok_or_else(|| format!("this host keeps no trusted mirror of {}", main.parent().unwrap_or(main).display()))
+    }
+
+    /// The push address of origin in the mirror's own configuration alone.
+    pub fn push_address(&self) -> Result<String, String> {
+        ["remote.origin.pushurl", "remote.origin.url"].into_iter().find_map(|key| stdout(&self.git_dir, &["config", "--local", "--get", key]).ok().filter(|address| !address.is_empty())).ok_or_else(|| format!("the trusted mirror {} has no origin", self.git_dir.display()))
+    }
+
     fn make(main: &Path, git_dir: PathBuf) -> Result<Self, String> {
         let parent = Self::directory(main)?;
         fs::create_dir_all(&parent).map_err(|error| format!("{}: {error}", parent.display()))?;

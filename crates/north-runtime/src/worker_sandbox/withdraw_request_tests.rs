@@ -1,6 +1,6 @@
 //! A worker's `north land withdraw` failed in its own domain with `lifecycle store: attempt to write a readonly database` and a lead had to run it (north#1054, 2026-11-13); the broker runs it for the session whose scope the caller runs in, and only for a ticket that session queued.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use north_base::platform::land_queue;
 
@@ -12,10 +12,20 @@ use crate::foundation::shim::write_script;
 const SESSION: &str = "w-withdraw-1054";
 const ORIGIN: &str = "https://github.com/o/alpha.git";
 
-#[test]
-fn the_broker_withdraws_a_ticket_only_for_the_session_that_queued_it() {
-    let scratch = tempfile::tempdir().unwrap();
-    let root = scratch.path().canonicalize().unwrap();
+struct Fleet {
+    root: PathBuf,
+    main: PathBuf,
+    north: PathBuf,
+    withdrew: PathBuf,
+    host: Host,
+}
+
+fn words(ticket: &str) -> Vec<String> {
+    ["land", "withdraw", ticket, "--reason", "superseded"].map(str::to_owned).to_vec()
+}
+
+fn fleet(root: &Path) -> Fleet {
+    let root = root.to_path_buf();
     let (home, state, fleet) = (root.join("home"), root.join("state"), root.join("fleet"));
     let main = home.join("code/alpha/main");
     let queue = land_queue::directory(&state, ORIGIN);
@@ -33,7 +43,14 @@ fn the_broker_withdraws_a_ticket_only_for_the_session_that_queued_it() {
     let north = root.join("north");
     write_script(&north, &format!("echo \"$*\" >>{}\n", withdrew.display()));
     let host = Host { fleet, home: home.clone(), code: vec![home.join("code")], environment: vec![("XDG_STATE_HOME".to_owned(), state.to_string_lossy().into_owned())], cgroups: PathBuf::from("/sys/fs/cgroup") };
-    let words = |ticket: &str| ["land", "withdraw", ticket, "--reason", "superseded"].map(str::to_owned).to_vec();
+    north_trusted_mirror::Mirror::open(&main).unwrap();
+    Fleet { root, main, north, withdrew, host }
+}
+
+#[test]
+fn the_broker_withdraws_a_ticket_only_for_the_session_that_queued_it() {
+    let scratch = tempfile::tempdir().unwrap();
+    let Fleet { main, north, withdrew, host, .. } = fleet(&scratch.path().canonicalize().unwrap());
 
     let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("mine"), &main);
     let ran = std::fs::read_to_string(&withdrew).unwrap_or_default();
@@ -42,4 +59,25 @@ fn the_broker_withdraws_a_ticket_only_for_the_session_that_queued_it() {
     let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("theirs"), &main);
     let ran = std::fs::read_to_string(&withdrew).unwrap_or_default();
     assert!(code == 126 && told.contains("queued by w-neighbour-1054") && !ran.contains("theirs"), "the broker withdrew a ticket another session queued: exit {code}, ran {ran:?}: {told}");
+}
+
+#[test]
+fn a_withdraw_names_its_queue_from_the_trusted_mirror() {
+    let scratch = tempfile::tempdir().unwrap();
+    let Fleet { root, main, north, withdrew, host, .. } = fleet(&scratch.path().canonicalize().unwrap());
+    const ELSEWHERE: &str = "https://github.com/worker/own.git";
+    git(&main, &["remote", "set-url", "--push", "origin", ELSEWHERE]);
+    let own = land_queue::directory(&root.join("state"), ELSEWHERE);
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join("theirs.json"), serde_json::json!({ "branch": "theirs", "session": SESSION }).to_string()).unwrap();
+
+    let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("theirs"), &main);
+    let ran = std::fs::read_to_string(&withdrew).unwrap_or_default();
+    assert!(code == 126 && told.contains("queued by w-neighbour-1054") && ran.is_empty(), "a repointed checkout push address moved the queue the broker reads: exit {code}, ran {ran:?}: {told}");
+
+    let mirror = north_trusted_mirror::Mirror::directory(&main).unwrap();
+    std::fs::remove_dir_all(&mirror).unwrap();
+    let (code, told) = ask(&north, &host, OPEN_SCOPE, &words("theirs"), &main);
+    let ran = std::fs::read_to_string(&withdrew).unwrap_or_default();
+    assert!(code == 126 && told.contains("keeps no trusted mirror") && ran.is_empty() && !mirror.exists(), "with no trusted mirror the broker took its queue from the checkout a worker writes: exit {code}, ran {ran:?}: {told}");
 }
