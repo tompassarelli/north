@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::foundation::clock::Timestamp;
 
-pub use north_base::platform::session_scope::{PROXY_ROLE as PROXY, ROLE_ENV};
+pub use north_base::platform::session_scope::{COORDINATOR_ROLE as COORDINATOR, ROLE_ENV};
 pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 pub const SPOOLED_ENV: &str = "NORTH_FLEET_SPOOLED";
 

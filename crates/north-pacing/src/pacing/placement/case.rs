@@ -131,7 +131,7 @@ pub fn launch_family(launch: &Launch) -> ModelFamily {
 
 /// Whether the launch is the one fleet coordinator, however the role is spelled in an older record.
 fn is_coordinator(launch: &Launch) -> bool {
-    matches!(launch.role.as_deref(), Some("proxy" | "coordinator"))
+    matches!(launch.role.as_deref(), Some("coordinator"))
 }
 
 fn has_headroom(verdicts: &[gate::Verdict]) -> bool {

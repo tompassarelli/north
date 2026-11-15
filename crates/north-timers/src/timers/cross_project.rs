@@ -28,7 +28,7 @@ pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
         Some("-h" | "--help") => {
             println!("usage: cross-project-scan [--print-bundle]");
             println!("Daily: bundles open issues, threads list, 24h landings and the org, asks a medium-tier model for at most 3");
-            println!("cross-project overlap findings, writes {} and posts it to the proxy's room.", report.display());
+            println!("cross-project overlap findings, writes {} and posts it to the coordinator's room.", report.display());
             0
         }
         Some("--print-bundle") => {
@@ -99,9 +99,9 @@ fn scan(handoffs: &Path, report: &Path, access: &RuntimeAccess) -> Result<bool, 
     };
     let body = format!("# Cross-project scan {}\n\n{}\n", date("-Iminutes"), answer.trim_end_matches('\n'));
     fs::write(report, &body).map_err(|error| format!("{}: {error}", report.display()))?;
-    let sent = Command::new(north_program()).args(["fleet", "send", "--from", "service:north-cross-project", "proxy"]).arg(body.trim_end_matches('\n')).status();
+    let sent = Command::new(north_program()).args(["fleet", "send", "--from", "service:north-cross-project", "coordinator"]).arg(body.trim_end_matches('\n')).status();
     if !sent.is_ok_and(|status| status.success()) {
-        eprintln!("cross-project-scan: proxy not reachable; report kept at {}", report.display());
+        eprintln!("cross-project-scan: coordinator not reachable; report kept at {}", report.display());
     }
     Ok(true)
 }

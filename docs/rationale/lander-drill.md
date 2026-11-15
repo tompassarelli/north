@@ -1,6 +1,6 @@
 # Lander drill: every remedy is proven nightly against a scratch lander
 
-`north land drill` injects each of the six stuck states the lander met on 2026-11-06 into a scratch lander every night and requires its remedy to clear it with nobody paged (north#634). Each was fixed once that day, and a remedy that is never exercised rots: a renamed signature, a moved file or a changed unit leaves the doctor's bound over and the proxy paged, and a person becomes the alarm again; the drill finds that before the state recurs on the real lander.
+`north land drill` injects each of the six stuck states the lander met on 2026-11-06 into a scratch lander every night and requires its remedy to clear it with nobody paged (north#634). Each was fixed once that day, and a remedy that is never exercised rots: a renamed signature, a moved file or a changed unit leaves the doctor's bound over and the coordinator paged, and a person becomes the alarm again; the drill finds that before the state recurs on the real lander.
 
 ## The scratch lander
 
@@ -17,4 +17,4 @@ Each fault gets a fresh directory with its own home, state, runtime directory, g
 
 ## What counts as healed
 
-The doctor's first round must read the injected bound over and apply its remedy without failing; every later round, polled every 2 seconds, must leave the proxy unpaged until the bound reads within its limit, within the doctor's patience of 5 minutes, the same line after which the doctor pages a person. The fault outside the doctor's bounds, the sheriff's, heals when the sheriff reverts nothing; the debt-ceiling fault went with the refusal it drilled (north#729, 2026-11-07).
+The doctor's first round must read the injected bound over and apply its remedy without failing; every later round, polled every 2 seconds, must leave the coordinator unpaged until the bound reads within its limit, within the doctor's patience of 5 minutes, the same line after which the doctor pages a person. The fault outside the doctor's bounds, the sheriff's, heals when the sheriff reverts nothing; the debt-ceiling fault went with the refusal it drilled (north#729, 2026-11-07).

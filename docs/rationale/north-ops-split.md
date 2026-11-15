@@ -77,7 +77,7 @@ Declared expectations judged on a timer, each alerting once per breach and once 
 
 - `check` (366 lines): `north ops check`, the core expectations of `north-data/expectations.toml`, and their run-time validator.
 - `watch` (793 lines): the work probes `north ops watch` runs after the landing and GitHub probes of `north-land-watch`.
-- `dividend` (657 lines): `north ops dividend`, which judges each bet issue's dividend and messages the proxy when it decays.
+- `dividend` (657 lines): `north ops dividend`, which judges each bet issue's dividend and messages the coordinator when it decays.
 
 ### Into existing crates
 

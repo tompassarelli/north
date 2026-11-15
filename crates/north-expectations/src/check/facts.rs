@@ -84,7 +84,7 @@ impl Phone {
         output.status.success().then_some(()).ok_or_else(|| format!("nexus-alert: {}", String::from_utf8_lossy(&output.stderr).trim()))
     }
 
-    pub fn proxy(&mut self, session: &str, text: &str) -> Result<(), String> {
+    pub fn coordinator(&mut self, session: &str, text: &str) -> Result<(), String> {
         let north = std::env::current_exe().map_err(|error| error.to_string())?;
         let output = run_within(&north.to_string_lossy(), &["fleet", "send", "--from", "service:north-ops-check", session, text], REMOTE_WAIT).ok_or("north fleet send did not return in time")?;
         output.status.success().then_some(()).ok_or_else(|| format!("north fleet send {session}: {}", String::from_utf8_lossy(&output.stderr).trim()))

@@ -405,7 +405,7 @@ kind's line `moves goals: ...`, and a test holds every name to a goal of `concer
 `launch-refusals-per-hour`, whose oracle `north ops strategy refusals --since 3h` counts the launches whose last logged
 placement refused them, as a rate. Admission moves `laptop-load-15m` and `launch-refusals-per-hour`, and every lander
 kind moves `landing-p90`, `landing-projected` and `verification-p50`. The fleet tick reads these goals every
-10 minutes and tells the proxy of any red one, so a migrated decision that turns its goal red is heard within a tick.
+10 minutes and tells the coordinator of any red one, so a migrated decision that turns its goal red is heard within a tick.
 
 The 20 s target in north#643 box 3 is easy for placement and hard for admission. Up to 1.8 million
 admission calls from a week on gex45, each replayed twice (old and new), is about 3.6 million calls. That

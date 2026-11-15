@@ -100,7 +100,7 @@ pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
 
 fn open_fleet_claiming(claims: ThreadsCli, words: &[&str]) -> NorthResult<Fleet> {
     let ledger = send::ledger_for(words)?;
-    Fleet::open(runtimes(), Arc::new(ledger), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).reckoning_with(Arc::new(super::promises::Laptop)).showing_proxy_on(Arc::new(desktop::Desktop)).following_rewrites(Arc::new(super::rewrites::Recorded)))
+    Fleet::open(runtimes(), Arc::new(ledger), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).reckoning_with(Arc::new(super::promises::Laptop)).showing_coordinator_on(Arc::new(desktop::Desktop)).following_rewrites(Arc::new(super::rewrites::Recorded)))
 }
 
 fn far_machine(host: &str) -> bool {
@@ -219,8 +219,8 @@ fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let entered_ms = now_ms();
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
-    let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
-    let mut parts = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
+    let coordinator = lineage::coordinator_reachable(fleet, caller.as_deref(), words);
+    let mut parts = launch_parts(&fleet.providers(), words, caller.clone(), coordinator)?;
     let second = parts.request.route.as_deref().and_then(Route::parse).is_some_and(|route| matches!(route, Route::Second { .. })).then(|| (parts.request.name.clone(), parts.request.parent.clone()));
     let queued = std::env::var(super::tick::QUEUE_ENTRY).ok().filter(|name| *name == parts.request.name);
     let relaunch = super::relaunch_unblock::Relaunch::admit(caller.as_deref(), queued.is_some(), &parts.request, parts.issue.as_deref(), now_ms() / 1000)?;

@@ -9,7 +9,7 @@ use crate::platform::process::run_command_within;
 
 const STATE_FILE: &str = "runner-alarm.json";
 const SENDER: &str = "service:capacity-runners";
-const COORDINATOR: &str = "proxy";
+const COORDINATOR: &str = "coordinator";
 const INTERVAL: Duration = Duration::from_secs(60);
 const READ_WAIT: Duration = Duration::from_secs(20);
 

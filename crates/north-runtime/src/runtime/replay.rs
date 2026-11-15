@@ -43,7 +43,7 @@ fn start(dir: &Path, head: &str) -> std::io::Result<()> {
     own_scope(std::env::current_exe()?).args(["runtime", "trip", "replay", head]).stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log).process_group(0).spawn().map(drop)
 }
 
-/// Writes what the pair `compared` says of the new cases `asked` names: their trip when they regressed, else their unreproduced record, telling the proxy either way.
+/// Writes what the pair `compared` says of the new cases `asked` names: their trip when they regressed, else their unreproduced record, telling the coordinator either way.
 pub(crate) fn settle(trips: &Trips, asked: &Trip, compared: &Compared, at: u64, alert: &dyn Fn(&str)) -> Result<Option<Trip>, String> {
     if compared.regressed() {
         trips.write(asked)?;

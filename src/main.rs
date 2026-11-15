@@ -6,7 +6,7 @@ use north_calibration::threads;
 use north_capacity_host::capacity;
 use north_core::{
     agent_catalog, agent_config_check, agent_policy_contract, autoland_status, contract_probe, error, fleet, foundation, land_ticket,
-    grounding, platform::{self, entry_points::{self, EntryPoint}}, proxy, router, run_time_data, usage,
+    grounding, platform::{self, entry_points::{self, EntryPoint}}, coordinator, router, run_time_data, usage,
 };
 use north_health::health;
 use north_providers::{ledger, providers};

@@ -164,7 +164,7 @@ impl Screen {
         self.mark_finished(&sessions);
         self.sessions = sessions;
         if self.selected_session().is_none() {
-            let home = self.sessions.iter().find(|session| session.record.role() == Role::Proxy).or(self.sessions.first()).map(|session| session.record.name.clone());
+            let home = self.sessions.iter().find(|session| session.record.role() == Role::Coordinator).or(self.sessions.first()).map(|session| session.record.name.clone());
             self.select(home);
         }
     }

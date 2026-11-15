@@ -1,4 +1,4 @@
-use crate::guard::permission_offer::proxy_report;
+use crate::guard::permission_offer::coordinator_report;
 use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use std::sync::OnceLock;
@@ -10,7 +10,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub fn decide(input: &HookInput, session: &str, records: &dyn Fn(&str) -> Vec<String>) -> Verdict {
-    let Some(paragraph) = proxy_report(input, session).as_deref().and_then(recommendation) else {
+    let Some(paragraph) = coordinator_report(input, session).as_deref().and_then(recommendation) else {
         return Verdict::Allow;
     };
     let named = records(&paragraph);

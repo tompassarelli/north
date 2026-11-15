@@ -6,7 +6,7 @@ Verdict: **dropped.** Over the frozen day 2026-11-11 (UTC) the coordinator ran 4
 
 ## Measurement
 
-Input: the coordinator's two Claude transcripts that hold turns started in that UTC day (the proxy window before and after its adoption on 2026-11-11), 74 and 425 turns. A turn is one prompt cycle, a distinct `promptId` whose first entry is a delivered message and not a tool result; its trigger is that first message, a peer message, a service alarm, a background-task notification or the owner's own text. Messages that arrive while a turn runs are injected into it and trigger nothing.
+Input: the coordinator's two Claude transcripts that hold turns started in that UTC day (the coordinator window before and after its adoption on 2026-11-11), 74 and 425 turns. A turn is one prompt cycle, a distinct `promptId` whose first entry is a delivered message and not a tool result; its trigger is that first message, a peer message, a service alarm, a background-task notification or the owner's own text. Messages that arrive while a turn runs are injected into it and trigger nothing.
 
 Kinds of trigger, one per turn, by the sender and the body's first matching rule: owner message (no sender), alarm (sender is a service), revert (body mentions a revert), completion report (body holds `Done:`), landing notice (body holds `landed` and a commit hash), other report (any other peer message), other (background-task notification).
 
@@ -23,7 +23,7 @@ Turns triggered only by completion reports and landing notices: 21 + 48 = 69 of 
 
 ## Limits
 
-- Transcript turns are the only per-turn record. The ledger holds one coordinator run for the day, because the proxy is an adopted interactive window and not a headless run, so north#1235's turns-per-landing count and the ledger run count cannot cross-check this total.
+- Transcript turns are the only per-turn record. The ledger holds one coordinator run for the day, because the coordinator is an adopted interactive window and not a headless run, so north#1235's turns-per-landing count and the ledger run count cannot cross-check this total.
 - From 01:41 to 09:10 UTC the coordinator was a different provider and left no Claude transcript; its turns are not in the 499.
 - Commit-reviewer sessions relay events to the coordinator, so many turns open on a relay that bundles a report with other findings; the strict reading counts those as other reports.
 

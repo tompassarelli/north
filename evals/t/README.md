@@ -54,8 +54,8 @@ byte-for-byte the frozen file, so the list cannot drift from the rule or the pin
 Claude Code (2.1.322 here) writes the shape of its first model request into the session's own transcript: an
 `api-request-shape` record with the system text and the tool definitions, an `api-request` record with the model
 and effort, and `api-request-blob` records with the first message's text. Both harnesses run the same Claude Code,
-so that record is the same measurement point in every arm, with no proxy between a session and its endpoint
-(north removes `ANTHROPIC_BASE_URL` from a session's environment, so a recording proxy could not sit there).
+so that record is the same measurement point in every arm, with no coordinator between a session and its endpoint
+(north removes `ANTHROPIC_BASE_URL` from a session's environment, so a recording coordinator could not sit there).
 
 `eval-t context --transcript FILE [--bare FILE] [--plain DIR]` prints it: system bytes, tool count, deferred tool
 count, tool-definition JSON bytes in total and per MCP server, first-message bytes, model, effort and the

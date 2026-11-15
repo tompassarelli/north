@@ -8,7 +8,7 @@ usage: north ledger worker [--session ID] [--since DATE] [--backfill]   record f
   --since DATE  only workers active on or after DATE (e.g. 2026-10-08)
   --backfill    also reread recorded runs and fill facets and context telemetry
   --by LIST     group by a comma list of category, spec, scope, surface, verify, arm (default category)
-Summary measures workers, Fleet parents and proxy by category: peak_ctx_p50/p90,
+Summary measures workers, Fleet parents and coordinator by category: peak_ctx_p50/p90,
 compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
 Claude workers count transcript hook attachments. handoff_ignored counts fires without a HANDOFF message or Done:/Not done: report in the next three assistant turns.
 A running worker whose brief names `Item:` holds that issue until it finishes.

@@ -1,4 +1,4 @@
-//! Hetzner Cloud servers, read through the credential broker's `hcloud` proxy. `/v1/servers` already carries each
+//! Hetzner Cloud servers, read through the credential broker's `hcloud` coordinator. `/v1/servers` already carries each
 //! server's type and that type's monthly gross price per location, so one GET lists what is live and what it costs.
 use serde_json::Value;
 

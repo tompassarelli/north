@@ -5,7 +5,7 @@ use super::except::{Entries, beneath_except, identity};
 
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
 
-/// Whose command reads: any agent session's, or a confined worker's, which also may not read what another host trusts, since the proxy and the leads reach other hosts on purpose.
+/// Whose command reads: any agent session's, or a confined worker's, which also may not read what another host trusts, since the coordinator and the leads reach other hosts on purpose.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Reader {
     Session,

@@ -244,15 +244,15 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
     };
     let queued = enqueue_as("worker-1").unwrap();
     let queue = super::queue::directory(&state, &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
-    super::queue::settle(&queued.path, queued.ticket.clone(), "withdrawn by proxy: caller audit pending".to_owned(), north_base::land_ticket::Phase::Withdrawn).unwrap();
+    super::queue::settle(&queued.path, queued.ticket.clone(), "withdrawn by coordinator: caller audit pending".to_owned(), north_base::land_ticket::Phase::Withdrawn).unwrap();
 
     let refused = enqueue_as("worker-1").unwrap_err();
-    assert!(refused.contains("withdrawn by proxy: caller audit pending") && refused.contains("clear-withdrawal"), "{refused}");
+    assert!(refused.contains("withdrawn by coordinator: caller audit pending") && refused.contains("clear-withdrawal"), "{refused}");
     let name = queued.path.file_stem().unwrap().to_string_lossy().into_owned();
-    north_land_scans::withdrawal::clear(&queue, &name, "proxy", "audit done").unwrap();
+    north_land_scans::withdrawal::clear(&queue, &name, "coordinator", "audit done").unwrap();
     let requeued = enqueue_as("worker-1").unwrap();
 
-    super::queue::settle(&requeued.path, requeued.ticket, "withdrawn by proxy: again".to_owned(), north_base::land_ticket::Phase::Withdrawn).unwrap();
+    super::queue::settle(&requeued.path, requeued.ticket, "withdrawn by coordinator: again".to_owned(), north_base::land_ticket::Phase::Withdrawn).unwrap();
     assert!(enqueue_as("worker-1").is_err());
     lane.commit("a changed head", &[]);
     enqueue_as("worker-1").unwrap();

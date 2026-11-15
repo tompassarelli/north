@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::session_scope::PROXY_ROLE;
+use super::session_scope::COORDINATOR_ROLE;
 
 pub const FILE: &str = "assigned";
 
@@ -30,8 +30,8 @@ pub fn assign(directory: &Path, issue: &str, held: bool) -> io::Result<()> {
 
 pub fn coordinator(record: &Value) -> bool {
     match record["role"].as_str() {
-        Some(role) => role == PROXY_ROLE,
-        None => record["name"].as_str() == Some(PROXY_ROLE) && record["parent"].is_null() && record["task_ref"].is_null(),
+        Some(role) => role == COORDINATOR_ROLE,
+        None => record["name"].as_str() == Some(COORDINATOR_ROLE) && record["parent"].is_null() && record["task_ref"].is_null(),
     }
 }
 

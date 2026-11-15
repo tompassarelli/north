@@ -1,6 +1,6 @@
 //! A first try's automatic chain: a failed run the harness resumed by itself (a `resume` cause row, north#790) or
 //! relaunched on another host (a `host-need` cause row from `north fleet need`, then `Follows: SESSION (Stop: host NEED)`) is one first try, judged where the chain ends. A
-//! message from Tom, a lead or the proxy (a `tom` or `proxy` cause row) ends the chain: the run stays the failed first try.
+//! message from Tom, a lead or the coordinator (a `tom` or `coordinator` cause row) ends the chain: the run stays the failed first try.
 use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::Connection;
@@ -45,7 +45,7 @@ impl Marks {
         let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)));
         for (session, source, cause, at) in rows.into_iter().flatten().flatten() {
             let Ok(at) = Timestamp::parse(&at).map(|at| at.unix_seconds()) else { continue };
-            let kind = if source == RESUME_SOURCE { &mut marks.resumes } else if source == NEED_SOURCE { &mut marks.needs } else if matches!(cause.as_str(), "tom" | "proxy") { &mut marks.corrections } else { continue };
+            let kind = if source == RESUME_SOURCE { &mut marks.resumes } else if source == NEED_SOURCE { &mut marks.needs } else if matches!(cause.as_str(), "tom" | "coordinator") { &mut marks.corrections } else { continue };
             kind.entry(session).or_default().push(at);
         }
         marks

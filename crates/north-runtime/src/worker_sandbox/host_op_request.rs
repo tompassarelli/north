@@ -13,7 +13,7 @@ use super::peer::Peer;
 pub(super) const VERB: &str = "host-op";
 const UNITS: &str = "host_op_units";
 const COPIES: &str = "host_copies";
-const ASKERS: [&str; 2] = ["lead", "proxy"];
+const ASKERS: [&str; 2] = ["lead", "coordinator"];
 const SHAPE: &str = "host-op state HOST UNIT | host-op restart HOST UNIT [--issue REPO#N] | host-op sync COPY, with a UNIT the harness default host_op_units lists and a COPY the harness default host_copies names";
 
 /// A copy the broker refreshes: its name, the host it lives on, the directory it is copied from under the broker's home, the directory it is copied to under the operator's home there, and the entries left out.

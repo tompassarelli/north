@@ -1,5 +1,5 @@
-//! `north proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]`: the coordinator follows the account with the most week headroom before its own
-//! account runs out. A move is a revive of the `proxy` record onto the account, which carries the conversation and keeps the model; the
+//! `north coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]`: the coordinator follows the account with the most week headroom before its own
+//! account runs out. A move is a revive of the `coordinator` record onto the account, which carries the conversation and keeps the model; the
 //! host holds the session, so the move looks at no window and runs the same from a sandboxed shell.
 use std::path::PathBuf;
 use std::time::Duration;
@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Effort;
 use crate::fleet::registry::Fleet;
-use crate::fleet::runtime::PROXY;
+use crate::fleet::runtime::COORDINATOR;
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::{AccountOutlook, Runway};
 
@@ -16,9 +16,9 @@ use super::{revive, router};
 
 const COOLDOWN: Duration = Duration::from_secs(20 * 60);
 const DECIDE_EVERY: Duration = Duration::from_secs(5 * 60);
-const MOVED: &str = "proxy-move.stamp";
-const DECIDED: &str = "proxy-move.decided";
-pub(super) const USAGE: &str = "usage: north proxy move [--to ACCOUNT] [--effort low|medium|high|xhigh|max] [--auto]";
+const MOVED: &str = "coordinator-move.stamp";
+const DECIDED: &str = "coordinator-move.decided";
+pub(super) const USAGE: &str = "usage: north coordinator move [--to ACCOUNT] [--effort low|medium|high|xhigh|max] [--auto]";
 
 pub(super) fn run(words: &[&str]) -> NorthResult<()> {
     let (mut to, mut effort, mut auto) = (None, None, false);
@@ -35,9 +35,9 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
     if auto {
         return start_when_due(&fleet);
     }
-    let record = fleet.fleet_proxy()?.ok_or_else(|| NorthError::Refused("the fleet records no coordinator".into()))?;
+    let record = fleet.fleet_coordinator()?.ok_or_else(|| NorthError::Refused("the fleet records no coordinator".into()))?;
     match decide(&record.account, &outlooks()?, to.as_deref()) {
-        Verdict::Stay { reason } => println!("north proxy move: staying on account {}: {reason}", record.account),
+        Verdict::Stay { reason } => println!("north coordinator move: staying on account {}: {reason}", record.account),
         Verdict::Stranded { reason } => return Err(NorthError::Refused(format!("the coordinator on account {} cannot move: {reason}", record.account))),
         Verdict::Move { to, reason } => move_to(&fleet, &record.account, &to, &reason, effort)?,
     }
@@ -46,7 +46,7 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
 
 pub(super) fn auto(fleet: &Fleet) {
     if let Err(error) = start_when_due(fleet) {
-        eprintln!("north proxy move: {}", error.user_message());
+        eprintln!("north coordinator move: {}", error.user_message());
     }
 }
 
@@ -55,16 +55,16 @@ fn start_when_due(fleet: &Fleet) -> NorthResult<()> {
         return Ok(());
     }
     stamp(DECIDED);
-    let Some(record) = fleet.fleet_proxy()? else { return Ok(()) };
+    let Some(record) = fleet.fleet_coordinator()? else { return Ok(()) };
     let Verdict::Move { to, reason } = decide(&record.account, &outlooks()?, None) else { return Ok(()) };
     move_to(fleet, &record.account, &to, &reason, None)
 }
 
 fn move_to(fleet: &Fleet, from: &str, to: &str, reason: &str, effort: Option<Effort>) -> NorthResult<()> {
-    println!("north proxy move: account {from} to {to}: {reason}");
+    println!("north coordinator move: account {from} to {to}: {reason}");
     stamp(MOVED);
-    revive::restart_onto(fleet, PROXY, None, effort, Overrides::default(), Some(to))?;
-    println!("north proxy move: moved {PROXY} to account {to}");
+    revive::restart_onto(fleet, COORDINATOR, None, effort, Overrides::default(), Some(to))?;
+    println!("north coordinator move: moved {COORDINATOR} to account {to}");
     Ok(())
 }
 

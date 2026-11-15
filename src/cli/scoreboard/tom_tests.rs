@@ -1,7 +1,7 @@
 use super::*;
 
-fn turn(first_line: i64, end_line: Option<i64>) -> ProxyTurn {
-    ProxyTurn { at: 0, tom: true, first_line, end_line, recommends: false, turn: None }
+fn turn(first_line: i64, end_line: Option<i64>) -> CoordinatorTurn {
+    CoordinatorTurn { at: 0, tom: true, first_line, end_line, recommends: false, turn: None }
 }
 
 #[test]
@@ -20,7 +20,7 @@ fn a_closed_turn_is_parsed_once_and_not_reread_north_1553() {
     let mut first = [turn(1, Some(3)), turn(3, None)];
     parse_turns(store.as_ref(), path, &mut first);
     assert_eq!(first[1].turn.as_ref().and_then(|turn| turn.reply.as_deref()), Some("two"));
-    let replies = |turns: &[ProxyTurn]| turns.iter().map(|proxy| proxy.turn.as_ref().and_then(|turn| turn.reply.clone())).collect::<Vec<_>>();
+    let replies = |turns: &[CoordinatorTurn]| turns.iter().map(|coordinator| coordinator.turn.as_ref().and_then(|turn| turn.reply.clone())).collect::<Vec<_>>();
     fs::write(&transcript, "").unwrap();
     let mut again = [turn(1, Some(3))];
     parse_turns(store.as_ref(), path, &mut again);

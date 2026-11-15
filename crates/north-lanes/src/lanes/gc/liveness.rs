@@ -69,7 +69,7 @@ impl Gc {
             session.get("cwd").and_then(Value::as_str).is_some_and(|cwd| real(Path::new(cwd)).to_string_lossy().contains(&prefix)) && alive_status(session)
         });
         let named = |key| holder.and_then(|session| session.get(key)).and_then(text).map(str::to_string);
-        Ok(named("parent").or_else(|| named("name")).unwrap_or_else(|| "proxy".into()))
+        Ok(named("parent").or_else(|| named("name")).unwrap_or_else(|| "coordinator".into()))
     }
 
     pub(super) fn session_in(&mut self, path: &Path) -> Result<bool, String> {

@@ -1,5 +1,5 @@
 //! A usage sampler that has not read a provider for ten minutes: every pace reader is on stale numbers,
-//! so the proxy hears once per episode, naming the provider and its last good reading.
+//! so the coordinator hears once per episode, naming the provider and its last good reading.
 
 use serde_json::Value;
 
@@ -42,7 +42,7 @@ pub fn sampler_plan(failing: &[Failing], previous: &State, now: f64) -> (State, 
     for failure in failing {
         let record = state.entry(failure.provider.clone()).or_insert_with(|| Record { since: failure.since.unwrap_or(now), ..Record::default() });
         let stale = now - record.since;
-        let key = format!("sampler:{}:fleet:proxy", failure.provider);
+        let key = format!("sampler:{}:fleet:coordinator", failure.provider);
         if stale >= STALE_SECONDS && !record.sent.contains_key(&key) {
             let text = format!(
                 "Usage sampler for {} has not read for {:.0}m ({}); last good reading {}. Every pace reader is on stale usage until it reads; run north fleet pace sample on this host and fix the read",
@@ -51,7 +51,7 @@ pub fn sampler_plan(failing: &[Failing], previous: &State, now: f64) -> (State, 
                 failure.why,
                 reading(failure.since)
             );
-            actions.push(Action { repo: failure.provider.clone(), key, node: "proxy".into(), channel: "fleet", text });
+            actions.push(Action { repo: failure.provider.clone(), key, node: "coordinator".into(), channel: "fleet", text });
         }
     }
     (state, actions)

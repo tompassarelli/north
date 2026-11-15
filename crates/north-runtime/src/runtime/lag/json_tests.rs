@@ -25,7 +25,7 @@ fn rank(sha: &str) -> u8 {
     [OLD, MIDDLE, NEWEST, LATEST].iter().position(|known| *known == sha).map_or(0, |at| at as u8 + 1)
 }
 
-/// Records the pages and clears sent; `accept` says whether the proxy took them.
+/// Records the pages and clears sent; `accept` says whether the coordinator took them.
 struct Recorder {
     accept: bool,
     lags: Vec<(String, String)>,

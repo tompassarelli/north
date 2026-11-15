@@ -105,7 +105,7 @@ fn capacity_refusal(world: &impl World, event: &Event) -> Option<String> {
     {
         let g = briefs::py_g;
         return Some(format!(
-            "Domain {domain} ranks below {first} in Tom's priority order, so its local spawns stop at {} of the {} CPUs; {} are committed. Move code-only work to a cloud worker (workers skill) or queue it until a lease ends. Take a real conflict to the proxy, not Tom.",
+            "Domain {domain} ranks below {first} in Tom's priority order, so its local spawns stop at {} of the {} CPUs; {} are committed. Move code-only work to a cloud worker (workers skill) or queue it until a lease ends. Take a real conflict to the coordinator, not Tom.",
             g(ceiling), g(limit), g(provisioned)
         ));
     }

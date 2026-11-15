@@ -34,7 +34,7 @@ fn a_local_agent_launch_of_a_lead_with_a_task_writes_exactly_the_four_fields_the
     for login in [None, Some("agent@cpx62")] {
         assert_eq!(writer(other.path()).write(&record("child", Some("lead"), Some("north#1"), login), Some(&lead())), Ok(None));
     }
-    let askers = [None, Some(record("lead", None, None, None).tap_role(Role::Lead)), Some(record("lead", Some("boss"), Some("north#1"), None).tap_role(Role::Worker)), Some(record("lead", None, Some("north#1"), None).tap_role(Role::Proxy))];
+    let askers = [None, Some(record("lead", None, None, None).tap_role(Role::Lead)), Some(record("lead", Some("boss"), Some("north#1"), None).tap_role(Role::Worker)), Some(record("lead", None, Some("north#1"), None).tap_role(Role::Coordinator))];
     for asker in &askers {
         assert!(writer(other.path()).write(&launch, asker.as_ref()).is_err(), "{asker:?}");
     }

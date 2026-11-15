@@ -38,7 +38,7 @@ sample      every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clie
             caps the offending session scope and sends the owner and coordinators. A north-session-*.scope frozen over
             5 minutes and not listed in the capacity gaming-frozen.json holds is thawed and logged as an incident.
             On the host that holds the threads ledger, every 60 s it also reads each host's grid line over ssh and pages
-            proxy once per episode when fewer than 16 remote runners are live across the grid, or when more than half the
+            coordinator once per episode when fewer than 16 remote runners are live across the grid, or when more than half the
             land-check leases on a host have used under 0.1 cores each for 5 minutes (state: runner-alarm.json).
 report      summarize the last N minutes (default 5 and 30) of samples and incidents with flags. A Codex turn in the
             window that failed with \"Selected model is at capacity\" flags provider-capacity codex.

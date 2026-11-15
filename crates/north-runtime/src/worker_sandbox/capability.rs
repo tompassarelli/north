@@ -1,4 +1,4 @@
-//! The capability record of the fleet session a process belongs to: the record its launcher wrote at launch, in the fleet's state, which no worker writes, found from what the kernel says of the caller (the session scope or held unit its cgroup names, or the adopted window it descends from: lane_grant::own_session), never from a variable or word the caller sets. Every confinement decision reads it, so a worker that sets `NORTH_FLEET_ROLE=proxy` before asking the broker for a build output run is still confined (north#1574).
+//! The capability record of the fleet session a process belongs to: the record its launcher wrote at launch, in the fleet's state, which no worker writes, found from what the kernel says of the caller (the session scope or held unit its cgroup names, or the adopted window it descends from: lane_grant::own_session), never from a variable or word the caller sets. Every confinement decision reads it, so a worker that sets `NORTH_FLEET_ROLE=coordinator` before asking the broker for a build output run is still confined (north#1574).
 
 use std::path::Path;
 
@@ -12,12 +12,12 @@ use crate::fleet::model::Role;
 
 const NO_SESSION: &str = "";
 
-/// The role a session record names, or the one the fleet reads from a record that names none (`Role::unnamed`: a worker's for a record with a parent or a task, the proxy seat's by its name, else a lead's), since the field is optional and older records omit it.
+/// The role a session record names, or the one the fleet reads from a record that names none (`Role::unnamed`: a worker's for a record with a parent or a task, the coordinator seat's by its name, else a lead's), since the field is optional and older records omit it.
 pub(super) fn recorded_role(record: &Value) -> String {
     record["role"].as_str().map_or_else(|| Role::unnamed(!record["parent"].is_null() || !record["task_ref"].is_null(), record["name"].as_str().unwrap_or_default()).label().to_owned(), str::to_owned)
 }
 
-/// Whether the caller `peer` on `host` belongs to a fleet session whose record confines it: every session but the proxy seat (`session_scope::confined_role`). A caller in a session's unit whose record cannot be read is confined, and a caller in no session's unit or window is the operator's own process.
+/// Whether the caller `peer` on `host` belongs to a fleet session whose record confines it: every session but the coordinator seat (`session_scope::confined_role`). A caller in a session's unit whose record cannot be read is confined, and a caller in no session's unit or window is the operator's own process.
 pub(super) fn confines(peer: &Peer, host: &Host) -> bool {
     match lane_grant::own_session(peer, host, NO_SESSION) {
         Ok((_, record)) => session_scope::confined_role(Some(&recorded_role(&record))),

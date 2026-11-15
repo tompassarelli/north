@@ -572,7 +572,7 @@ while :; do
   if [ "$waits" -ge @KILL_POLLS@ ] && [ -z "$told" ]; then
     told=1 left=$(tr -s ' \n' ' ' <"$group.left")
     printf "%s offload: %s stays taken: processes %s of the nested job %s survive KILL\n" "$(date +%FT%T)" "$s" "$left" "$lead" >>"$log"
-    north fleet send proxy "offload: slot $s on $(uname -n) stays taken: processes $left of a nested job whose check ended survive KILL" >/dev/null 2>&1 || true
+    north fleet send coordinator "offload: slot $s on $(uname -n) stays taken: processes $left of a nested job whose check ended survive KILL" >/dev/null 2>&1 || true
   fi
   sleep @DRAIN_POLL@
 done

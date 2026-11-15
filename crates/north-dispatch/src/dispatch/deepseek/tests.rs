@@ -15,7 +15,7 @@ fn settings() -> Settings {
 }
 
 #[test]
-fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_without_the_proxy() {
+fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_without_the_coordinator() {
     active_workers_counts_claude_workers_alone();
     a_category_is_reviewed_in_full_until_ten_clean_then_one_in_five_while_a_defect_resets_it_and_landing_boxes_are_always_reviewed();
     an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_no_other_session_does();
@@ -116,14 +116,14 @@ fn active_workers_counts_claude_workers_alone() {
     let listing = json!([
         {"name": "w1", "status": "working", "provider": "claude", "account": "a", "role": "worker"},
         {"name": "w2", "status": "working", "provider": "claude", "account": "b", "role": "worker"},
-        {"name": "proxy", "status": "working", "provider": "claude", "account": "c", "role": "proxy"},
+        {"name": "coordinator", "status": "working", "provider": "claude", "account": "c", "role": "coordinator"},
         {"name": "ds-1", "status": "working", "provider": "opencode", "account": "go", "role": "worker"},
         {"name": "ds-2", "status": "working", "provider": "opencode", "account": "go", "role": "worker"},
         {"name": "ds-3", "status": "starting", "provider": "pi", "account": "go", "role": "worker"},
     ]);
     let sessions: Vec<_> = crate::dispatch::fleets::running_sessions(&listing).into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
 
-    assert_eq!(crate::dispatch::fleets::active_workers(&sessions), 2, "two Claude workers are working while a proxy and three DeepSeek sessions are not Claude workers");
+    assert_eq!(crate::dispatch::fleets::active_workers(&sessions), 2, "two Claude workers are working while a coordinator and three DeepSeek sessions are not Claude workers");
     assert_eq!(crate::dispatch::fleets::working_by_account(&sessions).get("opencode"), Some(&2));
 }
 

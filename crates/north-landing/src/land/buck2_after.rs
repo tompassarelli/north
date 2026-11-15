@@ -3,9 +3,9 @@
 //! Its exit status alone is its verdict: 0 green, 1 red, 75 none. It records one row per head (head, host, exit,
 //! seconds, crates Buck2 passed) and the crates the job marked passed, one per line. A red reverts the landing at once
 //! (the lander asks `reverts_at_once`); the Cargo run after the landing still decides its own revert. When the Buck2 and
-//! Cargo verdicts of a head disagree, whichever of the two ends last records the disagreement once and tells the proxy.
+//! Cargo verdicts of a head disagree, whichever of the two ends last records the disagreement once and tells the coordinator.
 //! When the Cargo run after the same landing is red on a case of a crate Buck2 passed, whichever of the two ends last
-//! writes the trip record (crate and case, one pair a line) and tells the proxy; the trip turns nothing off.
+//! writes the trip record (crate and case, one pair a line) and tells the coordinator; the trip turns nothing off.
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -195,8 +195,8 @@ fn disagree(root: &Path, head: &str, send: fn(&str, &str) -> bool) {
     let written = OpenOptions::new().create(true).append(true).open(&record).and_then(|mut file| writeln!(file, "{head}\tbuck2 {buck2}\tcargo {cargo}"));
     let message = format!("north land: Buck2 and Cargo disagree on {head}: Buck2 {buck2}, Cargo {cargo}; record {}", record.display());
     println!("{message}");
-    if written.is_err() || !send("proxy", &message) {
-        println!("north land: the disagreement on {head} was not fully recorded or not sent to the proxy");
+    if written.is_err() || !send("coordinator", &message) {
+        println!("north land: the disagreement on {head} was not fully recorded or not sent to the coordinator");
     }
 }
 
@@ -215,8 +215,8 @@ fn trip(root: &Path, head: &str, send: fn(&str, &str) -> bool) {
     let named: Vec<String> = tripped.iter().map(|(name, case)| format!("{case} in {name}")).collect();
     let message = format!("north land: Buck2 passed a crate at {head} whose case the Cargo run after the landing failed: {}; trip record {}", named.join(", "), record.display());
     println!("{message}");
-    if written.is_err() || !send("proxy", &message) {
-        println!("north land: the Buck2 trip of {head} was not fully recorded or not sent to the proxy");
+    if written.is_err() || !send("coordinator", &message) {
+        println!("north land: the Buck2 trip of {head} was not fully recorded or not sent to the coordinator");
     }
 }
 

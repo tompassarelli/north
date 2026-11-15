@@ -69,7 +69,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   That page kept `recommend --planner` printing a band that nothing routes on.
 - Live code: `crates/north-core/src/ledger/planner/` (mod.rs 346, readout.rs 223, history.rs 229, tests.rs 232),
   `src/cli/ledger.rs:16-18`, the `--planner` branch at `crates/north-core/src/threads/calibration/verbs.rs:80-86`,
-  `crates/north-core/src/threads/client.rs:20` and `:267`, the Python wrapper's `planner-band` verb and proxy
+  `crates/north-core/src/threads/client.rs:20` and `:267`, the Python wrapper's `planner-band` verb and coordinator
   branch in `bin/threads` (lines 31, 489-490, 530, 591, 683) and its checks in `bin/threads.test.sh:116-159`.
   No timer, hook or skill calls it; gex45 sessions ran it in 5 transcripts, the measurements themselves and audits.
 - Lines: about 1,085.

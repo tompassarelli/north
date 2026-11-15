@@ -105,7 +105,7 @@ confound thin evidence with new, harder work).
 
 ## 5. Start cheap, escalate on evidence
 
-Every box starts on its pick. The dispatcher, not the proxy, relaunches it one rung up (Haiku, Sonnet, Opus medium,
+Every box starts on its pick. The dispatcher, not the coordinator, relaunches it one rung up (Haiku, Sonnet, Opus medium,
 Opus high, Opus xhigh, Opus max) with the failed report attached as `Prior report:` when the run shows one named spin
 signal:
 
@@ -132,7 +132,7 @@ No `Stop:` line climbs or holds a box: dispatch reads the settled end and the re
 A harness cause never escalates; the records that hold a box (an open gate, its `(not before ...)` stamp, a need
 recorded with `north fleet need`) keep it where it is until the cause clears, and it relaunches on the same rung. Opus xhigh gets two tries: its first failure relaunches it on Opus xhigh, its second climbs to Opus max once. After a failed Opus max try the box waits for a decision: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus max.
 
-Built 2026-11-07: `dispatch::stops::nowhere` read both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. `dispatch::tier::History` counts the item's Opus xhigh launches, and `Rung::climbed` repeats xhigh until its second failure. A climb is no try toward the two a day that hand a box to the proxy, since the ladder's top bounds it.
+Built 2026-11-07: `dispatch::stops::nowhere` read both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. `dispatch::tier::History` counts the item's Opus xhigh launches, and `Rung::climbed` repeats xhigh until its second failure. A climb is no try toward the two a day that hand a box to the coordinator, since the ladder's top bounds it.
 
 Built 2026-11-10 (north#940): `dispatch::spin` reads all four triggers as one `Signal`, from the session, the run's ETA and minutes in the ledger (`ledger::run_times`) and the missed check on the issue's box (`Issue::reopened`); `dispatch::stops::stop` carries the signal on its `Climb`, and the launch record keeps its `key()` in `signal`, so every escalation is one row naming its box, category, rung and signal beside the run that follows it.
 
@@ -158,7 +158,7 @@ is the facet cell's pick for every box, computed over the same earlier runs; the
 arm draws and tiers named by hand) get their own line. Each rung is projected through the same escalation ladder (at
 most three attempts, one rung up on a worker-caused failure, the box's harness repeat rate charged to every rung), with
 each rung's keep chance and median dollars per priced run read from the scoring neighbours, so the ratio compares
-rules rather than the luck of which tier a box happened to get. Usage is API-equivalent dollars, the ledger's proxy for
+rules rather than the luck of which tier a box happened to get. Usage is API-equivalent dollars, the ledger's coordinator for
 the share of a five-hour window a run takes; the staffing model's own call is not charged.
 
 Two checks sit beside the projection: the old routing's observed dollars per finished box, and the replay method (Li et

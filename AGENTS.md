@@ -23,7 +23,7 @@ Build output stays in the worktree's `target/`.
 - Public and reusable goes to north or firn; Tom-specific or secret goes to south.
 - A harness lane's commit message names its `Expected effect:` on finished leaves per unit of usage; `north dash --weekly` counts the week's lanes that do and lists those that caused an incident within 48 h (north#706).
 - Track work as one issue per unit of work with a parent link: a split puts its parts as children of the issue, a finding goes to a child of its epic, and a leaf's Done when is the check that closes it.
-- Keep the concerns in `concerns.toml` true: a new concern is one `[[concern]]` with its source line, oracle and class, and `north check concerns` runs them all; a red concern reaches the proxy through the fleet tick.
+- Keep the concerns in `concerns.toml` true: a new concern is one `[[concern]]` with its source line, oracle and class, and `north check concerns` runs them all; a red concern reaches the coordinator through the fleet tick.
 
 ## Routers
 

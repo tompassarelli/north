@@ -19,7 +19,7 @@ struct Options {
 }
 
 fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { ticket: String::new(), reason: String::new(), repo: PathBuf::from("."), noticed_by: "proxy".into(), class: "lander-withdrawn".into() };
+    let mut options = Options { ticket: String::new(), reason: String::new(), repo: PathBuf::from("."), noticed_by: "coordinator".into(), class: "lander-withdrawn".into() };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {
@@ -108,7 +108,7 @@ mod tests {
         queue::write(&path, &ticket).unwrap();
         land_ticket::queued(&path, "enqueued").unwrap();
         Records::of(&path).unwrap().checking(std::slice::from_ref(&path)).unwrap();
-        let options = Options { ticket: "lane".into(), reason: "audit".into(), repo: ".".into(), noticed_by: "proxy".into(), class: "lander-withdrawn".into() };
+        let options = Options { ticket: "lane".into(), reason: "audit".into(), repo: ".".into(), noticed_by: "coordinator".into(), class: "lander-withdrawn".into() };
 
         let refused = withdraw(queue_dir.path(), &options).unwrap_err();
 

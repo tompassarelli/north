@@ -26,7 +26,7 @@ pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], walked_b
         if lane.ticket.red_fix.is_some() {
             let message = format!("north land: the post-land checks failed ({detail}) with {}, a red fix; it is not reverted again", lane.ticket.branch);
             println!("{message}");
-            after::send("proxy", &message);
+            after::send("coordinator", &message);
             continue;
         }
         match revert(lander, lane, since, detail, outcome) {
@@ -37,7 +37,7 @@ pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], walked_b
             Err(error) => {
                 let message = format!("north land: the post-land checks of {} failed ({detail}) and its revert could not be queued: {error}", lane.ticket.branch);
                 println!("{message}");
-                after::send("proxy", &message);
+                after::send("coordinator", &message);
             }
         }
     }
@@ -48,13 +48,13 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
     let [lane] = lanes else {
         let message = format!("north land: Buck2 is red at {head} across {} landed lanes, so none is reverted at once; the Cargo run after the landing decides", lanes.len());
         println!("{message}");
-        after::send("proxy", &message);
+        after::send("coordinator", &message);
         return false;
     };
     if lane.ticket.red_fix.is_some() {
         let message = format!("north land: Buck2 is red at {head} with {}, a red fix; it is not reverted again", lane.ticket.branch);
         println!("{message}");
-        after::send("proxy", &message);
+        after::send("coordinator", &message);
         return false;
     }
     let outcome = Outcome { verdict: Verdict::RedMain(BUCK2_RED.to_owned()), search: None, failing: BTreeSet::new(), superseded: false, log: log.to_owned() };
@@ -66,7 +66,7 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
         Err(error) => {
             let message = format!("north land: Buck2 is red at {head} and its revert of {} could not be queued: {error}", lane.ticket.branch);
             println!("{message}");
-            after::send("proxy", &message);
+            after::send("coordinator", &message);
             false
         }
     }
@@ -78,7 +78,7 @@ fn inherited(lander: &Lander, head: &str, walked_back: Option<&str>, detail: &st
         Err(error) => {
             let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, and the sheriff could not be asked for the earlier one: {error}");
             println!("{message}");
-            after::send("proxy", &message);
+            after::send("coordinator", &message);
         }
     }
 }

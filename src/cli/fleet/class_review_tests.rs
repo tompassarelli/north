@@ -19,7 +19,7 @@ impl Issues for Tracker {
 fn hourly_class_review_wakes_the_coordinator_once_an_hour_and_holds_its_turn_while_a_repeated_class_has_no_owner() {
     let scratch = tempfile::tempdir().unwrap();
     let owners = Owners { listed: BTreeMap::from([("placement".to_owned(), "north#706".to_owned())]), recorded: scratch.path().join("class-owners.jsonl") };
-    let reading = Reading { losses: vec![Loss { harness: Harness::Placement, runs: 3, usd: 2.0 }, Loss { harness: Harness::LaunchRefusal, runs: 2, usd: 1.0 }, Loss { harness: Harness::Halted, runs: 1, usd: 0.5 }], proxy: (0, 0.0), unclaimed_usd: 0.0, total_usd: 3.5 };
+    let reading = Reading { losses: vec![Loss { harness: Harness::Placement, runs: 3, usd: 2.0 }, Loss { harness: Harness::LaunchRefusal, runs: 2, usd: 1.0 }, Loss { harness: Harness::Halted, runs: 1, usd: 0.5 }], coordinator: (0, 0.0), unclaimed_usd: 0.0, total_usd: 3.5 };
     let open = |_: &IssueName| false;
     let found = classes(&reading, &owners, &open).unwrap();
 

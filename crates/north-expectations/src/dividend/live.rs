@@ -144,7 +144,7 @@ fn release_closed() -> Result<Vec<f64>, String> {
         .collect())
 }
 
-/// The issue tracker a run reads the bets from and comments on, and the proxy it alerts.
+/// The issue tracker a run reads the bets from and comments on, and the coordinator it alerts.
 pub struct Gh;
 
 impl Gh {
@@ -211,7 +211,7 @@ impl Gh {
             .unwrap_or_else(|_| "north".into());
         match run_within(
             &north,
-            &["fleet", "send", "--from", "service:north-ops-dividend", "proxy", text],
+            &["fleet", "send", "--from", "service:north-ops-dividend", "coordinator", text],
             Duration::from_secs(30),
         ) {
             Some(output) if output.status.success() => Ok(()),

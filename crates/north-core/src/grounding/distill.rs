@@ -29,7 +29,7 @@ Each run reads what is new since its watermark and appends one JSON row per reco
     questions about what already happened inside Tom's sessions are skipped, and so are fleet
     messages relayed into a session as `[from NAME]`; requests count as directions), kept when
     deterministic rules read them as a decision, direction, preference, correction or approval;
-  - DECIDED and APPROVED lines the proxy wrote in Tom's sessions;
+  - DECIDED and APPROVED lines the coordinator wrote in Tom's sessions;
   - DECIDED and APPROVED lines in handoff status files.
 
 Sources are convo's SQLite index (read-only) and *status*.md files under the handoffs directory.
@@ -41,13 +41,13 @@ are kept.
 Each row is {id, at, kind, topic, quote, source, superseded_by}. A correction also carries its
 class from harness/corrections.toml (pace, status-not-action, unproven-cause, ..., else unclassified),
 the tail of the reply it corrected and a digest of the typed text, and its quote is the class's
-neutral paraphrase, never Tom's words; source starts with who said it (`tom`, `proxy` or the status file's lead) and
+neutral paraphrase, never Tom's words; source starts with who said it (`tom`, `coordinator` or the status file's lead) and
 names the convo message and session or the file and line. A message seen in two copies of one
 session's transcript counts once, and so does a burst of Tom's corrections of one class in one
 session within two minutes (a retyped or split message); lines Tom copies from the reply before his
 message are not read as his words. Each run also writes corrections-week.txt beside the ledger:
 the last seven days' corrections counted per class, which `north loops check` prints as the
-corrections loop's score, and tells every correction by class and instant to the graph (writer distill), where the repeated-correction detector and the proxy's recurrence check read them. The prompt-grounding hook starts `run --after-prompt` on each of Tom's
+corrections loop's score, and tells every correction by class and instant to the graph (writer distill), where the repeated-correction detector and the coordinator's recurrence check read them. The prompt-grounding hook starts `run --after-prompt` on each of Tom's
 prompts, and the Stop hook at the end of each turn in his window, so a message he typed while the
 turn ran is read too: it waits 15 s for the transcript, then refreshes the convo index and runs.
 
@@ -70,7 +70,7 @@ const CAPTURE_DELAY: Duration = Duration::from_secs(15);
 const PENDING_FRESH: f64 = 2.0 * MINUTE;
 const GENERIC: &[&str] = &[
     "issue", "policy", "skill", "hook", "lead", "worker", "test", "handoff", "landing", "review", "memory", "cpu",
-    "terminal", "proxy",
+    "terminal", "coordinator",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -214,7 +214,7 @@ fn rules() -> [(Kind, &'static Regex); 4] {
 
 fn is_brief_session(text: &str) -> bool {
     brief_session().is_match(text)
-        || brief_read().captures(text).is_some_and(|c| !c[1].to_lowercase().contains("proxy"))
+        || brief_read().captures(text).is_some_and(|c| !c[1].to_lowercase().contains("coordinator"))
 }
 
 pub(crate) fn is_skip_message(text: &str) -> bool {
@@ -236,7 +236,7 @@ const SUBJECT_TABLE: &[(&str, &str)] = &[
     ("makgora", "makgora"), ("wisp", "wisp"), ("wc3", "wc3"), ("warcraft", "wc3"), ("bnet", "bnet"),
     ("north", "north"), ("south", "south"), ("firn", "firn"), ("nixos", "firn"), ("galileo", "galileo"),
     ("telemetry", "telemetry"), ("proton", "proton"), ("convo", "convo"),
-    ("proxy", "proxy"), ("lead", "lead"), ("leads", "lead"), ("worker", "worker"), ("workers", "worker"),
+    ("coordinator", "coordinator"), ("lead", "lead"), ("leads", "lead"), ("worker", "worker"), ("workers", "worker"),
     ("usage", "usage"), ("burn", "usage"), ("quota", "usage"), ("pace", "pace"), ("account", "account"),
     ("accounts", "account"), ("cpu", "cpu"), ("load", "cpu"), ("landing", "landing"), ("land", "landing"),
     ("autoland", "landing"), ("safe-push", "landing"), ("review", "review"), ("skill", "skill"), ("skills", "skill"),
@@ -659,7 +659,7 @@ fn convo_records(messages: &[Message]) -> Vec<Row> {
         if m.role == "assistant" {
             for (n, ln, hit) in line_records(&m.text) {
                 let kind = if &hit[1] == "APPROVED" { Kind::Approval } else { Kind::Decision };
-                out.push(row(rid(&format!("{key}:{n}")), at.clone(), kind, hit[2].trim_matches(js_space), ln.trim_matches(js_space).into(), format!("proxy {place}")));
+                out.push(row(rid(&format!("{key}:{n}")), at.clone(), kind, hit[2].trim_matches(js_space), ln.trim_matches(js_space).into(), format!("coordinator {place}")));
             }
             continue;
         }

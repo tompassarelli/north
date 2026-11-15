@@ -10,7 +10,7 @@ fn steps(sync_exit: u8) -> Vec<(&'static str, Command)> {
 }
 
 #[test]
-fn an_unpublished_generation_keeps_the_code_runtime_and_notifies_the_proxy_once_per_cause() {
+fn an_unpublished_generation_keeps_the_code_runtime_and_notifies_the_coordinator_once_per_cause() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };
     let (old, new) = ("a".repeat(40), "b".repeat(40));

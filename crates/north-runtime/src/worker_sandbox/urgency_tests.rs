@@ -74,7 +74,7 @@ impl Fixture {
         let (_out, out_writer) = std::io::pipe().unwrap();
         let (_err, err_writer) = std::io::pipe().unwrap();
         let stdin = File::open("/dev/null").unwrap();
-        let claimed = vec![(URGENT_ENV.to_owned(), "1".to_owned()), ("NORTH_FLEET_SESSION".to_owned(), "coordinated".to_owned()), ("NORTH_FLEET_ROLE".to_owned(), "proxy".to_owned())];
+        let claimed = vec![(URGENT_ENV.to_owned(), "1".to_owned()), ("NORTH_FLEET_SESSION".to_owned(), "coordinated".to_owned()), ("NORTH_FLEET_ROLE".to_owned(), "coordinator".to_owned())];
         std::thread::scope(|scope| {
             let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host));
             let request = Request { arguments: words.split(' ').map(str::to_owned).collect(), directory: self.lane.clone(), environment: claimed };
@@ -123,7 +123,7 @@ fn an_urgent_job_queued_after_a_normal_one_is_taken_first_and_a_brokered_command
         }
         let ran_role = std::fs::read_to_string(fixture.root.path().join("role")).unwrap_or_default();
         if ran_role != role {
-            failures.push(format!("the broker ran `{words}` from {} with the role {ran_role:?}, not its recorded {role:?}, though the request named proxy, so a worker's build output run left its domain (north#1574)", caller.trim()));
+            failures.push(format!("the broker ran `{words}` from {} with the role {ran_role:?}, not its recorded {role:?}, though the request named coordinator, so a worker's build output run left its domain (north#1574)", caller.trim()));
         }
     }
     let places = fixture.places();

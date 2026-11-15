@@ -61,69 +61,69 @@ fn received(window: &Window) -> Vec<serde_json::Value> {
     std::io::BufRead::lines(std::io::BufReader::new(stream)).map(|line| serde_json::from_str(&line.unwrap()).unwrap()).collect()
 }
 
-fn fleet_proxy(home: &Path, conversation: &str) {
-    let session = home.join(".local/state/north/fleet/proxy");
+fn fleet_coordinator(home: &Path, conversation: &str) {
+    let session = home.join(".local/state/north/fleet/coordinator");
     fs::create_dir_all(&session).unwrap();
-    let record = serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 5, "host_pid": null, "conversation": conversation, "host_dir": session, "role": "proxy", "stopped": false});
+    let record = serde_json::json!({"name": "coordinator", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 5, "host_pid": null, "conversation": conversation, "host_dir": session, "role": "coordinator", "stopped": false});
     fs::write(session.join("session.json"), record.to_string()).unwrap();
 }
 
 fn proxies(fleet: &Fleet) -> Vec<String> {
-    fleet.sessions().unwrap().into_iter().filter(|record| record.role() == crate::fleet::model::Role::Proxy && fleet.status(record) != crate::fleet::model::Status::Exited).filter_map(|record| record.conversation).collect()
+    fleet.sessions().unwrap().into_iter().filter(|record| record.role() == crate::fleet::model::Role::Coordinator && fleet.status(record) != crate::fleet::model::Status::Exited).filter_map(|record| record.conversation).collect()
 }
 
 #[test]
-fn a_second_session_cannot_hold_the_proxy_name_while_the_first_is_live() {
+fn a_second_session_cannot_hold_the_coordinator_name_while_the_first_is_live() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
-    fleet_proxy(home.path(), "fleet-proxy");
+    fleet_coordinator(home.path(), "fleet-coordinator");
     let first = open_window(home.path(), std::process::id(), "window-a", 1);
     let _second = open_window(home.path(), std::os::unix::process::parent_id(), "window-b", 2);
 
-    fleet.adopt("proxy", "window-a", "/tmp".into()).unwrap();
-    assert_eq!(proxies(&fleet), ["window-a"], "adopt ends the fleet proxy and binds the name to the window");
-    assert!(fleet.past_sessions().iter().any(|record| record.conversation.as_deref() == Some("fleet-proxy")));
-    assert_eq!(fleet.session("proxy").unwrap().addressed_since(), 5, "the window takes every message sent since the old holder began");
-    let refused = fleet.revive("proxy", None).unwrap_err().user_message();
+    fleet.adopt("coordinator", "window-a", "/tmp".into()).unwrap();
+    assert_eq!(proxies(&fleet), ["window-a"], "adopt ends the fleet coordinator and binds the name to the window");
+    assert!(fleet.past_sessions().iter().any(|record| record.conversation.as_deref() == Some("fleet-coordinator")));
+    assert_eq!(fleet.session("coordinator").unwrap().addressed_since(), 5, "the window takes every message sent since the old holder began");
+    let refused = fleet.revive("coordinator", None).unwrap_err().user_message();
     assert!(refused.contains("interactive window"), "{refused}");
-    let followed = fleet.follow_recent("proxy").expect("north fleet lists an adopted name it cannot tail");
+    let followed = fleet.follow_recent("coordinator").expect("north fleet lists an adopted name it cannot tail");
     assert_eq!(followed.transcript().status, crate::fleet::model::Status::Idle, "the fleet window shows the live window idle");
 
-    let sender = std::thread::spawn(move || fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "proxy", "hello", crate::fleet::model::Delivery::Queued).map(|_| fleet));
+    let sender = std::thread::spawn(move || fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "coordinator", "hello", crate::fleet::model::Delivery::Queued).map(|_| fleet));
     let lines = received(&first);
     let fleet = sender.join().unwrap().unwrap();
     assert_eq!(lines[0], serde_json::json!({"type": "auth", "token": first.token}));
     assert_eq!(lines[1]["type"], "user");
     assert!(lines[1]["message"]["content"].as_str().unwrap().ends_with("hello"), "{}", lines[1]);
-    assert!(fleet.session("proxy").unwrap().adopted(), "the message started no host under the name");
+    assert!(fleet.session("coordinator").unwrap().adopted(), "the message started no host under the name");
 
-    fleet.adopt("proxy", "window-b", "/tmp".into()).unwrap();
+    fleet.adopt("coordinator", "window-b", "/tmp".into()).unwrap();
     assert_eq!(proxies(&fleet), ["window-b"], "a second window takes the name only by ending the first holder");
 }
 
 #[test]
-fn a_launch_or_message_naming_the_proxy_whose_holder_died_binds_a_window_on_its_own_conversation_only_and_reaches_no_other() {
+fn a_launch_or_message_naming_the_coordinator_whose_holder_died_binds_a_window_on_its_own_conversation_only_and_reaches_no_other() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
-    fleet_proxy(home.path(), "fleet-proxy");
-    let stopped = home.path().join(".local/state/north/fleet/proxy/session.json");
+    fleet_coordinator(home.path(), "fleet-coordinator");
+    let stopped = home.path().join(".local/state/north/fleet/coordinator/session.json");
     fs::write(&stopped, fs::read_to_string(&stopped).unwrap().replace("\"stopped\":false", "\"stopped\":true")).unwrap();
     let mut holder = std::process::Command::new("sleep").arg("600").spawn().unwrap();
-    let _held = open_window(home.path(), holder.id(), "fleet-proxy", 5);
+    let _held = open_window(home.path(), holder.id(), "fleet-coordinator", 5);
     let _older = open_window(home.path(), std::os::unix::process::parent_id(), "window-older", 6);
     let newest = open_window(home.path(), std::process::id(), "window-newest", 9);
-    assert!(proxies(&fleet).is_empty(), "the fleet proxy's host is gone while a window resumed its conversation");
-    assert!(fleet.listens("proxy").unwrap(), "a launch naming the proxy as parent finds it live without anyone running adopt");
-    assert_eq!(proxies(&fleet), ["fleet-proxy"], "the window on the holder's own conversation takes the name before any newer window");
+    assert!(proxies(&fleet).is_empty(), "the fleet coordinator's host is gone while a window resumed its conversation");
+    assert!(fleet.listens("coordinator").unwrap(), "a launch naming the coordinator as parent finds it live without anyone running adopt");
+    assert_eq!(proxies(&fleet), ["fleet-coordinator"], "the window on the holder's own conversation takes the name before any newer window");
     holder.kill().unwrap();
     holder.wait().unwrap();
     assert!(proxies(&fleet).is_empty(), "the holder's window is gone");
 
     newest.inbox.set_nonblocking(true).unwrap();
-    let Err(refusal) = fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "proxy", "main is red", crate::fleet::model::Delivery::Queued) else {
+    let Err(refusal) = fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "coordinator", "main is red", crate::fleet::model::Delivery::Queued) else {
         panic!("a message to the dead name was accepted");
     };
-    assert!(refusal.user_message().contains("north fleet adopt --name proxy"), "{}", refusal.user_message());
+    assert!(refusal.user_message().contains("north fleet adopt --name coordinator"), "{}", refusal.user_message());
     assert!(proxies(&fleet).is_empty(), "no window on the holder's own conversation is left, so the name stays unbound");
     assert_eq!(newest.inbox.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock, "window-newest, on another conversation, receives nothing");
 }
@@ -132,10 +132,10 @@ fn a_launch_or_message_naming_the_proxy_whose_holder_died_binds_a_window_on_its_
 fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no_host_and_keeps_the_record() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
-    fleet_proxy(home.path(), "window-a");
+    fleet_coordinator(home.path(), "window-a");
     let _window = open_window(home.path(), std::process::id(), "window-a", 1);
 
-    let revive = fleet.revive("proxy", None).unwrap_err().user_message();
+    let revive = fleet.revive("coordinator", None).unwrap_err().user_message();
     assert!(revive.contains("interactive window"), "{revive}");
     let request = crate::fleet::model::LaunchRequest {
         verification: false,
@@ -143,7 +143,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
         urgent: false,
         container_shell: false,
         container_dir: None,
-        name: "proxy".into(),
+        name: "coordinator".into(),
         provider: crate::fleet::model::ProviderName::new("claude"),
         account: "a".into(),
         cwd: "/tmp".into(),
@@ -160,7 +160,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
         placement: None,
         machine: None,
         capacity_need: None,
-        role: Some(crate::fleet::model::Role::Proxy),
+        role: Some(crate::fleet::model::Role::Coordinator),
         resume: Some("window-a".into()),
         compact_window: None,
         dispatched: false,
@@ -170,8 +170,8 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
     let take_over = fleet.take_over(&request).unwrap_err().user_message();
 
     assert!(take_over.contains("interactive window"), "{take_over}");
-    assert_eq!(fleet.session("proxy").unwrap().conversation.as_deref(), Some("window-a"));
-    assert!(!fleet.root().join("proxy/host.pid").exists());
+    assert_eq!(fleet.session("coordinator").unwrap().conversation.as_deref(), Some("window-a"));
+    assert!(!fleet.root().join("coordinator/host.pid").exists());
 }
 
 #[test]

@@ -1,5 +1,5 @@
 //! Whether Tom typed the message that opened a fleet session's current turn, read from its transcript: the evidence a
-//! proxy's launch (north#734) and its gate answer on Tom's behalf (north#735) rest on.
+//! coordinator's launch (north#734) and its gate answer on Tom's behalf (north#735) rest on.
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -14,9 +14,9 @@ use super::lineage;
 
 const TAIL_BYTES: u64 = 4 << 20;
 
-/// The proxy-role caller's current turn when Tom typed the message that opened it.
-pub(in crate::cli) fn proxy_turn(fleet: &Fleet, caller: Option<&str>) -> Option<TypedTurn> {
-    lineage::from_proxy(fleet, caller).then(|| typed_turn(fleet, caller?)).flatten()
+/// The coordinator-role caller's current turn when Tom typed the message that opened it.
+pub(in crate::cli) fn coordinator_turn(fleet: &Fleet, caller: Option<&str>) -> Option<TypedTurn> {
+    lineage::from_coordinator(fleet, caller).then(|| typed_turn(fleet, caller?)).flatten()
 }
 
 /// The caller's current turn when Tom typed the message that opened it, read from the newest prompt in its own

@@ -60,7 +60,7 @@ Read [pricing sources](references/pricing.md) when a price is disputed, and [not
 1. Separate required product outcomes from advisory targets and optional coverage, because blending them lets every new case reopen the work.
 2. Preserve independently finishable outcomes and their evidence when consolidating issues, because merged completion predicates hide progress.
 3. When completion stalls, reconcile passed criteria, remaining blockers and additional coverage, and record finished outcomes as complete, because starvation looks like busy progress.
-4. Choose the next repair that advances an unmet outcome, never substituting synthetic checks for human judgment or unavailable hardware, because a proxy cannot supply that observation.
+4. Choose the next repair that advances an unmet outcome, never substituting synthetic checks for human judgment or unavailable hardware, because a coordinator cannot supply that observation.
 5. Record a consequential deferral or a landing over a soft target with `Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>`, because a deferral without a trigger never returns.
 6. Name a gating bar's source in its box or rationale doc; a landing needs no `Provenance:` trailer, because a rework signal now watches quality.
 

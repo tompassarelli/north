@@ -1,6 +1,6 @@
 //! `north land doctor`: the lander's closed health loop (docs/features/04-landing-and-lanes/0028-lander-doctor.md).
 //! Each run reads every lander health bound live, applies the known remedy for each known stuck state, records each
-//! remedy as an incident row, keeps the lander builds that landed a batch green to roll back to, and pages the proxy
+//! remedy as an incident row, keeps the lander builds that landed a batch green to roll back to, and pages the coordinator
 //! once per episode only for a state it has no remedy for. It may use north-base and north-landing, never the root crate.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ use hands::Hands;
 
 pub use north_lander::land::promote::REFUSED;
 pub const UNKNOWN: &str = "lander-unknown";
-const USAGE: &str = "usage: north land doctor [--dry-run] (reads every lander health bound, applies each known remedy, pages the proxy once per unknown state)";
+const USAGE: &str = "usage: north land doctor [--dry-run] (reads every lander health bound, applies each known remedy, pages the coordinator once per unknown state)";
 
 /// One finding and what the doctor did about it.
 #[derive(Clone, Debug, PartialEq)]
@@ -77,8 +77,8 @@ fn treat(finding: Finding, book: &mut Book, hands: &dyn Hands, now: u64) -> Trea
 fn apply(finding: &Finding, remedy: &Remedy, class: &str, book: &mut Book, hands: &dyn Hands, now: u64) -> String {
     let key = finding.key();
     let result = match remedy {
-        Remedy::Page(text) if hands.page(text) => Ok("the proxy and the lander's lead heard of it".to_owned()),
-        Remedy::Page(_) => return format!("failed \"{remedy}\": paging the proxy failed, the next run tries again"),
+        Remedy::Page(text) if hands.page(text) => Ok("the coordinator and the lander's lead heard of it".to_owned()),
+        Remedy::Page(_) => return format!("failed \"{remedy}\": paging the coordinator failed, the next run tries again"),
         _ => hands.apply(remedy),
     };
     book.count_incident(class);
@@ -99,17 +99,17 @@ fn page(finding: &Finding, detail: &str, book: &mut Book, hands: &dyn Hands, now
     let key = finding.key();
     let episode = book.open(&key, now);
     if let Some(at) = episode.paged {
-        return format!("unknown state: {detail}; the proxy heard of it {} ago", minutes(now.saturating_sub(at)));
+        return format!("unknown state: {detail}; the coordinator heard of it {} ago", minutes(now.saturating_sub(at)));
     }
     let since = episode.since;
     let text = format!("north land doctor: unknown lander state: {} {} reads {} (bound {}): {detail}", finding.bound.key(), finding.subject, finding.value, finding.bound.limit());
     if !hands.page(&text) {
-        return format!("unknown state: {detail}; paging the proxy failed, the next run tries again");
+        return format!("unknown state: {detail}; paging the coordinator failed, the next run tries again");
     }
     book.open(&key, now).paged = Some(now);
     book.count_incident(UNKNOWN);
     hands.incident(UNKNOWN, &format!("{UNKNOWN}:{key}@{since}"), &finding.subject, detail);
-    format!("unknown state: {detail}; paged the proxy")
+    format!("unknown state: {detail}; paged the coordinator")
 }
 
 pub fn render(treated: &[Treated]) -> String {

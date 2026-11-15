@@ -32,7 +32,7 @@ fn grid_from(block: &str, offsets: &[f64]) -> Grid {
 }
 
 #[test]
-fn nothing_could_land_on_2026_11_14_and_the_recorded_grid_and_hand_ins_page_the_proxy_then_clear_north_1036() {
+fn nothing_could_land_on_2026_11_14_and_the_recorded_grid_and_hand_ins_page_the_coordinator_then_clear_north_1036() {
     let recorded = grid_from(RECORDED, &[0.0]);
     assert_eq!(recorded.failures.len(), 12);
     assert_eq!(zero_ready_since(&recorded, 1794637578.8), Some(1794637573.232444), "every slot first failed by then");

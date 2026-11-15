@@ -1,4 +1,4 @@
-//! The proxy's tool calls by kind: the classifier the delegation guard and the daily readout share.
+//! The coordinator's tool calls by kind: the classifier the delegation guard and the daily readout share.
 pub mod calls;
 mod readout;
 mod shape;
@@ -10,8 +10,8 @@ pub use readout::{Readout, read, render, render_read_streaks, streaks};
 pub use shape::shape;
 pub use streak::{Call, Message, Streak, is_look, read_streaks};
 
-const USAGE: &str = "usage: north config proxy calls TRANSCRIPT | north config proxy role";
-pub const READ_STREAK_LIMIT: &str = "proxy_read_streak";
+const USAGE: &str = "usage: north config coordinator calls TRANSCRIPT | north config coordinator role";
+pub const READ_STREAK_LIMIT: &str = "coordinator_read_streak";
 
 pub fn run(arguments: &[String], verbs: &VerbKinds, read_limit: usize, role: fn(&[String]) -> u8) -> u8 {
     match arguments.split_first() {
@@ -23,7 +23,7 @@ pub fn run(arguments: &[String], verbs: &VerbKinds, read_limit: usize, role: fn(
                 0
             }
             Err(error) => {
-                eprintln!("north config proxy calls: cannot read {path}: {error}");
+                eprintln!("north config coordinator calls: cannot read {path}: {error}");
                 1
             }
         },

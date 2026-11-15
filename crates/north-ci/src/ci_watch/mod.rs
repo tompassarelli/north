@@ -1,6 +1,6 @@
 //! Watchers over red CI on main: `main-red` confirms a failed main run and asks the lander to
 //! revert its culprit, `ci-diagnose` comments a two-stage model diagnosis on the open "main is
-//! red" issue, and `red-main-notify` tells the culprit lane's session and the proxy.
+//! red" issue, and `red-main-notify` tells the culprit lane's session and the coordinator.
 pub mod diagnose;
 mod mirrored;
 pub mod notify;

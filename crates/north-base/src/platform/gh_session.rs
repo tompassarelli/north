@@ -21,13 +21,13 @@ A session may spend while the shared token's remaining hourly quota (gh api rate
 stays above a reserve of 1000 units. Under the reserve the sessions that spent most this hour (at or above the
 average of the live sessions) are refused first, with exit 75 and a message naming the token's remaining quota and the spend.
 Spend is counted per rolling hour in ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. A session the fleet did not launch counts as
-`unlaunched` inside north --worker-sandbox, except the proxy's own window (its conversation is the one the fleet row named proxy holds), which counts as `proxy` like a launched proxy; outside both REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its fair share (400 units an hour) tells that session once.
+`unlaunched` inside north --worker-sandbox, except the coordinator's own window (its conversation is the one the fleet row named coordinator holds), which counts as `coordinator` like a launched coordinator; outside both REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its fair share (400 units an hour) tells that session once.
 A hook (a gh call under north hook) may spend 10% of the fair share, so one hook cannot starve its session; north ops github budget
 breaks each session's spend down by hook, tick or command, the north verb behind it and the endpoint,
-and a refused call tells the proxy at most once an hour per session (north ops github budget lists every session's spend and the top callers).";
+and a refused call tells the coordinator at most once an hour per session (north ops github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
-/// Set on every command `north --worker-sandbox` runs, so a session the fleet did not launch, such as the proxy's own window, still calls GitHub as the App: its sandbox has hidden the operator's login.
+/// Set on every command `north --worker-sandbox` runs, so a session the fleet did not launch, such as the coordinator's own window, still calls GitHub as the App: its sandbox has hidden the operator's login.
 pub const SANDBOX_MARK: &str = "NORTH_WORKER_SANDBOXED";
 const UNLAUNCHED: &str = "unlaunched";
 const FAIR_SHARE: u32 = 400;
@@ -37,7 +37,7 @@ const ROWS_PER_UNIT: u32 = 100;
 const FREE_COMMANDS: [&str; 6] = ["help", "version", "config", "alias", "completion", "extension"];
 const SCRUBBED: [&str; 4] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 const ALARM_PERCENTS: [u32; 2] = [50, 80];
-const PROXY: &str = "proxy";
+const COORDINATOR: &str = "coordinator";
 const HOOK_SHARE_PERCENT: u32 = 10;
 
 pub fn run(arguments: &[String], screen: fn(&mut Command) -> Result<(), String>) -> u8 {
@@ -94,8 +94,8 @@ pub fn run(arguments: &[String], screen: fn(&mut Command) -> Result<(), String>)
 fn unlaunched_name() -> String {
     let conversation = std::env::var("CLAUDE_CODE_SESSION_ID").unwrap_or_default();
     let fleet = std::env::var_os("NORTH_FLEET_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/north/fleet")));
-    let record = fleet.and_then(|fleet| fs::read_to_string(fleet.join(PROXY).join("session.json")).ok()).unwrap_or_default();
-    if holds_conversation(&record, &conversation) { PROXY } else { UNLAUNCHED }.to_owned()
+    let record = fleet.and_then(|fleet| fs::read_to_string(fleet.join(COORDINATOR).join("session.json")).ok()).unwrap_or_default();
+    if holds_conversation(&record, &conversation) { COORDINATOR } else { UNLAUNCHED }.to_owned()
 }
 
 fn holds_conversation(record: &str, conversation: &str) -> bool {
@@ -154,7 +154,7 @@ fn budget_notices(session: &str, ledger: &Path, before: u32, units: u32, budget:
             return Vec::new();
         }
         let _ = marker.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(&marker, now.to_string()));
-        return vec![(PROXY.to_owned(), format!("north gh-session: session {session} was refused a gh call because the shared GitHub token is under its reserve (it has spent {before} units this hour against a fair share of {budget}, the call costs {units}); its gh calls stay refused while the token is short and the session is among the top spenders (north ops github budget lists the callers)"))];
+        return vec![(COORDINATOR.to_owned(), format!("north gh-session: session {session} was refused a gh call because the shared GitHub token is under its reserve (it has spent {before} units this hour against a fair share of {budget}, the call costs {units}); its gh calls stay refused while the token is short and the session is among the top spenders (north ops github budget lists the callers)"))];
     }
     alarm_crossed(before, units, budget)
         .map(|percent| (session.to_owned(), format!("north gh-session: you reached {percent}% of your GitHub fair share ({} of {budget} units this hour); your gh calls are refused first if the shared token runs short (north ops github budget lists the callers)", before + units)))

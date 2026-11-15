@@ -20,7 +20,7 @@ use super::dispatch_tick;
 use super::ledger::Ledger;
 use super::rebooted;
 use super::waits::Probes;
-use super::proxy_move;
+use super::coordinator_move;
 
 const USAGE: &str = "Usage: north fleet tick";
 const BESIDE: Duration = Duration::from_secs(20);
@@ -88,8 +88,8 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     };
     let moving = {
         let fleet = fleet.clone();
-        detach("proxy_move", move || {
-            let ((), cpu) = metered(|| proxy_move::auto(&fleet));
+        detach("coordinator_move", move || {
+            let ((), cpu) = metered(|| coordinator_move::auto(&fleet));
             (Instant::now(), cpu)
         })
     };
@@ -110,10 +110,10 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     };
     let moved = match moving.by(deadline) {
         Ok((ended, cpu)) => {
-            ticked.steps.push(Step { name: "proxy_move", began: Duration::ZERO, took: ended - began, cpu: Some(cpu) });
+            ticked.steps.push(Step { name: "coordinator_move", began: Duration::ZERO, took: ended - began, cpu: Some(cpu) });
             Vec::new()
         }
-        Err(late) => late_beside(&mut ticked, "proxy_move", &late.why(BESIDE), began),
+        Err(late) => late_beside(&mut ticked, "coordinator_move", &late.why(BESIDE), began),
     };
     let queueing = Instant::now();
     let (queued, queueing_cpu) = drain_queue(fleet, began)?;
@@ -203,7 +203,7 @@ fn kept_fresh(fleet: &Fleet, refreshing: &Detached<Refresh>, began: Instant) -> 
     let (home, now) = (home(), shared_config::now());
     if let Some(stamp) = shared_config::overdue(&home, now) {
         let line = format!("{}: {}", fleet.host(), shared_config::overdue_line(&stamp, now));
-        match fleet.send_signed(&Sender::fleet(), "proxy", &line, Delivery::Queued) {
+        match fleet.send_signed(&Sender::fleet(), "coordinator", &line, Delivery::Queued) {
             Ok(()) => {
                 if let Err(error) = shared_config::warned(&home, &stamp) {
                     lines.push(format!("shared_config: told the coordinator but could not record it: {error}"));

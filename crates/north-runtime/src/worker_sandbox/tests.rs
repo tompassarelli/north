@@ -637,7 +637,7 @@ fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
     let cgroup = |name: &str| format!("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/{}\n", unit(name));
     let root = tempfile::tempdir().unwrap();
     let fleet = root.path().join("fleet");
-    for (name, role) in [("proxy-session", "proxy"), ("lead-session", "lead")] {
+    for (name, role) in [("coordinator-session", "coordinator"), ("lead-session", "lead")] {
         let directory = fleet.join(name);
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("host.scope"), unit(name)).unwrap();
@@ -648,13 +648,13 @@ fn a_coordinator_session_is_refused_the_commands_only_a_fleet_session_runs() {
     let caller = |name: &str| super::hold_request::caller(&Peer::from(Some(cgroup(name).as_str())), &host).unwrap();
     let place = || Ask::Place { commit: commit.clone(), lane: "f-fix".to_owned(), host: None, until: None, why: "held for review".to_owned() };
     let lift = || Ask::Lift { commit: commit.clone(), why: "reviewed".to_owned() };
-    let refusal = "proxy-session runs in the coordinator role, which neither places nor lifts a hold";
+    let refusal = "coordinator-session runs in the coordinator role, which neither places nor lifts a hold";
 
-    let placed = holds.serve(place(), &caller("proxy-session"), 1);
+    let placed = holds.serve(place(), &caller("coordinator-session"), 1);
     assert!(placed.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session placed a hold its client window cannot: {placed:?}");
     let placed = holds.serve(place(), &caller("lead-session"), 2);
     assert!(placed.as_ref().is_ok_and(|line| line.contains("lead-session holds")), "a lead lost its hold: {placed:?}");
-    let lifted = holds.serve(lift(), &caller("proxy-session"), 3);
+    let lifted = holds.serve(lift(), &caller("coordinator-session"), 3);
     assert!(lifted.as_ref().is_err_and(|why| why.contains(refusal)), "a coordinator-role fleet session lifted a hold its client window cannot: {lifted:?}");
     let lifted = holds.serve(lift(), &caller("lead-session"), 4);
     assert!(lifted.as_ref().is_ok_and(|line| line.contains("lead-session lifted the hold of lead-session")), "a lead lost its lift: {lifted:?}");
@@ -876,11 +876,11 @@ fn a_broker_on_a_socket_of_its_own_follows_the_runtime_its_canary_judges_and_the
 
 #[test]
 fn a_lead_with_no_task_is_confined_like_a_tasked_one() {
-    use north_base::platform::session_scope::{PROXY_ROLE, confined_role};
+    use north_base::platform::session_scope::{COORDINATOR_ROLE, confined_role};
     assert!(confined_role(Some("lead")), "a lead is confined whether or not it holds a task");
     assert!(confined_role(Some("worker")), "a worker is confined whether or not it holds a task");
     assert!(confined_role(Some("reviewer")), "a reviewer is confined whether or not it holds a task");
-    assert!(!confined_role(Some(PROXY_ROLE)), "the proxy seat drives windows and units");
+    assert!(!confined_role(Some(COORDINATOR_ROLE)), "the coordinator seat drives windows and units");
     assert!(!confined_role(None), "an adopted human window carries no launcher role");
 }
 

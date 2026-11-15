@@ -10,7 +10,7 @@ fn fixture(name: &str) -> String {
 }
 
 fn stop(name: &str, session: &str) -> HookInput {
-    let data = json!({"hook_event_name":"Stop", "agent_type":"proxy", "session_id":session, "stop_hook_active":false, "transcript_path":fixture(name)});
+    let data = json!({"hook_event_name":"Stop", "agent_type":"coordinator", "session_id":session, "stop_hook_active":false, "transcript_path":fixture(name)});
     HookInput::parse(&serde_json::to_vec(&data).unwrap()).unwrap()
 }
 

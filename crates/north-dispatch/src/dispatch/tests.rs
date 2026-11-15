@@ -211,7 +211,7 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_a_windowed
     let held: Vec<&String> = outcome.skipped.iter().map(|(_, why)| why).collect();
     assert!(held.len() == 1 && held[0].contains("box `the ready list") && held[0].contains("both name crates/north-dispatch/src/dispatch"), "{held:?}");
     let tried = surveyed(&[first]);
-    assert_eq!(boxes(&tried).len(), 4, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
+    assert_eq!(boxes(&tried).len(), 4, "a box tried twice waits for the coordinator alone, and its issue's other boxes still launch: {:?}", tried.skipped);
     let predicting = |body: &str| {
         let mut survey = survey(vec![issue("north", 835, body, &[])], hosts.clone(), accounts.clone());
         survey.predicted.insert("fleet session north-900-x on nexus".into(), vec!["crates/north-fleet/src/fleet/claims.rs".into()]);

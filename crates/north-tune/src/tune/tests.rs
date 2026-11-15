@@ -51,9 +51,9 @@ impl Tracker for Issues {
         Ok(self.open.len())
     }
 
-    fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
+    fn tell_coordinator(&mut self, text: &str) -> Result<(), String> {
         if self.mute {
-            return Err("north fleet send proxy: exit status: 1".into());
+            return Err("north fleet send coordinator: exit status: 1".into());
         }
         self.told.push(text.to_owned());
         Ok(())
@@ -209,7 +209,7 @@ fn an_estimate_drift_is_told_once_when_its_cells_change_and_again_when_it_clears
     let mut issues = Issues::default();
     let dry = tick(&ledger, &Prior::default(), &[], &mut issues, AT, true);
     let told = format!("north tune: {}: opus-high debugging-unknown-cause; `north tune --dry-run` shows them.", super::estimates::TITLE);
-    assert!(issues.told.is_empty() && dry.lines.contains(&format!("  would tell the proxy: {told}")), "{:#?}", dry.lines);
+    assert!(issues.told.is_empty() && dry.lines.contains(&format!("  would tell the coordinator: {told}")), "{:#?}", dry.lines);
     let (_, ticked) = two_ticks(&ledger, &mut issues);
     assert_eq!(issues.told, [told], "{:#?}", ticked.lines);
     let calm = Ledger { estimates: Ok(EstimatedRuns::default()), ..ledger };

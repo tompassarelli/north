@@ -1,4 +1,4 @@
-//! One reading of the fleet's lag: the `--json` objects, a scoreboard sample and the proxy pages per episode.
+//! One reading of the fleet's lag: the `--json` objects, a scoreboard sample and the coordinator pages per episode.
 use super::behind::{self, Seen, serves_host};
 use super::samples::{self, Sample};
 use north_offload::land_offload;
@@ -28,7 +28,7 @@ const SENDER: &str = "service:north-runtime-lag";
 /// The fleet tick starts a sample at most this often, so the file keeps a week at one sample a minute.
 const AGAIN: Duration = Duration::from_secs(60);
 
-/// Where the pages of a reading go: the proxy in production, a recorder in tests.
+/// Where the pages of a reading go: the coordinator in production, a recorder in tests.
 pub(super) trait Pager {
     fn session_lags(&mut self, text: &str) -> bool;
     fn service_lags(&mut self, key: &str, text: &str) -> bool;
@@ -55,11 +55,11 @@ impl Episodes {
     }
 }
 
-struct Proxy;
+struct Coordinator;
 
-impl Pager for Proxy {
+impl Pager for Coordinator {
     fn session_lags(&mut self, text: &str) -> bool {
-        update::page_proxy(KEY, text)
+        update::page_coordinator(KEY, text)
     }
 
     fn service_lags(&mut self, key: &str, text: &str) -> bool {
@@ -77,9 +77,9 @@ fn send(key: &str, text: &str, cleared: bool) -> bool {
     if cleared {
         command.arg("--cleared");
     }
-    let delivered = command.arg("proxy").arg(text).stdin(Stdio::null()).status().is_ok_and(|status| status.success());
+    let delivered = command.arg("coordinator").arg(text).stdin(Stdio::null()).status().is_ok_and(|status| status.success());
     if !delivered {
-        eprintln!("north runtime lag: the proxy page for {key} was not delivered");
+        eprintln!("north runtime lag: the coordinator page for {key} was not delivered");
     }
     delivered
 }
@@ -197,7 +197,7 @@ pub(super) fn sample(layout: &Layout) -> Result<(), Failure> {
     if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err() {
         return Ok(());
     }
-    conclude(&layout.state, &objects(layout, &[]), pin::now(), &mut Proxy);
+    conclude(&layout.state, &objects(layout, &[]), pin::now(), &mut Coordinator);
     Ok(())
 }
 

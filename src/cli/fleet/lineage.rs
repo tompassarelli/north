@@ -1,14 +1,14 @@
-//! Who hears a launched session's reports: the calling fleet session, else the proxy for a
+//! Who hears a launched session's reports: the calling fleet session, else the coordinator for a
 //! launch from outside the fleet (dispatch, timers, a bare terminal), unless `--parent` names
-//! another; `none` is the proxy's and a `--test` probe's alone.
+//! another; `none` is the coordinator's and a `--test` probe's alone.
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Role};
 use crate::fleet::registry::Fleet;
-use crate::fleet::runtime::PROXY;
+use crate::fleet::runtime::COORDINATOR;
 
-/// Whether a launch from outside the fleet can fall back to the proxy, saying so when its reports would reach nobody.
-pub(super) fn proxy_reachable(fleet: &Fleet, caller: Option<&str>, words: &[&str]) -> bool {
-    let reached = fleet.reaches(PROXY);
+/// Whether a launch from outside the fleet can fall back to the coordinator, saying so when its reports would reach nobody.
+pub(super) fn coordinator_reachable(fleet: &Fleet, caller: Option<&str>, words: &[&str]) -> bool {
+    let reached = fleet.reaches(COORDINATOR);
     if let Err(error) = &reached
         && outside(caller)
         && !words.contains(&"--parent")
@@ -18,19 +18,19 @@ pub(super) fn proxy_reachable(fleet: &Fleet, caller: Option<&str>, words: &[&str
     reached.is_ok()
 }
 
-/// The parent a launch reports to; the proxy is the one root of the org, so `--parent none` is the proxy's own and a `--test` probe's.
-pub(super) fn parent(flag: Option<String>, caller: Option<String>, proxy: bool, name: &str, role: Option<Role>, probe: bool) -> NorthResult<Option<String>> {
-    let is_proxy = role == Some(Role::Proxy) || name == PROXY;
+/// The parent a launch reports to; the coordinator is the one root of the org, so `--parent none` is the coordinator's own and a `--test` probe's.
+pub(super) fn parent(flag: Option<String>, caller: Option<String>, coordinator: bool, name: &str, role: Option<Role>, probe: bool) -> NorthResult<Option<String>> {
+    let is_coordinator = role == Some(Role::Coordinator) || name == COORDINATOR;
     Ok(match flag.as_deref() {
-        Some("none") if is_proxy || probe => None,
+        Some("none") if is_coordinator || probe => None,
         Some("none") => {
             return Err(NorthError::Usage(format!(
-                "--parent none leaves {name} outside the org, whose one root is the proxy; drop it so {name} reports to its caller or the proxy, or name another --parent"
+                "--parent none leaves {name} outside the org, whose one root is the coordinator; drop it so {name} reports to its caller or the coordinator, or name another --parent"
             )));
         }
         Some(_) => flag,
-        None if is_proxy => None,
-        None => caller.filter(|caller| !caller.is_empty()).or_else(|| proxy.then(|| PROXY.to_owned())),
+        None if is_coordinator => None,
+        None => caller.filter(|caller| !caller.is_empty()).or_else(|| coordinator.then(|| COORDINATOR.to_owned())),
     })
 }
 
@@ -68,8 +68,8 @@ pub(super) fn reader(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<
     }
 }
 
-pub(super) fn from_proxy(fleet: &Fleet, caller: Option<&str>) -> bool {
-    caller.is_some_and(|caller| caller == PROXY || fleet.role_of(caller) == Some(Role::Proxy))
+pub(super) fn from_coordinator(fleet: &Fleet, caller: Option<&str>) -> bool {
+    caller.is_some_and(|caller| caller == COORDINATOR || fleet.role_of(caller) == Some(Role::Coordinator))
 }
 
 /// A launch from a lead or worker starts a worker unless it names the lead role, and holds its launcher's task when it names none; a lead's take-over of a lead seat keeps that seat's lead role.
@@ -88,7 +88,7 @@ fn inherit_from(request: &mut LaunchRequest, launcher: Option<Role>, task: Optio
         return Ok(());
     };
     if let Some(named) = request.role
-        && (matches!(named, Role::Proxy | Role::Reviewer) || (launcher == Role::Worker && named == Role::Lead))
+        && (matches!(named, Role::Coordinator | Role::Reviewer) || (launcher == Role::Worker && named == Role::Lead))
     {
         return Err(NorthError::Refused(format!("a {launcher:?} session cannot launch {} as a {named:?}; drop --role or name a role below your own", request.name)));
     }

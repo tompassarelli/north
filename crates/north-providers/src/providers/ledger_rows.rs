@@ -77,11 +77,11 @@ pub fn session_role(nodes: Option<&Vec<Value>>, session: &str) -> Option<&'stati
 pub fn node_role(nodes: &[Value], node: &Value) -> &'static str {
     let truthy = crate::providers::claude::runs::truthy;
     match node["role"].as_str() {
-        Some("proxy") => "proxy",
+        Some("coordinator") => "coordinator",
         Some("worker") => "worker",
         Some(_) => "parent",
         None if truthy(&node["parent"]) || truthy(&node["task_ref"]) => "worker",
         None if nodes.iter().any(|other| other["parent"] == node["name"]) => "parent",
-        None => "proxy",
+        None => "coordinator",
     }
 }

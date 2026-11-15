@@ -280,7 +280,7 @@ impl TurnWatch {
     }
 
     fn checkpoint(&mut self, conversation: &str, context: u64) {
-        if !self.checkpoints.due(conversation, context) || find_session(&self.root, &self.host_dir, conversation).is_none_or(|record| record.role() == Role::Proxy) {
+        if !self.checkpoints.due(conversation, context) || find_session(&self.root, &self.host_dir, conversation).is_none_or(|record| record.role() == Role::Coordinator) {
             return;
         }
         self.checkpoints.ask(conversation, context);

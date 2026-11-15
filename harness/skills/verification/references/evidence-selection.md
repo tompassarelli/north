@@ -71,7 +71,7 @@ input ordering and response evidence, so those affected claims need a new
 check. Nonmatching case: results from a generated packet test never established
 physical controller behavior and cannot be carried forward as that evidence.
 For subjective feel, prepare the agent-tested candidate and request a bounded
-human trial; proxy benchmarks support diagnosis but cannot grant acceptance.
+human trial; coordinator benchmarks support diagnosis but cannot grant acceptance.
 
 The repeated-readiness trigger concerns an active delivery request. It does
 not truncate an explicitly requested comparative research report or waive a

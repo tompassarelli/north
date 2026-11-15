@@ -1,7 +1,7 @@
 //! The spin signals one box's run shows, each named so the escalation it causes records why it climbed: the
 //! worker ran out of approach, the lander refused the same lane twice with the same verdict, a missed check
 //! reopened the box, or the run took twice the ETA its brief stated. A run that shows one is no try toward
-//! the two a day that hand a box to the proxy, and its box climbs one rung of `tier::Rung::LADDER`
+//! the two a day that hand a box to the coordinator, and its box climbs one rung of `tier::Rung::LADDER`
 //! (docs/rationale/nearest-routing.md section 5).
 use super::stops;
 use crate::ledger::{RunEnd, RunTime};

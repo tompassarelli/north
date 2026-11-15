@@ -23,7 +23,7 @@ Commands:
   check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers
   work review PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
   ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per new failure on each open "main is red" issue
-  red-main-notify                               Tell each open "main is red" issue's culprit lane session and the proxy, once per culprit commit
+  red-main-notify                               Tell each open "main is red" issue's culprit lane session and the coordinator, once per culprit commit
   main-red RUN_ID                               Confirm a failed main CI run once, then ask the lander to revert its culprit (GH_REPO names the repository)
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
@@ -148,8 +148,8 @@ Commands:
   work brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
   work brief pack [--issue REF]... PATH...   Print, in at most 3,000 characters, each path's public items with lines, its structure.toml module and what it may use, the files that changed with it most in 90 days with any revert within 48 h, and the nextest filter for the tests that reach it
   work split TASKFILE --task ID --out PLAN [--root REPO]   Split one frozen large task into a first box (the shared interface) and parts along module edges whose file sets are pairwise disjoint, from the base checkout, its structure.toml modules, the context pack of the paths the task names and one planning call, written to PLAN as TOML; an overlapping answer is retried once naming the overlap, then exits 1; a tightly coupled task yields an interface and zero parts
-  config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
-  config proxy role                              Print the proxy role table of harness/defaults.toml: what the proxy does itself and what it launches a worker for
+  config coordinator calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
+  config coordinator role                              Print the coordinator role table of harness/defaults.toml: what the coordinator does itself and what it launches a worker for
   check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
   check harness policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
   check harness tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits, and each portable: true skill's files against host-specific paths, names and provider directories, with no other checkout or live state; the land check for harness/
@@ -169,9 +169,9 @@ Commands:
   cloud land EVENTS.jsonl [--repo DIR]          Apply a handback in a fresh lane and land it
   cloud reap                                    Land every finished handback launched in the last 7 days
   fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready boxes of every unpaused project in orchestration.toml (its dispatch_repos, else repos) on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
-  proxy [--interactive] | proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
+  coordinator [--interactive] | coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
-  ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
+  ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the coordinator on DECAYED
   ops check [--dry-run | --synthetic]           Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
@@ -242,9 +242,9 @@ Commands:
   fleet laptop observe SAMPLE                   Record an idle and battery sample from the laptop
   laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
   agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
-  ops watch --once [--quiet]                    Run the landing and GitHub probes, raise their alerts to the proxy and the lane lead (--quiet prints none), then run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
+  ops watch --once [--quiet]                    Run the landing and GitHub probes, raise their alerts to the coordinator and the lane lead (--quiet prints none), then run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
   job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers
-  outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read
+  outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the coordinator inbox, mark our own notifications read
   outside-watch status                          Show the last run and its log line
   lane reclaim [--dry-run] [--idle-hours H] [--only scratch]  Remove the /tmp scratch that a session record names and whose session has ended (leaving and listing every other /tmp entry) and Wisp LAN pair copies idle 24 h, target/ and buck-out/ of every lane worktree whose every recorded session has ended and that no hand-in waits on, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer); --only scratch reclaims temporary-directory scratch alone
   retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Mak'gora evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
@@ -272,10 +272,10 @@ Commands:
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)
   incident-retro [--dry-run]                    Mine the last 7 days with incident-mine, sample every fifth candidate and launch one Haiku session that appends the kept rows to south agents/incidents.jsonl and files each recurring mode with no enforcer as a rules.toml [[candidate]] (weekly timer)
-  watch-review [--dry-run]                      Launch one fleet recheck session per held [[recheck]] entry of south agents/watch.toml whose date has come, tell the proxy when a launch fails or is held (daily timer); a followed source due for review is the followed-source detector's box, not a launch
+  watch-review [--dry-run]                      Launch one fleet recheck session per held [[recheck]] entry of south agents/watch.toml whose date has come, tell the coordinator when a launch fails or is held (daily timer); a followed source due for review is the followed-source detector's box, not a launch
   codex-runtime-gcroots                         Root the Nix store dependencies of every installed Codex runtime
   skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines
-  cross-project-scan [--print-bundle]           Daily cross-project overlap scan posted to the proxy
+  cross-project-scan [--print-bundle]           Daily cross-project overlap scan posted to the coordinator
   eta-calibration                               Post the last 7 days of stated ETA against measured active minutes, per category and tier, to north#255 (weekly timer)
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
   github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)
@@ -361,7 +361,7 @@ Commands:
   issue convert [OWNER/]REPO#N --dry-run [--manifest FILE]  Write a manifest with one row per unticked checkbox of the issue (leaf, third-level issue, prose, gate or held by a live claim, with its title, type, labels and body), creating nothing; exits 1 when the rows do not add up to the open boxes or a row has no title, a title over 80 characters or equal to an open issue's, a leaf without a runnable Done when or declared class, or a deny-listed word
   issue convert [OWNER/]REPO --closed-boxes     List every unticked checkbox on a closed issue of the repository with the open issue that holds the same text, or `no copy`; it edits nothing
   land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]  Print each landing's wall time split by category from the span traces, the same split summed with p50 and p90, and the longest leaf spans, then each hand-in refused before its ticket with the seconds from hand-in to the refusal
-  land doctor [--dry-run]                       Read every lander health bound, apply each known remedy and page the proxy once per unknown state
+  land doctor [--dry-run]                       Read every lander health bound, apply each known remedy and page the coordinator once per unknown state
   land drill [FAULT]...                         Inject each lander stuck state into a scratch lander and require its remedy to clear it within the doctor's patience, nobody paged
   land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket to the front of the urgent tickets (the latest mark goes first) and print the place the lander gives it
   land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason
@@ -377,7 +377,7 @@ Commands:
   fleet wait RUN [NAME]                         Register a run (job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME) and park the session until it is over
   fleet waits                                   Revive each parked session whose run is over with the run's result
   fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry, api-spend) that a far host's tick calls over ssh
-  fleet break-glass --issue REPO#N REASON...    Lift the proxy's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero
+  fleet break-glass --issue REPO#N REASON...    Lift the coordinator's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero
   graph retain [--db PATH]                       Delete graph history no reader needs: occurrences, withdrawals and terms older than the retention horizon, then vacuum
   runtime settle                                Run the core-loop probes on the promoted runtime here, then ship it to the other hosts only when every probe passed
   runtime status                                Print the pinned runtime SHA, when it was promoted, and the promotions and fast paths of the last 24 hours
@@ -395,8 +395,8 @@ Commands:
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
   finish --brief-trailers SESSION               Keep the brief's Item, Box and Check lines read from standard input for the session's commit messages
   finish --judge-message SESSION                Judge a commit message read from standard input for the session
-  proxy [--interactive]                         Open the fleet screen on the proxy session, attaching, reviving or launching it; --interactive resumes its conversation in claude
-  proxy move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the proxy session to an account with headroom
+  coordinator [--interactive]                         Open the fleet screen on the coordinator session, attaching, reviving or launching it; --interactive resumes its conversation in claude
+  coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the coordinator session to an account with headroom
   spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
   control-plane where                           Print the host that holds the control plane's lease, with its epoch
   control-plane move --to HOST                  Move the control plane to HOST by two compare-and-swap steps on the lease, the break-glass move

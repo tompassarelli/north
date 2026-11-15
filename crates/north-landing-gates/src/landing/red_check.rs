@@ -253,7 +253,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let line = event_line(&request.main, &red, &culprit, issue.as_deref());
     let line = if request.lane.is_empty() { line } else { format!("{line} (seen landing {})", request.lane) };
-    send("proxy", &line);
+    send("coordinator", &line);
     if let Some(lead) = lead() {
         send(&lead, &line);
     }

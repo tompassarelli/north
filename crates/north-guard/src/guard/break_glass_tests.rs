@@ -23,7 +23,7 @@ impl World for Fake {
         NOW
     }
     fn who(&self) -> String {
-        "proxy".into()
+        "coordinator".into()
     }
     fn recent_launches(&self, count: usize) -> Vec<bool> {
         self.launches[self.launches.len().saturating_sub(count)..].to_vec()
@@ -71,7 +71,7 @@ fn break_glass_expires_and_is_in_the_digest() {
     assert!(active(&grants, NOW + 30 * 60_000).is_none());
 
     let expired = digest_section(&grants, NOW - 1, NOW + 31 * 60_000);
-    for part in ["proxy", "workers cannot start", "the last 2 launches failed", "north#1106", "expired at"] {
+    for part in ["coordinator", "workers cannot start", "the last 2 launches failed", "north#1106", "expired at"] {
         assert!(expired.contains(part), "{part} missing from {expired}");
     }
     assert!(digest_section(&grants, NOW + 1, NOW + 31 * 60_000).is_empty());

@@ -1,4 +1,4 @@
-use crate::guard::proxy_role;
+use crate::guard::coordinator_role;
 use crate::hook_input::{HookInput, Verdict};
 use regex::Regex;
 use serde_json::Value;
@@ -62,7 +62,7 @@ pub struct Turn {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if !proxy_role::is_tom_window(&proxy_role::Live, input) {
+    if !coordinator_role::is_tom_window(&coordinator_role::Live, input) {
         return Verdict::Allow;
     }
     let Some(home) = std::env::var_os("HOME") else { return Verdict::Allow };

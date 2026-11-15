@@ -79,11 +79,11 @@ impl Lifecycle for AfterLandingRun {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Main {
     Green,
-    /// A red verdict opened the episode; the proxy has not been told yet.
+    /// A red verdict opened the episode; the coordinator has not been told yet.
     Opened,
-    /// The proxy was told main is red.
+    /// The coordinator was told main is red.
     Red,
-    /// A green run covered the failing checks; the proxy has not been told yet.
+    /// A green run covered the failing checks; the coordinator has not been told yet.
     Cleared,
 }
 

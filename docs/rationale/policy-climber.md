@@ -5,7 +5,7 @@ nothing on main runs this design. This note stays as the record of what was buil
 
 Decided 2026-11-06 under north#636 after Tom asked for a self-improving harness. `north loops check` lists closed loops that tune
 a constant (the tier cells, ETA, budget, cores, deadline), and nothing changes the policy's structure from outcomes, so every
-structural fix waited for the proxy. The climber is the outer loop: it finds the largest measured loss in the worker ledger,
+structural fix waited for the coordinator. The climber is the outer loop: it finds the largest measured loss in the worker ledger,
 has a generator write one candidate change to routing, brief generation or dispatch rules, scores the candidate on recorded
 decisions, runs the survivor as a bounded live arm, and keeps it or reverts it by cost per kept box. No person is in it.
 

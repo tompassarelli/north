@@ -1,7 +1,7 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::fold::{Admit, Condition, Route, admit_via, clears, told};
 use crate::fleet::model::{Delivery, Role, Status};
-use crate::fleet::runtime::{PROXY, new_uuid, now_ms};
+use crate::fleet::runtime::{COORDINATOR, new_uuid, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind, SessionRow, Spool, cached_sessions};
 use north_base::platform::land_notice::OWNER;
@@ -55,7 +55,7 @@ impl Fleet {
             crate::fleet::held::hold(&self.root, name, &from.to_string(), text, now);
             return Ok(Sent::Held);
         }
-        let route = Route { to: name, recipient: if absent { PROXY } else { name }, spooled: &|id| spool.holds(id) };
+        let route = Route { to: name, recipient: if absent { COORDINATOR } else { name }, spooled: &|id| spool.holds(id) };
         match admit_via(&self.root, from, &route, text, condition, now) {
             Admit::Send => {}
             Admit::Fold(folded) => {
@@ -79,8 +79,8 @@ impl Fleet {
         }
         crate::fleet::alarms::record(&self.root, from, text, now);
         if absent {
-            self.log_dead_letter(name, PROXY);
-            return self.deliver_message(from, PROXY, &format!("(for {name}, not live) {text}"), delivery).map(|_| Sent::Unreached);
+            self.log_dead_letter(name, COORDINATOR);
+            return self.deliver_message(from, COORDINATOR, &format!("(for {name}, not live) {text}"), delivery).map(|_| Sent::Unreached);
         }
         self.deliver_message(from, name, text, delivery)
     }
@@ -237,15 +237,15 @@ mod tests {
     }
 
     #[test]
-    fn a_service_send_to_the_landers_owner_reaches_it_while_live_else_the_proxy_prefixed_with_its_name_and_recorded() {
+    fn a_service_send_to_the_landers_owner_reaches_it_while_live_else_the_coordinator_prefixed_with_its_name_and_recorded() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
-        let (proxy, owner) = (live(&fleet, "proxy"), live(&fleet, OWNER));
+        let (coordinator, owner) = (live(&fleet, "coordinator"), live(&fleet, OWNER));
         let lander = Sender::Service("north-land".into());
 
         assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled", Delivery::Queued).unwrap(), Sent::HandedIn);
         assert!(owner.frames.lock().unwrap().iter().any(|frame| frame.contains("[from service:north-land] lander stalled")));
-        assert!(proxy.frames.lock().unwrap().is_empty());
+        assert!(coordinator.frames.lock().unwrap().is_empty());
         assert_eq!(fleet.send_message(&lander, OWNER, "landed abc as def", Delivery::Queued).unwrap(), Sent::Held, "a landed notice to a lead waits in its held log");
         assert_eq!(owner.frames.lock().unwrap().len(), 1, "the landed notice woke the lead");
         assert_eq!(fleet.send_message(&Sender::fleet(), OWNER, "north fleet: launch north-x that you spooled did not start", Delivery::Queued).unwrap(), Sent::HandedIn, "a fleet refusal waited for the digest");
@@ -253,7 +253,7 @@ mod tests {
 
         fleet.forget(OWNER).unwrap();
         assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled again", Delivery::Queued).unwrap(), Sent::Unreached);
-        let frames = proxy.frames.lock().unwrap();
+        let frames = coordinator.frames.lock().unwrap();
         assert!(frames.iter().any(|frame| frame.contains(&format!("[from service:north-land] (for {OWNER}, not live) lander stalled again"))), "{frames:?}");
         let log = std::fs::read_to_string(fleet.root.join(".dead-letters.jsonl")).unwrap();
         assert_eq!(log.lines().count(), 1, "{log}");
@@ -312,19 +312,19 @@ mod tests {
     }
 
     #[test]
-    fn an_interim_worker_turn_and_a_cleared_alert_go_to_the_digest_not_the_proxy() {
+    fn an_interim_worker_turn_and_a_cleared_alert_go_to_the_digest_not_the_coordinator() {
         use crate::fleet::receipts::{Report, deliver_report};
         use crate::fleet::turns::TurnExit;
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
-        let proxy = live(&fleet, PROXY);
+        let coordinator = live(&fleet, COORDINATOR);
         let books = crate::fleet::fakes::Paper::default();
-        let turn = |turn, reply: &str| deliver_report(&books, &books, &fleet, PROXY, &Report { child: "broker-94".into(), turn, exit: TurnExit::Completed, landed: Some("be5886ab3b".into()), reply: Some(reply.into()), waiting: false }, &[], 1).unwrap();
+        let turn = |turn, reply: &str| deliver_report(&books, &books, &fleet, COORDINATOR, &Report { child: "broker-94".into(), turn, exit: TurnExit::Completed, landed: Some("be5886ab3b".into()), reply: Some(reply.into()), waiting: false }, &[], 1).unwrap();
         let (watch, health) = (Sender::Service("north-land-watch@gex45".into()), Sender::Service("north-health".into()));
         let red = "north main is red: Cargo failed on main commit 4e387709b975";
-        let alert = |sender: &Sender, text: &str| fleet.send_message(sender, PROXY, text, Delivery::Queued).unwrap();
+        let alert = |sender: &Sender, text: &str| fleet.send_message(sender, COORDINATOR, text, Delivery::Queued).unwrap();
 
-        assert!(!turn(1, "Landing in progress; waiting for the runtime update."), "north#1019: broker-94's interim turns woke the proxy on 2026-11-09");
+        assert!(!turn(1, "Landing in progress; waiting for the runtime update."), "north#1019: broker-94's interim turns woke the coordinator on 2026-11-09");
         assert_eq!(alert(&watch, &format!("north ops watch: {red}")), Sent::HandedIn);
         assert_eq!(alert(&watch, &format!("north ops watch: still, 12 min: {red}")), Sent::Held);
         assert_eq!(alert(&watch, &format!("north ops watch: cleared after 13 min: {red}")), Sent::Held);
@@ -334,7 +334,7 @@ mod tests {
         let lander = Sender::Service("north-land".into());
         assert_eq!((alert(&lander, "landed a82759cff8 n909-policy"), alert(&lander, "landed a82759cff8 n909-policy")), (Sent::HandedIn, Sent::HandedIn), "a landing notice is no alarm");
 
-        let frames = proxy.frames.lock().unwrap();
+        let frames = coordinator.frames.lock().unwrap();
         assert_eq!(frames.len(), 4, "{frames:?}");
         assert!(frames.iter().all(|frame| frame.contains("main is red") || frame.contains("landed a82759cff8")), "{frames:?}");
         let held: Vec<String> = fleet.held_since(0).into_iter().map(|held| held.text).collect();
@@ -343,42 +343,42 @@ mod tests {
 
         use crate::fleet::fold::{WINDOW_MS, admit};
         let watchdog = Sender::Service("north-capacity-watchdog".into());
-        let alarm = |text: &str, at: u64| admit(home.path(), &watchdog, PROXY, text, None, at);
+        let alarm = |text: &str, at: u64| admit(home.path(), &watchdog, COORDINATOR, text, None, at);
         assert_eq!(alarm("watchdog: host disk past its high watermark: 3.1 GiB free on /nix/store", 0), Admit::Send);
         assert_eq!(alarm("watchdog: host disk past its high watermark: 2.9 GiB free on /nix/store", 60_000), Admit::Hold, "north#909: one disk alarm re-sent with moved numbers");
         assert_eq!(alarm("watchdog: host disk past its high watermark: 2.1 GiB free on /nix/store", 60_000 + WINDOW_MS), Admit::Send, "a new window sends again");
         assert_eq!(alarm("watchdog: host overload, load 107.96 (4.5/core), cpu pressure 72.02% over 60 s.", 0), Admit::Hold, "an overload is not page-now and waits for the digest");
-        assert_eq!(admit(home.path(), &health, PROXY, "harness unit fleet-tick.service recovered: under 3 failed starts in the last hour", None, 0), Admit::Send, "one cleared line for a health unit");
+        assert_eq!(admit(home.path(), &health, COORDINATOR, "harness unit fleet-tick.service recovered: under 3 failed starts in the last hour", None, 0), Admit::Send, "one cleared line for a health unit");
     }
 
     #[test]
-    fn one_lander_behind_main_line_sent_ten_times_for_one_unchanged_link_reaches_the_proxy_once() {
+    fn one_lander_behind_main_line_sent_ten_times_for_one_unchanged_link_reaches_the_coordinator_once() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
-        let proxy = live(&fleet, PROXY);
+        let coordinator = live(&fleet, COORDINATOR);
         let lander = Sender::Service("north-land".into());
         let behind = Condition { key: "lander-build-behind".into(), cleared: false };
         let line = |main: &str| format!("north land: the lander runs older build cb929a45e8, 4 lander changes behind main {main}, over the limit of 3; lanes are judged by lander code main has replaced, so read why north land promote holds the lander link");
-        let sent: Vec<Sent> = (0..10).map(|round| fleet.send_condition(&lander, PROXY, &line(&format!("f9fb98f95{round}")), Some(&behind), Delivery::Queued).unwrap()).collect();
+        let sent: Vec<Sent> = (0..10).map(|round| fleet.send_condition(&lander, COORDINATOR, &line(&format!("f9fb98f95{round}")), Some(&behind), Delivery::Queued).unwrap()).collect();
 
         assert_eq!(sent.iter().filter(|sent| **sent == Sent::HandedIn).count(), 1, "{sent:?}");
-        assert_eq!(proxy.frames.lock().unwrap().len(), 1);
+        assert_eq!(coordinator.frames.lock().unwrap().len(), 1);
     }
 
     #[test]
     fn an_alarm_re_sent_with_a_fresh_runtime_sha_or_canary_waits_in_the_digest() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
-        let proxy = live(&fleet, PROXY);
+        let coordinator = live(&fleet, COORDINATOR);
         let health = Sender::Service("north-health".into());
         let alert = |sha: &str, canary: &str| {
             let text = format!("harness unit north-runtime-follow.service failed to start 13 times in the last hour: runtime {sha} for {canary}");
-            fleet.send_message(&health, PROXY, &text, Delivery::Queued).unwrap()
+            fleet.send_message(&health, COORDINATOR, &text, Delivery::Queued).unwrap()
         };
 
         assert_eq!(alert("636c151b", "canary-opencode-4101624"), Sent::HandedIn);
         assert_eq!(alert("22272a0b", "canary-opencode-4123229"), Sent::Held, "a fresh runtime sha and canary session id are the same cause");
-        assert_eq!(proxy.frames.lock().unwrap().len(), 1);
+        assert_eq!(coordinator.frames.lock().unwrap().len(), 1);
         let held: Vec<String> = fleet.held_since(0).into_iter().map(|held| held.text).collect();
         assert_eq!(held.len(), 1);
         assert!(held[0].contains("22272a0b"), "{held:?}");

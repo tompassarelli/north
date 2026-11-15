@@ -98,7 +98,7 @@ Each crate is placed in the lowest layer that lets every one of its dependencies
 | north-lander-doctor |  | 4 / 1 | 2,195 | 3,410 | 9 / 94 | The lander doctor: each health bound read live and the remedy for each stuck state. |
 | north-land-watch |  | 3 / 1 | 880 | 352 | 3 / 37 | The watch on landings and their GitHub checks. |
 | north-graph-ingest |  | 6 / 1 | 1,594 | 2,484 | 6 / 33 | Load what north already records into the fact graph. |
-| north-core (and) |  | 11 / 1 | 14,949 | 24,233 | 31 / 220 | The agent catalog and policy contract, and grounding, the crate-split tool, build time, Nix upkeep, the contract probe and proxy calls. |
+| north-core (and) |  | 11 / 1 | 14,949 | 24,233 | 31 / 220 | The agent catalog and policy contract, and grounding, the crate-split tool, build time, Nix upkeep, the contract probe and coordinator calls. |
 
 ### Layer 7: command
 
@@ -182,14 +182,14 @@ The ten files with the highest commits times complexity, from `north code-health
 | `crates/north-dispatch/src/dispatch/survey.rs` | 3,792 | `survey` is 109 lines | L09 |
 | `crates/north-guard/src/hook.rs` | 3,224 | fan-out 60; the guard list is code, not data | L10 |
 | `src/cli/mod.rs` | 3,162 | `dispatch` is 81 lines at complexity 65 | L42 |
-| `crates/north-threads/src/threads/client.rs` | 2,712 | the proxy transport sits in the client | L11 |
+| `crates/north-threads/src/threads/client.rs` | 2,712 | the coordinator transport sits in the client | L11 |
 
 ### 3. Crates with more than one responsibility
 
 | Crate | What it holds | Verdict |
 |---|---|---|
 | north-runtime (17,584 lines) | runtime update and order (6,924), the worker sandbox (2,305), the offload (4,003), the timers and watches (3,208), the privacy judge (595) | split: L18 to L22 leave it with the runtime alone |
-| north-core (14,949) | agent catalog and policy contract, grounding, the crate-split tool, build time, Nix upkeep, a contract probe, the proxy-call classifier; no module names another group's | dissolve: L23 to L27 |
+| north-core (14,949) | agent catalog and policy contract, grounding, the crate-split tool, build time, Nix upkeep, a contract probe, the coordinator-call classifier; no module names another group's | dissolve: L23 to L27 |
 | north-ops (16,767) | 38 verb families in one module | split the docs indexes (L28); the rest stays, see below |
 | north-providers (9,606) | five provider adapters and the run ledger (2,546), which names nothing in the adapters | split: L29 |
 | north-landing (7,912) | the queue and lander state, the steps after a landing, the sheriff, joined by a 27-file cycle | L30, L31 |
@@ -348,7 +348,7 @@ Four boxes cannot be 60 minutes or less, and each says why: L14, L31, L41, L48.
 - Behavior: unchanged.
 - Check: the same `jq` query as L06 on `crates/north-guard/src/hook.rs` prints 0.
 
-**L11 Split: the proxy transport leaves the threads client.** 0.5 h. After: nothing.
+**L11 Split: the coordinator transport leaves the threads client.** 0.5 h. After: nothing.
 - Files: `crates/north-threads/src/threads/client.rs` and a new child module.
 - Behavior: unchanged.
 - Check: the same `jq` query as L06 on that file prints 0.
@@ -362,7 +362,7 @@ Four boxes cannot be 60 minutes or less, and each says why: L14, L31, L41, L48.
 - Check: `! rg -q 'north-pace' crates/north-threads/Cargo.toml crates/north-fleet-store/Cargo.toml`, and both crates' tests pass.
 
 **L13 Move: session identity names go to the fleet store.** 0.5 h. After: nothing.
-- Files: `crates/north-fleet/src/fleet/runtime.rs` (`SESSION_ENV`, `ROLE_ENV`, `Binding`, `binding`), `crates/north-fleet/src/fleet/tickets.rs` (`FINISH_TOOL`), `crates/north-fleet/src/fleet/claude_only.rs` (`DEEPSEEK_PROVIDERS`), `crates/north-fleet-store/src/runtime.rs` (which already holds `PROXY`).
+- Files: `crates/north-fleet/src/fleet/runtime.rs` (`SESSION_ENV`, `ROLE_ENV`, `Binding`, `binding`), `crates/north-fleet/src/fleet/tickets.rs` (`FINISH_TOOL`), `crates/north-fleet/src/fleet/claude_only.rs` (`DEEPSEEK_PROVIDERS`), `crates/north-fleet-store/src/runtime.rs` (which already holds `COORDINATOR`).
 - Change: the names move down; north-fleet re-exports them at their old paths.
 - Behavior: unchanged.
 - Check: `rg -c 'pub const (SESSION_ENV|ROLE_ENV)' crates/north-fleet-store/src/runtime.rs` prints 2.
@@ -437,7 +437,7 @@ Four boxes cannot be 60 minutes or less, and each says why: L14, L31, L41, L48.
 - Check: `test ! -e crates/north-context-pack && test ! -e crates/north-core/src/grounding`, and the report lists no file of the new crate over 500 lines.
 
 **L26 Move: the last modules of north-core go to their users.** 0.5 h. After: L24.
-- Files: north-core's `nix_gc` and `doctor_nix` (to north-ops), `crates/north-core/src/contract_probe.rs` (to north-providers, beside the Claude adapter), `crates/north-core/src/proxy/` (to north-guard, whose delegation guard it serves).
+- Files: north-core's `nix_gc` and `doctor_nix` (to north-ops), `crates/north-core/src/contract_probe.rs` (to north-providers, beside the Claude adapter), `crates/north-core/src/coordinator/` (to north-guard, whose delegation guard it serves).
 - Behavior: unchanged.
 - Check: `! rg -q '^pub mod' crates/north-core/src/lib.rs` once L25 has landed.
 

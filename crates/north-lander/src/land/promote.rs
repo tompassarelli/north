@@ -30,7 +30,7 @@ pub const REFUSED: &str = "lander-refused";
 const ROUNDS: usize = 8;
 const MATCHED_PAST_UNREACHED: usize = 2;
 const WALK: usize = 256;
-const PROXY: &str = "proxy";
+const COORDINATOR: &str = "coordinator";
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
 const LANDER_PATHS: [&str; 6] = ["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-safe-push/", "crates/north-runtime/", "tests/it/land"];
 
@@ -386,7 +386,7 @@ fn watch(runtime: &Runtime, repos: &[PathBuf], dry_run: bool) -> Result<Option<O
         _ => None,
     };
     let Some(told) = told else { return Ok(Some(outcome)) };
-    send_condition(PROXY, &format!("lander-watch:{}", armed.since), false, &format!("north land: the lander ran too slowly after its promotion to {}; {told}", name(&armed.candidate)));
+    send_condition(COORDINATOR, &format!("lander-watch:{}", armed.since), false, &format!("north land: the lander ran too slowly after its promotion to {}; {told}", name(&armed.candidate)));
     Ok(Some(outcome))
 }
 

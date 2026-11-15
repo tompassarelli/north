@@ -6,7 +6,7 @@ use crate::foundation::clock::Timestamp;
 
 use crate::router::pricing::PriceTable;
 
-const LEADS: [&str; 2] = ["parent", "proxy"];
+const LEADS: [&str; 2] = ["parent", "coordinator"];
 pub(super) const WORKER: &str = "worker";
 
 #[derive(Clone, Debug, PartialEq)]

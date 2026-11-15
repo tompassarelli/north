@@ -56,7 +56,7 @@ impl Config {
             owner: env::var("OUTSIDE_WATCH_OWNER").unwrap_or_else(|_| "tompassarelli".to_owned()),
             own: var("OUTSIDE_WATCH_OWN").map_or_else(default_own, |text| text.split(',').map(str::trim).filter(|login| !login.is_empty()).map(str::to_owned).collect()),
             state_dir: var("OUTSIDE_WATCH_STATE").map_or_else(|| home.join(".local/state/outside-watch"), PathBuf::from),
-            inbox: var("OUTSIDE_WATCH_INBOX").map_or_else(|| home.join(".local/state/agents/handoffs/proxy-inbox.md"), PathBuf::from),
+            inbox: var("OUTSIDE_WATCH_INBOX").map_or_else(|| home.join(".local/state/agents/handoffs/coordinator-inbox.md"), PathBuf::from),
             now,
         })
     }

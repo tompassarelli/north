@@ -70,7 +70,7 @@ fn notify_issue(io: &dyn Io, repo: &str, issue: &Issue, sha: &str) -> bool {
     let lanes = lanes(&issue.body);
     if lanes.is_empty() {
         let text = format!("main is red in {repo} from {short} with no lane recorded for it ({tests}); {}.", issue.url);
-        return io.send("proxy", &text).is_ok();
+        return io.send("coordinator", &text).is_ok();
     }
     let run = FIRST_RUN.captures(&issue.body).map(|c| c[1].to_owned()).unwrap_or_default();
     let deadline = io
@@ -89,7 +89,7 @@ fn notify_issue(io: &dyn Io, repo: &str, issue: &Issue, sha: &str) -> bool {
             let _ = io.send(target, &text);
         }
         let note = target.map_or(format!("(no live session for lane {lane})"), |target| format!("(sent to {target})"));
-        sent &= io.send("proxy", &format!("{note} {text}")).is_ok();
+        sent &= io.send("coordinator", &format!("{note} {text}")).is_ok();
     }
     sent
 }
@@ -177,7 +177,7 @@ fn north(args: &[&str]) -> Result<String, String> {
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.first().is_some_and(|a| a == "-h" || a == "--help") {
         println!("usage: north red-main-notify");
-        println!("Sends each open \"main is red\" issue's culprit lane's session and the proxy one north fleet send, once per culprit commit.");
+        println!("Sends each open \"main is red\" issue's culprit lane's session and the coordinator one north fleet send, once per culprit commit.");
         println!("Reads the issue's \"Culprit lane:\" and \"First failing commit:\" lines (wisp:host/checks/mainRed.ts); the revert deadline is 15 minutes after the red run.");
         return 0;
     }

@@ -465,9 +465,9 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let requests = asked.borrow().clone();
     assert_eq!(requests.len(), 1, "since 315767a4c7 lanes land before their build-host tests, and on 2026-11-14 the trips of four culprits held every promotion: a trip that stood five minutes asks once for the revert of its commit");
     assert!(requests[0].starts_with(&format!("Main red at {SQUASHED}")) && requests[0].contains("test cli::parses ... FAILED") && requests[0].contains("\nLive-fix: "), "{}", requests[0]);
-    Trips(trips.clone()).clear(SQUASHED, "proxy", "the case passes on rerun", now()).unwrap();
+    Trips(trips.clone()).clear(SQUASHED, "coordinator", "the case passes on rerun", now()).unwrap();
     assert!(tripped.order(SQUASHED, &["whiterabbit"], now()).is_ok(), "a cleared trip no longer holds");
-    assert!(Trips(trips).clear(SQUASHED, "proxy", "again", now()).is_err(), "a trip is cleared once");
+    assert!(Trips(trips).clear(SQUASHED, "coordinator", "again", now()).is_err(), "a trip is cleared once");
     let hosted = state.path().join("hosted-trips");
     let reds_only = || MainRuns { page: Box::new(|number| Ok((number == 1).then(|| vec![MainRun { head: SQUASHED.to_owned(), id: "43491019011".to_owned(), red: true }]))), kept: Box::new(|_| Ok(Kept::Log(HOSTED_LOG.to_owned()))), alert: Box::new(|_| {}) };
     let passing = Screen { runs: reds_only(), trips: Trips(hosted.clone()), ..screen_of(Holds(state.path().join("no-holds")), squashed, landings) };
@@ -477,7 +477,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let refused = read.order(SQUASHED, &["whiterabbit"], now()).map_or_else(|why| why, |lines| format!("passed: {lines:?}"));
     assert!(refused.contains(SQUASHED) && refused.contains("golden_path::a_brief_becomes") && refused.contains("north runtime trip clear"), "a newest red hosted run of main whose case fails again records its trip and refuses its own head with its case: {refused}");
     assert_eq!(fs::read_to_string(hosted.join(format!("{SQUASHED}.trip"))).unwrap(), "run\t43491019011\nnorth\tgolden_path::a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it_after_a_stop_that_outwaits_a_slow_client\n");
-    Trips(hosted).clear(SQUASHED, "proxy", "the case passes on rerun", now()).unwrap();
+    Trips(hosted).clear(SQUASHED, "coordinator", "the case passes on rerun", now()).unwrap();
     assert!(read.order(SQUASHED, &["whiterabbit"], now()).is_ok(), "a cleared hosted trip no longer holds");
     let timed_out = state.path().join("timed-out-trips");
     for (run, kept) in [("43604836319", Kept::Log(TIMED_OUT_LOG.to_owned())), ("43607761294", Kept::CutOff("The hosted runner lost communication with the server.".to_owned()))] {

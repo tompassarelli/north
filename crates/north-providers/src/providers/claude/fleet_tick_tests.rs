@@ -286,7 +286,7 @@ fn on_north_576(host: &Host) -> u64 {
     with_accounts(host, &["a", "b", "c", "d"]);
     let c_resets_ms = NOW_MS + (6 * 3_600 + 21 * 60) * 1000;
     working_on(host, "lead", "c", None, &lane(host, "lead"));
-    for (name, account) in [("proxy", "a"), ("worker", "d")] {
+    for (name, account) in [("coordinator", "a"), ("worker", "d")] {
         let cwd = lane(host, name);
         working_on(host, name, account, Some("lead"), &cwd);
         parked_on(host, name, account, c_resets_ms, NOW_MS - 30 * 60_000, &cwd);
@@ -295,7 +295,7 @@ fn on_north_576(host: &Host) -> u64 {
 }
 
 #[test]
-fn a_lead_or_proxy_at_its_floor_goes_to_the_source_above_the_floor_with_most_headroom_else_parks_until_the_soonest_windfall_and_a_worker_on_spent_api_credit_waits_for_its_grant() {
+fn a_lead_or_coordinator_at_its_floor_goes_to_the_source_above_the_floor_with_most_headroom_else_parks_until_the_soonest_windfall_and_a_worker_on_spent_api_credit_waits_for_its_grant() {
     use crate::usage::decide::world::{Account, Host as Machine, Label, Provider, Rate, Rates, Unix, Window, World};
     use crate::usage::decide::{View, view};
     let host = host("nexus");
@@ -322,7 +322,7 @@ fn a_worker_whose_five_hour_window_is_spent_resumes_its_own_conversation_on_an_a
     use crate::usage::decide::world::Window;
     let host = host("nexus");
     with_accounts(&host, &["b", "e"]);
-    working_on(&host, "root-from-github-91", "e", Some("proxy"), &lane(&host, "root-from-github-91"));
+    working_on(&host, "root-from-github-91", "e", Some("coordinator"), &lane(&host, "root-from-github-91"));
     let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "e", Window::Week, 60.0, 3 * 86_400), read(1, "e", Window::FiveHour, 100.0, 3 * 3_600), read(2, "b", Window::Week, 97.0, 2 * 86_400)], ..Default::default() });
     let launches = Launches::default();
 
@@ -362,24 +362,24 @@ fn on_the_floor() {
         let host = host("nexus");
         with_accounts(&host, &["a", "b"]);
         with_api_orgs(&host, &["ember", "zenith"]);
-        working_on(&host, "proxy", "a", None, &lane(&host, "proxy"));
+        working_on(&host, "coordinator", "a", None, &lane(&host, "coordinator"));
         let cwd = lane(&host, "worker");
-        working_on(&host, "worker", "api:ember", Some("proxy"), &cwd);
+        working_on(&host, "worker", "api:ember", Some("coordinator"), &cwd);
         let readings = vec![read(0, "a", Window::FiveHour, 98.5, 2 * hour), read(1, "a", Window::Week, 50.0, 4 * day), read(2, "b", Window::FiveHour, 10.0, 3 * hour), read(3, "b", Window::Week, b_week, 3 * day)];
         let table = Table(crate::fleet::handover::Observed { readings, limits: Vec::new(), credits: credits.into_iter().map(|(org, credit)| (org.to_owned(), credit)).collect() });
         let launches = Launches::default();
         let done = hand_over_with(&host, &table, &launches);
         let launched: Vec<(String, String)> = launches.borrow().iter().map(|request| (request.name.clone(), request.account.clone())).collect();
-        let parked: Vec<(String, Vec<Run>)> = ["proxy", "worker"].iter().map(|name| (name.to_string(), host.fleet.waits().of(name).into_iter().map(|wait| wait.run).collect())).collect();
+        let parked: Vec<(String, Vec<Run>)> = ["coordinator", "worker"].iter().map(|name| (name.to_string(), host.fleet.waits().of(name).into_iter().map(|wait| wait.run).collect())).collect();
         (launched, parked, done)
     };
 
     let (launched, _, done) = floor([("ember", credit(20.0, 5 * day)), ("zenith", credit(150.0, 20 * day))], 60.0);
-    assert_eq!(launched, [("proxy".to_owned(), "api:zenith".to_owned()), ("worker".to_owned(), "api:zenith".to_owned())], "{:?}", done.lines);
+    assert_eq!(launched, [("coordinator".to_owned(), "api:zenith".to_owned()), ("worker".to_owned(), "api:zenith".to_owned())], "{:?}", done.lines);
 
     let (launched, parked, done) = floor([("ember", credit(20.0, 5 * day)), ("zenith", credit(49.0, 20 * day))], 98.5);
     assert!(launched.is_empty(), "{launched:?} {:?}", done.lines);
-    assert_eq!(parked, [("proxy".to_owned(), vec![Run::Usage { account: "a".into(), at_ms: at_ms(2 * hour) }]), ("worker".to_owned(), vec![Run::Usage { account: "api:ember".into(), at_ms: at_ms(5 * day) }])], "{:?}", done.lines);
+    assert_eq!(parked, [("coordinator".to_owned(), vec![Run::Usage { account: "a".into(), at_ms: at_ms(2 * hour) }]), ("worker".to_owned(), vec![Run::Usage { account: "api:ember".into(), at_ms: at_ms(5 * day) }])], "{:?}", done.lines);
 }
 
 #[test]

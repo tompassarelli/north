@@ -1,5 +1,5 @@
 //! `north fleet held`: the messages the fleet held back from waking their recipient, page-flood folds included,
-//! read from the held log alone so the proxy sees what a fold kept from it in well under a second.
+//! read from the held log alone so the coordinator sees what a fold kept from it in well under a second.
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::flood::WINDOW_MS;
 use crate::fleet::registry::Fleet;

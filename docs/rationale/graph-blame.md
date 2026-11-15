@@ -70,7 +70,7 @@ reach the test, through code it runs, data it reads, or what compiles into its b
 What stays unmodelled is reads outside the tree: `$HOME` state, other processes, the network, timing and load. Those
 are the flake and environment classes, and step 2's rerun on the same tree decides them. When a trusted "no suspect"
 fails again on that rerun, main is red for a reason outside the diff, and the sheriff's existing Environment finding
-reports it to the proxy. When the graph names lanes only through the unknown-test, crate or untraced fallback, the
+reports it to the coordinator. When the graph names lanes only through the unknown-test, crate or untraced fallback, the
 answer is a suspect list, not a trusted "no suspect" and not a measured edge. The confirmation runs decide it.
 
 ## The order of a red
@@ -161,7 +161,7 @@ listing add a few seconds, and the first bar reading replaces this estimate. Che
 When the rerun of step 1b passes, the test has failed and passed on one tree hash. The lander tells the graph
 `(test:ID :failed-on TREE)` and `(test:ID :passed-on TREE)` (writer `lander`, the tree hash, not the commit). No lane is
 blamed or reverted, and the red is settled as a named flake. With a trusted "no suspect" whose rerun fails again,
-nothing is reverted either: the sheriff's Environment finding tells the proxy that main is broken. Both 2026-11-11
+nothing is reverted either: the sheriff's Environment finding tells the coordinator that main is broken. Both 2026-11-11
 fixtures end here. Red 2's reruns on lane-holding trees passed, so one warm rerun on the red tree would have named
 the flake instead of convicting the lane 4 min 23 s after the red. Cost: no probe beyond step 1b's rerun. Check:
 `cargo nextest run -p north-landing -E 'test(/a_test_that_passes_on_the_tree_it_failed_on_is_recorded_flaky_and_blames_no_lane/)'`.
@@ -175,7 +175,7 @@ blamed. It is filed once, deduplicated by test id, on an issue that its owning c
 The quarantine leaves when a commit naming that issue lands and the test then passes 3 after-landing runs. This gives
 an exit that the existing pre-landing quarantine lacks (`docs/rationale/state-machines.md`, entry 18). The cap is 8
 quarantined tests, as in Fowler's quarantine rule (P3 in `harness/skills/verification/references/testing-sources.md`).
-Past the cap, the proxy is told. This is not retrying a flake to green: the red stays recorded, the test stays
+Past the cap, the coordinator is told. This is not retrying a flake to green: the red stays recorded, the test stays
 visible, and an issue owns its fix. Cost: no probe. Check: `cargo nextest run -p north-landing -E
 'test(/a_quarantined_test_fails_after_landing_and_no_lane_is_blamed/)'`. Needs: none. Order: after n1039-flake.
 

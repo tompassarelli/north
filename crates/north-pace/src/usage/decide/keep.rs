@@ -1,4 +1,4 @@
-//! Continuity before spending: a proxy or lead leaves its source before the source runs out, for the
+//! Continuity before spending: a coordinator or lead leaves its source before the source runs out, for the
 //! source above the floor that keeps it running longest, and with none above the floor waits for the
 //! soonest windfall. A worker whose source pauses moves to that same source above the floor, and parks only when none is.
 use super::state::{State, state};
@@ -52,7 +52,7 @@ pub(super) fn keep(world: &World, session: &Session) -> Option<Action> {
     if let Some(to) = roomiest(world, session, session.family, true) {
         return Some(Action::HandOver { to, family: None });
     }
-    if session.standing == Standing::Proxy
+    if session.standing == Standing::Coordinator
         && let Some(to) = roomiest(world, session, ModelFamily::Opus, false)
     {
         return Some(Action::HandOver { to, family: Some(ModelFamily::Opus) });

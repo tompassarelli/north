@@ -96,8 +96,8 @@ pub struct Loss {
 #[derive(Debug, PartialEq)]
 pub struct Reading {
     pub losses: Vec<Loss>,
-    /// The runs a proxy-role session stopped, relaunched or interrupted, and their dollars, apart from the harness classes.
-    pub proxy: (usize, f64),
+    /// The runs a coordinator-role session stopped, relaunched or interrupted, and their dollars, apart from the harness classes.
+    pub coordinator: (usize, f64),
     pub unclaimed_usd: f64,
     pub total_usd: f64,
 }
@@ -112,7 +112,7 @@ pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
     let mut statement = db.prepare(&format!("SELECT {}, coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", outcome_column(db), recorded_column(db), worker_where()))?;
     let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, Option<String>>(2)?)))?;
     let mut by: BTreeMap<Harness, (usize, f64)> = BTreeMap::new();
-    let (mut unclaimed_usd, mut total_usd, mut proxy) = (0.0, 0.0, (0, 0.0));
+    let (mut unclaimed_usd, mut total_usd, mut coordinator) = (0.0, 0.0, (0, 0.0));
     for (outcome, usd, recorded) in rows.filter_map(Result::ok) {
         let verdict = judge(&outcome, recorded.as_deref().and_then(Cause::parse));
         total_usd += usd;
@@ -125,24 +125,24 @@ pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
                 held.0 += 1;
                 held.1 += usd;
             }
-            Cause::Proxy => {
-                proxy.0 += 1;
-                proxy.1 += usd;
+            Cause::Coordinator => {
+                coordinator.0 += 1;
+                coordinator.1 += usd;
             }
             Cause::Worker | Cause::Tom => {}
         }
     }
     let mut losses: Vec<Loss> = by.into_iter().map(|(harness, (runs, usd))| Loss { harness, runs, usd }).collect();
     losses.sort_by(|left, right| right.usd.total_cmp(&left.usd).then(right.runs.cmp(&left.runs)));
-    Ok(Reading { losses, proxy, unclaimed_usd, total_usd })
+    Ok(Reading { losses, coordinator, unclaimed_usd, total_usd })
 }
 
-/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, the runs a proxy session cut short, and the share of usage no record attributes over the last 3 h and the last 24 h.
+/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the coordinator staffs harness fixes in, the runs a coordinator session cut short, and the share of usage no record attributes over the last 3 h and the last 24 h.
 pub fn pareto_line(ledger: &Path, now: i64) -> String {
     let read = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).and_then(|db| Ok((losses(&db, now - DAY_S)?, losses(&db, now - VERDICT_S)?)));
     match read {
         Ok((day, recent)) => {
-            let unattributed = format!("proxy-caused {} runs ${:.2}; unattributed {:.1}% of 3 h usage, {:.1}% of 24 h", day.proxy.0, day.proxy.1, recent.unclaimed_share() * 100.0, day.unclaimed_share() * 100.0);
+            let unattributed = format!("coordinator-caused {} runs ${:.2}; unattributed {:.1}% of 3 h usage, {:.1}% of 24 h", day.coordinator.0, day.coordinator.1, recent.unclaimed_share() * 100.0, day.unclaimed_share() * 100.0);
             if day.losses.is_empty() {
                 return format!("harness losses 24 h: none; {unattributed}");
             }

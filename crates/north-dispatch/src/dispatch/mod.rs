@@ -137,7 +137,7 @@ impl Started {
 }
 
 /// The line one launch prints; a box whose issue GitHub shows closed or fully ticked since
-/// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
+/// the mirror copied it is skipped, and so is every box once the coordinator has paused dispatch, even in a run that began before the pause.
 fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> Started {
     let named = facets::declared_in(&launch.brief, "Box").map_or_else(String::new, |text| format!(" box `{}`", box_words(text)));
     let line = format!("launch {}{named} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));

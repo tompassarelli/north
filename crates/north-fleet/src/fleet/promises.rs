@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::NorthResult;
 use super::checkpoint::Answer;
-use super::runtime::PROXY;
+use super::runtime::COORDINATOR;
 
 const FILE: &str = "promises.jsonl";
 const CHECKED: &str = "promises-checked.jsonl";
@@ -237,7 +237,7 @@ impl Book {
     }
 
     pub fn keep(&self, promises: &[Promise]) -> NorthResult<()> {
-        let to_leads: Vec<&Promise> = promises.iter().filter(|promise| promise.parent != PROXY).collect();
+        let to_leads: Vec<&Promise> = promises.iter().filter(|promise| promise.parent != COORDINATOR).collect();
         append(&self.root.join(FILE), &to_leads)
     }
 

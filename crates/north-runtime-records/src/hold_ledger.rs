@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::failure::{Failure, failed};
 
 pub const VERB: &str = "review-hold";
-pub const COORDINATOR: &str = "proxy";
+pub const COORDINATOR: &str = "coordinator";
 pub const REVIEWER: &str = "reviewer";
 const DIR: &str = "holds";
 pub const REPOSITORY: &str = "north";

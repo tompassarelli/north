@@ -1,6 +1,6 @@
 //! The outcome watchdog: each critical flow declares the outcome it must keep producing and how stale that outcome
 //! may grow, and `north health` judges every flow from what it finds recorded, never from the writer's exit code.
-//! A flow that stops alarms the proxy through health's episode alerts, with the flow, the age and the first cause.
+//! A flow that stops alarms the coordinator through health's episode alerts, with the flow, the age and the first cause.
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -209,7 +209,7 @@ impl World {
             let Some(dispatch) = &facts.dispatch else { continue };
             age = dispatch.last_run.map(|run| self.age(run)).into_iter().chain(age).reduce(f64::max);
             match (&dispatch.paused, dispatch.timer_active) {
-                (Some(paused), true) => faults.push(format!("{name} runs the dispatch timer though the proxy paused dispatch {} ago: {}", minutes(self.age(paused.since)), paused.cause)),
+                (Some(paused), true) => faults.push(format!("{name} runs the dispatch timer though the coordinator paused dispatch {} ago: {}", minutes(self.age(paused.since)), paused.cause)),
                 (None, false) => faults.push(format!("{name} has its dispatch timer stopped with no pause recorded (`north fleet dispatch pause --reason TEXT` records one)")),
                 _ => {}
             }

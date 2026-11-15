@@ -17,7 +17,7 @@ use super::request_checkout;
 pub(super) const VERB: &str = "eval-unit";
 const ASKERS: &str = "eval_unit_askers";
 const LEAD: &str = "lead";
-const COORDINATOR: &str = "proxy";
+const COORDINATOR: &str = "coordinator";
 const SCRIPT: &str = "script";
 const FINISH_PROOF: &str = "finish-proof";
 const UNIT_PREFIX: &str = "eval-b-north-";

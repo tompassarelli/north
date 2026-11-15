@@ -1,4 +1,4 @@
-//! The loads the harness itself requires of a proxy, which spend none of its read budget.
+//! The loads the harness itself requires of a coordinator, which spend none of its read budget.
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use north_base::shell::{is_separator, words};
 use serde_json::Value;

@@ -15,7 +15,7 @@ Measured on 2026-11-09 on a 20-thread build host: north-base built cold with 8 j
 - Tests: native 7.2 s (6.94 s in the test harness); gVisor 10.8 s, about 50% slower, with 2 of 66 tests failing for want of a loopback network for their ssh fixture; depbox passed all 66 in 6.79 s.
 - Rootless runsc does not start inside a Landlock domain, which refuses its mount calls.
 
-Verdict: against. A 40 to 50% longer build and test step would be paid on every landing, against a landing p90 target of 60 s, while depbox itself costs nothing measurable. A microVM was not measured: it adds a guest boot and a shared-filesystem layer to the same compile and needs KVM on every host, and the cheaper of the two options already fails the bar. nix-leverage.md's verdicts on Docker Sandboxes, microvm.nix and NixOS containers stand; the broker's design borrows Docker Sandboxes' credential proxy ([docker-sandboxes](../references.md#docker-sandboxes)) without the VM.
+Verdict: against. A 40 to 50% longer build and test step would be paid on every landing, against a landing p90 target of 60 s, while depbox itself costs nothing measurable. A microVM was not measured: it adds a guest boot and a shared-filesystem layer to the same compile and needs KVM on every host, and the cheaper of the two options already fails the bar. nix-leverage.md's verdicts on Docker Sandboxes, microvm.nix and NixOS containers stand; the broker's design borrows Docker Sandboxes' credential coordinator ([docker-sandboxes](../references.md#docker-sandboxes)) without the VM.
 
 ## Dependency gates at the lander, and cargo-vet coverage measured
 

@@ -11,7 +11,7 @@ use super::super::forget::{self, Forgotten};
 use super::super::host::Host;
 use super::super::model::{Role, Status};
 use super::super::records::{ARCHIVE, read_record};
-use super::super::runtime::{PROXY, now_ms};
+use super::super::runtime::{COORDINATOR, now_ms};
 use super::super::unaccepted::Unaccepted;
 use super::super::store::ControlVerb;
 use super::{Controlled, Fleet, session_running};
@@ -29,8 +29,8 @@ pub enum Halt {
     /// A launch took the session's name over.
     TakenOver,
     Retired,
-    /// A proxy-role session ordered the stop, forget or relaunch.
-    ByProxy,
+    /// A coordinator-role session ordered the stop, forget or relaunch.
+    ByCoordinator,
     /// A worker or subagent was found on the operational reserve.
     Reserve,
 }
@@ -55,7 +55,7 @@ impl Halt {
             Self::Interactive => (Cause::Tom, "opened in the interactive UI mid-turn"),
             Self::TakenOver => (Cause::Harness(Harness::Halted), "a launch took over its name mid-turn"),
             Self::Retired => (Cause::Harness(Harness::Halted), "retired mid-turn"),
-            Self::ByProxy => (Cause::Proxy, "a proxy session stopped it mid-turn"),
+            Self::ByCoordinator => (Cause::Coordinator, "a coordinator session stopped it mid-turn"),
             Self::Reserve => (Cause::Harness(Harness::Capacity), "stopped on the operational reserve mid-turn"),
         }
     }
@@ -178,10 +178,10 @@ impl Fleet {
 }
 
 impl Fleet {
-    /// How a stop ordered by `caller` reads: by the proxy when `caller` is a proxy-role session, else `otherwise`.
+    /// How a stop ordered by `caller` reads: by the coordinator when `caller` is a coordinator-role session, else `otherwise`.
     pub(super) fn ordered_by(&self, caller: Option<&str>, otherwise: Halt) -> Halt {
-        let proxy = caller.is_some_and(|name| name == PROXY || self.record(name).is_ok_and(|record| record.role() == Role::Proxy));
-        if proxy { Halt::ByProxy } else { otherwise }
+        let coordinator = caller.is_some_and(|name| name == COORDINATOR || self.record(name).is_ok_and(|record| record.role() == Role::Coordinator));
+        if coordinator { Halt::ByCoordinator } else { otherwise }
     }
 }
 
@@ -332,7 +332,7 @@ mod tests {
         std::os::unix::fs::symlink(&main, home.join("main-link")).unwrap();
         let (main_text, home_text) = (main.display().to_string(), home.display().to_string());
         let refused = [
-            "--parent proxy", "--parent n870-lead", "--role lead", "--role worker", "--role proxy", "--account api:org", "--system-prompt /etc/passwd", "--prompt vanilla",
+            "--parent coordinator", "--parent n870-lead", "--role lead", "--role worker", "--role coordinator", "--account api:org", "--system-prompt /etc/passwd", "--prompt vanilla",
             "--container-shell", "--container-dir /work", "--take-over", "--dispatched", "--test", "--gates-aside", "--priority urgent", "--pin why",
             "--foreground-cap 10", "--provider opencode", "--route api:org", "--model api:key", "--route claude-opus,api", "--model SK-abc", "--effort huge", "--idle-exit 1h",
             "--task north#999", "--task makgora#1", "--name n870-again",

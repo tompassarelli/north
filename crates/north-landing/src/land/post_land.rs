@@ -18,7 +18,7 @@ use super::setting;
 use super::telemetry;
 use super::wake::{Task, Wake};
 
-const ALARMED: &str = "proxy";
+const ALARMED: &str = "coordinator";
 const POLL: Duration = Duration::from_millis(50);
 const EPISODE: &str = "post-land-red";
 const CLEARED: &str = "post-land-cleared";

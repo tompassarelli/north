@@ -1,4 +1,4 @@
-//! The runs of the last day that spent usage and finished nothing: final reports that stop for another host, launches that ran beside a holder, and revert tickets the proxy withdrew as false.
+//! The runs of the last day that spent usage and finished nothing: final reports that stop for another host, launches that ran beside a holder, and revert tickets the coordinator withdrew as false.
 use super::fleets::remote_json;
 use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};

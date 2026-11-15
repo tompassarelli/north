@@ -111,7 +111,7 @@ pub const LEAD_ON_TRUSTED: &str = "a lead staffs other hosts and its commands ru
 
 /// Whether the session this launch starts is a lead as its record will say: it names no parent and holds no task.
 pub fn is_lead(request: &LaunchRequest) -> bool {
-    request.role.map_or_else(|| request.parent.is_none() && request.tasks().is_empty() && request.name != crate::fleet::runtime::PROXY, |role| role == Role::Lead)
+    request.role.map_or_else(|| request.parent.is_none() && request.tasks().is_empty() && request.name != crate::fleet::runtime::COORDINATOR, |role| role == Role::Lead)
 }
 
 /// The family whose meter placement reads: the launch model's, else the shared Opus windows.
@@ -121,7 +121,7 @@ pub fn family_of(model: Option<&str>) -> ModelFamily {
 
 /// Whether the role is the fleet coordinator, by either spelling the role has had.
 pub fn is_coordinator(role: Role) -> bool {
-    matches!(role.label(), "proxy" | "coordinator")
+    matches!(role.label(), "coordinator")
 }
 
 /// Whether `host` is trusted: it holds the ledger or declares the hosts it `reaches`; a worker host declares none.

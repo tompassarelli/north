@@ -73,7 +73,7 @@ pub fn clear(queue: &Path, wanted: &str, noticed_by: &str, reason: &str) -> Resu
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let (mut ticket, mut reason, mut noticed_by, mut repo, mut valid) = (String::new(), String::new(), "proxy".to_owned(), PathBuf::from("."), true);
+    let (mut ticket, mut reason, mut noticed_by, mut repo, mut valid) = (String::new(), String::new(), "coordinator".to_owned(), PathBuf::from("."), true);
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         let value = |rest: &mut std::slice::Iter<String>| rest.next().cloned().unwrap_or_default();

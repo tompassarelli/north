@@ -144,7 +144,7 @@ fn a_holder_file_whose_lock_is_free_is_removed_under_the_lock_and_a_locked_slot_
     let treated = cure(&at(gex45(), probed(root.path())), &mut Book::default(), &hands, NOW);
     assert_eq!(*hands.applied.borrow(), vec![Remedy::Clear { place: gex45(), slot: stale.to_owned() }], "{}", render(&treated));
     assert_eq!(hands.incidents.borrow().iter().map(|(class, _)| class.as_str()).collect::<Vec<_>>(), ["lander-slot-overdue"]);
-    assert!(hands.pages.borrow().is_empty(), "the proxy heard of a slot nothing holds");
+    assert!(hands.pages.borrow().is_empty(), "the coordinator heard of a slot nothing holds");
     let clear = |slot: &str| facts::shell(&here(), hands::CLEAR, &[slot, &root.path().to_string_lossy()]);
     assert_eq!(clear(stale).unwrap().trim(), format!("removed the holder files of slot {stale}, whose lock is free"));
     assert!(["holder", "pgid", "owner"].iter().all(|suffix| !root.path().join(format!("{stale}.{suffix}")).exists()));
@@ -255,7 +255,7 @@ fn disk_pressure_evicts_caches_and_each_remedy_and_unknown_state_writes_one_inci
 }
 
 #[test]
-fn a_running_land_check_that_builds_a_toolchain_from_source_tells_the_proxy_once() {
+fn a_running_land_check_that_builds_a_toolchain_from_source_tells_the_coordinator_once() {
     let scratch = tempfile::tempdir().unwrap();
     let logs = scratch.path();
     let nix = include_str!("../../../tests/fixtures/lander-doctor/offline-binutils.log");

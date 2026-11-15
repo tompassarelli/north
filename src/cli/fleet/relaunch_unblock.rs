@@ -4,7 +4,7 @@ use north_unblocks::{Admission, GitHub, Kind, Ledger, Refusals, refusal_class};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::LaunchRequest;
-use crate::fleet::runtime::PROXY;
+use crate::fleet::runtime::COORDINATOR;
 
 /// A coordinator's launch the relaunch count follows: its key, its session name and when it was asked for.
 pub(super) struct Relaunch {
@@ -17,7 +17,7 @@ pub(super) struct Relaunch {
 impl Relaunch {
     /// Admits the launch `request` that `caller` asks for: only the coordinator's own launch, not one the tick replays from its queue, is followed.
     pub(super) fn admit(caller: Option<&str>, queued: bool, request: &LaunchRequest, issue: Option<&str>, now: u64) -> NorthResult<Option<Self>> {
-        if caller != Some(PROXY) || queued {
+        if caller != Some(COORDINATOR) || queued {
             return Ok(None);
         }
         let relaunch = Self { refusals: Refusals::here(), key: key(request), name: request.name.clone(), now };
@@ -45,7 +45,7 @@ fn key(request: &LaunchRequest) -> String {
 /// Admits the coordinator's launch of `key`: when its last launch was refused within the day, this launch is a relaunch of that refusal's class.
 fn admit(refusals: &Refusals, admission: &Admission, key: &str, issue: Option<&str>) -> NorthResult<()> {
     let Some(class) = refusals.pending(key, admission.now).map_err(NorthError::Refused)? else { return Ok(()) };
-    admission.admit(Kind::Relaunch, &class, PROXY, issue).map_err(|why| NorthError::Refused(format!("relaunch of {key} after the refusal `{class}`: {why}")))?;
+    admission.admit(Kind::Relaunch, &class, COORDINATOR, issue).map_err(|why| NorthError::Refused(format!("relaunch of {key} after the refusal `{class}`: {why}")))?;
     refusals.relaunched(key, admission.now).map_err(NorthError::Refused)
 }
 

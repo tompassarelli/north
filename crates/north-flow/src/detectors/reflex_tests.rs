@@ -167,7 +167,7 @@ fn an_unstaffed_plan_box_pages_the_coordinator_and_dispatch_once_and_clears_with
     let calls = fleet.argv.borrow().clone();
     assert_eq!(calls.len(), 2, "one page to the coordinator and one to dispatch");
     assert!(calls.iter().all(|call| call[..3] == ["north", "fleet", "send"]), "only fleet messages leave: no gh call edits an issue body");
-    assert!(calls[0].contains(&"--now".to_owned()) && calls[0].contains(&"proxy".to_owned()), "the coordinator is paged urgently");
+    assert!(calls[0].contains(&"--now".to_owned()) && calls[0].contains(&"coordinator".to_owned()), "the coordinator is paged urgently");
     assert!(calls[1].contains(&"dispatch".to_owned()) && !calls[1].contains(&"--now".to_owned()));
     fleet.argv.borrow_mut().clear();
     page::deliver(&places, &fleet, &pages);

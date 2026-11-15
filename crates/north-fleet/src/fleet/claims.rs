@@ -360,7 +360,7 @@ mod tests {
             hold_all(&claims, &own_tasks(&claims, &tasks, &lead), child, &lead).unwrap();
         }
         assert_eq!(claims.holders(Rows::Items(&tasks)).unwrap(), [("north#757".to_owned(), "n-state-machines".to_owned())]);
-        assert_eq!(own_tasks(&claims, &tasks, &BTreeSet::from(["proxy".to_owned()])), tasks, "a launch outside the lead's tree still claims, so the live holder refuses it");
+        assert_eq!(own_tasks(&claims, &tasks, &BTreeSet::from(["coordinator".to_owned()])), tasks, "a launch outside the lead's tree still claims, so the live holder refuses it");
     }
 
     #[test]
@@ -383,18 +383,18 @@ mod tests {
         assert_eq!(own_tasks(&claims, &keys, &outside), keys);
     }
 
-    /// On 2026-11-10 the proxy held north#722 with `north fleet hold`, and once its cause was fixed nothing could drop it: dispatch kept skipping it as held by the proxy.
+    /// On 2026-11-10 the coordinator held north#722 with `north fleet hold`, and once its cause was fixed nothing could drop it: dispatch kept skipping it as held by the coordinator.
     #[test]
     fn a_released_hold_empties_the_sessions_row_and_its_claim_so_dispatch_staffs_the_issue() {
-        let mut record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": null})).unwrap();
+        let mut record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "coordinator", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": null})).unwrap();
         let claims = Held::default();
         let task = "north#722";
         assert!(record.hold(task));
-        claims.hold(task, "proxy", &BTreeSet::new()).unwrap();
-        claims.hold("north#722@a box", "proxy", &BTreeSet::new()).unwrap();
+        claims.hold(task, "coordinator", &BTreeSet::new()).unwrap();
+        claims.hold("north#722@a box", "coordinator", &BTreeSet::new()).unwrap();
 
         assert!(record.release(task));
-        assert_eq!(release_task(&claims, "proxy", task).unwrap(), 2);
+        assert_eq!(release_task(&claims, "coordinator", task).unwrap(), 2);
 
         assert_eq!(record.tasks().count(), 0, "the row still listed {task}");
         assert!(record.claim_keys().is_empty());

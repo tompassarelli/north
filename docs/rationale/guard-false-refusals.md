@@ -10,7 +10,7 @@ guard over 10% false with its `narrowed` line, or "not narrowed" (north#706, car
   the laptop and gex45, including `agent-ID.jsonl` subagent transcripts. 8,629 of the 9,049 were found.
 - **Unnamed guards.** 2,285 refusals were filed as `other` because their refusal text matched no rule. Six guards were behind
   them, and `hook_rules.rs` now names them: heavy-command.local-write, launch-critical.layout, session-kill.self-match,
-  privacy-judge.pending and privacy-judge, issue-cleanup, worker-tier.item and worker-tier.routing, and proxy-role.
+  privacy-judge.pending and privacy-judge, issue-cleanup, worker-tier.item and worker-tier.routing, and coordinator-role.
 - **Sample.** Up to 30 rows per guard: distinct refused calls sorted by text, taking every Nth.
   - launch-critical counts only refusals after its 786ac1b9d4 fix.
   - heavy-command.farm counts only refusals after its df206b8a67 fix.
@@ -37,7 +37,7 @@ False share by guard (over 10% marked *):
 - issue-filing 6/30 *
 - privacy-judge 6/30 *
 - tripwire.push 6/30 *
-- proxy-role 6/10 * (narrowed here)
+- coordinator-role 6/10 * (narrowed here)
 - sops-decrypt 6/18 *
 - heavy-command 5/19 * (narrowed here)
 - worker-tier.facet-value 5/30 * (narrowed here)

@@ -23,25 +23,25 @@ pub struct Tick {
 
 struct Alert<'a> {
     notify: &'a mut Phone,
-    proxy: &'a str,
+    coordinator: &'a str,
     dry_run: bool,
 }
 
 impl Alert<'_> {
     fn send(&mut self, title: &str, text: &str, lines: &mut Vec<String>) -> Delivery {
         if self.dry_run {
-            lines.push(format!("  would push the phone and message {}: {title}", self.proxy));
+            lines.push(format!("  would push the phone and message {}: {title}", self.coordinator));
             return Delivery { arrived: false, trouble: false };
         }
         let phone = self.notify.phone(title, text);
-        let proxy = self.notify.proxy(self.proxy, &format!("{title}: {text}"));
+        let coordinator = self.notify.coordinator(self.coordinator, &format!("{title}: {text}"));
         if let Err(why) = &phone {
             lines.push(format!("  phone push failed: {why}"));
         }
-        if let Err(why) = &proxy {
-            lines.push(format!("  proxy message failed: {why}"));
+        if let Err(why) = &coordinator {
+            lines.push(format!("  coordinator message failed: {why}"));
         }
-        Delivery { arrived: phone.is_ok() || proxy.is_ok(), trouble: phone.is_err() || proxy.is_err() }
+        Delivery { arrived: phone.is_ok() || coordinator.is_ok(), trouble: phone.is_err() || coordinator.is_err() }
     }
 }
 
@@ -53,7 +53,7 @@ struct Delivery {
 pub fn tick(roster: &Roster, role: &str, facts: &Machine, notify: &mut Phone, breaches: &mut Breaches, dry_run: bool) -> Tick {
     let mut lines = Vec::new();
     let mut failed = false;
-    let mut alert = Alert { notify, proxy: &roster.proxy, dry_run };
+    let mut alert = Alert { notify, coordinator: &roster.coordinator, dry_run };
     let now = facts.now();
     for expectation in &roster.expectations {
         let name = &expectation.name;
@@ -101,8 +101,8 @@ pub fn tick(roster: &Roster, role: &str, facts: &Machine, notify: &mut Phone, br
 }
 
 pub fn synthetic(roster: &Roster, notify: &mut Phone) -> Tick {
-    let mut lines = vec!["synthetic: BREACH drill; owner ops-observability; proves the phone and the proxy hear a breach".to_owned()];
-    let mut alert = Alert { notify, proxy: &roster.proxy, dry_run: false };
+    let mut lines = vec!["synthetic: BREACH drill; owner ops-observability; proves the phone and the coordinator hear a breach".to_owned()];
+    let mut alert = Alert { notify, coordinator: &roster.coordinator, dry_run: false };
     let breach = alert.send("north ops BREACH synthetic", "weekly drill: the alert path carries a breach; nothing to fix", &mut lines);
     lines.push("synthetic: CLEARED drill".to_owned());
     let cleared = alert.send("north ops cleared synthetic", "weekly drill over", &mut lines);

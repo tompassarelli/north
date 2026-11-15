@@ -117,7 +117,7 @@ impl Hands for Drilled<'_> {
 }
 
 /// Runs the doctor over `read` until `bound` reads within its limit: the first round must find it over and apply a remedy, and every
-/// later round must leave the proxy unpaged until the bound clears, within the doctor's patience.
+/// later round must leave the coordinator unpaged until the bound clears, within the doctor's patience.
 pub fn heal(lander: &Lander, bound: Bound, read: &dyn Fn(u64) -> Facts) -> Result<String, String> {
     let hands = Drilled { lander };
     let mut book = Book::default();
@@ -135,7 +135,7 @@ pub fn heal(lander: &Lander, bound: Bound, read: &dyn Fn(u64) -> Facts) -> Resul
     loop {
         let pages = hands.pages();
         if !pages.is_empty() {
-            return Err(format!("the doctor paged the proxy: {}", pages.trim()));
+            return Err(format!("the doctor paged the coordinator: {}", pages.trim()));
         }
         let treated = cure(&read(facts::now()), &mut book, &hands, facts::now());
         let over: Vec<Treated> = treated.into_iter().filter(|treated| treated.finding.bound == bound && treated.finding.over).collect();

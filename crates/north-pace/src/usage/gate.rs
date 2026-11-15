@@ -13,7 +13,7 @@ use super::{Places, meter, profiles, py, settings};
 use crate::foundation::clock::Timestamp;
 use crate::router::{ops, policy};
 
-const REFUSAL_TAIL: &str = "Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.";
+const REFUSAL_TAIL: &str = "Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the coordinator to put to Tom.";
 
 pub(super) struct Inputs {
     pub cfg: Value,

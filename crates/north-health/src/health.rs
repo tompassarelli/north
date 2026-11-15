@@ -419,7 +419,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<(bool, Vec<Str
     };
     results.push(("land".into(), land(LandInput { now, output }, &mut state)));
     let state_file = std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("north/unit-failures.json");
-    let started = failed_starts::check(dry_run, &state_file, &failed_starts::journal, &mut failed_starts::tell_proxy);
+    let started = failed_starts::check(dry_run, &state_file, &failed_starts::journal, &mut failed_starts::tell_coordinator);
     lines.push(format!("health: unit-failures: {}", started.as_ref().err().map_or("ok", String::as_str)));
     let mut alerts = Vec::new();
     let breaching = results.iter().filter(|(_, result)| result.is_err()).map(|(check, _)| check.clone()).collect();
@@ -440,7 +440,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<(bool, Vec<Str
                 lines.push(line.clone());
             }
             for (program, args) in [
-                ("north", vec!["fleet", "send", "--from", "service:north-health", "proxy", line.as_str()]),
+                ("north", vec!["fleet", "send", "--from", "service:north-health", "coordinator", line.as_str()]),
                 ("notify-send", vec!["-u", "critical", "North harness", line.as_str()]),
             ] {
                 if let Err(error) = command(program, &args, None, 20) {

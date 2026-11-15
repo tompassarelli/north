@@ -16,7 +16,7 @@ refusal names which: `api hold`, `provider limit` or `operational reserve`.
 
 1. **The owner's API hold.** While `[accounts.claude] api_hold` records a day and a reason, every API
    organization (the pooled `api` account and each `api:ORG`) is refused to every caller of every role, the
-   proxy, the owner's sessions, the privacy judge, the lander, canaries, spare fills and one-shot asks
+   coordinator, the owner's sessions, the privacy judge, the lander, canaries, spare fills and one-shot asks
    included, before any request leaves; the refusal is one line naming the hold. `spend::hold` is the one copy
    of the rule: the start refusal every host start passes through (`fleet::registry::reserve`), placement and
    dispatch admission, the API pool (no key handed out, no exhausted mark probed, no session moved onto another

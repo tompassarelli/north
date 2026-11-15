@@ -267,7 +267,7 @@ The module is `north_base::lifecycle` (`crates/north-base/src/lifecycle.rs`), bu
   for a held state), so `Store::faults(now)` finds every overdue state, every state whose holder died and every illegal
   move of the last hour, for every machine, without knowing any machine's type. `north health facts` on each host
   returns them and the laptop's `north health` shows them as the `state-machines` flow of the outcome watchdog
-  (docs/rationale/outcome-watchdog.md), which pages the proxy after two failing ticks like every other flow.
+  (docs/rationale/outcome-watchdog.md), which pages the coordinator after two failing ticks like every other flow.
 - **A move and the effects it starts commit together.** `Store::transition_with_effects::<L>(instance, to, cause,
   at, effects)` writes the move and its side effects (start a watchdog, start an after-landing run, announce an
   offload offer) into `lifecycle_effects` in the move's one `BEGIN IMMEDIATE` transaction; a refused move queues none.

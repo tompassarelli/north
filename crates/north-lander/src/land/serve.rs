@@ -125,8 +125,8 @@ impl Serve<'_> {
 
 fn back_off(lander: &Lander, pause: Pause, reason: &str, retire: &AtomicBool) {
     println!("north land: waiting {:?}: {reason}", pause.wait);
-    if pause.alarm && !after::send("proxy", &format!("north land: {}: {reason}; the lander keeps retrying every {} minutes", lander.repo.display(), pause.wait.as_secs() / 60)) {
-        eprintln!("north land: could not alarm the proxy about {}", lander.repo.display());
+    if pause.alarm && !after::send("coordinator", &format!("north land: {}: {reason}; the lander keeps retrying every {} minutes", lander.repo.display(), pause.wait.as_secs() / 60)) {
+        eprintln!("north land: could not alarm the coordinator about {}", lander.repo.display());
     }
     pause.sit_out(retire);
 }

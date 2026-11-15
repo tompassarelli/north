@@ -60,7 +60,7 @@ pub(super) fn republish_if_unpublished(layout: &Layout, target: &str) {
         return;
     }
     let steps = vec![(AGENTS_SYNC, agents_sync(&layout.runtime(target).join("north")))];
-    if let Ok(synced) = settle(layout, Some(&layout::link(target)), target, steps, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}"))) {
+    if let Ok(synced) = settle(layout, Some(&layout::link(target)), target, steps, &mut |text: &str| alert_coordinator(&format!("north runtime update: {text}"))) {
         print!("{synced}");
     }
 }
@@ -195,15 +195,15 @@ fn agents_sync(north: &Path) -> Command {
     command
 }
 
-pub(in crate::runtime) use crate::runtime::alert::{alert_proxy, send_alert};
+pub(in crate::runtime) use crate::runtime::alert::{alert_coordinator, send_alert};
 
-pub(in crate::runtime) fn page_proxy(key: &str, text: &str) -> bool {
+pub(in crate::runtime) fn page_coordinator(key: &str, text: &str) -> bool {
     let sent = Command::new("north")
-        .args(["fleet", "send", "--from", "service:north-runtime-update", "--key", key, "proxy", text])
+        .args(["fleet", "send", "--from", "service:north-runtime-update", "--key", key, "coordinator", text])
         .status();
     let delivered = sent.is_ok_and(|status| status.success());
     if !delivered {
-        eprintln!("north runtime update: proxy page delivery failed");
+        eprintln!("north runtime update: coordinator page delivery failed");
     }
     delivered
 }

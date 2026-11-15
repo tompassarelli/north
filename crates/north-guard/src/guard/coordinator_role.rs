@@ -1,6 +1,6 @@
 use crate::guard::host::{self, ReadStreak};
-use crate::guard::proxy_reach;
-use crate::fleet::runtime::{PROXY, ROLE_ENV, SESSION_ENV};
+use crate::guard::coordinator_reach;
+use crate::fleet::runtime::{COORDINATOR, ROLE_ENV, SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use crate::hook_input::{HookInput, Verdict};
 use crate::shell::{blank_quotes, strip_heredocs};
@@ -8,12 +8,12 @@ use serde_json::Value;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 
-const UNIT: &str = "proxy-role-guard";
-const REACH_UNIT: &str = "proxy-reach-guard";
-const STREAK_UNIT: &str = "proxy-read-streak";
-const STREAK_LIMIT: &str = "proxy_read_streak";
-const BUDGET_UNIT: &str = "proxy-look-budget";
-const LOOK_BUDGET: &str = "proxy_look_budget";
+const UNIT: &str = "coordinator-role-guard";
+const REACH_UNIT: &str = "coordinator-reach-guard";
+const STREAK_UNIT: &str = "coordinator-read-streak";
+const STREAK_LIMIT: &str = "coordinator_read_streak";
+const BUDGET_UNIT: &str = "coordinator-look-budget";
+const LOOK_BUDGET: &str = "coordinator_look_budget";
 const TAIL_BYTES: u64 = 8 * 1024 * 1024;
 const SUBAGENTS: [&str; 2] = ["Explore", "Plan"];
 const CARGO_BUILDS: [&str; 11] = ["build", "b", "test", "t", "clippy", "check", "c", "nextest", "run", "bench", "doc"];
@@ -46,7 +46,7 @@ pub struct ClaudeStart {
 
 pub trait World {
     fn var(&self, name: &str) -> Option<String>;
-    fn registered_proxy(&self) -> Option<Registered>;
+    fn registered_coordinator(&self) -> Option<Registered>;
     fn profile(&self, account: &str) -> Option<String>;
     fn claude_start(&self) -> Option<ClaudeStart>;
     fn lane_files(&self, cwd: &str) -> Option<Vec<String>>;
@@ -61,15 +61,15 @@ impl World for Live {
         std::env::var(name).ok().filter(|value| !value.is_empty())
     }
 
-    fn registered_proxy(&self) -> Option<Registered> {
+    fn registered_coordinator(&self) -> Option<Registered> {
         let dir = self.var("NORTH_FLEET_DIR").map(PathBuf::from).or_else(|| self.var("HOME").map(|home| PathBuf::from(home).join(".local/state/north/fleet")))?;
-        let record: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(PROXY).join("session.json")).ok()?).ok()?;
-        let proxy = match record["role"].as_str() {
-            Some(role) => role == PROXY,
+        let record: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(COORDINATOR).join("session.json")).ok()?).ok()?;
+        let coordinator = match record["role"].as_str() {
+            Some(role) => role == COORDINATOR,
             None => record["parent"].is_null() && record["task_ref"].is_null(),
         };
         let text = |key: &str| record[key].as_str().map(str::to_owned);
-        proxy.then(|| Registered { conversation: text("conversation"), account: text("account") })
+        coordinator.then(|| Registered { conversation: text("conversation"), account: text("account") })
     }
 
     fn profile(&self, account: &str) -> Option<String> {
@@ -116,7 +116,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
-    if !is_proxy(world, input) {
+    if !is_coordinator(world, input) {
         return Verdict::Allow;
     }
     if let Some(action) = refusal(world, input) {
@@ -125,24 +125,24 @@ pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
     match reach(world, input) {
         Some(what) if !world.break_glass() => Verdict::Deny(reach_message(&what)),
         _ if world.break_glass() => Verdict::Allow,
-        _ => crate::guard::proxy_background::evaluate(input, &|words: &[&str]| world.status_verb(words)),
+        _ => crate::guard::coordinator_background::evaluate(input, &|words: &[&str]| world.status_verb(words)),
     }
 }
 
 fn reach(world: &impl World, input: &HookInput) -> Option<String> {
     let home = world.var("HOME")?;
     let status_verb = |words: &[&str]| world.status_verb(words);
-    let look = proxy_reach::Look { home: &home, cwd: input.cwd().unwrap_or(&home), status_verb: &status_verb };
-    proxy_reach::diagnosis(&look, input.tool_name(), &input.tool_input)
+    let look = coordinator_reach::Look { home: &home, cwd: input.cwd().unwrap_or(&home), status_verb: &status_verb };
+    coordinator_reach::diagnosis(&look, input.tool_name(), &input.tool_input)
 }
 
 fn reach_message(what: &str) -> String {
-    format!("BLOCKED ({REACH_UNIT}): the proxy diagnoses nothing outside break-glass (proxy_role in harness/defaults.toml), so it does not {what}. Hand the cause to a worker: write the brief with `north work brief new --category debugging-unknown-cause --item REPO#N`, which prints the header lines a brief needs (`Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:`, `ETA:`, `Files:`), name in it what this call would have read, staff it with `north fleet launch --task REPO#N`, and judge the report. Launches, sends, gates, issue reads and edits, reports, the north status verbs, the proxy's scratch and `git log --oneline origin/main` stay open; only `north fleet break-glass`, while workers cannot launch, lifts this.")
+    format!("BLOCKED ({REACH_UNIT}): the coordinator diagnoses nothing outside break-glass (coordinator_role in harness/defaults.toml), so it does not {what}. Hand the cause to a worker: write the brief with `north work brief new --category debugging-unknown-cause --item REPO#N`, which prints the header lines a brief needs (`Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:`, `ETA:`, `Files:`), name in it what this call would have read, staff it with `north fleet launch --task REPO#N`, and judge the report. Launches, sends, gates, issue reads and edits, reports, the north status verbs, the coordinator's scratch and `git log --oneline origin/main` stay open; only `north fleet break-glass`, while workers cannot launch, lifts this.")
 }
 
-pub fn is_proxy(world: &impl World, input: &HookInput) -> bool {
+pub fn is_coordinator(world: &impl World, input: &HookInput) -> bool {
     if let Some(agent) = input.data["agent_type"].as_str() {
-        return agent == PROXY;
+        return agent == COORDINATOR;
     }
     if input.data.get("agent_id").is_some() {
         return false;
@@ -152,12 +152,12 @@ pub fn is_proxy(world: &impl World, input: &HookInput) -> bool {
         return false;
     }
     if let Some(role) = world.var(ROLE_ENV) {
-        return role == PROXY;
+        return role == COORDINATOR;
     }
     if world.var(SESSION_ENV).is_some() {
         return false;
     }
-    let Some(registered) = world.registered_proxy() else { return false };
+    let Some(registered) = world.registered_coordinator() else { return false };
     if input.data["session_id"].as_str().is_some_and(|session| registered.conversation.as_deref() == Some(session)) {
         return true;
     }
@@ -165,7 +165,7 @@ pub fn is_proxy(world: &impl World, input: &HookInput) -> bool {
 }
 
 pub fn is_tom_window(world: &impl World, input: &HookInput) -> bool {
-    if is_proxy(world, input) {
+    if is_coordinator(world, input) {
         return true;
     }
     if input.data.get("agent_type").is_some() || input.data.get("agent_id").is_some() || world.var(ROLE_ENV).is_some() || world.var(SESSION_ENV).is_some() {
@@ -179,7 +179,7 @@ fn own_profile(world: &impl World) -> Option<String> {
 }
 
 fn message(action: &str) -> String {
-    format!("BLOCKED ({UNIT}): the proxy routes and judges and does no implementation itself, so it does not {action}. Staff the work instead: `north fleet launch --task REPO#N ...` (workers skill), then judge the report. Reads, `north fleet|threads|gate`, `gh` reads and Explore/Plan subagents stay open.")
+    format!("BLOCKED ({UNIT}): the coordinator routes and judges and does no implementation itself, so it does not {action}. Staff the work instead: `north fleet launch --task REPO#N ...` (workers skill), then judge the report. Reads, `north fleet|threads|gate`, `gh` reads and Explore/Plan subagents stay open.")
 }
 
 fn refusal(world: &impl World, input: &HookInput) -> Option<String> {
@@ -430,7 +430,7 @@ pub fn advise_reads(input: &HookInput) -> Verdict {
 }
 
 fn reads_verdict(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") || !is_proxy(&Live, input) || crate::guard::break_glass::lifted_now() {
+    if crate::guard::activation::authoring_guards_off("north-hook") || !is_coordinator(&Live, input) || crate::guard::break_glass::lifted_now() {
         return Verdict::Allow;
     }
     let Some(transcript) = input.data["transcript_path"].as_str().and_then(transcript_tail) else { return Verdict::Allow };
@@ -458,7 +458,7 @@ pub fn budget_verdict(streak: &ReadStreak, budgets: &Budgets) -> Verdict {
     let subject = if streak.subject.is_empty() { "this message" } else { streak.subject.as_str() };
     let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
     Verdict::Deny(format!(
-        "BLOCKED ({BUDGET_UNIT}): read-only calls are refused from here and your turn goes on: this message from Tom has had {} read-only calls on \"{subject}\", over the budget of {} ({LOOK_BUDGET} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The proxy routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
+        "BLOCKED ({BUDGET_UNIT}): read-only calls are refused from here and your turn goes on: this message from Tom has had {} read-only calls on \"{subject}\", over the budget of {} ({LOOK_BUDGET} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The coordinator routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
         message.looks,
         budgets.looks,
         read.join(", "),
@@ -476,7 +476,7 @@ pub fn streak_verdict(streak: &ReadStreak, limit: usize) -> Verdict {
     let subject = if streak.subject.is_empty() { "this turn's question" } else { streak.subject.as_str() };
     let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
     Verdict::Deny(format!(
-        "BLOCKED ({STREAK_UNIT}): read-only calls are refused from here and your turn goes on: this proxy turn made {} read-only calls on \"{subject}\" without a launch, a send or a gate, over the limit of {limit} ({STREAK_LIMIT} in harness/defaults.toml). Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The proxy routes and judges, so this investigation is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
+        "BLOCKED ({STREAK_UNIT}): read-only calls are refused from here and your turn goes on: this coordinator turn made {} read-only calls on \"{subject}\" without a launch, a send or a gate, over the limit of {limit} ({STREAK_LIMIT} in harness/defaults.toml). Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The coordinator routes and judges, so this investigation is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
         streak.calls,
         read.join(", "),
     ))

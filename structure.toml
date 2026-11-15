@@ -527,7 +527,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/bin/push_trace_git.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["runtime_records", "agent_starts", "strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "concerns", "graph_ground", "nix_upkeep", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks", "broker", "machine_model", "verify", "build_system", "monitor", "rust_files", "runtime_follow", "check_offload", "unblocks"]
+may_use = ["runtime_records", "agent_starts", "strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "concerns", "graph_ground", "nix_upkeep", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks", "broker", "machine_model", "verify", "build_system", "monitor", "rust_files", "runtime_follow", "check_offload", "unblocks"]
 
 [[module]]
 name = "git_locks"
@@ -567,7 +567,7 @@ may_use = []
 [[module]]
 name = "lander-doctor"
 paths = ["crates/north-lander-doctor/src/**"]
-responsibility = "The lander doctor: each lander health bound read live, the known remedy for each stuck state, the last lander build that landed a batch green and the rollback to it, and one proxy page per unknown state."
+responsibility = "The lander doctor: each lander health bound read live, the known remedy for each stuck state, the last lander build that landed a batch green and the rollback to it, and one coordinator page per unknown state."
 may_use = ["crate-roots", "foundation", "landing", "lifecycle", "land_ticket", "platform.records", "platform.git", "platform.harness", "platform.ssh", "graph_loops"]
 
 [[module]]
@@ -822,9 +822,9 @@ responsibility = "Agent catalog, activation generations, projection port and pol
 may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks", "platform.store", "arguments"]
 
 [[module]]
-name = "proxy"
-paths = ["crates/north-core/src/proxy/**"]
-responsibility = "Classify the proxy's tool calls by kind from the verb table the CLI declares, and read them out of a transcript."
+name = "coordinator"
+paths = ["crates/north-core/src/coordinator/**"]
+responsibility = "Classify the coordinator's tool calls by kind from the verb table the CLI declares, and read them out of a transcript."
 may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
 
 [[module]]
@@ -854,7 +854,7 @@ may_use = ["crate-roots", "foundation", "lifecycle", "platform"]
 [[module]]
 name = "concerns"
 paths = ["crates/north-concerns/src/**"]
-responsibility = "Each project's concerns as named checks: the oracle commands, the bound and class judged on each measured value, and the red-concern line the fleet tick tells the proxy."
+responsibility = "Each project's concerns as named checks: the oracle commands, the bound and class judged on each measured value, and the red-concern line the fleet tick tells the coordinator."
 may_use = ["crate-roots", "foundation", "lifecycle", "platform.process", "platform.host", "platform.store"]
 
 [[module]]
@@ -975,7 +975,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle", "runtime_records", "unblocks"]
+may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle", "runtime_records", "unblocks"]
 
 [[module]]
 name = "verify"

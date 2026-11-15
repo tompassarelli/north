@@ -4,7 +4,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::launch_queue::Priority;
 use crate::fleet::model::{Effort, LaunchRequest, ProviderName, Role, Surface};
 use crate::fleet::prompt::PromptMode;
-use crate::fleet::runtime::{PROXY, new_uuid};
+use crate::fleet::runtime::{COORDINATOR, new_uuid};
 use crate::fleet::route::Route;
 
 use super::usage::usage;
@@ -45,8 +45,8 @@ impl LaunchFlags {
     fn surface(&self) -> NorthResult<Surface> {
         match (self.screen, self.role) {
             (false, _) => Ok(Surface::Window),
-            (true, Some(Role::Proxy)) => Ok(Surface::Screen),
-            (true, _) => Err(NorthError::Usage("--screen holds the coordinator's conversation, so the proxy is the only role for it; launch with --role proxy".to_owned())),
+            (true, Some(Role::Coordinator)) => Ok(Surface::Screen),
+            (true, _) => Err(NorthError::Usage("--screen holds the coordinator's conversation, so the coordinator is the only role for it; launch with --role coordinator".to_owned())),
         }
     }
 
@@ -76,7 +76,7 @@ impl LaunchFlags {
         Ok(())
     }
 
-    fn request(self, prompt: String, caller: Option<String>, proxy: bool) -> NorthResult<LaunchRequest> {
+    fn request(self, prompt: String, caller: Option<String>, coordinator: bool) -> NorthResult<LaunchRequest> {
         let surface = self.surface()?;
         let Some(provider) = self.provider else { return Err(usage()) };
         let placed = provider.label() == "claude" && !self.verification;
@@ -101,13 +101,13 @@ impl LaunchFlags {
         }
         let (cwd, machine) = placement::working_directory(self.cwd)?;
         let name = match (self.name, self.role) {
-            (Some(name), Some(Role::Proxy)) if name != PROXY => return Err(NorthError::Usage(format!("the proxy is named {PROXY}, not {name}"))),
+            (Some(name), Some(Role::Coordinator)) if name != COORDINATOR => return Err(NorthError::Usage(format!("the coordinator is named {COORDINATOR}, not {name}"))),
             (Some(name), _) => name,
-            (None, Some(Role::Proxy)) => PROXY.to_owned(),
+            (None, Some(Role::Coordinator)) => COORDINATOR.to_owned(),
             (None, _) => default_name(&provider, &account)?,
         };
         let dispatched = lineage::dispatched(self.dispatched, caller.as_deref())?;
-        let parent = lineage::parent(self.parent, caller, proxy, &name, self.role, self.verification)?;
+        let parent = lineage::parent(self.parent, caller, coordinator, &name, self.role, self.verification)?;
         Ok(LaunchRequest {
             verification: self.verification,
             gates_aside: self.gates_aside,
@@ -157,7 +157,7 @@ pub(super) struct LaunchParts {
     pub issue: Option<String>,
 }
 
-pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<LaunchParts> {
+pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, coordinator: bool) -> NorthResult<LaunchParts> {
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
@@ -180,7 +180,7 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
     }
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
     let (overrides, take_over, priority, issue) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority, flags.issue.take());
-    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect(), issue })
+    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, coordinator)?, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect(), issue })
 }
 
 fn container_dir(path: &str) -> NorthResult<PathBuf> {

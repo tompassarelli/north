@@ -33,7 +33,7 @@ impl Inputs {
         Self {
             proc: set("AGENT_CONTAIN_PROC").map_or_else(|| "/proc".into(), PathBuf::from),
             cgroup: set("AGENT_CONTAIN_CGROUP").map_or_else(|| "/sys/fs/cgroup".into(), PathBuf::from),
-            inbox: set("AGENT_CONTAIN_INBOX").map_or_else(|| home.join(".local/state/agents/handoffs/proxy-inbox.md"), PathBuf::from),
+            inbox: set("AGENT_CONTAIN_INBOX").map_or_else(|| home.join(".local/state/agents/handoffs/coordinator-inbox.md"), PathBuf::from),
             uid: set("AGENT_CONTAIN_UID").and_then(|uid| uid.parse().ok()).unwrap_or_else(|| rustix::process::getuid().as_raw()),
             host: set("AGENT_CONTAIN_HOST").unwrap_or_else(crate::laptop::hostname),
             busctl: set("AGENT_CONTAIN_BUSCTL").unwrap_or_else(|| "busctl".into()),

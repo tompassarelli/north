@@ -79,8 +79,8 @@ fn an_opencode_worker_in_a_public_lane_cannot_read_south_or_sops_keys() {
     let secret = [
         home.join("code/south/main/README.md"),
         home.join(".config/sops/age/keys.txt"),
-        home.join(".local/state/north/fleet/sessions/proxy.json"),
-        home.join(".local/state/agents/handoffs/proxy.md"),
+        home.join(".local/state/north/fleet/sessions/coordinator.json"),
+        home.join(".local/state/agents/handoffs/coordinator.md"),
         home.join(".claude/.credentials.json"),
         home.join(".local/share/opencode/auth.json"),
         home.join("code/wisp/main/README.md"),

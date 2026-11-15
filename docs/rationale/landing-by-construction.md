@@ -137,7 +137,7 @@ updates its own class's line when its lane lands.
   anyone the lander's build was behind, and the doctor's alarm reached nobody for an hour.
 - Invariants: no verdict is not a fail (2), and read the source of truth by revision (4).
 - Mechanism: promote moves the link on matches plus transients and holds only on a divergence or
-  zero matches. Its replays run on build hosts, and the doctor pages the proxy when the link lags
+  zero matches. Its replays run on build hosts, and the doctor pages the coordinator when the link lags
   more than 3 landings or 15 minutes (n842-promote). The lander names the build it runs, read from
   its own executable, and the lander-input commits behind origin/main it lacks whenever that note
   changes at the start of a serve round, over the limit once the first of them landed more than 15
@@ -259,12 +259,12 @@ updates its own class's line when its lane lands.
   exists.
 - Invariant: read the source of truth by revision (4). The addressee is a fact read at send time.
 - Mechanism: every service send resolves its addressee against the live fleet. A name that is not
-  live or parked goes to the proxy, prefixed with the intended name, and the hard-coded
+  live or parked goes to the coordinator, prefixed with the intended name, and the hard-coded
   `lander-lead` goes.
 - Replay: `cargo nextest run -p north-fleet -p north-base`. A send to `lander-lead` and to a
-  forgotten session reaches the proxy.
+  forgotten session reaches the coordinator.
 - Status: enforced. 89ab826dba sends the lander's alarms to the live lander owner, else to the
-  proxy marked with the intended name, and a40793dcd bounds every service's pages to the proxy in
+  coordinator marked with the intended name, and a40793dcd bounds every service's pages to the coordinator in
   the fleet store's send path.
 
 ### 9. A host fault reads as a red main and is reverted
@@ -425,7 +425,7 @@ updates its own class's line when its lane lands.
 - Replay: `cargo nextest run -p north-capacity -p north-pacing`, 53 of 53 passed on the rule.
 - Status: enforced. 69093c66c4. North#892's box for it stays open on its live check,
   `north capacity mode status | rg -q 'quota.*12' && awk '{exit !($3<24)}' /proc/loadavg`, which
-  passes once the proxy's temporary hold and relief lapse.
+  passes once the coordinator's temporary hold and relief lapse.
 
 ## What stays only caught
 

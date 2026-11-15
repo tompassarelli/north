@@ -1,6 +1,6 @@
 //! `north ledger flow`: how fast each repository's lanes land, whether landing has stalled, and which
-//! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy of a stall or a
-//! saturated host every fifteen minutes while it lasts, tells the proxy at once of a stalled lander queue, runs `north ci-diagnose`, and runs `north red-main-notify`.
+//! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the coordinator of a stall or a
+//! saturated host every fifteen minutes while it lasts, tells the coordinator at once of a stalled lander queue, runs `north ci-diagnose`, and runs `north red-main-notify`.
 use std::time::Duration;
 
 use serde_json::{Value, json};

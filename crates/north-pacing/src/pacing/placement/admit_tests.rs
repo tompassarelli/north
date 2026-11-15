@@ -27,7 +27,7 @@ fn a_coordinator_launch_with_no_fable_headroom_takes_opus_high_on_the_account_pl
     let mut fallback = decision(Target::Account("claude:b".into()));
     fallback.family = Some(ModelFamily::Opus);
     fallback.verdicts.push(verdict("claude:b", Some(40.0)));
-    let launch = Launch { name: "proxy", account: "b", brief: None, cwd: None, machine: None, lead: false, role: Role::parse("proxy").unwrap(), model: Some("fable"), family: ModelFamily::Fable, operator: false, repository: "" };
+    let launch = Launch { name: "coordinator", account: "b", brief: None, cwd: None, machine: None, lead: false, role: Role::parse("coordinator").unwrap(), model: Some("fable"), family: ModelFamily::Fable, operator: false, repository: "" };
     let placed = settle(&fallback, &launch, "", &Overrides::default()).unwrap();
     assert_eq!((placed.model.as_deref(), placed.effort), (Some("opus"), Some(Effort::High)), "{placed:?}");
     assert!(placed.note.as_deref().is_some_and(|note| note.contains("Opus high, no account has Fable headroom")), "{placed:?}");

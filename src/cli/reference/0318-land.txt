@@ -1,5 +1,5 @@
   land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]  Print each landing's wall time split by category from the span traces, the same split summed with p50 and p90, and the longest leaf spans, then each hand-in refused before its ticket with the seconds from hand-in to the refusal
-  land doctor [--dry-run]                       Read every lander health bound, apply each known remedy and page the proxy once per unknown state
+  land doctor [--dry-run]                       Read every lander health bound, apply each known remedy and page the coordinator once per unknown state
   land drill [FAULT]...                         Inject each lander stuck state into a scratch lander and require its remedy to clear it within the doctor's patience, nobody paged
   land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket to the front of the urgent tickets (the latest mark goes first) and print the place the lander gives it
   land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason

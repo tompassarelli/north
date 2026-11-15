@@ -1,4 +1,4 @@
-//! The one page a host-disk episode sends the proxy and records as an incident: what the pass took and, when the host stays closed, what holds the space.
+//! The one page a host-disk episode sends the coordinator and records as an incident: what the pass took and, when the host stays closed, what holds the space.
 use std::process::{Command, Stdio};
 
 use super::{ALARM_STORES, Disk, Evicted, GIB, INCIDENT_CLASS, Line};
@@ -39,7 +39,7 @@ pub fn alarm(host: &str, before: Disk, after: Disk, (closed, held): (Line, Line)
 
 pub(super) fn page(detail: &str) -> bool {
     let north = north_base::platform::north_binary::north_binary();
-    let sent = Command::new(north).args(["fleet", "send", "--from", "service:north-lease-reaper", "proxy", detail]).stdout(Stdio::null()).status();
+    let sent = Command::new(north).args(["fleet", "send", "--from", "service:north-lease-reaper", "coordinator", detail]).stdout(Stdio::null()).status();
     sent.is_ok_and(|status| status.success())
 }
 

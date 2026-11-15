@@ -1,5 +1,5 @@
 //! Writes `$XDG_STATE_HOME/agents/costs/digitalocean.json`: the current billing month's usage, balance and credit, read
-//! from the DigitalOcean balance endpoint (read-only) through the credential broker's DigitalOcean proxy, which holds the token.
+//! from the DigitalOcean balance endpoint (read-only) through the credential broker's DigitalOcean coordinator, which holds the token.
 use std::path::PathBuf;
 
 use serde_json::{Value, json};

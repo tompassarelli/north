@@ -48,7 +48,7 @@ impl Fleet {
             return self.hand_in_to_heir(row, &heir);
         }
         self.record(&row.to)?;
-        self.rebind_dead_proxy(&row.to)?;
+        self.rebind_dead_coordinator(&row.to)?;
         let _lock = self.delivery_lock(&row.to)?;
         let mut store = self.deliveries()?;
         let handed_in = match store.current::<RowDelivery>(&instance(&row.to, &row.id))?.map(|record| record.state) {

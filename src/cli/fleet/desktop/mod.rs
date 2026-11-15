@@ -1,16 +1,16 @@
-//! The desktop a proxy held in a window is shown on: whenever the fleet starts it, a terminal window opens here running the provider's
-//! interactive client on its conversation, so it runs where Tom types from its first turn. A proxy held by the screen opens nothing here: it
-//! runs as a fleet host the fleet screen types into. The fleet asks through `ProxyDesk`; niri with ghostty is its adapter.
+//! The desktop a coordinator held in a window is shown on: whenever the fleet starts it, a terminal window opens here running the provider's
+//! interactive client on its conversation, so it runs where Tom types from its first turn. A coordinator held by the screen opens nothing here: it
+//! runs as a fleet host the fleet screen types into. The fleet asks through `CoordinatorDesk`; niri with ghostty is its adapter.
 pub(super) mod niri;
 
-use crate::fleet::registry::ProxyDesk;
+use crate::fleet::registry::CoordinatorDesk;
 use crate::fleet::runtime::HostSpec;
 
 /// Tom's desktop: a ghostty window niri spawns, running the interactive client in its working directory and environment on the same HOME as
 /// the fleet that opened it, so its hooks find that fleet; the client titles the window.
 pub(super) struct Desktop;
 
-impl ProxyDesk for Desktop {
+impl CoordinatorDesk for Desktop {
     fn closed(&self) -> Option<String> {
         niri::live().err()
     }

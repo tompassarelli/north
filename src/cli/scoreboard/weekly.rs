@@ -1,4 +1,4 @@
-//! The scoreboard as a weekly loop: the fleet tick records it once a week and tells the proxy, once
+//! The scoreboard as a weekly loop: the fleet tick records it once a week and tells the coordinator, once
 //! per recording, which numbers got worse than the week before. A recording is one transaction to north's
 //! graph (north-graph-loops, writer `scoreboard`), and the week-on-week comparison reads it back through
 //! harness/graph-rules/scoreboard.json.
@@ -135,7 +135,7 @@ fn stored() -> Result<Option<Record>, String> {
     Ok(Record::told(&scoreboard::read(&graph)?))
 }
 
-/// What the proxy's fleet tick says: the record is refreshed when a week old, and the numbers that got
+/// What the coordinator's fleet tick says: the record is refreshed when a week old, and the numbers that got
 /// worse are told once per recording.
 pub fn tick(now: i64) -> Vec<String> {
     let current = match stored() {

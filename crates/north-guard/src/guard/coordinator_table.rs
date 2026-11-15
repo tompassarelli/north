@@ -1,7 +1,7 @@
 use north_base::platform::harness::{DEFAULTS, document};
 use toml_edit::{DocumentMut, Value};
 
-pub const TABLE: &str = "proxy_role";
+pub const TABLE: &str = "coordinator_role";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Class {
@@ -65,20 +65,20 @@ impl Class {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Owner {
-    Proxy,
+    Coordinator,
     Worker,
 }
 
 impl Owner {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Proxy => "proxy",
+            Self::Coordinator => "coordinator",
             Self::Worker => "worker",
         }
     }
 
     fn named(name: &str) -> Option<Self> {
-        [Self::Proxy, Self::Worker].into_iter().find(|owner| owner.name() == name)
+        [Self::Coordinator, Self::Worker].into_iter().find(|owner| owner.name() == name)
     }
 }
 
@@ -118,9 +118,9 @@ impl Table {
         let row = row.as_inline_table().ok_or_else(|| format!("{TABLE} holds a row that is not a table"))?;
         let text = |key: &str| row.get(key).and_then(Value::as_str).ok_or_else(|| format!("{TABLE} holds a row without {key}"));
         let class = text("class")?;
-        let class = Class::named(class).ok_or_else(|| format!("{TABLE} names {class}, which the proxy-role guard does not sort calls into"))?;
+        let class = Class::named(class).ok_or_else(|| format!("{TABLE} names {class}, which the coordinator-role guard does not sort calls into"))?;
         let owner = text("owner")?;
-        let owner = Owner::named(owner).ok_or_else(|| format!("{TABLE} gives {} to {owner}, which is neither proxy nor worker", class.name()))?;
+        let owner = Owner::named(owner).ok_or_else(|| format!("{TABLE} gives {} to {owner}, which is neither coordinator nor worker", class.name()))?;
         Ok(Row { class, owner, what: text("what")?.to_owned() })
     }
 
@@ -134,7 +134,7 @@ impl Table {
 
     pub fn render(&self) -> String {
         let mut lines = Vec::new();
-        for (owner, heading) in [(Owner::Proxy, "The proxy does itself:"), (Owner::Worker, "The proxy writes a brief and launches a worker for:")] {
+        for (owner, heading) in [(Owner::Coordinator, "The coordinator does itself:"), (Owner::Worker, "The coordinator writes a brief and launches a worker for:")] {
             lines.push(heading.to_owned());
             lines.extend(self.0.iter().filter(|row| row.owner == owner).map(|row| format!("  {:<16} {}", row.class.name(), row.what)));
         }
@@ -144,7 +144,7 @@ impl Table {
 
 pub fn run(arguments: &[String]) -> u8 {
     if !arguments.is_empty() {
-        eprintln!("usage: north config proxy role");
+        eprintln!("usage: north config coordinator role");
         return 2;
     }
     match Table::load() {
@@ -153,7 +153,7 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         Err(fault) => {
-            eprintln!("north config proxy role: {fault}");
+            eprintln!("north config coordinator role: {fault}");
             1
         }
     }

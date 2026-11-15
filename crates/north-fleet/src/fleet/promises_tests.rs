@@ -64,7 +64,7 @@ fn a_report_keeps_only_the_promised_command_of_a_future_time_once_never_the_pros
     assert_eq!(open.len(), 1, "one promise repeated over three turns is paged once");
     book.checked(&[open[0].key()]).unwrap();
     assert!(book.open().is_empty());
-    book.keep(&[Promise { parent: "proxy".into(), session: "other".into(), ..turns[0].clone() }]).unwrap();
+    book.keep(&[Promise { parent: "coordinator".into(), session: "other".into(), ..turns[0].clone() }]).unwrap();
     assert!(book.open().is_empty(), "a promise-due note goes to the reporting session's lead, never the coordinator");
 }
 

@@ -7,7 +7,7 @@ Choose the cheapest existing observation that exposes the good/bad divergence.
 - Trace library calls with `ltrace` or loading with `LD_DEBUG=libs`.
 - Trace Wine with `WINEDEBUG=+file,+module,+loaddll` and restrict `+relay` through `RelayInclude`; compare prefixes, DLL overrides and drive mappings.
 - Use Process Monitor for native Windows file/process traces.
-- Inspect network and IPC with `ss -tupn`, `tcpdump`, devtools or a logging proxy.
+- Inspect network and IPC with `ss -tupn`, `tcpdump`, devtools or a logging coordinator.
 - Inspect process state through `/proc/<pid>/{cmdline,environ,cwd,fd,maps}`, `lsof`, `gdb` or core dumps.
 - Inspect authorized binaries with `strings`, disassemblers, Frida or `LD_PRELOAD` hooks. Never point these or `gdb` at a game's binaries or processes; follow `clean-room` there.
 - Prefer documented status/control APIs and structured state over screenshots or OCR.

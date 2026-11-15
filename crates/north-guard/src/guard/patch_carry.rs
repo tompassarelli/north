@@ -16,7 +16,7 @@ static APPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:^|[\s;&|(`'"])
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     let command = input.command().filter(|_| input.is_shell()).unwrap_or_default();
-    if !APPLY.is_match(command) || !super::proxy_role::is_proxy(&super::proxy_role::Live, input) {
+    if !APPLY.is_match(command) || !super::coordinator_role::is_coordinator(&super::coordinator_role::Live, input) {
         return Verdict::Allow;
     }
     let now = u64::try_from(crate::foundation::clock::Timestamp::now().unix_seconds()).unwrap_or_default();
@@ -30,7 +30,7 @@ pub fn decide(command: &str, admission: &Admission) -> Verdict {
         return Verdict::Allow;
     }
     let issue = command.split_whitespace().find_map(|word| word.strip_prefix(ISSUE));
-    match admission.admit(Kind::PatchCarry, CLASS, crate::fleet::runtime::PROXY, issue) {
+    match admission.admit(Kind::PatchCarry, CLASS, crate::fleet::runtime::COORDINATOR, issue) {
         Ok(()) => Verdict::Allow,
         Err(why) => Verdict::Deny(format!("BLOCKED (repeat-unblock): {why}; here the issue goes in the command as `{ISSUE}REPO#N`")),
     }

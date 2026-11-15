@@ -1,6 +1,6 @@
 //! The dividends of landed plan issues: each is a figure the 7-day ledger gives and the bar it must
 //! stay inside. A tick reads every one once a day and keeps the reading, so a landed change that
-//! stops paying turns DECAYED in the readings and tells the proxy once.
+//! stops paying turns DECAYED in the readings and tells the coordinator once.
 use crate::ledger::ClosedReport;
 use serde_json::{Value, json};
 use toml_edit::{DocumentMut, Item, Table};
@@ -135,7 +135,7 @@ impl Dividend {
 }
 
 /// What a tick adds from the dividends: a line for each, the rows of those with no row yet for
-/// today, and the message to the proxy for each that turned DECAYED since its last earlier day.
+/// today, and the message to the coordinator for each that turned DECAYED since its last earlier day.
 #[derive(Default)]
 pub struct Checked {
     pub lines: Vec<String>,

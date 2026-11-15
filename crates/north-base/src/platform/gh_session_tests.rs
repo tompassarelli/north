@@ -67,11 +67,11 @@ fn the_shared_token_refuses_the_top_spenders_only_when_it_is_short_counts_a_roll
 
     let hooks = scratch("hooks");
     let hook = gh_origin::Origin { kind: Kind::Hook, caller: "north-hook".to_owned() };
-    prepare("gh", &words(&["issue", "view", "1"]), "proxy", Share { budget: 20, ledger: &hooks, pool: &open() }, 1000, &hook, token).unwrap();
-    prepare("gh", &words(&["api", "-H", "x:y", "repos/o/r/pulls?state=open"]), "proxy", Share { budget: 20, ledger: &hooks, pool: &open() }, 1001, &hook, token).unwrap();
-    let Refusal::Budget(message) = prepare("gh", &words(&["issue", "view", "2"]), "proxy", Share { budget: 20, ledger: &hooks, pool: &open() }, 1002, &hook, token).unwrap_err() else { panic!("not a budget refusal") };
+    prepare("gh", &words(&["issue", "view", "1"]), "coordinator", Share { budget: 20, ledger: &hooks, pool: &open() }, 1000, &hook, token).unwrap();
+    prepare("gh", &words(&["api", "-H", "x:y", "repos/o/r/pulls?state=open"]), "coordinator", Share { budget: 20, ledger: &hooks, pool: &open() }, 1001, &hook, token).unwrap();
+    let Refusal::Budget(message) = prepare("gh", &words(&["issue", "view", "2"]), "coordinator", Share { budget: 20, ledger: &hooks, pool: &open() }, 1002, &hook, token).unwrap_err() else { panic!("not a budget refusal") };
     assert!(message.contains("hooks have spent 2 of their 2"), "a hook is refused past a tenth of the share: {message}");
-    prepare("gh", &words(&["issue", "view", "3"]), "proxy", Share { budget: 20, ledger: &hooks, pool: &open() }, 1003, &command_origin(), token).unwrap();
+    prepare("gh", &words(&["issue", "view", "3"]), "coordinator", Share { budget: 20, ledger: &hooks, pool: &open() }, 1003, &command_origin(), token).unwrap();
     let seen: Vec<_> = fresh_spend(&hooks, 1004).into_iter().map(|spend| (spend.kind, spend.caller, spend.endpoint)).collect();
     let named = |kind, caller: &str, endpoint: &str| (kind, caller.to_owned(), endpoint.to_owned());
     assert_eq!(seen, [named(Kind::Hook, "north-hook", "issue:view"), named(Kind::Hook, "north-hook", "api:repos/o/r/pulls"), named(Kind::Command, "shell", "issue:view")]);
@@ -84,16 +84,16 @@ fn the_shared_token_refuses_the_top_spenders_only_when_it_is_short_counts_a_roll
     let at = |before, units, now| budget_notices("worker-1", &notices, before, units, 10, now, before + units > 10).into_iter().map(|(recipient, _)| recipient).collect::<Vec<_>>();
     let to = |before, units| at(before, units, 2000);
     assert!(to(0, 1).is_empty());
-    assert_eq!(to(4, 1), ["worker-1"], "50% tells the spending session, not the proxy");
+    assert_eq!(to(4, 1), ["worker-1"], "50% tells the spending session, not the coordinator");
     assert!(to(5, 1).is_empty());
-    assert_eq!(to(7, 1), ["worker-1"], "80% tells the spending session, not the proxy");
+    assert_eq!(to(7, 1), ["worker-1"], "80% tells the spending session, not the coordinator");
     assert!(budget_notices("worker-1", &notices, 4, 5, 10, 2000, false)[0].1.contains("80%"), "one call over both lines names the higher one");
     assert!(to(8, 1).is_empty());
-    assert_eq!(to(10, 1), ["proxy"], "only a refusal at 100% reaches the proxy");
-    assert!(to(10, 1).is_empty(), "a second refusal in the same window sends the proxy nothing");
+    assert_eq!(to(10, 1), ["coordinator"], "only a refusal at 100% reaches the coordinator");
+    assert!(to(10, 1).is_empty(), "a second refusal in the same window sends the coordinator nothing");
     assert!(to(9, 1).is_empty(), "an admitted call sends nothing");
-    assert!(at(10, 1, 2000 + WINDOW_SECONDS - 1).is_empty(), "a refusal after an admitted small call within the hour of the first sends the proxy nothing");
-    assert_eq!(at(10, 1, 2000 + WINDOW_SECONDS), ["proxy"], "a refusal an hour after the first tells the proxy once more");
+    assert!(at(10, 1, 2000 + WINDOW_SECONDS - 1).is_empty(), "a refusal after an admitted small call within the hour of the first sends the coordinator nothing");
+    assert_eq!(at(10, 1, 2000 + WINDOW_SECONDS), ["coordinator"], "a refusal an hour after the first tells the coordinator once more");
     assert!(at(10, 1, 2000 + WINDOW_SECONDS + 1).is_empty(), "the hour restarts from that notice");
     assert!(to(10, 0).is_empty(), "a free call is never refused");
 }
@@ -107,8 +107,8 @@ fn open() -> Pool {
 }
 
 #[test]
-fn the_proxys_unlaunched_window_spends_the_proxy_ledger_and_no_other_session_does() {
-    let record = r#"{"name":"proxy","conversation":"abc-123"}"#;
-    assert!(holds_conversation(record, "abc-123"), "the proxy's own window is the conversation its fleet row holds");
+fn the_coordinators_unlaunched_window_spends_the_coordinator_ledger_and_no_other_session_does() {
+    let record = r#"{"name":"coordinator","conversation":"abc-123"}"#;
+    assert!(holds_conversation(record, "abc-123"), "the coordinator's own window is the conversation its fleet row holds");
     assert!(!holds_conversation(record, "other") && !holds_conversation(record, "") && !holds_conversation("", ""), "any other unlaunched session stays unlaunched");
 }

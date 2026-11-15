@@ -150,11 +150,11 @@ credentials during install or build.
 Options, each argued against:
 
 - Docker Sandboxes ([docker-sandboxes](../references.md#docker-sandboxes)): one microVM per agent behind a hypervisor,
-  workspace shared at the same path through filesystem passthrough, egress and API keys through a host proxy that
+  workspace shared at the same path through filesystem passthrough, egress and API keys through a host coordinator that
   swaps a placeholder for the real credential. Against: it isolates one agent per VM, while north's workers share one
   git common directory, a capacity scheduler that leases cgroups, offload over ssh, and systemd user units; each VM
   would need its own Nix store or a share of the host's. It is a vendor tool whose Linux support names Ubuntu with KVM,
-  not NixOS, and adopting it is a dependency decision for Tom. Its credential proxy is the idea worth keeping.
+  not NixOS, and adopting it is a dependency decision for Tom. Its credential coordinator is the idea worth keeping.
 - microvm.nix ([microvm-nix](../references.md#microvm-nix), MIT): declarative VMs on a NixOS host with eight
   hypervisors and virtiofs or 9p shares. Against: the same redesign of shared state, KVM on every host, and memory per
   worker. A kernel boundary matters if the threat includes kernel exploits; neither threat here does.
@@ -181,7 +181,7 @@ without removing it.
 Recommendation: stay on Linux primitives, extend them to every path (north#974, north#975) and enforce the worker
 sandbox on every host (north#956). Cost: no new tool, no VM and no new user; the work is in north's own sandbox and
 slot code, and each step goes through a canary first, since Landlock has no permissive mode. Proposal for later, not
-adopted: a credential broker outside the domain, as Docker's proxy is, so the worker's ruleset can also govern reads.
+adopted: a credential broker outside the domain, as Docker's coordinator is, so the worker's ruleset can also govern reads.
 
 ## The companion repository
 

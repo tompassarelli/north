@@ -33,7 +33,7 @@ System and telemetry:
   accounts              Each account's state, 5h and week room, and each api grant's dollars
   health                Readiness bars, concerns and harness invariants
   infra                 Live paid resources with their monthly price and a total
-  config                Skills and hooks, agent plan and usage, context, proxy calls
+  config                Skills and hooks, agent plan and usage, context, coordinator calls
   runtime               Update, deploy or check the north and agent runtimes
   capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
   ops                   Watch, expectations, credentials, GitHub, strategy, news

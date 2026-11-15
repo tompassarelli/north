@@ -6,7 +6,7 @@ use north_unblocks::review::{HOUR_SECONDS, Owners, classes, mirror_closed, refus
 use crate::hook_input::{HookInput, Verdict};
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if !super::proxy_role::is_proxy(&super::proxy_role::Live, input) {
+    if !super::coordinator_role::is_coordinator(&super::coordinator_role::Live, input) {
         return Verdict::Allow;
     }
     let now = crate::foundation::clock::Timestamp::now().unix_seconds();

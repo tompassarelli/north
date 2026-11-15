@@ -99,7 +99,7 @@ that changes a runtime input, so every landing was a fleet-wide deploy of the co
 
 Read from the settling host's pin journal (`runtime-pins.jsonl` as mirrored to gex45 at 19:58 UTC on 2026-11-10)
 for the 8 h 53 min it ran before the mirror, 08:59 to 17:52 UTC on 2026-11-10, and from the follow journal and capacity
-ledgers the proxy and this plan read:
+ledgers the coordinator and this plan read:
 
 - 197 landings changed a runtime input and 74 distinct runtimes were promoted, about 8 an hour. The follow journal
   counted 32 `north runtime promoted:` lines in the 24 h to 4:45 AM, and 8 release builds ran on the laptop between
@@ -150,7 +150,7 @@ cadence keeps that: each promotion still goes live everywhere within the 2-minut
   soonest to build origin/main's head. At the slot it promotes the newest head whose artifact is ready. Build-ahead
   for queued candidates (18afcca179) narrows to candidates that carry `Live-fix:`, the only landings whose
   promotion waits on a build. That is about 6 builds a day plus fast paths, against about 200.
-- **A failed slot keeps the old pin.** The walk rolls the runtime back and quarantines it as today. The proxy is
+- **A failed slot keeps the old pin.** The walk rolls the runtime back and quarantines it as today. The coordinator is
   alarmed with the failing probe, the next slot takes a newer head, and the fix can take the fast path. A rollback
   now delays fixes by a whole slot instead of a quarter hour, so a probe that fails on wording (north#1022's
   planted-token box) has to land before the cadence goes live.
@@ -164,7 +164,7 @@ cadence keeps that: each promotion still goes live everywhere within the 2-minut
   The pin journal records a `due` event with sha, reason (slot or fast path) and time. The coordinator is paged when
   a due promotion is not live on the settling host 5 minutes later. An ordinary landing waiting for its slot is on
   schedule and pages nothing. A fast-path landing pages at 5 minutes, as every landing does today.
-- **Page volume.** At 22:52 UTC on 2026-11-10 the per-landing page tripped the proxy's page-flood ceiling with 4
+- **Page volume.** At 22:52 UTC on 2026-11-10 the per-landing page tripped the coordinator's page-flood ceiling with 4
   pages in 10 minutes. One of them named the landing it paged about, 18afcca1, as the pinned runtime, which is a
   separate false-page box. The coordinator can act on one page per stuck promotion. Under the cadence that is at
   most one per due promotion: 6 slots plus the fast paths, about 7 a day, and never two in one slot interval unless

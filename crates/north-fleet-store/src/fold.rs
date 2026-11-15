@@ -6,7 +6,7 @@
 //! the alarm's first sentence with its numbers and commit-shaped tokens blanked, after the ops watch's
 //! `still, N min:` prefix, so a re-sent alarm whose load, age, count, runtime sha or canary session id
 //! moved is the same cause. Only the page-now classes in `page.rs` of the alarm services reach the
-//! proxy, every message from a session or Tom passes, and a service's message to the proxy then meets
+//! coordinator, every message from a session or Tom passes, and a service's message to the coordinator then meets
 //! the ceiling in `flood.rs`.
 use std::collections::BTreeMap;
 use std::fs;
@@ -59,7 +59,7 @@ enum Cause {
     Cleared(String),
 }
 
-/// Where a message goes: the addressee it is keyed under, the session it finally reaches (the proxy for a copy re-addressed from an absent lead), and whether a follow-up row is still waiting for the fleet tick.
+/// Where a message goes: the addressee it is keyed under, the session it finally reaches (the coordinator for a copy re-addressed from an absent lead), and whether a follow-up row is still waiting for the fleet tick.
 pub struct Route<'a> {
     pub to: &'a str,
     pub recipient: &'a str,
@@ -68,7 +68,7 @@ pub struct Route<'a> {
 
 /// Whether a message from `sender` to `to` goes out, is held or is folded into a page flood; a
 /// delivered alarm or condition is recorded in `root` so its repeats fold into it, and a service's
-/// message to the proxy then passes the ceiling in `flood.rs`.
+/// message to the coordinator then passes the ceiling in `flood.rs`.
 pub fn admit(root: &Path, sender: &Sender, to: &str, text: &str, condition: Option<&Condition>, now_ms: u64) -> Admit {
     admit_via(root, sender, &Route { to, recipient: to, spooled: &|_| false }, text, condition, now_ms)
 }
@@ -87,7 +87,7 @@ pub fn admit_via(root: &Path, sender: &Sender, route: &Route, text: &str, condit
             {
                 return Admit::Fold(folded);
             }
-            if route.to != crate::runtime::PROXY {
+            if route.to != crate::runtime::COORDINATOR {
                 return Admit::Send;
             }
             match crate::flood::admit(root, sender, text, now_ms) {
@@ -118,7 +118,7 @@ fn fold(root: &Path, sender: &Sender, to: &str, text: &str, condition: Option<&C
     let path = root.join(FILE);
     let mut sent: BTreeMap<String, u64> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     sent.retain(|_, at| now_ms.saturating_sub(*at) < WINDOW_MS);
-    let pages = to != crate::runtime::PROXY || unit.is_none() || crate::page::wakes(sender, text);
+    let pages = to != crate::runtime::COORDINATOR || unit.is_none() || crate::page::wakes(sender, text);
     let admitted = match cause {
         Cause::Cleared(cause) => cleared(&mut sent, &format!("{slot}\t{cause}"), condition.is_some(), pages && ((unit == Some("north-health") && text.starts_with(HARNESS_UNIT)) || crate::page::clear_wakes(sender, text))),
         Cause::Raised(_) if !pages => Admit::Hold,
@@ -209,7 +209,7 @@ fn blank(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::flood::CLASS;
-    use crate::runtime::PROXY;
+    use crate::runtime::COORDINATOR;
 
     #[test]
     fn five_hundred_sends_of_one_condition_from_twelve_senders_deliver_once() {
@@ -219,14 +219,14 @@ mod tests {
         let verdicts: Vec<Admit> = (0..500_u64)
             .map(|send| {
                 let text = format!("north land: the lander runs older build cb929a45e{}, {} lander changes behind main 9a896708b{send:x}, over the limit of 3", send % 2, 4 + send % 7);
-                admit(root.path(), &senders[send as usize % 12], PROXY, &text, Some(&behind), send * 1000)
+                admit(root.path(), &senders[send as usize % 12], COORDINATOR, &text, Some(&behind), send * 1000)
             })
             .collect();
         assert_eq!(verdicts.iter().filter(|verdict| **verdict == Admit::Send).count(), 1, "{:?}", &verdicts[..24]);
         assert!(verdicts.iter().all(|verdict| matches!(verdict, Admit::Send | Admit::Hold)), "a repeat of one condition is held, never folded as a flood");
 
         let lander = &senders[0];
-        let distinct: Vec<Admit> = (0..5_u64).map(|condition| admit(root.path(), lander, PROXY, &format!("north land: condition {condition}"), Some(&Condition { key: format!("other-{condition}"), cleared: false }), 590_000 + condition)).collect();
+        let distinct: Vec<Admit> = (0..5_u64).map(|condition| admit(root.path(), lander, COORDINATOR, &format!("north land: condition {condition}"), Some(&Condition { key: format!("other-{condition}"), cleared: false }), 590_000 + condition)).collect();
         assert_eq!(&distinct[..2], &[Admit::Send, Admit::Send], "the lander already sent the condition's one message in this window");
         assert!(matches!(&distinct[2], Admit::Flood(line) if line.contains("sent 4 messages") && line.contains(CLASS)), "{distinct:?}");
         assert_eq!(&distinct[3..], &[Admit::Hold, Admit::Hold], "whatever its keys, a sender past the ceiling waits in the digest");
@@ -234,8 +234,8 @@ mod tests {
         let starter = Sender::Service("north-land-start".into());
         let units: Vec<String> = (0..7).map(|unit| format!("north-land@repo-{unit}.service")).collect();
         let page = |unit: &str| format!("north land: {unit} has failed to start 16 times and is not serving its queue, so nothing lands there: Unable to locate executable '/lander/tree/bin/north'");
-        let rows: Vec<(&str, &str)> = units.iter().map(|unit| (PROXY, unit.as_str())).chain(units[..4].iter().map(|unit| ("land-lead", unit.as_str()))).collect();
-        let route = |to: &'static str| Route { to, recipient: PROXY, spooled: &|_| true };
+        let rows: Vec<(&str, &str)> = units.iter().map(|unit| (COORDINATOR, unit.as_str())).chain(units[..4].iter().map(|unit| ("land-lead", unit.as_str()))).collect();
+        let route = |to: &'static str| Route { to, recipient: COORDINATOR, spooled: &|_| true };
         let folds: Vec<Admit> = rows
             .iter()
             .enumerate()
@@ -262,24 +262,24 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let relay = Sender::fleet();
         let report = |worker: &str, turn: u64| format!("[from {worker} · turn {turn} · exit completed] Done: landed it.\nStop: landing");
-        let reports: Vec<Admit> = ["north-1-a", "north-2-b", "north-3-c", "north-4-d"].iter().enumerate().map(|(at, worker)| admit(root.path(), &relay, PROXY, &report(worker, 1), None, at as u64 * 120_000)).collect();
+        let reports: Vec<Admit> = ["north-1-a", "north-2-b", "north-3-c", "north-4-d"].iter().enumerate().map(|(at, worker)| admit(root.path(), &relay, COORDINATOR, &report(worker, 1), None, at as u64 * 120_000)).collect();
         assert_eq!(reports, vec![Admit::Send; 4], "four workers' reports relayed by the fleet each reach the coordinator");
 
-        let repeats: Vec<Admit> = (2..6_u64).map(|turn| admit(root.path(), &relay, PROXY, &report("north-1-a", turn), None, 480_000 + turn)).collect();
+        let repeats: Vec<Admit> = (2..6_u64).map(|turn| admit(root.path(), &relay, COORDINATOR, &report("north-1-a", turn), None, 480_000 + turn)).collect();
         assert_eq!(&repeats[..2], &[Admit::Send, Admit::Send]);
         assert!(matches!(&repeats[2], Admit::Flood(line) if line.contains("session:north-1-a sent 4 messages") && line.contains("`north fleet held --since 10m`")), "{repeats:?}");
         assert_eq!(repeats[3], Admit::Hold, "one session repeating itself is still folded");
 
-        let ticks: Vec<Admit> = (0..4_u64).map(|tick| admit(root.path(), &relay, PROXY, &format!("north fleet: trip {tick} opened"), None, 500_000 + tick)).collect();
+        let ticks: Vec<Admit> = (0..4_u64).map(|tick| admit(root.path(), &relay, COORDINATOR, &format!("north fleet: trip {tick} opened"), None, 500_000 + tick)).collect();
         assert!(matches!(&ticks[3], Admit::Flood(line) if line.contains("service:north-fleet sent 4 messages")), "the relay's own messages still count against it: {ticks:?}");
     }
 
     #[test]
-    fn a_hosted_run_that_is_not_judged_waits_in_the_digest_while_a_trip_still_reaches_the_proxy() {
+    fn a_hosted_run_that_is_not_judged_waits_in_the_digest_while_a_trip_still_reaches_the_coordinator() {
         let root = tempfile::tempdir().unwrap();
         let runtime = Sender::Service("north-runtime-update".into());
         let unjudged = "north runtime: the hosted Buck2 run 43669991068 on f4c133fdb5 is not judged and trips nothing: its cases and targets only timed out, none failed";
-        assert_eq!(admit(root.path(), &runtime, PROXY, unjudged, None, 0), Admit::Hold, "the notice of a run that trips nothing woke the proxy");
-        assert_eq!(admit(root.path(), &runtime, PROXY, "north runtime: hosted run 43664341671 on da00e6f468 trips promotion of its head", None, 1000), Admit::Send, "a trip waited in the digest");
+        assert_eq!(admit(root.path(), &runtime, COORDINATOR, unjudged, None, 0), Admit::Hold, "the notice of a run that trips nothing woke the coordinator");
+        assert_eq!(admit(root.path(), &runtime, COORDINATOR, "north runtime: hosted run 43664341671 on da00e6f468 trips promotion of its head", None, 1000), Admit::Send, "a trip waited in the digest");
     }
 }

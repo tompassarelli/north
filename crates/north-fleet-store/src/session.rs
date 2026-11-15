@@ -75,18 +75,18 @@ impl Surface {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
-    Proxy,
+    Coordinator,
     Lead,
     Worker,
     Reviewer,
 }
 
 impl Role {
-    pub const ALL: [Self; 4] = [Self::Proxy, Self::Lead, Self::Worker, Self::Reviewer];
+    pub const ALL: [Self; 4] = [Self::Coordinator, Self::Lead, Self::Worker, Self::Reviewer];
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Proxy => "proxy",
+            Self::Coordinator => "coordinator",
             Self::Lead => "lead",
             Self::Worker => "worker",
             Self::Reviewer => "reviewer",
@@ -100,11 +100,11 @@ impl Role {
             .ok_or_else(|| NorthError::Usage(format!("no role {text}; use one of {}", Self::ALL.map(Self::label).join(", "))))
     }
 
-    /// The role of a session record that names none: a worker's when it was launched for a parent or a task (`coordinated`), the proxy seat's when it carries that seat's `name`, else a lead's.
+    /// The role of a session record that names none: a worker's when it was launched for a parent or a task (`coordinated`), the coordinator seat's when it carries that seat's `name`, else a lead's.
     pub fn unnamed(coordinated: bool, name: &str) -> Self {
-        match (coordinated, name == crate::runtime::PROXY) {
+        match (coordinated, name == crate::runtime::COORDINATOR) {
             (true, _) => Self::Worker,
-            (false, true) => Self::Proxy,
+            (false, true) => Self::Coordinator,
             (false, false) => Self::Lead,
         }
     }

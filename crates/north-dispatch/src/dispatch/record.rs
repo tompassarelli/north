@@ -1,5 +1,5 @@
 //! The dispatch record: one JSON line per launch attempt in ~/.local/state/agents/dispatch/, which
-//! holds a fresh launch until its session shows, and hands an item that keeps failing to the proxy.
+//! holds a fresh launch until its session shows, and hands an item that keeps failing to the coordinator.
 use super::issues::IssueRef;
 use crate::pacing::placement;
 use serde::{Deserialize, Serialize};
@@ -140,7 +140,7 @@ pub fn contested(records: &[Record], at: f64) -> Vec<&Record> {
     started.into_values().filter(|tried| tried.len() >= RETRIES).flatten().collect()
 }
 
-/// The boxes launched twice in a day that the proxy decides about, as `holds` does for a whole item: for each item the slug of each such box with why.
+/// The boxes launched twice in a day that the coordinator decides about, as `holds` does for a whole item: for each item the slug of each such box with why.
 /// A launch whose session `unspent` names did no work on the box is no try.
 pub fn box_retries(records: &[Record], at: f64, unspent: &BTreeMap<String, String>) -> BoxHolds {
     let mut tries: BTreeMap<(IssueRef, String), Vec<&str>> = BTreeMap::new();
@@ -150,13 +150,13 @@ pub fn box_retries(records: &[Record], at: f64, unspent: &BTreeMap<String, Strin
     }
     let mut held = BoxHolds::new();
     for ((item, slug), names) in tries.into_iter().filter(|(_, names)| names.len() >= RETRIES) {
-        held.entry(item).or_default().insert(slug, format!("north fleet dispatch, {} tries of this box in 24 h without ticking it ({}); the proxy decides the next one", names.len(), names.join(", ")));
+        held.entry(item).or_default().insert(slug, format!("north fleet dispatch, {} tries of this box in 24 h without ticking it ({}); the coordinator decides the next one", names.len(), names.join(", ")));
     }
     held
 }
 
 /// Items launched in the last two hours, whose sessions may not show yet, and items tried twice in a
-/// day without closing, which the proxy decides about. A launch whose session `unspent` names did
+/// day without closing, which the coordinator decides about. A launch whose session `unspent` names did
 /// no work on the item is no try. A launch whose session is in `gone`, exited or forgotten, holds
 /// its item no longer.
 pub fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, gone: &BTreeSet<String>) -> BTreeMap<IssueRef, String> {
@@ -175,7 +175,7 @@ pub fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, go
                 let names: Vec<&str> = counted.iter().map(|record| record.name.as_str()).collect();
                 let spared: Vec<String> = spared.iter().map(|record| format!("{}, which {}", record.name, unspent[&record.name])).collect();
                 let spared = if spared.is_empty() { String::new() } else { format!("; not counted: {}", spared.join("; ")) };
-                format!("north fleet dispatch, {} tries in 24 h without closing ({}){spared}; the proxy decides the next one", counted.len(), names.join(", "))
+                format!("north fleet dispatch, {} tries in 24 h without closing ({}){spared}; the coordinator decides the next one", counted.len(), names.join(", "))
             } else {
                 let last = last.filter(|last| at - last.at < hold(last))?;
                 format!("north fleet dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)

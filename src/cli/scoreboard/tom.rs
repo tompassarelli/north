@@ -16,8 +16,8 @@ use crate::flow::typed::{Reach, typed_messages};
 
 const HOUR_S: i64 = 3_600;
 
-/// One turn of a proxy conversation, found by the convo index and parsed from its transcript lines by the recommend-acts hook's own reader when it matters here.
-struct ProxyTurn {
+/// One turn of a coordinator conversation, found by the convo index and parsed from its transcript lines by the recommend-acts hook's own reader when it matters here.
+struct CoordinatorTurn {
     at: i64,
     tom: bool,
     first_line: i64,
@@ -26,7 +26,7 @@ struct ProxyTurn {
     turn: Option<Turn>,
 }
 
-impl ProxyTurn {
+impl CoordinatorTurn {
     fn wanted(&self) -> bool {
         self.tom || self.recommends
     }
@@ -41,7 +41,7 @@ pub struct Ask {
 pub struct Tom {
     typed: Vec<Typed>,
     corrections: Vec<i64>,
-    turns: Vec<ProxyTurn>,
+    turns: Vec<CoordinatorTurn>,
 }
 
 fn grounding_corrections(path: &Path, typed: &BTreeSet<i64>) -> Vec<i64> {
@@ -61,7 +61,7 @@ fn recommends(reply: &[String]) -> bool {
     !reply.is_empty() && recommend_acts::recommendation(&reply.join("\n\n"), &Turn::default()).is_some()
 }
 
-fn conversation_turns(db: &Connection, path: &str, typed: &BTreeMap<i64, i64>) -> rusqlite::Result<Vec<ProxyTurn>> {
+fn conversation_turns(db: &Connection, path: &str, typed: &BTreeMap<i64, i64>) -> rusqlite::Result<Vec<CoordinatorTurn>> {
     let first = typed.keys().next().copied().unwrap_or_default();
     let mut statement = db.prepare(
         "SELECT m.id, m.line, m.ts, m.role, m.tool, b.text FROM files f JOIN msg m INDEXED BY msg_file ON m.file_id = f.id JOIN body b ON b.id = m.body \
@@ -70,7 +70,7 @@ fn conversation_turns(db: &Connection, path: &str, typed: &BTreeMap<i64, i64>) -
     let rows = statement.query_map((path, first), |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, String>(5)?))
     })?;
-    let (mut turns, mut reply): (Vec<ProxyTurn>, Vec<String>) = (Vec::new(), Vec::new());
+    let (mut turns, mut reply): (Vec<CoordinatorTurn>, Vec<String>) = (Vec::new(), Vec::new());
     for row in rows {
         let (id, line, at, role, tool, text) = row?;
         match (role.as_deref(), tool) {
@@ -82,7 +82,7 @@ fn conversation_turns(db: &Connection, path: &str, typed: &BTreeMap<i64, i64>) -
                 reply.clear();
                 let at = typed.get(&id).copied().or_else(|| at.as_deref().and_then(Timestamp::parse_rfc3339).map(Timestamp::unix_seconds));
                 if let Some(at) = at {
-                    turns.push(ProxyTurn { at, tom: typed.contains_key(&id), first_line: line, end_line: None, recommends: false, turn: None });
+                    turns.push(CoordinatorTurn { at, tom: typed.contains_key(&id), first_line: line, end_line: None, recommends: false, turn: None });
                 }
             }
             (_, Some(_)) => reply.clear(),
@@ -96,7 +96,7 @@ fn conversation_turns(db: &Connection, path: &str, typed: &BTreeMap<i64, i64>) -
     Ok(turns)
 }
 
-const PARSED: &str = "proxy-turns.db";
+const PARSED: &str = "coordinator-turns.db";
 
 struct Parsed {
     start: i64,
@@ -129,7 +129,7 @@ fn remember(store: Option<&Connection>, path: &str, fresh: &Fresh) {
     let _ = transaction.commit();
 }
 
-fn parse_turns(store: Option<&Connection>, path: &str, turns: &mut [ProxyTurn]) {
+fn parse_turns(store: Option<&Connection>, path: &str, turns: &mut [CoordinatorTurn]) {
     let parsed = parsed_in(store, path);
     let mut pending = Vec::new();
     for turn in turns.iter_mut().filter(|turn| turn.wanted()) {
@@ -144,7 +144,7 @@ fn parse_turns(store: Option<&Connection>, path: &str, turns: &mut [ProxyTurn]) 
     remember(store, path, &fresh);
 }
 
-fn read_turns(path: &str, parsed: &BTreeMap<i64, Parsed>, pending: Vec<&mut ProxyTurn>, fresh: &mut Fresh) {
+fn read_turns(path: &str, parsed: &BTreeMap<i64, Parsed>, pending: Vec<&mut CoordinatorTurn>, fresh: &mut Fresh) {
     let Some(first) = pending.first().map(|turn| turn.first_line) else { return };
     let (start_line, start) = parsed.range(..=first).next_back().map_or((1, 0), |(line, known)| (*line, known.start));
     let Ok(mut file) = fs::File::open(path) else { return };
@@ -209,7 +209,7 @@ impl Tom {
     }
 
     pub fn answered_turns(&self, window: Window) -> Vec<&Turn> {
-        self.turns.iter().filter(|proxy| proxy.tom && window.holds(proxy.at)).filter_map(|proxy| proxy.turn.as_ref()).filter(|turn| turn.reply.is_some()).collect()
+        self.turns.iter().filter(|coordinator| coordinator.tom && window.holds(coordinator.at)).filter_map(|coordinator| coordinator.turn.as_ref()).filter(|turn| turn.reply.is_some()).collect()
     }
 
     pub fn corrections(&self, weeks: [Window; 2]) -> Measure {
@@ -220,14 +220,14 @@ impl Tom {
         Measure {
             name: "Tom's corrections per active hour".into(),
             better: Better::Lower,
-            source: "grounding ledger correction rows on Tom's typed messages, over clock hours holding one of those messages (convo store, proxy conversations)",
+            source: "grounding ledger correction rows on Tom's typed messages, over clock hours holding one of those messages (convo store, coordinator conversations)",
             weeks: weeks.map(figure),
         }
     }
 
     pub fn asked(&self, window: Window, firsts: &HashMap<String, Vec<i64>>) -> Vec<Ask> {
         let mut asked = Vec::new();
-        for (at, turn) in self.turns.iter().filter(|proxy| proxy.tom && window.holds(proxy.at)).filter_map(|proxy| Some((proxy.at, proxy.turn.as_ref()?))) {
+        for (at, turn) in self.turns.iter().filter(|coordinator| coordinator.tom && window.holds(coordinator.at)).filter_map(|coordinator| Some((coordinator.at, coordinator.turn.as_ref()?))) {
             let launched = turn.commands.iter().filter(|command| command.contains("north fleet launch") || command.contains("north fleet send")).flat_map(|command| references(command));
             let items: BTreeSet<String> = turn.moved.iter().flat_map(|issue| references(&issue.label())).chain(launched).collect();
             if items.is_empty() {
@@ -264,17 +264,17 @@ impl Tom {
             let judged: Vec<bool> = self
                 .turns
                 .iter()
-                .filter(|proxy| proxy.recommends && window.holds(proxy.at))
-                .filter_map(|proxy| proxy.turn.as_ref())
+                .filter(|coordinator| coordinator.recommends && window.holds(coordinator.at))
+                .filter_map(|coordinator| coordinator.turn.as_ref())
                 .filter_map(|turn| recommend_acts::recommendation(turn.reply.as_deref()?, turn))
                 .map(|judged| judged.acted)
                 .collect();
             Figure::Share { hits: judged.iter().filter(|acted| **acted).count(), of: judged.len(), pending: 0, pending_label: "" }
         };
         Measure {
-            name: "proxy recommendations filed as an issue the same turn".into(),
+            name: "coordinator recommendations filed as an issue the same turn".into(),
             better: Better::Higher,
-            source: "proxy turns whose final reply recommends or asks (north hook recommend-acts' rule, ask-once decisions excluded) that created or edited an issue the reply cites (transcripts)",
+            source: "coordinator turns whose final reply recommends or asks (north hook recommend-acts' rule, ask-once decisions excluded) that created or edited an issue the reply cites (transcripts)",
             weeks: weeks.map(figure),
         }
     }

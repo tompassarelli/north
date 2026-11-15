@@ -93,8 +93,8 @@ fn short(sha: &str) -> &str {
 }
 
 fn tell(runtimes: &Runtimes, text: &str) {
-    if !runtimes.dry_run && !after::send("proxy", text) {
-        println!("north land promote: could not tell the proxy: {text}");
+    if !runtimes.dry_run && !after::send("coordinator", text) {
+        println!("north land promote: could not tell the coordinator: {text}");
     }
 }
 

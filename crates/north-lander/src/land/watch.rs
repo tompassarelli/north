@@ -172,7 +172,7 @@ fn unsettled(batch: &Batch, detail: &str) {
     moved(heads(batch), Run::Unsettled, detail);
     let misses = lifecycle::host().map_or(0, |store| heads(batch).map(|head| lifecycle::misses(&store, head)).max().unwrap_or(0));
     if misses == UNSETTLED {
-        after::send("proxy", &format!("north land: the after-landing run of {} reached no verdict {UNSETTLED} times in a row ({detail}); main is unverified until one does, and it keeps running every {} s", batch.head, RETRY.as_secs()));
+        after::send("coordinator", &format!("north land: the after-landing run of {} reached no verdict {UNSETTLED} times in a row ({detail}); main is unverified until one does, and it keeps running every {} s", batch.head, RETRY.as_secs()));
     }
 }
 
@@ -461,8 +461,8 @@ fn unreproduced(lander: &Lander, batch: &Batch, outcome: &Outcome, again: &std::
     record(lander, &[Span::new(&batch.head, "failure unreproduced at the tip".to_owned(), Category::Lander, at, at).with(PHASE, AFTER).with(FINDING, UNREPRODUCED).with("log", outcome.log.display().to_string()).with("rerun_log", again.display().to_string())]);
     let message = format!("north land: the post-land checks of {} failed ({failing}) and did not fail again when rerun once at the tip, so no lane is reverted and main stays unverified; logs {} and {}", short(&batch.head), outcome.log.display(), again.display());
     println!("{message}");
-    if !after::send("proxy", &message) {
-        println!("north land: could not tell the proxy that the failure of {} was not reproduced", batch.head);
+    if !after::send("coordinator", &message) {
+        println!("north land: could not tell the coordinator that the failure of {} was not reproduced", batch.head);
     }
 }
 

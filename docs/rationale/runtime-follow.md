@@ -98,15 +98,15 @@ promotion pages nothing while services restart onto the new link (north#1540). A
 the pin reads 0 with the hold in `hold`, and a host that did not answer is one
 object with a null `seconds` and its reason in `unread`. The settling host's fleet tick starts `north runtime lag --sample` in a scope of its own, at most once a minute, so the
 reading does not stop with the stable pin. Each sample appends the worst reading to `runtime-lag.jsonl`, which the
-`ready-runtime-lag` bar reads (at most 5 min). A session process more than `runtime_promotion_slot_sec` behind since its host's swap (it keeps the runtime it started on by design) pages the proxy once, keyed
+`ready-runtime-lag` bar reads (at most 5 min). A session process more than `runtime_promotion_slot_sec` behind since its host's swap (it keeps the runtime it started on by design) pages the coordinator once, keyed
 `runtime-lag`, and the episode ends when no session process does. A host service (a broker, lander, watchdog or the
-offload taker; a worker sandbox broker is a session's own) pages the proxy by name, keyed `runtime-lag:HOST:PROCESS`, each
+offload taker; a worker sandbox broker is a session's own) pages the coordinator by name, keyed `runtime-lag:HOST:PROCESS`, each
 time it has stayed behind past 10 min since its host took the new runtime, and a cleared notice ends its episode once it is back under 10 min; an unreadable host keeps its episodes open. Open episodes live in `runtime-lag-episodes.json`.
 
 ## The lander's landing-speed watch
 
 After the lander link moves to a new runtime, the lander judges its next landings (north#1631). It points the link back to the
-runtime it held before, restarts its serving units and alerts the proxy once when the first three landings each took more than
+runtime it held before, restarts its serving units and alerts the coordinator once when the first three landings each took more than
 `SLOW_SECONDS` from queue head to main, or when a ticket waited `STALL_SECONDS` with no landing while it was queued. A ticket whose
 checks main also fails does not count toward the stall, since a red main is no runtime's doing. The record lives beside the link
 hold, and a record whose held runtime lies outside `runtimes/` is not followed.

@@ -2,7 +2,7 @@
 //! lease reaper trims itself. The reaper holds the disk over one line, the line its host closes to new work under plus one warm slot of
 //! margin: a pass that starts under it trims regenerable caches (build-offload slots, the shared cargo targets, wisp window builds,
 //! sccache) least recently used first and past their caps toward the far roomier low watermark, takes warm stores until the disk is back
-//! over it, and the first such pass of an episode pages the proxy once with what it took and the ledger's largest stores; the next page
+//! over it, and the first such pass of an episode pages the coordinator once with what it took and the ledger's largest stores; the next page
 //! waits for the next crossing. Between passes only caps are kept. Land-offload slots, the lander's reserved slot of each checkout last,
 //! are held to their cap on every pass, so a host closes for disk only once nothing its rules may reclaim is left. Within a slot store the least recently used slot whose lock no
 //! job holds goes first. The lines are free space, not a percent, so a large disk keeps the same headroom as a small one. The lease
@@ -371,7 +371,7 @@ pub fn tend() {
 }
 
 /// `north capacity disk keep`, the disk pass. A disk under the held line with no host-disk episode open starts one cleanup pass toward
-/// the low watermark, records the episode and pages the proxy once with what the pass took and, when the host stays closed, what holds
+/// the low watermark, records the episode and pages the coordinator once with what the pass took and, when the host stays closed, what holds
 /// the space; every pass under the held line reclaims warm stores too. The episode closes once the disk is back over the held line, so
 /// the next page waits for the next crossing. Between passes only caps are kept.
 pub fn keep() {

@@ -20,7 +20,7 @@ use crate::fleet::transcript::{session_stream_path, stream_len};
 use crate::fleet::unaccepted::Unaccepted;
 
 use super::awaiting::await_conversation;
-use super::proxy_window::held_in_window;
+use super::coordinator_window::held_in_window;
 use super::{Fleet, session_running};
 
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
@@ -36,7 +36,7 @@ pub(super) fn start_host(dir: &Path, spec: &HostSpec, provider: &ProviderName, i
 impl Fleet {
     pub(super) fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening, hooks: HooksCheck) -> NorthResult<()> {
         if held_in_window(record) {
-            return self.open_proxy_window(record, account, opening, None, hooks);
+            return self.open_coordinator_window(record, account, opening, None, hooks);
         }
         let opened = self.open_host(record, account, opening, None)?;
         self.go_live(record, opening, hooks, opened).map(drop)
@@ -55,7 +55,7 @@ impl Fleet {
         let since_ms = if record.host_dir.as_os_str().is_empty() { record.created_ms } else { now_ms() };
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
-        self.refuse_headless_proxy(record, runtime.as_ref(), account)?;
+        self.refuse_headless_coordinator(record, runtime.as_ref(), account)?;
         self.refuse_reserve(record, account)?;
         let (instructions, sha) = self.instructions(record)?;
         let trace = hops::trace_in(&self.root.join(&record.name));

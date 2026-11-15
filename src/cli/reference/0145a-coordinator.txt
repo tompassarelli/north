@@ -1,0 +1,1 @@
+  coordinator [--interactive] | coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)

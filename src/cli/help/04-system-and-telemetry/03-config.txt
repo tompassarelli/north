@@ -1,2 +1,2 @@
 config
-Skills and hooks, agent plan and usage, context, proxy calls
+Skills and hooks, agent plan and usage, context, coordinator calls

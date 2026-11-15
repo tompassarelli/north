@@ -81,7 +81,7 @@ pub fn run(now: i64, view: View) -> Result<String, String> {
 
 const TOLD: &str = "north/scoreboard/ready-told";
 
-/// What the proxy hears first each day: the ready verdict of every repository as one line, so Tom reads whether the harness is ready without asking.
+/// What the coordinator hears first each day: the ready verdict of every repository as one line, so Tom reads whether the harness is ready without asking.
 pub fn report(now: i64) -> Vec<String> {
     let path = state_root().join(TOLD);
     let last = fs::read_to_string(&path).ok().and_then(|text| text.trim().parse::<i64>().ok()).unwrap_or(0);

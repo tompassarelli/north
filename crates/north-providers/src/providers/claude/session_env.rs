@@ -55,7 +55,7 @@ pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {
 
 pub(super) fn agent_args(request: &LaunchRequest) -> Vec<String> {
     match request.role() {
-        Role::Proxy => vec!["--agent".to_owned(), Role::Proxy.label().to_owned()],
+        Role::Coordinator => vec!["--agent".to_owned(), Role::Coordinator.label().to_owned()],
         Role::Lead | Role::Worker | Role::Reviewer => Vec::new(),
     }
 }

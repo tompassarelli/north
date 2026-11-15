@@ -52,6 +52,6 @@ pub(super) fn gated(tasks: &[String], item: Option<&str>, holds: &[Hold]) -> Opt
         let name = issue.to_string();
         let hold = holds.iter().rev().find(|hold| hold.refuses(&name, item))?;
         let gate = &hold.gate;
-        Some(format!("{issue} waits on open gate {gate}, which decides it; launch work on it once Tom answers it by telling the proxy, or its default applies"))
+        Some(format!("{issue} waits on open gate {gate}, which decides it; launch work on it once Tom answers it by telling the coordinator, or its default applies"))
     })
 }

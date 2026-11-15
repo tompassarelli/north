@@ -1,22 +1,22 @@
 #![cfg(test)]
 
 use super::host::{MessageReads, ReadStreak};
-use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, budgets, decide};
+use super::coordinator_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, budgets, decide};
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
 const LOAD_TRACE: &str = include_str!("fixtures/proxy_load_trace_2026_11_11.json");
-struct Proxy;
+struct Coordinator;
 
-impl World for Proxy {
+impl World for Coordinator {
     fn var(&self, name: &str) -> Option<String> {
         match name {
             "HOME" => Some("/home/tom".into()),
-            "NORTH_FLEET_ROLE" => Some("proxy".into()),
+            "NORTH_FLEET_ROLE" => Some("coordinator".into()),
             _ => None,
         }
     }
-    fn registered_proxy(&self) -> Option<Registered> {
+    fn registered_coordinator(&self) -> Option<Registered> {
         None
     }
     fn profile(&self, _: &str) -> Option<String> {
@@ -69,7 +69,7 @@ fn messages(trace: &str) -> Vec<Vec<Call>> {
 
 fn refused_before(call: &Call) -> Verdict {
     let data = json!({"hook_event_name": "PreToolUse", "session_id": "130b1ab7", "cwd": call.cwd, "tool_name": call.tool, "tool_input": call.input});
-    decide(&Proxy, &HookInput::parse(data.to_string().as_bytes()).expect("a hook payload"))
+    decide(&Coordinator, &HookInput::parse(data.to_string().as_bytes()).expect("a hook payload"))
 }
 
 fn stopped_after(call: &Call, budgets: &Budgets) -> Verdict {
@@ -79,7 +79,7 @@ fn stopped_after(call: &Call, budgets: &Budgets) -> Verdict {
 
 fn stop_of(message: &[Call], budgets: &Budgets) -> Option<(usize, String)> {
     message.iter().enumerate().find_map(|(at, call)| match (refused_before(call), stopped_after(call, budgets)) {
-        (Verdict::Deny(reason), _) | (_, Verdict::Deny(reason)) if !reason.contains("proxy-background-guard") => Some((at, reason)),
+        (Verdict::Deny(reason), _) | (_, Verdict::Deny(reason)) if !reason.contains("coordinator-background-guard") => Some((at, reason)),
         _ => None,
     })
 }

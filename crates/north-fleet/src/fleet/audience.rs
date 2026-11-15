@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::model::Role;
-use super::runtime::PROXY;
+use super::runtime::COORDINATOR;
 use super::sender::Sender;
 
 pub fn fleet_dir() -> PathBuf {
@@ -12,7 +12,7 @@ pub fn fleet_dir() -> PathBuf {
 
 pub fn grounded(fleet: &Path, named: Option<&str>, conversation: &str, entrypoint: Option<&str>) -> bool {
     match record(fleet, named.filter(|name| !name.is_empty()), conversation) {
-        Some(record) => (role(&record) == Some(Role::Proxy) || record["name"] == PROXY) && (adopted(&record) || sender(&record) == Some(Sender::Tom)),
+        Some(record) => (role(&record) == Some(Role::Coordinator) || record["name"] == COORDINATOR) && (adopted(&record) || sender(&record) == Some(Sender::Tom)),
         None => entrypoint == Some("cli"),
     }
 }

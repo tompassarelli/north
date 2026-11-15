@@ -13,7 +13,7 @@ use crate::foundation::clock::Timestamp;
 
 pub const VERBS: [&str; 1] = ["incident"];
 
-pub const HUMANS: [&str; 2] = ["proxy", "tom"];
+pub const HUMANS: [&str; 2] = ["coordinator", "tom"];
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS incidents(

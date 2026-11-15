@@ -13,7 +13,7 @@ const TOLD: &str = "north/class-review-told";
 
 pub(super) fn tick(fleet: &Fleet, now: i64) -> Vec<String> {
     let read = || since(&threads_db(), now - HOUR_SECONDS).and_then(|reading| classes(&reading, &Owners::here(), &mirror_closed));
-    review(&told(), now, read, |text| fleet.send_signed(&Sender::fleet(), "proxy", text, Delivery::Queued).map_err(|error| error.user_message()))
+    review(&told(), now, read, |text| fleet.send_signed(&Sender::fleet(), "coordinator", text, Delivery::Queued).map_err(|error| error.user_message()))
 }
 
 fn told() -> PathBuf {

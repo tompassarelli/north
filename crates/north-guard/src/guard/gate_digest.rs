@@ -1,4 +1,4 @@
-use crate::guard::proxy_role;
+use crate::guard::coordinator_role;
 use crate::hook_input::{HookInput, Verdict};
 use crate::platform::process;
 use std::process::Command;
@@ -7,7 +7,7 @@ use std::time::Duration;
 const DIGEST_LIMIT: Duration = Duration::from_secs(5);
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    decide(proxy_role::is_tom_window(&proxy_role::Live, input), read_digest)
+    decide(coordinator_role::is_tom_window(&coordinator_role::Live, input), read_digest)
 }
 
 pub fn decide(tom_window: bool, digest: impl FnOnce() -> Option<String>) -> Verdict {

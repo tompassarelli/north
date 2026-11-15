@@ -308,11 +308,11 @@ mod tests {
         let words: Vec<Vec<String>> = spooled.lock().unwrap().clone();
         assert_eq!(words, [vec!["claim", "north#7", "--by", "cpx62-worker"], vec!["release", "north#7", "--by", "cpx62-worker", "--held-by", "cpx62-worker"]]);
 
-        let ancestors = BTreeSet::from(["proxy".to_owned(), "qp90-lead".to_owned()]);
+        let ancestors = BTreeSet::from(["coordinator".to_owned(), "qp90-lead".to_owned()]);
         slow.hold("north#902@the box the lead keeps", "n-924-child", &ancestors).unwrap();
         assert_eq!(
             spooled.lock().unwrap().last().unwrap(),
-            &vec!["claim", "north#902", "--box", "the box the lead keeps", "--by", "n-924-child", "--parent", "proxy", "--parent", "qp90-lead"],
+            &vec!["claim", "north#902", "--box", "the box the lead keeps", "--by", "n-924-child", "--parent", "coordinator", "--parent", "qp90-lead"],
             "a claim below its lead names the parent chain so the ledger admits the lead's box"
         );
 

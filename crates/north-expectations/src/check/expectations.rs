@@ -26,7 +26,7 @@ pub struct Expectation {
 
 #[derive(Debug, PartialEq)]
 pub struct Roster {
-    pub proxy: String,
+    pub coordinator: String,
     pub expectations: Vec<Expectation>,
 }
 
@@ -103,7 +103,7 @@ fn expectation(table: &Table) -> Result<Expectation, String> {
 
 pub fn parse(source: &str) -> Result<Roster, String> {
     let document: DocumentMut = source.parse().map_err(|error| format!("expectations: {error}"))?;
-    let proxy = document.get("notify").and_then(|notify| notify.get("proxy")).and_then(Item::as_str).filter(|proxy| !proxy.is_empty()).ok_or("expectations: [notify] proxy is missing")?.to_owned();
+    let coordinator = document.get("notify").and_then(|notify| notify.get("coordinator")).and_then(Item::as_str).filter(|coordinator| !coordinator.is_empty()).ok_or("expectations: [notify] coordinator is missing")?.to_owned();
     let tables = document.get("expectation").and_then(Item::as_array_of_tables).ok_or("expectations: no [[expectation]] tables")?;
     let expectations = tables.iter().map(expectation).collect::<Result<Vec<_>, _>>()?;
     for (index, one) in expectations.iter().enumerate() {
@@ -111,5 +111,5 @@ pub fn parse(source: &str) -> Result<Roster, String> {
             return Err(format!("expectations: {} is listed twice", one.name));
         }
     }
-    Ok(Roster { proxy, expectations })
+    Ok(Roster { coordinator, expectations })
 }

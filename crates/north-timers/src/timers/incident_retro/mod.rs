@@ -19,7 +19,7 @@ pub(super) trait World {
     fn worktree(&self, name: &str) -> Result<PathBuf, String>;
     fn discard(&self, name: &str, path: &Path);
     fn launch(&self, launch: &Launch) -> Result<(), LaunchError>;
-    fn tell_proxy(&self, text: &str) -> Result<(), String>;
+    fn tell_coordinator(&self, text: &str) -> Result<(), String>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -141,10 +141,10 @@ pub(super) fn execute(world: &dyn World, state: &Path, today: &str, stamp: &str,
     if dry_run {
         return code;
     }
-    match world.tell_proxy(&format!("[from incident-retro] weekly sampled retro on {today} {text}")) {
+    match world.tell_coordinator(&format!("[from incident-retro] weekly sampled retro on {today} {text}")) {
         Ok(()) => code,
         Err(why) => {
-            eprintln!("incident-retro: proxy not reachable: {why}");
+            eprintln!("incident-retro: coordinator not reachable: {why}");
             1
         }
     }

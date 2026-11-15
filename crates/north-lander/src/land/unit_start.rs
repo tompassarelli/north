@@ -8,7 +8,7 @@ use north_base::platform::land_notice::OWNER;
 use super::after::send_condition;
 
 const FAILED_STARTS: u32 = 3;
-const PROXY: &str = "proxy";
+const COORDINATOR: &str = "coordinator";
 const CAUSE_LINES: &str = "3";
 const EPISODES: &str = "lander-unit-start";
 const HEALTHY_FOR: Duration = Duration::from_secs(10 * 60);
@@ -66,7 +66,7 @@ fn episode(home: &Path, unit: &str, failing: bool, now: SystemTime) -> Option<u6
     Some(began)
 }
 
-/// Pages the proxy and the lander's lead once for each of `units` that has failed to start three times, with the journal's last lines as the cause; the fleet store delivers one page per run of failures.
+/// Pages the coordinator and the lander's lead once for each of `units` that has failed to start three times, with the journal's last lines as the cause; the fleet store delivers one page per run of failures.
 pub fn page(home: &Path, units: &[String]) {
     for unit in units {
         let Some(text) = output("systemctl", &["--user", "show", "-p", "ActiveState,NRestarts,Result", unit]) else {
@@ -76,7 +76,7 @@ pub fn page(home: &Path, units: &[String]) {
         let start = parse(&text);
         let Some(began) = episode(home, unit, cannot_start(&start), SystemTime::now()) else { continue };
         let (key, text) = (format!("lander-unit-start:{unit}:{began}"), message(unit, start.restarts, &cause(unit)));
-        let told = [PROXY, OWNER].map(|session| send_condition(session, &key, false, &text));
+        let told = [COORDINATOR, OWNER].map(|session| send_condition(session, &key, false, &text));
         if told.contains(&false) {
             println!("north land: the page about {unit} failing to start reached only part of its targets");
         }

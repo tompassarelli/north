@@ -18,16 +18,16 @@ fn a_session_a_lead_or_worker_launches_is_a_worker_holding_its_launchers_task_un
     let mut named = launched(&["--role", "lead", "--task", "north#7"]);
     inherit_from(&mut named, Some(Role::Lead), Some("south#138".into()), None).unwrap();
     assert_eq!((named.role(), named.task()), (Role::Lead, Some("north#7".into())));
-    let mut from_proxy = launched(&[]);
-    inherit_from(&mut from_proxy, Some(Role::Proxy), Some("south#138".into()), None).unwrap();
-    assert_eq!((from_proxy.role(), from_proxy.task()), (Role::Lead, None));
+    let mut from_coordinator = launched(&[]);
+    inherit_from(&mut from_coordinator, Some(Role::Coordinator), Some("south#138".into()), None).unwrap();
+    assert_eq!((from_coordinator.role(), from_coordinator.task()), (Role::Lead, None));
     let mut taken = launched(&[]);
     inherit_from(&mut taken, Some(Role::Lead), Some("south#138".into()), Some(Role::Lead)).unwrap();
     assert_eq!(taken.role(), Role::Lead, "a lead's take-over of a lead seat that names no role keeps the seat's lead role");
     let mut worker_taking = launched(&[]);
     inherit_from(&mut worker_taking, Some(Role::Worker), Some("south#138".into()), Some(Role::Lead)).unwrap();
     assert_eq!(worker_taking.role(), Role::Worker, "a worker's take-over of a lead seat does not take the lead role");
-    for (launcher, role) in [(Role::Worker, Role::Lead), (Role::Lead, Role::Proxy), (Role::Worker, Role::Proxy), (Role::Lead, Role::Reviewer), (Role::Worker, Role::Reviewer)] {
+    for (launcher, role) in [(Role::Worker, Role::Lead), (Role::Lead, Role::Coordinator), (Role::Worker, Role::Coordinator), (Role::Lead, Role::Reviewer), (Role::Worker, Role::Reviewer)] {
         let mut refused = launched(&[]);
         refused.role = Some(role);
         assert!(inherit_from(&mut refused, Some(launcher), None, None).is_err(), "{launcher:?} launching {role:?}");

@@ -95,7 +95,7 @@ impl Fleet {
         Err(if held(&reason) { LaunchError::Held(reason) } else { LaunchError::Failed(reason) })
     }
 
-    pub fn tell_proxy(&self, text: &str) -> Result<(), String> {
-        run(Command::new(north_program()).args(["fleet", "send", "--from", "service:north-fleet-session", "proxy"]).arg(text), "north fleet send proxy").map(drop)
+    pub fn tell_coordinator(&self, text: &str) -> Result<(), String> {
+        run(Command::new(north_program()).args(["fleet", "send", "--from", "service:north-fleet-session", "coordinator"]).arg(text), "north fleet send coordinator").map(drop)
     }
 }

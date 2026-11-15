@@ -339,10 +339,10 @@ fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
     use crate::fleet::runtimes::Runtimes;
     let home = tempfile::tempdir().unwrap();
     let window = Owner::current();
-    let runtime = std::sync::Arc::new(Windows { live: std::sync::Mutex::new(vec![("proxy-conversation".to_owned(), window.pid)]) });
+    let runtime = std::sync::Arc::new(Windows { live: std::sync::Mutex::new(vec![("coordinator-conversation".to_owned(), window.pid)]) });
     let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
-    let directory = fleet.session_dir("proxy").unwrap();
-    fleet.adopt("proxy", "proxy-conversation", home.path().into()).unwrap();
+    let directory = fleet.session_dir("coordinator").unwrap();
+    fleet.adopt("coordinator", "coordinator-conversation", home.path().into()).unwrap();
     let record = crate::fleet::records::record_file(&directory);
     let mut recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
     recorded.as_object_mut().unwrap().remove("window");
@@ -350,20 +350,20 @@ fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
     let host = Host { fleet: directory.parent().unwrap().to_owned(), home: home.path().into(), code: Vec::new(), environment: Vec::new(), cgroups: home.path().join("cgroup") };
     let peer = Peer::with_pids(Some(APP_CGROUP), &[SHELL, window.pid]);
     assert_eq!(super::own_session(&peer, &host, "absent").unwrap_err(), "absent", "a window recorded without its start time passed for the adopted window");
-    assert!(fleet.refresh_adoption("proxy", "another-conversation", home.path().into()).is_err(), "another conversation refreshed the proxy's adoption");
+    assert!(fleet.refresh_adoption("coordinator", "another-conversation", home.path().into()).is_err(), "another conversation refreshed the coordinator's adoption");
     assert_eq!(super::own_session(&peer, &host, "absent").unwrap_err(), "absent");
-    fleet.refresh_adoption("proxy", "proxy-conversation", home.path().into()).unwrap();
+    fleet.refresh_adoption("coordinator", "coordinator-conversation", home.path().into()).unwrap();
     let (found, resolved) = super::own_session(&peer, &host, "absent").unwrap();
-    assert_eq!((found, resolved["name"].as_str()), (directory.clone(), Some("proxy")));
+    assert_eq!((found, resolved["name"].as_str()), (directory.clone(), Some("coordinator")));
     let mut restarted = Command::new("sleep").arg("60").spawn().unwrap();
-    *runtime.live.lock().unwrap() = vec![("proxy-restarted".to_owned(), restarted.id())];
+    *runtime.live.lock().unwrap() = vec![("coordinator-restarted".to_owned(), restarted.id())];
     let moved = Peer::with_pids(Some(APP_CGROUP), &[SHELL, restarted.id()]);
     assert_eq!(super::own_session(&moved, &host, "absent").unwrap_err(), "absent", "a restarted window passed before it re-adopted");
-    fleet.adopt_if_free("proxy", "proxy-restarted", home.path().into()).unwrap().unwrap();
+    fleet.adopt_if_free("coordinator", "coordinator-restarted", home.path().into()).unwrap().unwrap();
     let (found, resolved) = super::own_session(&moved, &host, "absent").unwrap();
     restarted.kill().unwrap();
     restarted.wait().unwrap();
-    assert_eq!((found, resolved["name"].as_str()), (directory, Some("proxy")));
+    assert_eq!((found, resolved["name"].as_str()), (directory, Some("coordinator")));
 }
 
 #[test]

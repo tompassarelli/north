@@ -66,7 +66,7 @@ pub(in crate::pacing) fn here_spawn_cpu() -> Option<SpawnCpu> {
 
 /// Why a fresh launch without `--local` waits for a host rather than start on one `dispatch_hosts_excluded` names; a lead or coordinator stays where it is launched.
 pub(super) fn excluded_here(case: &north_strategy_types::placement::Case, here: &str) -> Option<String> {
-    let kept = case.launch.overrides.local.is_some() || !case.launch.fresh || matches!(case.launch.role.as_deref(), Some("lead" | "proxy" | "coordinator"));
+    let kept = case.launch.overrides.local.is_some() || !case.launch.fresh || matches!(case.launch.role.as_deref(), Some("lead" | "coordinator"));
     (!kept && case.config.hosts_excluded.iter().any(|host| host == here)).then(|| format!("{here} is in dispatch_hosts_excluded, so the launch waits for a host with room; keep it here with --local \"<reason>\""))
 }
 

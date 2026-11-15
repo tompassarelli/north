@@ -79,7 +79,7 @@ fn spending(record: &SessionRecord, (live, leads): (bool, &BTreeSet<String>), (p
         box_id: box_of(record)?,
         workstream,
         lead: role == Role::Lead || leads.contains(&record.name),
-        tom: role == Role::Proxy,
+        tom: role == Role::Coordinator,
         live,
         spent: spent.get(&record.name).copied(),
         minutes: if live { now_ms.saturating_sub(record.created_ms) as f64 / 60_000.0 } else { 0.0 },

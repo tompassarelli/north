@@ -6,7 +6,7 @@ On the night of 2026-11-14 to 15 every desktop freeze on the operator's laptop (
 
 This plan fixes that cause. The laptop runs the operator's screen, his own sessions and what those need to reach the fleet. The control plane runs on a build host by default, and the screen talks to it.
 
-Tom's design call (2026-11-15, relayed by the proxy): the control plane runs on the build host by default. One break-glass command moves it to the laptop and back. Only one place runs it at a time, handed over through one exclusive lease so two landers never land at once, and the queue, logs and state move with it.
+Tom's design call (2026-11-15, relayed by the coordinator): the control plane runs on the build host by default. One break-glass command moves it to the laptop and back. Only one place runs it at a time, handed over through one exclusive lease so two landers never land at once, and the queue, logs and state move with it.
 
 ## Inventory: the user units on whiterabbit
 
@@ -20,9 +20,9 @@ Read from `~/.config/systemd/user` on 2026-11-15 (home-manager links into the Ni
 - `north-land-shadow.timer`, every 2 minutes: the lander doctor, then a check of the next queued candidate on a host with room. Reads the land queue. Writes the shadow verdicts the lander reads.
 - `north-land-drill.timer`, nightly: injects stuck states into a scratch lander. Reads and writes only scratch.
 - `north-tempo.timer`, hourly: `north ledger tempo --record`. Reads `land-queue/<key>/done/`. Writes `land_tempo` in the ledger, and fails when a learning loop the lander holds is stale.
-- `harness-health.timer`, every 2 minutes: `north health`. Reads the land queue, the local units through `systemctl` and `journalctl`, the GitHub mirror and the ledger. It also reads the typed turns of the laptop's transcripts through `typed-said.db` beside the convo index (the 836 MB). Writes alarms to the proxy.
+- `harness-health.timer`, every 2 minutes: `north health`. Reads the land queue, the local units through `systemctl` and `journalctl`, the GitHub mirror and the ledger. It also reads the typed turns of the laptop's transcripts through `typed-said.db` beside the convo index (the 836 MB). Writes alarms to the coordinator.
 - `agents-flow-stall.timer`, every 5 minutes: `north ledger flow --stall-alarm`. Reads the land queue, origin main and the same typed turns. Writes the stall alarm and the landing-is-stalled issue.
-- `north-watch.timer`, every 30 seconds: `north ops watch --once`. Reads GitHub events and the land queue. Writes hiccup messages to the proxy and to the lane's lead. A gex45 twin already runs, and an event alarms only from the lander host.
+- `north-watch.timer`, every 30 seconds: `north ops watch --once`. Reads GitHub events and the land queue. Writes hiccup messages to the coordinator and to the lane's lead. A gex45 twin already runs, and an event alarms only from the lander host.
 - `verify-north.timer`, daily: an end-to-end worker, enqueue and landing run. It reads the promoted runtime and needs tmux and a Claude sign-in on its host.
 - `north-runtime-follow.timer`, every 20 seconds, and `north-stable-hold.service`: promote north's origin/main to this host's runtime, held by `runtime-promote.lock` while the stable pin exists. Reads origin/main. Writes `~/code/north-data/runtimes/` and `~/.local/state/north/current`.
 - `north-credentials.timer`, daily: renews machine credentials and batches the renewals that need Tom.
@@ -35,7 +35,7 @@ Read from `~/.config/systemd/user` on 2026-11-15 (home-manager links into the Ni
 ### The laptop keeps
 
 - The screen and input: the compositor, its shell, idle and clipboard helpers, dictation, the editor, the terminal and the game controller bridge.
-- Tom's own sessions, such as the proxy and any session he opens himself, and the runtimes they run on.
+- Tom's own sessions, such as the coordinator and any session he opens himself, and the runtimes they run on.
 - What those sessions need to reach the fleet: the shared ssh connections the laptop opens to each host, the fleet spool flush that publishes its sessions, the mirror that pushes claims and reports to Nexus, the gh broker for Tom's own calls, and a runtime follower that fetches the built closure from the binary cache and never builds (step 5).
 - Housekeeping over the laptop's own worktrees, checkouts, transcripts and terminals. Each piece follows the sessions it reads, so it stays only while sessions run here.
 - The machine itself: its OS update, hardware and load watchers, and the capacity units that take offload runs only while the laptop is away.
@@ -94,7 +94,7 @@ Who signs (agents as the North Fleet App, the lander as the North Lander App) is
    - Revert: `north control-plane move --to whiterabbit`.
 5. **Runtime promotion and the follower.** `north land promote`, `north-stable-hold`, `north-credentials`, `firn-host-follow`'s remote deploy and `firn-delivery-liveness` move to the holder. The laptop keeps a follower that substitutes the promoted closure from the binary cache (south's cache on wg-build) and never compiles. This changes the promotion path, so it needs both reviewers.
    - Revert: re-enable the laptop's units in nixos-config `hosts/whiterabbit/configuration.nix` and south `hosts/whiterabbit.nix`, then `north control-plane move --to whiterabbit` for the promote lock.
-6. **The fleet's sessions.** The commit-reviewer, second-reviewer, privacy judge, leads and their watchdogs launch on gex45 by default, with the outside broker beside them. Browser sign-ins stay a session on the laptop only when a step needs Tom's hands. The proxy's interactive session stays on the laptop as Tom's screen.
+6. **The fleet's sessions.** The commit-reviewer, second-reviewer, privacy judge, leads and their watchdogs launch on gex45 by default, with the outside broker beside them. Browser sign-ins stay a session on the laptop only when a step needs Tom's hands. The coordinator's interactive session stays on the laptop as Tom's screen.
    - Revert: set the launch placement back to whiterabbit.
 7. **The rest of the GitHub-only timers.** Retire `north-github-mirror` and `pace-enforcement` on the laptop, because their twins run on Nexus and gex45. Move `outside-watch`, `supply-chain-scan`, `watch-review`, `eta-calibration`, `mutant-sweep`, `coverage-map-refresh` and `cross-project-scan` to gex45. These need no lease, since none of them lands anything.
    - Revert: re-enable each unit in whiterabbit's host file.

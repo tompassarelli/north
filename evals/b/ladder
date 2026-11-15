@@ -54,7 +54,7 @@ for spec in "${levels[@]}"; do
   code=$?
   if [ "$code" -ne 0 ] || [ "$(rows "$level")" -le "$before" ]; then tell "level $level: the runner exited $code and wrote $(($(rows "$level") - before)) rows; stopping, no higher level runs"; exit 1; fi
   summary=$(line "$level")
-  tell "$summary"; north fleet send proxy "$summary" > /dev/null 2>&1
+  tell "$summary"; north fleet send coordinator "$summary" > /dev/null 2>&1
   if bent "$level"; then tell "level $level: more than a quarter failed; the curve bends here, no higher level runs"; exit 0; fi
 done
 if $t3; then

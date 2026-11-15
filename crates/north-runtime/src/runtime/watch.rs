@@ -152,15 +152,15 @@ pub(super) fn watch(layout: &Layout) {
                 return;
             }
             let _ = fs::write(layout.watch_reported(), &window);
-            update::alert_proxy(&format!("north runtime watch: {why}; a rollback's window rolls nothing back, so {short} stays live"));
+            update::alert_coordinator(&format!("north runtime watch: {why}; a rollback's window rolls nothing back, so {short} stays live"));
         }
         Verdict::RollBack { why, seconds } => match update::roll_back(layout, &live) {
             Ok(previous) => {
                 note(layout, &Event::RolledBack { sha: live.clone(), host: name, at, seconds, walker: land_offload::settles_fleet_here() });
-                update::alert_proxy(&format!("north runtime watch: {why}; rolled back to {} and quarantined {short}", layout::short(&previous)));
+                update::alert_coordinator(&format!("north runtime watch: {why}; rolled back to {} and quarantined {short}", layout::short(&previous)));
             }
             Err(failure) if failure.code == DEFERRED => println!("north runtime watch: {why}; rollback deferred: {}", failure.message),
-            Err(failure) => update::alert_proxy(&format!("north runtime watch: {why}; could not roll back: {}", failure.message)),
+            Err(failure) => update::alert_coordinator(&format!("north runtime watch: {why}; could not roll back: {}", failure.message)),
         },
     }
 }

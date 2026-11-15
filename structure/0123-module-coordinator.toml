@@ -1,0 +1,6 @@
+[[module]]
+name = "coordinator"
+paths = ["crates/north-core/src/coordinator/**"]
+responsibility = "Classify the coordinator's tool calls by kind from the verb table the CLI declares, and read them out of a transcript."
+may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
+

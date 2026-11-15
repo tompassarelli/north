@@ -101,7 +101,7 @@ fn coordinator_case(fable: [f64; 2], shared: [f64; 2]) -> record::Case {
     let account = |fable: f64, shared: f64| vec![window("5h", 0.0), window("week", shared), window("weekly_scoped/Fable", fable)];
     record::Case {
         at,
-        launch: record::Launch { name: "proxy".into(), fresh: true, provider: "claude".into(), model: Some("fable".into()), role: Some("proxy".into()), ..Default::default() },
+        launch: record::Launch { name: "coordinator".into(), fresh: true, provider: "claude".into(), model: Some("fable".into()), role: Some("coordinator".into()), ..Default::default() },
         brief: "Item: north#1065 coordinator wake\n".into(),
         config: record::Config::default(),
         credit: record::Credit::default(),

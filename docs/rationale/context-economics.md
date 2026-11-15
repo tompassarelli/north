@@ -25,7 +25,7 @@ north's transcripts or its ledger.
 
 Over the 18 days, at list price, cache reads were 66.0% of the cost, cache writes 19.8%,
 output 14.2% and uncached input under 0.1%. Every cache write was a one-hour write (265,822 requests), and none was a
-five-minute write. Fleet workers spent most of it, far ahead of parent sessions and the proxy.
+five-minute write. Fleet workers spent most of it, far ahead of parent sessions and the coordinator.
 
 Each turn re-reads the whole cached context, so a turn's read cost grows linearly with context. The mean read per turn
 by context band:
@@ -76,7 +76,7 @@ lower window would save. The replay below estimates that, and the arms measure i
 
 After a wait of more than an hour, 339 requests rewrote at least half their context at the two-times write price:
 3.1% of all spend (3.1 points more than warm reads would have cost). Workers made 249 of these resumes (2.9% of
-worker spend), parent sessions 61 and the proxy 24.
+worker spend), parent sessions 61 and the coordinator 24.
 
 The ledger's `idle_gap_misses` counts only 102 of the 339. It counts a resume only when the cache read is at most 5%
 of context, but the shared system and tools prefix (about 12k tokens) stays cached across sessions on an account. That
@@ -151,7 +151,7 @@ should compact early. Only the working agent holds the context to judge which.
   context, priced from the session's model with `Price::compaction_pays` (the 18, 15 and 10 turns above on Opus), the worker
   continues to the next checkpoint, with the backstop as the ceiling. Otherwise, once its turn has ended, the session host
   sends `/compact TEXT` as its own unsigned frame. A compaction, manual or automatic, re-arms the checkpoint at 250k. The
-  proxy is not asked.
+  coordinator is not asked.
   - Verified on 2026-11-06: a stream-json user message `/compact Keep the code word and the brief path verbatim`
     compacted a live session from 24,433 to 6,809 tokens, and the next turn recalled both facts.
   - `north fleet send` from another session signs its text `[from NAME] …`, so the command has to come from the

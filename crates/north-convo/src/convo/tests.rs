@@ -241,7 +241,7 @@ fn the_tom_corpus_holds_every_typed_message_and_no_agent_text() {
     write(
         &lab.root.join(format!("anthropic/acct/projects/-synthetic-fleet/{fleet}.jsonl")),
         &[
-            sdk("LAUNCHBRIEFTOKEN from the proxy", 0, "2026-11-07"),
+            sdk("LAUNCHBRIEFTOKEN from the coordinator", 0, "2026-11-07"),
             sdk("HOLDSPAWNSTOKEN claude:c allowed=1", 1, "2026-11-01"),
             sdk("[from lead] FROMLEADTOKEN", 2, "2026-11-07"),
             sdk("TOMFLEETTOKEN typed in the fleet view", 3, "2026-11-07"),

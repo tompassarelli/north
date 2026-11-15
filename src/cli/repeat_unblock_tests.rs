@@ -26,14 +26,14 @@ fn repeat_unblock_a_second_trip_clear_of_one_failing_test_names_an_open_owned_is
         trip(&trips, head);
     }
 
-    clear(&trips, &at(1_000), &first, "proxy", "the probe flaked", None).unwrap();
-    let refused = clear(&trips, &at(1_000 + 3_600), &second, "proxy", "the probe flaked again", None).unwrap_err();
+    clear(&trips, &at(1_000), &first, "coordinator", "the probe flaked", None).unwrap();
+    let refused = clear(&trips, &at(1_000 + 3_600), &second, "coordinator", "the probe flaked again", None).unwrap_err();
     assert!(refused.contains("second trip clear") && refused.contains("worker_sandbox::confined in north-runtime") && refused.contains("--issue REPO#N"), "{refused}");
     assert!(!trips.cleared(&second).unwrap(), "a refused clear cleared the trip");
 
-    assert!(clear(&trips, &at(1_000 + 3_600), &second, "proxy", "the probe flaked again", Some("north#1")).unwrap_err().contains("north#1 is not open"));
-    clear(&trips, &at(1_000 + 3_600), &second, "proxy", "the probe flaked again", Some("north#1577")).unwrap();
+    assert!(clear(&trips, &at(1_000 + 3_600), &second, "coordinator", "the probe flaked again", Some("north#1")).unwrap_err().contains("north#1 is not open"));
+    clear(&trips, &at(1_000 + 3_600), &second, "coordinator", "the probe flaked again", Some("north#1577")).unwrap();
     assert!(trips.cleared(&second).unwrap());
 
-    clear(&trips, &at(1_000 + 3_600 + 86_400), &third, "proxy", "a day later", None).unwrap();
+    clear(&trips, &at(1_000 + 3_600 + 86_400), &third, "coordinator", "a day later", None).unwrap();
 }

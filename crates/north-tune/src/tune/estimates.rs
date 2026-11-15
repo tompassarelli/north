@@ -3,7 +3,7 @@
 //! estimate, beside the same ratio for an estimate replayed from the cell's own runs of the 7 days
 //! before each run started. A cell drifted when the estimate in use sat outside the calibrated band
 //! at the quantile its estimator covers and the replayed one sat inside it: a stale estimate,
-//! which the tick tells the proxy of whenever the set of them changes. A cell outside the band under
+//! which the tick tells the coordinator of whenever the set of them changes. A cell outside the band under
 //! both is noisy, and is counted beside the alarm rather than told.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::EstimatedRun;

@@ -176,7 +176,7 @@ fn would_revert(landed: &Landed, commit: &str, weighed: &[Weighed]) {
 fn attributable(red: Vec<Concern>, head: &str) -> Vec<Concern> {
     let (commit, host): (Vec<Concern>, Vec<Concern>) = red.into_iter().partition(|concern| concern.reads == Reads::Commit);
     for concern in &host {
-        println!("after-landing: contract concern {} is red at {head}, but its oracle reads this host's state rather than the commit, so it reverts no landing; the fleet tick pages the proxy", concern.name);
+        println!("after-landing: contract concern {} is red at {head}, but its oracle reads this host's state rather than the commit, so it reverts no landing; the fleet tick pages the coordinator", concern.name);
     }
     commit
 }

@@ -55,7 +55,7 @@ These are not reasons to use the screen, because a plain window does them too. T
 
 ## What a plain Claude Code window still does better
 
-- **It starts the coordinator where a window can open.** `north proxy` starts the coordinator only as a client window, and on the run's fresh fleet, on a host with no desktop, it refused (step 28). The screen can now hold the coordinator itself: legs A to D, F and H of gap 1 are on main, but the scripted run that shows a message answered in the screen on a host with no desktop is open. Gap 1 placement is also open: no seat has both a lead's rights and a host with no desktop, so that run cannot yet be made.
+- **It starts the coordinator where a window can open.** `north coordinator` starts the coordinator only as a client window, and on the run's fresh fleet, on a host with no desktop, it refused (step 28). The screen can now hold the coordinator itself: legs A to D, F and H of gap 1 are on main, but the scripted run that shows a message answered in the screen on a host with no desktop is open. Gap 1 placement is also open: no seat has both a lead's rights and a host with no desktop, so that run cannot yet be made.
 - **It draws the conversation the way the client does.** Look 6 is open: the client marks a user message with `>`, a reply and each notice with `●`, a tool call as `● NAME(ARGS)` with its result under `⎿`, and a working session as `✻ Working…` above the composer (look 6 on north#1281). Looks 1 to 5 are built, not shown.
 - **A refusal is shown in full and named right.** A refusal longer than the form's two footer rows is cut mid-clause (newcomer 1; frames 23 and 28 of [the newcomer run](https://github.com/tompassarelli/north/issues/1281#issuecomment-6875698052)). A launch refused by a session scope failure is shown as "North couldn't read the conversation state" (newcomer 2; the same frames). Open.
 - **`?` in an empty composer leaves nothing typed.** The help opens, and after Esc the composer still holds `?`, where the client keeps the prompt empty (newcomer 3; frames 11 and 33 of the same newcomer run). Open.
@@ -79,7 +79,7 @@ Each item names the run step that showed the fault, and the commit that fixed it
 - Look 4, the coordinator's conversation drawn live in its pane: 5c1b7c256a.
 - Look 5, the user's message in a tinted row and a model's thinking as dim italic paragraphs: f5b0412ea9.
 - Gap 12's board half, waiting tickets and host load in the digest (north#1416): 08ffca6f0e.
-- A take-over of a window-held proxy opens the provider's interactive client on its conversation (north#1427): 83293550cf.
+- A take-over of a window-held coordinator opens the provider's interactive client on its conversation (north#1427): 83293550cf.
 
 ## Not yet shown
 

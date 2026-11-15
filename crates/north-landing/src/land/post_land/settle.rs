@@ -146,7 +146,7 @@ pub(super) fn green_message(landed: &Landed) -> String {
 }
 
 
-/// Moves the repository's red-main record on this verdict before telling the proxy, so an episode opens even when
+/// Moves the repository's red-main record on this verdict before telling the coordinator, so an episode opens even when
 /// its alarm fails; an untold episode is told on the next verdict and lingers in `north health` until then.
 pub(super) fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: impl Fn(&str, &str) -> bool) {
     let Some((mut store, state)) = episode_state(run, landed) else { return };

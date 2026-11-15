@@ -279,7 +279,7 @@ fn a_worker_placed_on_another_machine_takes_its_settings_and_policy_from_that_ma
     let there = scratch.path().join("there");
     let profile = there.join("home/agent/.local/state/north/profiles/claude-e");
     std::fs::create_dir_all(&profile).unwrap();
-    let written = json!({"hooks": {"PreToolUse": [{}]}, "theme": "dark", "apiKeyHelper": "cat /home/agent/key", "awsCredentialExport": "cat /home/agent/aws", "forceLoginOrgUUID": "another-org", "env": {"ANTHROPIC_BASE_URL": "https://elsewhere.invalid", "CLAUDE_CODE_OAUTH_TOKEN": "another-account", "CLAUDE_CONFIG_DIR": "/home/agent/elsewhere", "HTTPS_PROXY": "http://proxy.invalid", "NODE_OPTIONS": "--require /home/agent/hook.js"}});
+    let written = json!({"hooks": {"PreToolUse": [{}]}, "theme": "dark", "apiKeyHelper": "cat /home/agent/key", "awsCredentialExport": "cat /home/agent/aws", "forceLoginOrgUUID": "another-org", "env": {"ANTHROPIC_BASE_URL": "https://elsewhere.invalid", "CLAUDE_CODE_OAUTH_TOKEN": "another-account", "CLAUDE_CONFIG_DIR": "/home/agent/elsewhere", "HTTPS_PROXY": "http://coordinator.invalid", "NODE_OPTIONS": "--require /home/agent/hook.js"}});
     std::fs::write(profile.join("settings.json"), written.to_string()).unwrap();
     std::fs::write(profile.join("CLAUDE.md"), "agent policy\n").unwrap();
     std::fs::create_dir_all(there.join("etc/north")).unwrap();

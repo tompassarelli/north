@@ -5,7 +5,7 @@ use serde_json::Value;
 use north_base::platform::ssh_session::scope_session;
 use toml_edit::DocumentMut;
 
-pub(super) const COORDINATOR: &str = "proxy";
+pub(super) const COORDINATOR: &str = "coordinator";
 const SESSION_PREFIX: &str = "north-session-";
 const SERVICE_PREFIX: &str = "north-fleet-";
 const SERVICE_SUFFIX_LENGTH: usize = 8;

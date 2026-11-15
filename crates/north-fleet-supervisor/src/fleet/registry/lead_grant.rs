@@ -58,7 +58,7 @@ impl Fleet {
     }
 
     pub(super) fn coordinates(&self, writer: &str) -> bool {
-        self.record(writer).is_ok_and(|record| record.role() == Role::Proxy)
+        self.record(writer).is_ok_and(|record| record.role() == Role::Coordinator)
     }
 
     fn lead(&self, writer: &str) -> Result<Lead, String> {
@@ -283,7 +283,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path()).following_rewrites(std::sync::Arc::new(Closer));
         std::fs::create_dir_all(fleet.home.join("code/north/main")).unwrap();
-        recorded(&fleet, "release-lead", serde_json::json!({"role": "lead", "parent": "proxy", "task_ref": "tompassarelli/north#1281", "extra_tasks": ["tompassarelli/north#1054"]}));
+        recorded(&fleet, "release-lead", serde_json::json!({"role": "lead", "parent": "coordinator", "task_ref": "tompassarelli/north#1281", "extra_tasks": ["tompassarelli/north#1054"]}));
         recorded(&fleet, "scoreboard-lead", serde_json::json!({"role": "lead", "parent": "release-lead", "task_ref": "tompassarelli/north#35"}));
         recorded(&fleet, "sb-lookup", serde_json::json!({"role": "worker", "parent": "scoreboard-lead", "task_ref": "tompassarelli/north#35"}));
         let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
@@ -308,15 +308,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
         std::fs::create_dir_all(fleet.home.join("code/north/main")).unwrap();
-        recorded(&fleet, "proxy", serde_json::json!({"role": "proxy"}));
-        recorded(&fleet, "scoreboard-lead", serde_json::json!({"role": "lead", "parent": "proxy", "task_ref": "tompassarelli/north#35"}));
+        recorded(&fleet, "coordinator", serde_json::json!({"role": "coordinator"}));
+        recorded(&fleet, "scoreboard-lead", serde_json::json!({"role": "lead", "parent": "coordinator", "task_ref": "tompassarelli/north#35"}));
         recorded(&fleet, "sb-lookup", serde_json::json!({"role": "worker", "parent": "scoreboard-lead", "task_ref": "tompassarelli/north#35"}));
         let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
 
         let spooled = |writer: &str, sender: &str, text: &str| Spool::of(&fleet.root, writer).unwrap().put(&fleet.new_row(RowKind::Hold, "scoreboard-lead", text, &Sender::Session(sender.into())).unwrap()).unwrap();
-        spooled("proxy", "proxy", "hold tompassarelli/north#1540");
+        spooled("coordinator", "coordinator", "hold tompassarelli/north#1540");
         spooled("sb-lookup", "sb-lookup", "hold tompassarelli/north#1542");
-        spooled("sb-lookup", "proxy", "hold tompassarelli/north#1542");
+        spooled("sb-lookup", "coordinator", "hold tompassarelli/north#1542");
         spooled("scoreboard-lead", "scoreboard-lead", "hold tompassarelli/north#1488");
         fleet.claims.hold("tompassarelli/north#1542", "scoreboard-lead", &Default::default()).unwrap();
         for row in Spool::at(&fleet.root).pending().unwrap() {
@@ -329,6 +329,6 @@ mod tests {
         assert_eq!(assigned.name, "n1540-child");
         assert!(unassigned.contains("--task north#1542 is not granted to scoreboard-lead"), "a hold in a worker's own spool, one claiming the coordinator from it, or a threads claim granted north#1542: {unassigned}");
         assert_eq!(checkable("scoreboard-lead"), lead_assignment::Checkable::Issues(vec!["tompassarelli/north#35".into(), "tompassarelli/north#1540".into()]));
-        assert_eq!(checkable("proxy"), lead_assignment::Checkable::Any);
+        assert_eq!(checkable("coordinator"), lead_assignment::Checkable::Any);
     }
 }

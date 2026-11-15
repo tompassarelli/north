@@ -439,7 +439,7 @@ pub struct World<'a> {
     pub holds: &'a BTreeMap<IssueRef, String>,
     /// The boxes workers hold, by box slug.
     pub box_holds: &'a super::record::BoxHolds,
-    /// The boxes dispatch tried twice in a day without ticking, by box slug, which wait for the proxy and count toward no cap.
+    /// The boxes dispatch tried twice in a day without ticking, by box slug, which wait for the coordinator and count toward no cap.
     pub box_tries: &'a super::record::BoxHolds,
     /// The fleet sessions every reached registry lists as running or parked on a wait.
     pub live: &'a BTreeSet<String>,

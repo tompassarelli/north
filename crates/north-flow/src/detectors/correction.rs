@@ -42,7 +42,7 @@ pub fn repeated(facts: &Facts, classes: &[Class]) -> Vec<Finding> {
                 owner: class.and_then(|class| class.owner.clone()),
                 title: format!("Guard the correction class {name}"),
                 detail: format!("Tom corrected this class {} times ({}), each fixed by hand. Proposed guard: {guard}", seen.len(), instances.join(", ")),
-                done_when: format!("the guard lands on origin/main and harness/corrections.toml sets guarded_at for {name} to its landing time, so a later {name} correction prints red in the proxy's fleet tick."),
+                done_when: format!("the guard lands on origin/main and harness/corrections.toml sets guarded_at for {name} to its landing time, so a later {name} correction prints red in the coordinator's fleet tick."),
                 instances,
             }
         })

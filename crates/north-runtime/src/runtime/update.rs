@@ -55,7 +55,7 @@ use ordered::unordered;
 pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_running, order_waiting, update_ordered_to};
 use shipped::{Shipped, shipped};
 use sync::{relink, republish_if_unpublished, swap_back, sync};
-pub(super) use sync::{alert_proxy, page_proxy};
+pub(super) use sync::{alert_coordinator, page_coordinator};
 
 enum Pass {
     Settled,
@@ -333,7 +333,7 @@ fn install(layout: &Layout, target: &str, runtime: &Path, previous: Option<&Path
         eprintln!("north runtime update: the operator terminal keeps its previous shims: {}", failure.message);
     }
     super::deploy::stage_for_lander(layout, target, runtime);
-    let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
+    let synced = sync(layout, previous, target, &mut |text: &str| alert_coordinator(&format!("north runtime update: {text}")))?;
     agent_link::follow(layout, published.as_ref())?;
     Ok(synced)
 }

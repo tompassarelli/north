@@ -17,7 +17,7 @@ const BUILD: &str = "lander:";
 const INCIDENT: &str = "incident:";
 const READ_PATIENCE: Duration = Duration::from_millis(400);
 
-/// One bound held over from `since`: each remedy applied in it as `(at, class)` and the instant the proxy was paged about it.
+/// One bound held over from `since`: each remedy applied in it as `(at, class)` and the instant the coordinator was paged about it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Held {
     pub since: u64,

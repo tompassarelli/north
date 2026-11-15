@@ -22,11 +22,11 @@ pub const LANE_ONLY: &str = "NORTH_WORKER_LANE_ONLY";
 /// Where under the state directory each fleet session has its own spool location, named after it: the one spool path the worker sandbox lets a worker write, and the one a worker's fleet commands write to.
 pub const SESSION_SPOOLS: &str = "north/fleet/spool/sessions";
 
-/// The role a fleet launcher gives a session's processes: `proxy`, `lead`, `worker` or `reviewer`.
+/// The role a fleet launcher gives a session's processes: `coordinator`, `lead`, `worker` or `reviewer`.
 pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 
 /// The one launcher role whose session keeps the domain open: the coordinator's seat, which drives windows and units.
-pub const PROXY_ROLE: &str = "proxy";
+pub const COORDINATOR_ROLE: &str = "coordinator";
 
 /// The fleet session a request runs as, which the outside broker sets beside `PROVED` from the caller's own scope; a name without the proof is the client's word.
 pub const SESSION: &str = "NORTH_FLEET_SESSION";
@@ -44,9 +44,9 @@ pub fn proved_session_here() -> Option<String> {
     proved_session(std::env::var(SESSION).ok(), std::env::var(PROVED).ok().as_deref())
 }
 
-/// Whether a session whose launcher gave it `role` runs in the worker domain: every launched role, worker, lead and reviewer, with a task or without one, whose launches, revives, holds and forgets go through its spool to the host's fleet tick (fleet/registry/lead_grant.rs). The exemptions are the proxy seat and an adopted human window, which no launcher gave a role (north#1485).
+/// Whether a session whose launcher gave it `role` runs in the worker domain: every launched role, worker, lead and reviewer, with a task or without one, whose launches, revives, holds and forgets go through its spool to the host's fleet tick (fleet/registry/lead_grant.rs). The exemptions are the coordinator seat and an adopted human window, which no launcher gave a role (north#1485).
 pub fn confined_role(role: Option<&str>) -> bool {
-    role.is_some_and(|role| role != PROXY_ROLE)
+    role.is_some_and(|role| role != COORDINATOR_ROLE)
 }
 
 /// Whether this process belongs to a fleet session its launcher confined ([`confined_role`]).

@@ -29,7 +29,7 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
 - `north-core`: the agent catalog and config checks, `build_time`, `grounding`, `doctor_nix`, `nix_gc`,
-  `proxy`, `split` and `contract_probe`. Depends on `north-base`, `north-pace`, `north-threads`, `north-fleet`
+  `coordinator`, `split` and `contract_probe`. Depends on `north-base`, `north-pace`, `north-threads`, `north-fleet`
   and `north-graph-ground`; only the root package depends on it, so a north-core edit rebuilds north-core
   and the root and nothing else.
 - `north-providers`: `providers`, `codex` and `ledger`, the provider adapters and the run ledger they write.
@@ -489,7 +489,7 @@ of 17,002 CPU-s over the window (26%). Wall is the predicted leaf-edit `cargo te
 | 2 | north-runtime | ops/runtime, land_offload, build_offload, laptop_runner, agent_contain, laptop_ntfy, timers, model_watch, job_watch, outside_watch, usage_web_read, runtime_access | 12.8k (6.3k) | 25k | 102 | none | 10.1 | 2,203 | 5.2 s (cloud 3.6 s, 9.7 CPU-s) |
 | 3 | north-guard | guard, hook, hook_tests, hook_rewrite_tests, lanes, code_health | 29.6k (20.1k) | 25k | 82 | none | 12.3 | 1,591 | 6.6 s |
 | 4 | north-capacity-host | capacity/host, capacity/gate, capacity/watchdog | 7.4k (4.5k) | 25k | 74 | runtime | 11.7 | 1,480 | 5.8 s |
-| 5 | north-core (residual) | grounding, catalog, agent_config_check, agent_policy_contract, agent_catalog, build_time, proxy, contract_probe | 14.2k (9.1k) | 25k | 43 | none | 9.8 | 942 | 5.3 s |
+| 5 | north-core (residual) | grounding, catalog, agent_config_check, agent_policy_contract, agent_catalog, build_time, coordinator, contract_probe | 14.2k (9.1k) | 25k | 43 | none | 9.8 | 942 | 5.3 s |
 | 6 | north-dispatch | ops/dispatch, tune, check, dividend, pacing, laptop, resident_cap | 15.8k (7.4k) | 10k | 85 | runtime, ops, guard | 22.7 | 765 | 7.9 s (cloud 8.3 s, 25.9 CPU-s) |
 | 7 | north-capacity | capacity minus host, gate, watchdog | 6.2k (3.4k) | 10k | 68 | dispatch, capacity-host, runtime, guard, ops | 25.2 | 442 | 8.4 s |
 | 8 | north-providers | providers, codex, ledger | 7.1k (3.9k) | 10k | 50 | dispatch, runtime, guard, ops, tui | 25.2 | 325 | 8.5 s |

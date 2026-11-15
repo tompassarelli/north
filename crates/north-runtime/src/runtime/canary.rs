@@ -292,11 +292,11 @@ impl Machine for Live<'_> {
     }
 
     fn alarm(&self, text: &str) {
-        update::alert_proxy(text);
+        update::alert_coordinator(text);
     }
 
     fn page(&self, key: &str, text: &str) {
-        update::page_proxy(key, text);
+        update::page_coordinator(key, text);
     }
 
     fn rollback_target(&self, sha: &str) -> Option<String> {

@@ -1,5 +1,5 @@
 //! `north fleet dispatch pause --reason TEXT --by WHO (--until TIME | --check COMMAND)`, `north fleet dispatch resume`, and the
-//! lift check the fleet tick runs each round: the proxy's intended dispatch state on this host, recorded where `north health`
+//! lift check the fleet tick runs each round: the coordinator's intended dispatch state on this host, recorded where `north health`
 //! compares it with the timer, so a deploy that restarts the timer under a pause is seen. A pause ends when its check exits 0
 //! or its expiry comes, and each pause and its end is one row in the pause ledger (north#1136).
 use std::fs::{self, OpenOptions};
@@ -18,7 +18,7 @@ fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
-/// Why dispatch is paused on this host, while the proxy's pause stands.
+/// Why dispatch is paused on this host, while the coordinator's pause stands.
 pub fn standing() -> Option<String> {
     north_base::dispatch_pause::standing(&home())
 }

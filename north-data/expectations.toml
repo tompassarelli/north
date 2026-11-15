@@ -1,5 +1,5 @@
 [notify]
-proxy = "proxy"
+coordinator = "coordinator"
 
 [[expectation]]
 name = "cloud-lane-use"

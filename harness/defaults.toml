@@ -122,7 +122,7 @@ consumers = ["crates/north-pace/src/router/ctx.rs"]
 value = 5
 allowed = { min = 0, max = 100 }
 unit = "percent of the Codex week one Astra fallback is assumed to cost"
-source = "prior: proxy decision 2026-10-12, thin data"
+source = "prior: coordinator decision 2026-10-12, thin data"
 settles_when = { need = 20, count = "count_astra_runs", what = "gpt-6-astra medium worker runs with Codex week used_pct readouts on the same reset at or before start and at or after end" }
 fallback = "Astra is unavailable when the projection is unknown"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
@@ -131,7 +131,7 @@ consumers = ["crates/north-pace/src/router/ctx.rs"]
 value = 1.5
 allowed = { min = 1, max = 100 }
 unit = "project urgency u at which the only admitted tier may run fast"
-source = "prior: proxy decision 2026-10-12, thin data"
+source = "prior: coordinator decision 2026-10-12, thin data"
 settles_when = { need = 10, count = "count_goal_targets", what = "distinct project targets in goal-scores.jsonl with an on-date pass or fail" }
 fallback = "a project without a target has u 1.0 and never qualifies"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
@@ -140,7 +140,7 @@ consumers = ["crates/north-pace/src/router/ctx.rs"]
 value = 15
 allowed = { min = 1, max = 10080 }
 unit = "minutes a provider-capacity error keeps the provider unavailable"
-source = "prior: proxy decision 2026-10-12, thin data"
+source = "prior: coordinator decision 2026-10-12, thin data"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "closed Codex capacity episodes (first capacity turn to the next ok turn) in Codex rollouts over 60 days" }
 fallback = "no capacity error means the provider is available"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
@@ -149,7 +149,7 @@ consumers = ["crates/north-pace/src/router/ctx.rs"]
 value = 10
 allowed = { min = 1, max = 100000 }
 unit = "worker runs under which a tier is explorable"
-source = "prior: proxy decision 2026-10-12, thin data"
+source = "prior: coordinator decision 2026-10-12, thin data"
 settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
 fallback = "a tier without a run count is not explorable"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
@@ -175,7 +175,7 @@ consumers = ["crates/north-pace/src/router/ctx.rs"]
 value = 0.6
 allowed = { min = 0, max = 1 }
 unit = "probability a successor ships before exploration is held"
-source = "proxy decision 2026-10-12, thin data; unmeasured since north#824 removed the model watch that wrote its successors"
+source = "coordinator decision 2026-10-12, thin data; unmeasured since north#824 removed the model watch that wrote its successors"
 fallback = "a tier with no announced successor is never held"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
 
@@ -183,7 +183,7 @@ consumers = ["crates/north-pace/src/router/ctx.rs"]
 value = 0.2
 allowed = { min = 0, max = 1 }
 unit = "share of the CPU limit a lower-priority project's spawns leave free"
-source = "prior: proxy decision 2026-10-12, thin data"
+source = "prior: coordinator decision 2026-10-12, thin data"
 settles_when = { need = 50, count = "count_capacity_denials", what = "spawn-gate-denials.jsonl capacity-gate denials with an at timestamp, joinable to CPU pressure samples" }
 fallback = "a project with no priority rank uses the whole limit"
 consumers = ["crates/north-guard/src/guard/spawn_capacity.rs"]
@@ -297,8 +297,8 @@ consumers = ["crates/north-dispatch/src/dispatch/plan.rs", "crates/north-pace/sr
 [dispatch_freeze_alarm_min]
 value = 15
 allowed = { min = 5, max = 240 }
-unit = "minutes of dispatch runs with ready boxes, free slots and no launch before the proxy gets one urgent message naming the refusing guards"
-source = "north#838, 2026-11-08: one stale spend figure froze every launch on the only account with headroom for over 20 minutes and nothing told the proxy; dispatch runs every 5 minutes, so 15 is three frozen runs"
+unit = "minutes of dispatch runs with ready boxes, free slots and no launch before the coordinator gets one urgent message naming the refusing guards"
+source = "north#838, 2026-11-08: one stale spend figure froze every launch on the only account with headroom for over 20 minutes and nothing told the coordinator; dispatch runs every 5 minutes, so 15 is three frozen runs"
 fallback = "none: a stated bound, not a measurement"
 consumers = ["crates/north-dispatch/src/dispatch/freeze.rs"]
 
@@ -1068,7 +1068,7 @@ consumers = ["crates/north-capacity/src/capacity/pressure_target.rs", "crates/no
 [tom_class_owners]
 value = ["makgora:tom-build-window", "makgora:play-helper", "tom-preview"]
 allowed = { min_len = 1 }
-unit = "machine-capacity owners admitted to --class tom: the Tom-build watcher's window build, wisp play's controller helper build and the proxy's tom-window and preview build"
+unit = "machine-capacity owners admitted to --class tom: the Tom-build watcher's window build, wisp play's controller helper build and the coordinator's tom-window and preview build"
 source = "tom: the tom class admits in seconds past pressure and the queue, so it serves only the build Tom is waiting to play; on the 20-thread build host 62 runs from 22:50 to 00:10 UTC on 2026-11-01 used it for other work while heavy leases waited 3740 to 4975 s, none of them that build (south's record of the 2026-11-01 CPU drain, north#460)"
 fallback = "every other owner is refused and told to use heavy, gpu or native --latency, with --priority tom-ask when Tom is waiting on the work"
 consumers = ["crates/north-capacity-host/src/capacity/host/priority.rs"]
@@ -1426,7 +1426,7 @@ consumers = ["crates/north-flow/src/detectors/mod.rs"]
 value = 15
 allowed = { min = 1, max = 3600 }
 unit = "seconds one test may take in each of its newest detector_slow_test_runs land check runs (the lander's candidate, speculative and after-landing runs) before the slow-test detector profiles it and files a box on its owning issue"
-source = "tom: a test over 15 s p95 for 3 after-landing runs gets a profiled box filed and staffed without the proxy (north#634, 2026-11-06)"
+source = "tom: a test over 15 s p95 for 3 after-landing runs gets a profiled box filed and staffed without the coordinator (north#634, 2026-11-06)"
 fallback = "none"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
@@ -1434,7 +1434,7 @@ consumers = ["crates/north-flow/src/detectors/mod.rs"]
 value = 3
 allowed = { min = 1, max = 100 }
 unit = "newest land check runs of a test's binary that must all run the test slower than detector_slow_test_seconds before the slow-test detector files it"
-source = "tom: a test over 15 s p95 for 3 after-landing runs gets a profiled box filed and staffed without the proxy (north#634, 2026-11-06)"
+source = "tom: a test over 15 s p95 for 3 after-landing runs gets a profiled box filed and staffed without the coordinator (north#634, 2026-11-06)"
 fallback = "none"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
@@ -1529,7 +1529,7 @@ consumers = ["crates/north-flow/src/detectors/slow_check.rs"]
 [lander_stall_floor_minutes]
 value = 5
 allowed = { min = 1, max = 10080 }
-unit = "least minutes the lander queue may hold a lane with no lane landed before it is stalled: north ledger flow --stall-alarm sends the proxy an urgent message and opens the repository's landing-is-stalled issue, and the lander watchdog pages its owner or the proxy; the same bound for both, independent of the lander's check time"
+unit = "least minutes the lander queue may hold a lane with no lane landed before it is stalled: north ledger flow --stall-alarm sends the coordinator an urgent message and opens the repository's landing-is-stalled issue, and the lander watchdog pages its owner or the coordinator; the same bound for both, independent of the lander's check time"
 source = "tom: a stalled lander alarms within minutes the way a red main does, after north landed nothing from 2:00 to 2:31 AM on 2026-11-08 and no alarm went out (north#841, 2026-11-08); tom asked on 2026-11-15 that a stall be caught within minutes, when the lander ran 25 minutes stalled and the coordinator found it (north#1631); 5 minutes is a guess until the stall alarm's record shows the false-alarm rate"
 fallback = "none"
 consumers = ["crates/north-flow/src/flow/lander.rs", "crates/north-lander/src/land/watchdog.rs"]
@@ -1555,7 +1555,7 @@ consumers = ["crates/north-capacity/src/capacity/land_claim.rs"]
 value = 20
 allowed = { min = 1, max = 604800 }
 unit = "seconds a repository's tests may take in a typical change, read as the median nextest test-run time (the Summary line of the run's log, column 9 of post-land.tsv) of its last 10 green post-land runs once 3 are timed, so host wait, compile and lint do not count; over it, a lane that adds tests lands only if it deletes as many (one in, one out), apart from one regression test per bug-labelled north issue it cites"
-source = "tom: north's verification should take 15 to 20 s for a typical change, and over budget a new test lands only with a deletion (north#635, 2026-11-06; the budget reads the test-run seconds, not the whole post-land wall, on the proxy's answer to gate 171 under Tom's standing authority (north#635, 2026-11-06))"
+source = "tom: north's verification should take 15 to 20 s for a typical change, and over budget a new test lands only with a deletion (north#635, 2026-11-06; the budget reads the test-run seconds, not the whole post-land wall, on the coordinator's answer to gate 171 under Tom's standing authority (north#635, 2026-11-06))"
 fallback = "a repository with no timed green post-land run on the landing host is not capped"
 consumers = ["crates/north-land-scans/src/test_admission/limits.rs"]
 
@@ -1652,7 +1652,7 @@ value = 2
 allowed = { min = 1, max = 168 }
 unit = "hours an idle or parked fleet session may stay quiet, with no registered wait, open gate, queued lane, live child or running job, before the fleet tick retires it"
 source = "measured: dry run of north fleet reap on the laptop, 2026-11-06 2:40 PM: of 122 idle or parked sessions 82 retire on their report or past 12 h, 13 are held by a wait, queued lane, live child or a named commit not yet on origin/main, and 27 were quiet 8 min to 12 h; idle_exit ends a host after 10 min, so a session quiet 2 h with nothing to wake it is not working, and 2 is the smallest whole-hour value that leaves under 20 idle or parked"
-fallback = "a session the fleet tick does not retire stays addressable until the proxy forgets it"
+fallback = "a session the fleet tick does not retire stays addressable until the coordinator forgets it"
 consumers = ["crates/north-fleet-supervisor/src/fleet/reaper.rs"]
 
 [fleet_digest_minutes]
@@ -1667,7 +1667,7 @@ consumers = ["crates/north-fleet-supervisor/src/fleet/digest.rs"]
 value = 27
 allowed = { min = 1, max = 200 }
 unit = "top-level entries north --help may list; each lane that folds a hyphenated family under its domain noun lowers it to the new count"
-source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land, 60 once citation-check, issue-box-lint, goals check, experiments, provenance and doctor nix folded under north check, 55 once flow, tempo, scoreboard, worker-ledger and incident folded under north ledger, 54 once agent-runtime-update, claude-runtime-update and agy-runtime-update folded under north runtime, 48 once watch, credentials, github budget and gh-app-token folded under north ops, 42 once dispatch, pace, usage, orders, digest and report folded under north fleet, 39 once agents, context audit and proxy calls folded under north config, 34 once release folded under north land, repo audit under north lane, split under north code-health, and strategy and climb under north ops; north#703's target of 24 held until north#1063's approved operator views named `north glance` and the four layer-2 drill-downs (`north work`, `north accounts`, `north infra`, `north health`) as visible commands, which is the 27 each host's help.txt lists now; a later lane that folds a family under its domain noun lowers it again"
+source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land, 60 once citation-check, issue-box-lint, goals check, experiments, provenance and doctor nix folded under north check, 55 once flow, tempo, scoreboard, worker-ledger and incident folded under north ledger, 54 once agent-runtime-update, claude-runtime-update and agy-runtime-update folded under north runtime, 48 once watch, credentials, github budget and gh-app-token folded under north ops, 42 once dispatch, pace, usage, orders, digest and report folded under north fleet, 39 once agents, context audit and coordinator calls folded under north config, 34 once release folded under north land, repo audit under north lane, split under north code-health, and strategy and climb under north ops; north#703's target of 24 held until north#1063's approved operator views named `north glance` and the four layer-2 drill-downs (`north work`, `north accounts`, `north infra`, `north health`) as visible commands, which is the 27 each host's help.txt lists now; a later lane that folds a family under its domain noun lowers it again"
 fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]
 
@@ -1691,7 +1691,7 @@ consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 value = ["placement=north#706", "access=north#638", "capacity=north#259", "waits=north#706", "false revert=north#1247", "duplicate=north#636", "landing refusal=north#1247", "gate refusal=north#715", "compaction=north#706"]
 allowed = { min_len = 1 }
 unit = "the issue that owns each harness cause class of docs/rationale/attribution.md, as CLASS=ISSUE: the 24 h usage `north ledger flow` charges a class counts toward its owner's rank in `north graph ready`"
-source = "proxy: the fact graph ranks the ready list by the measured usage an issue's fix would remove per dollar of its box (north#734, 2026-11-07); each class goes to the open issue whose boxes fix it: placement, waits and compaction to north#706's placement, staffing and attribution boxes, access to the GitHub gateway (north#638), capacity to measured capacity (north#259), false revert and landing refusal to no queue waits behind work that cannot start (north#1247), duplicate to one proxy and no queue override (north#636), gate refusal to measured false refusals (north#715)"
+source = "coordinator: the fact graph ranks the ready list by the measured usage an issue's fix would remove per dollar of its box (north#734, 2026-11-07); each class goes to the open issue whose boxes fix it: placement, waits and compaction to north#706's placement, staffing and attribution boxes, access to the GitHub gateway (north#638), capacity to measured capacity (north#259), false revert and landing refusal to no queue waits behind work that cannot start (north#1247), duplicate to one coordinator and no queue override (north#636), gate refusal to measured false refusals (north#715)"
 fallback = "a class with no owner here counts toward no issue's rank"
 consumers = ["crates/north-graph-ingest/src/losses.rs"]
 
@@ -1699,7 +1699,7 @@ consumers = ["crates/north-graph-ingest/src/losses.rs"]
 value = "shadow"
 allowed = { one_of = ["shadow", "enforce"] }
 unit = "what every landing gate but build, clippy, tests, secrets, privacy and test admission (a test the repository's test policy does not admit) does with a lane it would refuse: shadow appends the would-be refusal to $XDG_STATE_HOME/north/gates/landing-shadow.jsonl and lets the lane land, enforce refuses it"
-source = "proxy: on 2026-11-07 Tom asked the fleet to be bolder; north land gate-stats --since 7d on the lander showed test admission refusing 136 lanes (127 landed later), the language gate 46 (42), the revert guard 33 (21 unchanged after a rebase) and coverage 8, so every refusal outside build, clippy, tests, secrets and privacy goes to shadow for 24 h and earns refusal back with a would-be refusal naming a real fault (north#729, 2026-11-07); test admission left the switch on 2026-11-13 and always refuses, because the owner's test policy states that the landing refuses an added bug test that passes with the lane's changes reverted, a Test-contract category outside the closed list, and over the verification budget a lane adding more tests than it deletes, and the coordinator ruled that these three refuse on every landing path (commit 407b3dcb5d; the 2026-11-07 figure of 136 refused, 127 landed later stays; test admission has refused 3 lanes since 22:12 UTC on 2026-11-12: the busy-line and north#1249 stray-files lanes at safe-push's own admission before enqueue, and burn-1249-gpu-r, a lander-ledger row at 22:37Z, 2026-11-13)"
+source = "coordinator: on 2026-11-07 Tom asked the fleet to be bolder; north land gate-stats --since 7d on the lander showed test admission refusing 136 lanes (127 landed later), the language gate 46 (42), the revert guard 33 (21 unchanged after a rebase) and coverage 8, so every refusal outside build, clippy, tests, secrets and privacy goes to shadow for 24 h and earns refusal back with a would-be refusal naming a real fault (north#729, 2026-11-07); test admission left the switch on 2026-11-13 and always refuses, because the owner's test policy states that the landing refuses an added bug test that passes with the lane's changes reverted, a Test-contract category outside the closed list, and over the verification budget a lane adding more tests than it deletes, and the coordinator ruled that these three refuse on every landing path (commit 407b3dcb5d; the 2026-11-07 figure of 136 refused, 127 landed later stays; test admission has refused 3 lanes since 22:12 UTC on 2026-11-12: the busy-line and north#1249 stray-files lanes at safe-push's own admission before enqueue, and burn-1249-gpu-r, a lander-ledger row at 22:37Z, 2026-11-13)"
 fallback = "any value but enforce reads as shadow"
 consumers = ["crates/north-diff-gates/src/landing_refusals.rs"]
 
@@ -1751,58 +1751,58 @@ source = "north#1537 (2026-11-15): a red hosted run trips only when its new case
 fallback = "none: read when a replay starts"
 consumers = ["crates/north-runtime/src/runtime/replay.rs"]
 
-[proxy_read_streak]
+[coordinator_read_streak]
 value = 15
 allowed = { min = 3, max = 200 }
-unit = "read-only tool calls (diagnosis, status checks, landing logs) a proxy turn may make since its prompt or its last launch, send or gate before the PreToolUse hook refuses the next one and names the brief to write; the turn goes on"
-source = "measured: `north config proxy calls` on the laptop proxy's 2026-11-08 transcript (conversation 1f79cfb7) found 82 read-only streaks since a prompt, launch, send or gate, 2 of them over 15, the longest being the laptop-load turn, so 15 stops that turn and lets the other 80 run; between hand-offs that night ran 22 streaks, median 17, 90th percentile 51, longest 151; the proxy's 2026-11-05 day (docs/rationale/proxy-role.md section 1) ran 281 streaks, median 5 and 90th percentile 18, 42 reaching 15 (north#838)"
+unit = "read-only tool calls (diagnosis, status checks, landing logs) a coordinator turn may make since its prompt or its last launch, send or gate before the PreToolUse hook refuses the next one and names the brief to write; the turn goes on"
+source = "measured: `north config coordinator calls` on the laptop coordinator's 2026-11-08 transcript (conversation 1f79cfb7) found 82 read-only streaks since a prompt, launch, send or gate, 2 of them over 15, the longest being the laptop-load turn, so 15 stops that turn and lets the other 80 run; between hand-offs that night ran 22 streaks, median 17, 90th percentile 51, longest 151; the coordinator's 2026-11-05 day (docs/rationale/coordinator-role.md section 1) ran 281 streaks, median 5 and 90th percentile 18, 42 reaching 15 (north#838)"
 fallback = "none"
-consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
+consumers = ["crates/north-guard/src/guard/coordinator_role.rs"]
 
 [break_glass_minutes]
 value = 30
 allowed = { min = 1, max = 30 }
-unit = "minutes one `north fleet break-glass` lifts the proxy's look budget and its refusal of source, host, trace, journal and process-table reads, granted only while the harness measures that workers cannot start (the last two launches failed, or the launch probe exits non-zero)"
-source = "north#1106, 2026-11-11: Tom asked for a break-glass path beside the proxy-role table, bounded to 30 minutes so a lifted budget cannot outlast the stall that justified it"
+unit = "minutes one `north fleet break-glass` lifts the coordinator's look budget and its refusal of source, host, trace, journal and process-table reads, granted only while the harness measures that workers cannot start (the last two launches failed, or the launch probe exits non-zero)"
+source = "north#1106, 2026-11-11: Tom asked for a break-glass path beside the coordinator-role table, bounded to 30 minutes so a lifted budget cannot outlast the stall that justified it"
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/break_glass.rs"]
 
-[proxy_role]
+[coordinator_role]
 value = [
-  { class = "launch", owner = "proxy", what = "start or restaff a fleet session: `north fleet launch|revive|relaunch`" },
-  { class = "send", owner = "proxy", what = "message a fleet session: `north fleet send|interrupt`, SendMessage" },
-  { class = "ask", owner = "proxy", what = "put a question to a running session: `north fleet ask`" },
-  { class = "stop", owner = "proxy", what = "stop or forget a session: `north fleet stop|forget`, TaskStop" },
-  { class = "adopt", owner = "proxy", what = "adopt a session as the proxy's child: `north fleet adopt`" },
-  { class = "gate", owner = "proxy", what = "open, answer and relay gates: `north gate`" },
-  { class = "issue-box", owner = "proxy", what = "read an issue and add, tick or close its boxes: `gh issue view|edit|close`, `north task check`" },
-  { class = "status", owner = "proxy", what = "read reports and the status verbs: `north fleet tree|show|accounts`, `north land status`" },
-  { class = "placement-look", owner = "proxy", what = "one bounded look to choose where work goes, inside the look budget" },
+  { class = "launch", owner = "coordinator", what = "start or restaff a fleet session: `north fleet launch|revive|relaunch`" },
+  { class = "send", owner = "coordinator", what = "message a fleet session: `north fleet send|interrupt`, SendMessage" },
+  { class = "ask", owner = "coordinator", what = "put a question to a running session: `north fleet ask`" },
+  { class = "stop", owner = "coordinator", what = "stop or forget a session: `north fleet stop|forget`, TaskStop" },
+  { class = "adopt", owner = "coordinator", what = "adopt a session as the coordinator's child: `north fleet adopt`" },
+  { class = "gate", owner = "coordinator", what = "open, answer and relay gates: `north gate`" },
+  { class = "issue-box", owner = "coordinator", what = "read an issue and add, tick or close its boxes: `gh issue view|edit|close`, `north task check`" },
+  { class = "status", owner = "coordinator", what = "read reports and the status verbs: `north fleet tree|show|accounts`, `north land status`" },
+  { class = "placement-look", owner = "coordinator", what = "one bounded look to choose where work goes, inside the look budget" },
   { class = "source-read", owner = "worker", what = "read a file under a repository checkout to find a cause (rg, cat, sed, git show, git log -p); budget 0, refused before it runs, `git log --oneline` stays open" },
   { class = "remote-read", owner = "worker", what = "ssh past `north fleet|threads|gate` and the status verbs, or a trace, journal or process table on any host (strace, journalctl, ps, top); budget 0, refused before it runs" },
   { class = "build", owner = "worker", what = "build a repository: cargo, bun, nix, make" },
   { class = "test", owner = "worker", what = "run a repository's tests" },
-  { class = "repository-edit", owner = "worker", what = "edit any repository file; the proxy's scratch directory and issue bodies stay its own" },
+  { class = "repository-edit", owner = "worker", what = "edit any repository file; the coordinator's scratch directory and issue bodies stay its own" },
 ]
 allowed = { min_len = 14 }
-unit = "what the proxy does itself (owner proxy) and what it writes a brief and launches a worker for (owner worker), one row per class the proxy-role guard sorts a call into; `north config proxy role` prints it"
+unit = "what the coordinator does itself (owner coordinator) and what it writes a brief and launches a worker for (owner worker), one row per class the coordinator-role guard sorts a call into; `north config coordinator role` prints it"
 source = "tom: the coordinator holds itself to an explicit, harness-enforced standard for what it does itself and what it hands to workers, after it traced four problems by hand in about 50 read-only calls over two messages before staffing anyone (north#1106, 2026-11-11)"
-fallback = "an unreadable table leaves the proxy-role guard allowing the call, and `north config proxy role` exits 1 naming the fault"
-consumers = ["crates/north-guard/src/guard/proxy_table.rs"]
+fallback = "an unreadable table leaves the coordinator-role guard allowing the call, and `north config coordinator role` exits 1 naming the fault"
+consumers = ["crates/north-guard/src/guard/coordinator_table.rs"]
 
-[proxy_look_budget]
+[coordinator_look_budget]
 value = 25
 allowed = { min = 5, max = 500 }
-unit = "read-only tool calls (diagnosis, status checks, landing logs) a proxy may make for one message from Tom before the PreToolUse hook refuses the next one and names the brief to write, the turn going on; Skill loads, reads of the profile's skills, `north work brief new` and `north ... --help` spend none; a launch, send or gate does not refill it, only Tom's next message does"
-source = "proxy: on 2026-11-10 between 21:04 and 21:35 UTC the proxy made about 50 read-only calls over two of Tom's messages and the streak limit stopped only the second, because an issue edit, a send and a launch each reset its count; the 2026-11-05 day's streaks ran median 5 and 90th percentile 18 (docs/rationale/proxy-role.md section 1), so 25 for a whole message lets a normal one run and stops that trace within its first message (north#1106, 2026-11-11)"
+unit = "read-only tool calls (diagnosis, status checks, landing logs) a coordinator may make for one message from Tom before the PreToolUse hook refuses the next one and names the brief to write, the turn going on; Skill loads, reads of the profile's skills, `north work brief new` and `north ... --help` spend none; a launch, send or gate does not refill it, only Tom's next message does"
+source = "coordinator: on 2026-11-10 between 21:04 and 21:35 UTC the coordinator made about 50 read-only calls over two of Tom's messages and the streak limit stopped only the second, because an issue edit, a send and a launch each reset its count; the 2026-11-05 day's streaks ran median 5 and 90th percentile 18 (docs/rationale/coordinator-role.md section 1), so 25 for a whole message lets a normal one run and stops that trace within its first message (north#1106, 2026-11-11)"
 fallback = "none"
-consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
+consumers = ["crates/north-guard/src/guard/coordinator_role.rs"]
 
 [graph_retired_writers]
 value = ["decision-log"]
 allowed = { min_len = 0 }
 unit = "fact-graph writers whose source is gone: north graph ingest retracts what they still hold live, and north graph retain deletes their whole dead history"
-source = "proxy: decision-log was 57% of live assertions with no reader and north#882's ingest tax lane retired it in dceadd4cea (2026-11-08); its retraction grew graph.db from 531 MB to 574 MB until north graph retain deletes the pairs (docs/rationale/world-model.md decision 6)"
+source = "coordinator: decision-log was 57% of live assertions with no reader and north#882's ingest tax lane retired it in dceadd4cea (2026-11-08); its retraction grew graph.db from 531 MB to 574 MB until north graph retain deletes the pairs (docs/rationale/world-model.md decision 6)"
 fallback = "an empty list retires no writer and retain deletes only withdrawn history below its horizon"
 consumers = ["crates/north-graph-ingest/src/run.rs"]
 
@@ -1810,7 +1810,7 @@ consumers = ["crates/north-graph-ingest/src/run.rs"]
 value = 45
 allowed = { min = 30, max = 3650 }
 unit = "days of withdrawn fact-graph history north graph retain keeps; asOf or since below the resulting horizon is refused as snapshot expired"
-source = "proxy: the longest history reader north had when the horizon was chosen was the climb archive, which read each candidate asOf its landing seq over dispatch's 30-day ARM_WINDOW (crates/north-dispatch/src/dispatch/tier.rs; the archive went with north-climb in bce9c60404, north#970); route replay reads 14 days (docs/rationale/nearest-routing.md); 45 is that 30 plus half again, so a reader that runs late or a horizon taken from an hour-old time mark never meets the edge (north#882, 2026-11-08)"
+source = "coordinator: the longest history reader north had when the horizon was chosen was the climb archive, which read each candidate asOf its landing seq over dispatch's 30-day ARM_WINDOW (crates/north-dispatch/src/dispatch/tier.rs; the archive went with north-climb in bce9c60404, north#970); route replay reads 14 days (docs/rationale/nearest-routing.md); 45 is that 30 plus half again, so a reader that runs late or a horizon taken from an hour-old time mark never meets the edge (north#882, 2026-11-08)"
 fallback = "none: the verb panics without it, since a guessed horizon would delete history a reader needs"
 consumers = ["crates/north-graph-ingest/src/run.rs"]
 
@@ -1874,7 +1874,7 @@ consumers = ["crates/north-guard/src/guard/issue_filing.rs"]
 value = true
 allowed = {}
 unit = "whether an after-landing run's offloaded checks take the lander's own rank in a build host's slot line from their first second; false queues them below hand-in checks (rank 3 below rank 2) until 600 s past the landed commit's pick time, after which they take a hand-in's rank"
-source = "proxy: the after-landing run now gates every promotion (north#1022), so it is the floor of written-to-live (north#1036, 2026-11-13)"
+source = "coordinator: the after-landing run now gates every promotion (north#1022), so it is the floor of written-to-live (north#1036, 2026-11-13)"
 fallback = "an unreadable value reads as true"
 consumers = ["crates/north-land-checks/src/land/slots/runner/arguments.rs"]
 

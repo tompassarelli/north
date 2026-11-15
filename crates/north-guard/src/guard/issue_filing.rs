@@ -151,7 +151,7 @@ pub(super) type Ref = (String, u64);
 /// What the hook does after an issue is filed: link what it blocks and claim it for the fleet worker that filed it unless it blocks another issue.
 pub(super) trait Filed {
     fn connect(&mut self, new: &Ref, blocked: &Ref) -> Option<()>;
-    /// The fleet worker session filing, never the proxy, which files issues for dispatch to staff.
+    /// The fleet worker session filing, never the coordinator, which files issues for dispatch to staff.
     fn worker(&mut self) -> Option<String>;
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String>;
     /// Whether the worker's brief makes the issue it files its own item (`Item: new ... issue, file it first`), so one
@@ -182,7 +182,7 @@ impl Filed for Live {
 
     fn worker(&mut self) -> Option<String> {
         let role = std::env::var(crate::fleet::runtime::ROLE_ENV).unwrap_or_default();
-        self.fleet_session.clone().filter(|_| role != crate::fleet::runtime::PROXY)
+        self.fleet_session.clone().filter(|_| role != crate::fleet::runtime::COORDINATOR)
     }
 
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String> {
@@ -203,7 +203,7 @@ impl Filed for Live {
 
     fn may_launch(&mut self) -> bool {
         let role = std::env::var(crate::fleet::runtime::ROLE_ENV).unwrap_or_default();
-        role == crate::fleet::runtime::PROXY || role == "lead"
+        role == crate::fleet::runtime::COORDINATOR || role == "lead"
     }
 
     fn intake(&mut self, new: &Ref, gaps: &[String]) -> Result<String, String> {

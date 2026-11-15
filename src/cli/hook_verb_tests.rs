@@ -20,7 +20,7 @@ fn hook(id: &str, command: &str) -> Value {
 
 #[test]
 fn sends_between_reads_do_not_refill_one_messages_looks() {
-    let budgets = crate::guard::proxy_role::Budgets { looks: 25 };
+    let budgets = crate::guard::coordinator_role::Budgets { looks: 25 };
     let question = "why is the laptop at load 87?";
     let mut lines = vec![prompt(question)];
     for at in 0..26 {
@@ -30,10 +30,10 @@ fn sends_between_reads_do_not_refill_one_messages_looks() {
             lines.push(json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": format!("m{at}"), "name": "SendMessage", "input": {"to": "w", "message": "go"}}]}}).to_string());
         }
     }
-    let judge = |lines: &[String], last: &Value| crate::guard::proxy_role::budget_verdict(&super::read_streak(&lines.join("\n"), last, |_, _| false), &budgets);
+    let judge = |lines: &[String], last: &Value| crate::guard::coordinator_role::budget_verdict(&super::read_streak(&lines.join("\n"), last, |_, _| false), &budgets);
     assert_eq!(judge(&lines[..lines.len() - 2], &hook("r24", "uptime # 24")), Verdict::Allow, "the 25th look runs");
     assert!(matches!(judge(&lines, &hook("r25", "uptime # 25")), Verdict::Deny(reason) if reason.contains("26 read-only calls")), "the 26th look is stopped");
-    assert_eq!(judge(&lines, &hook("a", "north fleet adopt --name proxy")), Verdict::Allow, "adopting the window records it, so a spent budget never stops it");
+    assert_eq!(judge(&lines, &hook("a", "north fleet adopt --name coordinator")), Verdict::Allow, "adopting the window records it, so a spent budget never stops it");
     let mut next = lines.clone();
     next.push(prompt("and the cost table?"));
     assert_eq!(judge(&next, &hook("r26", "uptime")), Verdict::Allow, "Tom's next message refills the budget");

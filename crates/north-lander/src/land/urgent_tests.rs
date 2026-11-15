@@ -16,7 +16,7 @@ fn a_ticket_marked_urgent_again_goes_before_every_urgent_ticket_that_arrived_ear
     queue::write(&b, &ticket("b", 2_000)).unwrap();
     queue::defer(&b, reason).unwrap();
 
-    let said = mark(&queue, "b", "the proxy pays the debt").unwrap();
+    let said = mark(&queue, "b", "the coordinator pays the debt").unwrap();
 
     let order: Vec<String> = queue::collect(&queue).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
     assert_eq!(order, ["b", "a"], "{said}");

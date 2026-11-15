@@ -22,8 +22,8 @@ Every concern also carries:
 - `warn` (optional): a value between green and the line (`bound` for a floor, `worst` for a climb) at which the concern reads drifting whatever its slope.
 - `posture`: how loudly it speaks, the dial Tom turns without touching the measurement:
   - `watch`: views only;
-  - `tell`: the proxy hears red (today's behaviour, the default every existing entry gets);
-  - `early`: the proxy hears drifting and red;
+  - `tell`: the coordinator hears red (today's behaviour, the default every existing entry gets);
+  - `early`: the coordinator hears drifting and red;
   - `page`: as `early`, and red also goes out as a `supply-alert` push. Of the alarms folded here only tier routing pages today; lane gc, land pause and the supply-chain scan send their own pushes and are not concerns.
 - `owners` (at least one on a climb, optional on a floor): the issues that answer for the concern. A list, because a priority issue closed against an existing concern adds itself without dropping the hold an earlier issue has.
 - `pays` (climb only): unchanged, the paths whose lanes pay it.
@@ -66,7 +66,7 @@ Alternatives that lost:
 
 Each sample's value is judged in order:
 
-1. **Unmeasured** (shown, not one of the four): the measurement failed, or the newest sample is over 1 hour old. A concern unmeasured for an hour tells the proxy at posture `tell` and above, as "not read" does today.
+1. **Unmeasured** (shown, not one of the four): the measurement failed, or the newest sample is over 1 hour old. A concern unmeasured for an hour tells the coordinator at posture `tell` and above, as "not read" does today.
 2. **Red**: a floor crosses its `bound`, or a climb crosses its `worst`. A climb with no `worst` is never red. A `tree` floor reads red on the first red sample (the landing gate already confirms it twice); a `live` concern needs two red samples in a row, the two-run rule `north ledger flow`'s alerts use today, so one slow reading does not message anyone.
 3. **Repairing**: red, and the 12 h slope moves significantly back toward the line.
 4. **Drifting**: not red, and either the value sits inside the `warn` band, or the slope is significant toward the line and, at the 24 h slope, the value would cross it within 7 days. For a climb with no `worst`, drifting is a significant 24 h move away from the target.
@@ -131,7 +131,7 @@ Each `north ledger flow --stall-alarm` alert becomes a floor with `producer = "n
 
 The measuring functions stay (`stall::verdict`, `stranded::rows`, `refused::rows`, `routing::stalls`, `sampler::failing`, `capacity::saturation`). Deleted: the episode and delivery machinery in crates/north-flow/src/flow/alerts.rs (`Record`, `State`, `alert_plan`, `episode_actions`, `deliver`, `stall_alert`), `sampler_plan` and `sampler_alert`, `routing_plan`, `routing_alert` and `alert`, `saturation_plan` and `saturation_alert`, their state files `stalls.json`, `saturation.json`, `sampler.json`, `routing.json` and `stalls.lock`, and `rolling_issue::Breaches` if nothing else uses it.
 
-One announcer replaces them: each sampler tells on a state change by posture, once per episode, keyed on the concern and a digest of its detail lines (a newly stranded lane is a new episode, as it is today), and again every 6 hours while red, keeping the episode in its state file. The repository's Fleet parent stops getting its copy; the proxy routes, which is its role (docs/rationale/proxy-role.md). `--stall-alarm` keeps running `north ci-diagnose`, `north red-main-notify` and `north experiments judge`, which are not threshold alarms. The recurrence tick in src/cli/fleet/waits.rs reuses only the announcer and moves to the posture announcer with the rest.
+One announcer replaces them: each sampler tells on a state change by posture, once per episode, keyed on the concern and a digest of its detail lines (a newly stranded lane is a new episode, as it is today), and again every 6 hours while red, keeping the episode in its state file. The repository's Fleet parent stops getting its copy; the coordinator routes, which is its role (docs/rationale/coordinator-role.md). `--stall-alarm` keeps running `north ci-diagnose`, `north red-main-notify` and `north experiments judge`, which are not threshold alarms. The recurrence tick in src/cli/fleet/waits.rs reuses only the announcer and moves to the posture announcer with the rest.
 
 ## Concerns, loops and experiments
 
@@ -151,7 +151,7 @@ Climbs follow the hill-climb protocol adopted in the 2026-10-15 pstack review (s
 
 ## Ratchet, and floors only a dated decision loosens
 
-A floor holds a win only if its line moves with it. Once a day the concerns tick checks each floor that names no `remedy`: when the 99th percentile of its raw samples over the last 7 days beats the bound by at least the margin (the warn band's width when one is set, else 10 % of the bound's magnitude), `north concerns ratchet` writes a lane that moves the bound to that 99th percentile plus half the margin, its commit naming the 7-day median, 99th percentile and noise, and queues the lane for the proxy to land. Red is judged on raw samples, so the new line is set from raw samples too; a median would put it inside the noise. The ratchet never lands a tightening itself, since a tightened floor can turn red on noise the seven days missed. A floor at its best possible value (a count at 0) never qualifies.
+A floor holds a win only if its line moves with it. Once a day the concerns tick checks each floor that names no `remedy`: when the 99th percentile of its raw samples over the last 7 days beats the bound by at least the margin (the warn band's width when one is set, else 10 % of the bound's magnitude), `north concerns ratchet` writes a lane that moves the bound to that 99th percentile plus half the margin, its commit naming the 7-day median, 99th percentile and noise, and queues the lane for the coordinator to land. Red is judged on raw samples, so the new line is set from raw samples too; a median would put it inside the noise. The ratchet never lands a tightening itself, since a tightened floor can turn red on noise the seven days missed. A floor at its best possible value (a count at 0) never qualifies.
 
 A floor with a `remedy` is never ratcheted: its line is also when the doctor restarts a lander or evicts caches, so tightening it would turn quiet margin into restart and eviction storms. Moving such a line is a change to the doctor's loop, made by a lane with an experiments entry like any other policy change.
 
@@ -190,13 +190,13 @@ T3's short hold before announcing "done" is not needed: north announces the repo
 
 ## The first standing concern: detection rate
 
-`incidents-detector-first` is a climb with `direction = "up"` and `window = "7d"`: the share of the last 7 days' incidents first noticed by a detector rather than by Tom or by no one (7 days to 2026-11-06: detector 3 of 128, Tom 9, no one 116). Its oracle is `north ledger incident report --days 7 --metric detector-share`. Today's report counts every non-human noticer as a detector; the metric splits the `noticed_by` values into detector, Tom (`tom`, `proxy`) and no one (rows recorded after the fact by a sweep or an import), and the lane that adds it reproduces 3 of 128 on that week before it lands. Its target is 50 %, a draft, as targets.md asks for a new target; its owner is north#709 until a detection issue takes it; `worst` is left out until a week of history says where a floor would sit.
+`incidents-detector-first` is a climb with `direction = "up"` and `window = "7d"`: the share of the last 7 days' incidents first noticed by a detector rather than by Tom or by no one (7 days to 2026-11-06: detector 3 of 128, Tom 9, no one 116). Its oracle is `north ledger incident report --days 7 --metric detector-share`. Today's report counts every non-human noticer as a detector; the metric splits the `noticed_by` values into detector, Tom (`tom`, `coordinator`) and no one (rows recorded after the fact by a sweep or an import), and the lane that adds it reproduces 3 of 128 on that week before it lands. Its target is 50 %, a draft, as targets.md asks for a new target; its owner is north#709 until a detection issue takes it; `worst` is left out until a week of history says where a floor would sit.
 
 ## Order of work
 
 History and `--trend` ship first and alone, so Tom sees trends within a day of them landing; every later lane reads the samples they write. Then the rename, the schema, the folds, the close rule, the views, the ratchet and the climbs. The lanes, each 20 minutes or less with its files and Done when, are the boxes of north#709.
 
-Review rule, registered by the lane that finishes the folds once it lands, because it measures the week after them: a concern state that disagrees with what the proxy or Tom sees for a week (drifting that never turns red, red that nobody acts on), a sampler that cannot keep 10 minutes, or a fold whose concern messages more than the alert it replaced.
+Review rule, registered by the lane that finishes the folds once it lands, because it measures the week after them: a concern state that disagrees with what the coordinator or Tom sees for a week (drifting that never turns red, red that nobody acts on), a sampler that cannot keep 10 minutes, or a fold whose concern messages more than the alert it replaced.
 
 ## Reviewer round
 

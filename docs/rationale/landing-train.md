@@ -871,7 +871,7 @@ then S2b and S2c in parallel; then S3 and S4.
   answered. Since 2026-11-09 (north#979) every sheriff
   rerun of a step passes `north land checks --after --fresh`, which never reuses a verdict-cache pass: the
   firn `land-checks.sh dotfiles` reverts of 27b05b0f and c78620bd rested on cached passes of main while the
-  test failed on main since north#523. A failure that persists without every lane is reported to the proxy
+  test failed on main since north#523. A failure that persists without every lane is reported to the coordinator
   as a main breakage.
 - **S11 Remote enqueue, pulled by the lander.** Files land/{enqueue,lander,serve,queue}.rs. Pull, not
   push: writing tickets to the laptop over ssh would need a new inbound command on the laptop, while
@@ -1189,7 +1189,7 @@ Rules adopted, each in its owner:
   follows (2026-11-05). Main's CI runs the full suite; `.safe-push` `after =` lines run the checks CI
   lacks on the landed sha after the push
   (`crates/north-landing/src/land/post_land.rs`); a failure is recorded in
-  `safe-push/post-land.tsv` and alarms the proxy.
+  `safe-push/post-land.tsv` and alarms the coordinator.
 - A Rust precheck covers only the crates a lane changes and the workspace crates that depend on them
   (2026-11-05): the clippy line's `${SAFE_PUSH_LAND_PACKAGES:---workspace}` becomes `-p` flags from `cargo metadata` and the
   lane diff (`crates/north-land-checks/src/land/slots/affected.rs`), or `--workspace` when the lane changes
@@ -1201,7 +1201,7 @@ Rules adopted, each in its owner:
   tests on its free cores; a 400% quota at the slot share held the after-landing build near 77 s and
   nextest at 4 test threads (north#634).
 
-Urgent lanes (2026-11-05): a fix that unblocks the queue itself waited behind 45 lanes after the morning fan-out. `north land urgent TICKET --reason TEXT` marks a queued ticket so the lander orders it with red fixes, ahead of older tickets, in both the batch queue and the per-lane prechecks. The proxy or a lead sets it; the reason is kept on the ticket.
+Urgent lanes (2026-11-05): a fix that unblocks the queue itself waited behind 45 lanes after the morning fan-out. `north land urgent TICKET --reason TEXT` marks a queued ticket so the lander orders it with red fixes, ahead of older tickets, in both the batch queue and the per-lane prechecks. The coordinator or a lead sets it; the reason is kept on the ticket.
 
 ## Land first, test after (2026-11-06)
 
@@ -1211,7 +1211,7 @@ it. North#621 and north#633 record the work. This section supersedes the per-lan
 above in its precheck form) and makes the sheriff of step 11 act on the lander's own after-landing
 run instead of waiting for main-red.yml.
 
-### Measured before (24 h, 501 landings, proxy reading 2026-11-06 3:45 AM)
+### Measured before (24 h, 501 landings, coordinator reading 2026-11-06 3:45 AM)
 
 - Queue to main p50 712 s, p90 4685 s. A lane's precheck alone p50 71 s, p90 274 s.
 - At 3:15 AM 17 north lanes sat queued behind pre-land cargo test and clippy runs; with 4 prechecks
@@ -1262,12 +1262,12 @@ two coverage waivers are the `Removes-check:` trailers on commit 9fe95ca5a.
 `north land serve` keeps a watch on every landed batch (speculative stacks included). When the after
 run of the batch head is red, the watcher runs the same after set on the prefix that ends at lane
 k for a binary search over the batch (`land/blame.rs`): about log2(n) extra runs, none for a single
-lane, none when a probe is inconclusive (then the proxy is alarmed and nothing is reverted). The
+lane, none when a probe is inconclusive (then the coordinator is alarmed and nothing is reverted). The
 first lane whose prefix is red is reverted with `git revert` of exactly its commits, each named in
 a `Reverts:` trailer, and the revert is queued as a red-fix ticket that sorts ahead of the queue. The
 lane's session is told to fix it and queue it again with `Follows:`. A revert is never itself
-reverted: a red run on a red-fix lane alarms the proxy instead. A revert that no longer applies
-cleanly alarms the proxy with the range. The retired main-red.yml request path stays for CI runs the
+reverted: a red run on a red-fix lane alarms the coordinator instead. A revert that no longer applies
+cleanly alarms the coordinator with the range. The retired main-red.yml request path stays for CI runs the
 lander did not see.
 
 ### Why this is safe

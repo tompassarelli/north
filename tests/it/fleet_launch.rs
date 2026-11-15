@@ -234,7 +234,7 @@ fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task
 }
 
 #[test]
-fn north_proxy_starts_a_screen_held_coordinator_where_no_window_can_open() {
+fn north_coordinator_starts_a_screen_held_coordinator_where_no_window_can_open() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "idle-interrupt");
@@ -249,31 +249,31 @@ fn north_proxy_starts_a_screen_held_coordinator_where_no_window_can_open() {
   *'-j windows'*) n=$(cat {0} 2>/dev/null | wc -l); if [ "$n" -gt 0 ]; then echo "[{{\"id\":$n,\"pid\":1,\"app_id\":\"com.mitchellh.ghostty\",\"workspace_id\":1,\"layout\":{{\"pos_in_scrolling_layout\":[1,1]}}}}]"; else echo '[]'; fi;;
 esac
 "#, spawned.display()));
-    let proxy = || environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here").arg("proxy").stdin(std::process::Stdio::null()).output().unwrap();
-    let record = || serde_json::from_str::<serde_json::Value>(&fs::read_to_string(root.join(".local/state/north/fleet/proxy/session.json")).unwrap_or_default()).unwrap_or_default();
+    let coordinator = || environment(Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")), root, "here").arg("coordinator").stdin(std::process::Stdio::null()).output().unwrap();
+    let record = || serde_json::from_str::<serde_json::Value>(&fs::read_to_string(root.join(".local/state/north/fleet/coordinator/session.json")).unwrap_or_default()).unwrap_or_default();
 
-    let screened = proxy();
+    let screened = coordinator();
     let held = record();
-    north(root, &["fleet", "stop", "proxy"]);
+    north(root, &["fleet", "stop", "coordinator"]);
     fs::create_dir_all(root.join("run")).unwrap();
     fs::write(root.join("run/niri.wayland-1.1.sock"), "").unwrap();
-    let revived = proxy();
+    let revived = coordinator();
     let windowed = record();
     let reopened = fs::read_to_string(&spawned).unwrap_or_default();
-    north(root, &["fleet", "forget", "proxy"]);
-    let launched = proxy();
+    north(root, &["fleet", "forget", "coordinator"]);
+    let launched = coordinator();
     let fresh = record();
     let opened = fs::read_to_string(&spawned).unwrap_or_default();
-    north(root, &["fleet", "forget", "proxy"]);
+    north(root, &["fleet", "forget", "coordinator"]);
     fs::remove_file(root.join("run/niri.wayland-1.1.sock")).unwrap();
     for tool in ["systemd-run", "systemctl"] {
         executable(&root.join("bin").join(tool), "echo 'Failed to connect to user scope bus via local transport' >&2\nexit 1\n");
     }
-    let unstarted = proxy();
-    north(root, &["fleet", "forget", "proxy"]);
+    let unstarted = coordinator();
+    north(root, &["fleet", "forget", "coordinator"]);
 
     assert!(screened.status.success(), "{}", text(&screened.stderr));
-    assert!(text(&screened.stderr).contains("no window opened for proxy, so the fleet screen holds it: no graphical session is live on this host"), "{}", text(&screened.stderr));
+    assert!(text(&screened.stderr).contains("no window opened for coordinator, so the fleet screen holds it: no graphical session is live on this host"), "{}", text(&screened.stderr));
     assert!(!held["host_pid"].is_null() && held["surface"] == "screen", "{held}");
     assert!(revived.status.success(), "{}", text(&revived.stderr));
     let resumed = format!("--resume {}", held["conversation"].as_str().unwrap_or_default());
@@ -287,7 +287,7 @@ esac
 }
 
 #[test]
-fn a_screen_flag_is_refused_for_any_role_but_the_proxy() {
+fn a_screen_flag_is_refused_for_any_role_but_the_coordinator() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "idle-interrupt");
@@ -295,7 +295,7 @@ fn a_screen_flag_is_refused_for_any_role_but_the_proxy() {
     let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--role", "worker", "--screen", "do the box"]);
 
     assert_eq!(refused.status.code(), Some(2), "{}", text(&refused.stderr));
-    assert!(text(&refused.stderr).contains("the proxy is the only role for it"), "{}", text(&refused.stderr));
+    assert!(text(&refused.stderr).contains("the coordinator is the only role for it"), "{}", text(&refused.stderr));
 }
 
 #[test]
@@ -334,9 +334,9 @@ fn a_fresh_state_takes_one_usage_reading_of_every_account_before_the_coordinator
     let policy = fs::read_to_string(&orchestration).unwrap();
     fs::write(&orchestration, format!("{policy}[accounts.claude.labels]\n{labels}{profiles}")).unwrap();
 
-    let started = north(root, &["proxy"]);
+    let started = north(root, &["coordinator"]);
     let written = fs::read_to_string(&gate).unwrap_or_default();
-    north(root, &["fleet", "forget", "proxy"]);
+    north(root, &["fleet", "forget", "coordinator"]);
 
     assert!(!text(&started.stderr).contains("no live Claude usage sample"), "{}", text(&started.stderr));
     let windows = serde_json::from_str::<serde_json::Value>(&written).map(|gate| gate["claude"]["windows"].clone()).unwrap_or_default();
@@ -347,32 +347,32 @@ fn a_fresh_state_takes_one_usage_reading_of_every_account_before_the_coordinator
 }
 
 #[test]
-fn a_screen_held_proxy_revives_as_a_fleet_host_where_no_desktop_is() {
+fn a_screen_held_coordinator_revives_as_a_fleet_host_where_no_desktop_is() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "idle-interrupt");
-    let session = root.join(".local/state/north/fleet/proxy");
+    let session = root.join(".local/state/north/fleet/coordinator");
     fs::create_dir_all(&session).unwrap();
-    let record = serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": root, "model": null, "created_ms": 1, "host_pid": null, "conversation": "6d1f6f3c-1048-4c1e-9a52-6a0c8b0e1048", "host_dir": session, "role": "proxy", "surface": "screen"});
+    let record = serde_json::json!({"name": "coordinator", "provider": "claude", "account": "a", "cwd": root, "model": null, "created_ms": 1, "host_pid": null, "conversation": "6d1f6f3c-1048-4c1e-9a52-6a0c8b0e1048", "host_dir": session, "role": "coordinator", "surface": "screen"});
     fs::write(session.join("session.json"), record.to_string()).unwrap();
     let spawned = root.join("niri-spawned");
     executable(&root.join("bin/niri"), &format!("printf '%s\\n' \"$*\" >> {}\n", spawned.display()));
     let held = |dir: &Path| serde_json::from_str::<serde_json::Value>(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
 
-    let revived = north(root, &["fleet", "revive", "proxy"]);
+    let revived = north(root, &["fleet", "revive", "coordinator"]);
     assert!(revived.status.success(), "{}", text(&revived.stderr));
     let first = held(&session)["host_pid"].clone();
     let mut shown = String::new();
     north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
-        shown = text(&north(root, &["fleet", "show", "proxy"]).stdout);
+        shown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         shown.contains("OK")
     });
     Command::new("kill").args(["-TERM", &first.to_string()]).status().unwrap();
     let parked = north_core::platform::wait::until(std::time::Duration::from_secs(20), || Command::new("kill").args(["-0", &first.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| !status.success()));
-    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "proxy", "reply with the single word pong"]);
+    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "coordinator", "reply with the single word pong"]);
     let answered = |shown: &str, asked: &str| shown.split_once(asked).is_some_and(|(_, after)| after.contains("OK"));
     north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
-        shown = text(&north(root, &["fleet", "show", "proxy"]).stdout);
+        shown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         answered(&shown, "reply with the single word pong")
     });
     let woken = held(&session)["host_pid"].clone();
@@ -394,27 +394,27 @@ fn a_screen_held_proxy_revives_as_a_fleet_host_where_no_desktop_is() {
     north_core::platform::wait::until(std::time::Duration::from_secs(60), || {
         let tick = north(root, &["fleet", "tick"]);
         ticks.push(format!("{}{}", text(&tick.stdout), text(&tick.stderr)));
-        if desk.join("proxy.asked.json").exists() && !desk.join("proxy.md").exists() {
-            fs::write(desk.join("proxy.md"), "the screen holds the coordinator; carry on\n").unwrap();
+        if desk.join("coordinator.asked.json").exists() && !desk.join("coordinator.md").exists() {
+            fs::write(desk.join("coordinator.md"), "the screen holds the coordinator; carry on\n").unwrap();
         }
         successor = held(&session);
         successor["account"] == "b"
     });
-    let resent = north(root, &["fleet", "send", "--from", "service:fleet-test", "proxy", "reply with the single word ping"]);
+    let resent = north(root, &["fleet", "send", "--from", "service:fleet-test", "coordinator", "reply with the single word ping"]);
     let mut reshown = String::new();
     north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
-        reshown = text(&north(root, &["fleet", "show", "proxy"]).stdout);
+        reshown = text(&north(root, &["fleet", "show", "coordinator"]).stdout);
         answered(&reshown, "reply with the single word ping")
     });
-    north(root, &["fleet", "forget", "proxy"]);
+    north(root, &["fleet", "forget", "coordinator"]);
 
-    assert!(shown.contains("OK") && !first.is_null(), "the revived proxy started no host: {shown}");
+    assert!(shown.contains("OK") && !first.is_null(), "the revived coordinator started no host: {shown}");
     assert!(parked, "the revived host never parked: {first}");
     assert!(!spawned.exists(), "a window was asked for: {}", fs::read_to_string(&spawned).unwrap_or_default());
     assert!(sent.status.success(), "{}", text(&sent.stderr));
-    assert!(answered(&shown, "reply with the single word pong"), "the parked proxy never answered the typed message: {shown}");
+    assert!(answered(&shown, "reply with the single word pong"), "the parked coordinator never answered the typed message: {shown}");
     assert!(woken != first && !woken.is_null(), "the typed message woke no new host: {woken}");
-    assert_eq!(successor["account"], "b", "no successor took the proxy over: {}", ticks.join("\n"));
+    assert_eq!(successor["account"], "b", "no successor took the coordinator over: {}", ticks.join("\n"));
     assert_eq!(successor["surface"], "screen", "the successor is no longer held by the screen: {successor}");
     assert!(resent.status.success(), "{}", text(&resent.stderr));
     assert!(answered(&reshown, "reply with the single word ping"), "the successor never answered a message: {reshown}");

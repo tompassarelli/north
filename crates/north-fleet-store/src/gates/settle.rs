@@ -28,7 +28,7 @@ pub struct Authority<'a> {
     pub typed: Option<&'a TypedTurn>,
 }
 
-/// The message Tom typed that opened a proxy's current turn: its conversation and when he sent it.
+/// The message Tom typed that opened a coordinator's current turn: its conversation and when he sent it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedTurn {
     pub conversation: String,
@@ -41,7 +41,7 @@ impl Authority<'_> {
     }
 
     /// Who an answer to a gate opened at `opened_ms` is recorded as, with the note saying how it reached the gate:
-    /// Tom from his own shell, Tom relayed by a proxy whose turn he opened by typing after the gate opened, else the
+    /// Tom from his own shell, Tom relayed by a coordinator whose turn he opened by typing after the gate opened, else the
     /// gate session's parent, unless the gate is put to Tom (`for_tom`).
     fn answerer(&self, opened_ms: Option<u64>, for_tom: bool) -> NorthResult<(Answerer, Option<String>)> {
         let Some(caller) = self.caller else { return Ok((Answerer::Tom, None)) };
@@ -52,12 +52,12 @@ impl Authority<'_> {
             return Ok((Answerer::Tom, Some(format!("relayed by {caller} from Tom's message in conversation {} at {at}", typed.conversation))));
         }
         if self.parent == Some(caller) && for_tom {
-            return Err(NorthError::Rejected(format!("the gate has no default, so it is put to Tom and only his own answer or a proxy relaying his typed turn closes it; {caller}, its asking session's parent, cannot answer it")));
+            return Err(NorthError::Rejected(format!("the gate has no default, so it is put to Tom and only his own answer or a coordinator relaying his typed turn closes it; {caller}, its asking session's parent, cannot answer it")));
         }
         if self.parent == Some(caller) {
             return Ok((Answerer::Session(caller.to_owned()), None));
         }
-        Err(NorthError::Rejected("only Tom, the gate session's parent, or a proxy whose current turn Tom opened by typing after the gate opened may answer".into()))
+        Err(NorthError::Rejected("only Tom, the gate session's parent, or a coordinator whose current turn Tom opened by typing after the gate opened may answer".into()))
     }
 }
 

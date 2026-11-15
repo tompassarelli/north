@@ -46,12 +46,12 @@ fn main_view_has_no_sessions_pane_and_no_glance_banner() {
     let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
     let start = |statuses: [Status; 6], activity: [u64; 6]| {
         let mut sessions = vec![
-            family("proxy", None, 1, statuses[0], 0),
-            family("kid-b", Some("proxy"), 4, statuses[1], 0),
-            family("kid-a", Some("proxy"), 2, statuses[2], 0),
+            family("coordinator", None, 1, statuses[0], 0),
+            family("kid-b", Some("coordinator"), 4, statuses[1], 0),
+            family("kid-a", Some("coordinator"), 2, statuses[2], 0),
             family("grand", Some("kid-a"), 3, statuses[3], 0),
             family("solo", None, 5, statuses[4], 0),
-            family("gone", Some("proxy"), 0, statuses[5], 0),
+            family("gone", Some("coordinator"), 0, statuses[5], 0),
         ];
         for (session, activity) in sessions.iter_mut().zip(activity) {
             session.last_activity_ms = Some(activity);
@@ -60,7 +60,7 @@ fn main_view_has_no_sessions_pane_and_no_glance_banner() {
     };
     use Status::{Exited, Idle, Working};
     screen.sync(start([Idle, Idle, Working, Idle, Idle, Exited], [1, 2, 3, 4, 5, 6]));
-    let settled = ["proxy", "kid-a", "grand", "kid-b", "solo", "gone"];
+    let settled = ["coordinator", "kid-a", "grand", "kid-b", "solo", "gone"];
     assert_eq!(names(&screen), settled);
     assert_eq!(screen.sessions.iter().map(|session| session.depth).collect::<Vec<_>>(), [0, 1, 2, 1, 0, 0]);
     let bursts = [
@@ -73,13 +73,13 @@ fn main_view_has_no_sessions_pane_and_no_glance_banner() {
         assert_eq!(names(&screen), settled, "output moved a row");
     }
     screen.sync(start([Idle, Idle, Idle, Idle, Idle, Idle], [1; 6]));
-    assert_eq!(names(&screen), ["proxy", "gone", "kid-a", "grand", "kid-b", "solo"], "a session leaving the exited state may move");
+    assert_eq!(names(&screen), ["coordinator", "gone", "kid-a", "grand", "kid-b", "solo"], "a session leaving the exited state may move");
     let mut asking = start([Idle; 6], [1; 6]);
     asking[1].phase = SessionPhase::Reported(Report::Blocked);
     asking[3].phase = SessionPhase::Waiting;
     asking[4].phase = SessionPhase::Reported(Report::Done);
     screen.sync(asking);
-    assert_eq!(names(&screen), ["grand", "kid-b", "proxy", "gone", "kid-a", "solo"], "a session waiting or reporting other than Done goes first");
+    assert_eq!(names(&screen), ["grand", "kid-b", "coordinator", "gone", "kid-a", "solo"], "a session waiting or reporting other than Done goes first");
     let mut terminal = Terminal::new(TestBackend::new(200, 50)).unwrap();
     let mut painter = TranscriptPainter::default();
     terminal.draw(|frame| draw(frame, &mut screen, None, &mut painter, 0)).unwrap();
@@ -108,12 +108,12 @@ fn help_fact(screen: &mut Screen, label: &str) -> String {
 }
 
 #[test]
-fn help_shows_the_proxys_account_and_log_path_and_closes_when_its_slash_is_backspaced() {
+fn help_shows_the_coordinators_account_and_log_path_and_closes_when_its_slash_is_backspaced() {
     let mut screen = Screen::new(PathBuf::from("/code"), vec![account()]);
-    screen.sync(vec![lodged("lander-precheck", "c", 1, Status::Idle), lodged("proxy", "e", 2, Status::Parked)]);
+    screen.sync(vec![lodged("lander-precheck", "c", 1, Status::Idle), lodged("coordinator", "e", 2, Status::Parked)]);
     screen.help.open(Tab::General);
     assert!(help_fact(&mut screen, "Account:").ends_with("e (claude)"));
-    assert!(help_fact(&mut screen, "Session Logs:").ends_with("/logs/proxy"));
+    assert!(help_fact(&mut screen, "Session Logs:").ends_with("/logs/coordinator"));
     screen.help.close();
     screen.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
     assert_eq!(help_fact(&mut screen, "Available Commands"), "Available Commands");

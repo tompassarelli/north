@@ -415,7 +415,7 @@ and lead staffing lives in north-dispatch.
 
 - Dispatch's survey and leaf staffing (boxes 2a, 2d). One query gives every open issue's parent, and dispatch
   staffs leaves and unconverted boxes at any depth, never a parent. What it lacks: its launches carry no
-  `--parent`, so every session falls to the proxy (`src/cli/fleet/lineage.rs`).
+  `--parent`, so every session falls to the coordinator (`src/cli/fleet/lineage.rs`).
 - Fleet records' `role` and `parent`, the upward rule (`crates/north-fleet/src/fleet/upward.rs`) and
   `north fleet tree`. Reports already go to whatever parent a session names. Nothing is missing.
 - Take-over (`north fleet launch --take-over --name NAME`). It moves the name and untaken messages. What it
@@ -431,7 +431,7 @@ and lead staffing lives in north-dispatch.
 - The stalled-plan and unstaffed-box detectors (`crates/north-flow/src/detectors/plan.rs`). They page the
   coordinator and dispatch for ready, unstaffed work. What they lack: the page should reach the parent's lead
   when it has one. That is a later change. Until then dispatch staffs the unstaffed box anyway.
-- The `proxy_role` table. It binds only the proxy (`crates/north-guard/src/guard/proxy_role.rs`). A lead gets
+- The `coordinator_role` table. It binds only the coordinator (`crates/north-guard/src/guard/coordinator_role.rs`). A lead gets
   no rows, because the table forbids reading source, and a lead's review reads diffs. The one lead-specific
   limit is S3's refusal of `--role lead` launched from a lead or worker. Rows for leads are revisited only if
   lead records show one tracing by hand instead of staffing.
@@ -452,14 +452,14 @@ and lead staffing lives in north-dispatch.
   own lead.
 - Staffing. A parent whose load exceeds `[dispatch] lead_reports` gets one lead, at most `[dispatch] leads`
   at once, largest load first. Dispatch launches `north fleet launch --role lead --task OWNER/REPO#N --name
-  lead-REPO-N --parent L`. L is the lead of the nearest ancestor that has one, else the proxy. The lead claims
+  lead-REPO-N --parent L`. L is the lead of the nearest ancestor that has one, else the coordinator. The lead claims
   its parent. Dispatch never staffs a parent as work, so that claim conflicts with nothing, and with the name
   it refuses a second lead. A live session with role lead holding the parent's claim, including one launched
   by hand, counts as that parent's lead. So does a hand-launched session with any role or none (the burn-down,
-  flow and evals leads of 2026-11-13 hold no claim on a parent) when it is neither the proxy nor a dispatched
+  flow and evals leads of 2026-11-13 hold no claim on a parent) when it is neither the coordinator nor a dispatched
   lead and is the fleet parent of a live session holding an item in the subtree. Dispatch staffs no lead for
   that parent while such a session lives (S1c). Excluding dispatched leads keeps a deeper lead's children from
-  blocking a higher parent. Whether a session is the proxy is read from the registry's live-proxy fact (its
+  blocking a higher parent. Whether a session is the coordinator is read from the registry's live-coordinator fact (its
   cgroup and owner), never from a name or role a launcher can set. Any worker with a child holding a subtree
   item suppresses the lead, which fails toward no lead.
 - Placement. A lead launch goes through the same placement step as a worker launch: `plan::place` with its
@@ -542,7 +542,7 @@ with either unset it plans no lead and stops none, so promoting the runtime turn
 
 ### What must not happen, and the check for each
 
-- Leads staffing leads without bound. Only dispatch, or the proxy by hand, launches `--role lead`. S3's
+- Leads staffing leads without bound. Only dispatch, or the coordinator by hand, launches `--role lead`. S3's
   launch refusal covers a lead or worker trying it, and `[dispatch] leads` covers dispatch. Check: S3's test and
   S1a's cap case.
 - A tree deeper than the issue tree. A lead's parent is the lead of an ancestor issue and there is one lead
@@ -618,7 +618,7 @@ After S1, each slice with its files, test, size and reviewer:
   takes S2's prior of 3, then moves only on its settled reading. Files: `crates/north-dispatch/src/dispatch/leads.rs`, `tests.rs`.
   Test: `a_lead_over_the_bound_is_split_along_its_children_and_never_deeper_than_the_issue_tree`. Size: about
   30 minutes. Reviewer: commit-reviewer.
-- S3, only dispatch or the proxy launches a lead, and the silent-child note skips a lead. Files:
+- S3, only dispatch or the coordinator launches a lead, and the silent-child note skips a lead. Files:
   `src/cli/fleet/launch.rs`, `src/cli/fleet/lineage.rs`, `crates/north-fleet/src/fleet/silent.rs`. Tests:
   `a_lead_or_worker_cannot_launch_a_lead` and `a_quiet_lead_raises_no_silent_child_note`. After the commit
   review, a launch from a session whose registry role is lead, whatever its `--role`, also meets the
@@ -635,7 +635,7 @@ After S1, each slice with its files, test, size and reviewer:
   re-addressed, because a message written for a worker reads wrongly to its lead, and an urgent stop or
   interrupt must reach the worker without delay (coordinator ruling and commit review, 2026-11-13). Files: the
   send path and `crates/north-fleet-store/src/fold.rs`. Test:
-  `a_proxy_message_to_a_worker_under_a_lead_names_its_top_lead`. Size: about 30 minutes. Reviewer:
+  `a_coordinator_message_to_a_worker_under_a_lead_names_its_top_lead`. Size: about 30 minutes. Reviewer:
   commit-reviewer.
 - S7, a wait on the live runtime of the waiting session's own host, never settled on an unreadable runtime
   commit. Files: `crates/north-fleet-store/src/store/waits.rs` and the tick. Test:

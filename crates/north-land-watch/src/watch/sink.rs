@@ -12,7 +12,7 @@ use super::{Alert, Severity};
 
 pub const REPEAT_SECONDS: u64 = 600;
 pub const DESKTOP_SECONDS: u64 = 300;
-const PROXY: &str = "proxy";
+const COORDINATOR: &str = "coordinator";
 const NAMED: usize = 5;
 const DETAIL_DIR: &str = "detail";
 pub const LINE_CHARS: usize = 300;
@@ -56,7 +56,7 @@ impl Fleet {
 
     pub fn lead_of(&self, session: &str) -> Option<String> {
         let found = self.sessions().iter().find(|entry| entry["name"].as_str() == Some(session))?;
-        Some(found["parent"].as_str().filter(|parent| *parent != PROXY).unwrap_or(session).to_owned())
+        Some(found["parent"].as_str().filter(|parent| *parent != COORDINATOR).unwrap_or(session).to_owned())
     }
 
     pub fn is_working(&self, session: &str) -> bool {
@@ -65,7 +65,7 @@ impl Fleet {
 }
 
 fn recipients(owner: Option<&str>, outbox: &Fleet) -> Vec<String> {
-    let mut to = vec![PROXY.to_owned()];
+    let mut to = vec![COORDINATOR.to_owned()];
     if let Some(lead) = owner.map(|owner| outbox.lead_of(owner).unwrap_or_else(|| owner.to_owned()))
         && !to.contains(&lead)
         && outbox.is_working(&lead)

@@ -15,7 +15,7 @@ use crate::platform::box_oracles;
 use crate::platform::process::run_group_within;
 
 const FROM: &str = "service:north-experiments";
-const NO_LEAD: &str = "proxy";
+const NO_LEAD: &str = "coordinator";
 
 /// Leads through `north fleet send`.
 pub struct Fleet;

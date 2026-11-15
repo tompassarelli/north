@@ -94,7 +94,7 @@ fn reset_run(dry_run: bool) -> Result<(), String> {
     let db = crate::usage::open_ledger(&home, None, &crate::threads::client::refresh_mirrored_snapshot)?;
     let readings = crate::usage::json_readings(&db, at)?;
     let fleet = crate::cli::fleet::open_fleet().map_err(|error| error.user_message())?;
-    let session = fleet.session("proxy").or_else(|_| fleet.session("coordinator")).map_err(|error| error.user_message())?;
+    let session = fleet.session("coordinator").map_err(|error| error.user_message())?;
     let account = session.account;
     let used = fable_used(&readings, &account).ok_or_else(|| format!("no Fable reading for {account}"))?;
     let places = crate::usage::Places::from_env();

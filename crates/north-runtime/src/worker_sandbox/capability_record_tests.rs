@@ -12,7 +12,7 @@ use super::super::lane_grant::Host;
 use super::super::peer::Peer;
 
 const WORKER_SCOPE: &str = "north-session-0a0a0a0a-worker.scope";
-const PROXY_SCOPE: &str = "north-session-0b0b0b0b-proxy.scope";
+const COORDINATOR_SCOPE: &str = "north-session-0b0b0b0b-coordinator.scope";
 const UNRECORDED_SCOPE: &str = "north-session-0c0c0c0c-unrecorded.scope";
 const UNNAMED_SCOPE: &str = "north-session-0d0d0d0d-unnamed.scope";
 
@@ -45,7 +45,7 @@ impl Fixture {
         git(&main, &["init", "-q", "-b", "main"]);
         git(&main, &["commit", "-q", "--allow-empty", "-m", "one"]);
         git(&main, &["worktree", "add", "-q", lane.to_str().unwrap(), "-b", "forged"]);
-        for (name, unit, record) in [("worker", WORKER_SCOPE, Some(serde_json::json!({ "name": "worker", "role": "worker" }))), ("proxy", PROXY_SCOPE, Some(serde_json::json!({ "name": "proxy", "role": "proxy" }))), ("unnamed", UNNAMED_SCOPE, Some(serde_json::json!({ "name": "look-lead" }))), ("unrecorded", UNRECORDED_SCOPE, None)] {
+        for (name, unit, record) in [("worker", WORKER_SCOPE, Some(serde_json::json!({ "name": "worker", "role": "worker" }))), ("coordinator", COORDINATOR_SCOPE, Some(serde_json::json!({ "name": "coordinator", "role": "coordinator" }))), ("unnamed", UNNAMED_SCOPE, Some(serde_json::json!({ "name": "look-lead" }))), ("unrecorded", UNRECORDED_SCOPE, None)] {
             std::fs::create_dir_all(fleet.join(name)).unwrap();
             std::fs::write(session_host_files::scope_path(&fleet.join(name)), format!("{unit}\n")).unwrap();
             if let Some(record) = record {
@@ -86,11 +86,11 @@ fn capability_record_confines_a_worker_whatever_role_its_environment_forges() {
     let built = "--worker-sandbox --built -- true";
     let run = "capacity host run --class heavy --owner o -- true";
     let cases = [
-        ("a worker that forged the proxy role", WORKER_SCOPE, "proxy", built, "--worker-sandbox --built --worker -- true".to_owned()),
-        ("a worker that forged the proxy role", WORKER_SCOPE, "proxy", run, format!("capacity host run --class heavy --owner o -- {north} --worker-sandbox --program --worker -- true")),
-        ("a session whose record cannot be read", UNRECORDED_SCOPE, "proxy", built, "--worker-sandbox --built --worker -- true".to_owned()),
-        ("a lead whose record names no role", UNNAMED_SCOPE, "proxy", built, "--worker-sandbox --built --worker -- true".to_owned()),
-        ("the proxy seat that forged a worker's role", PROXY_SCOPE, "worker", built, "--worker-sandbox --built -- true".to_owned()),
+        ("a worker that forged the coordinator role", WORKER_SCOPE, "coordinator", built, "--worker-sandbox --built --worker -- true".to_owned()),
+        ("a worker that forged the coordinator role", WORKER_SCOPE, "coordinator", run, format!("capacity host run --class heavy --owner o -- {north} --worker-sandbox --program --worker -- true")),
+        ("a session whose record cannot be read", UNRECORDED_SCOPE, "coordinator", built, "--worker-sandbox --built --worker -- true".to_owned()),
+        ("a lead whose record names no role", UNNAMED_SCOPE, "coordinator", built, "--worker-sandbox --built --worker -- true".to_owned()),
+        ("the coordinator seat that forged a worker's role", COORDINATOR_SCOPE, "worker", built, "--worker-sandbox --built -- true".to_owned()),
     ];
     let mut failures = Vec::new();
     for (who, scope, forged, words, expected) in cases {

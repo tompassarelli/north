@@ -130,10 +130,10 @@ fn a_pi_worker_runs_a_brief_and_reports_through_the_fleet() {
     assert_eq!((tokens.input, tokens.output, tokens.cache_read, tokens.cache_write), (150, 17, 40, 2));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Opened { model: Some(model), .. } if model == route::GO_MODEL)));
     a_limited_free_model_runs_the_turn_again_on_paid_go_flash();
-    a_pi_window_holds_the_proxy_name_and_counts_as_a_live_fleet_session();
+    a_pi_window_holds_the_coordinator_name_and_counts_as_a_live_fleet_session();
 }
 
-fn a_pi_window_holds_the_proxy_name_and_counts_as_a_live_fleet_session() {
+fn a_pi_window_holds_the_coordinator_name_and_counts_as_a_live_fleet_session() {
     let home = tempfile::tempdir().unwrap();
     let state = home.path().join(".local/state/north");
     let agent = home.path().join(".pi/agent");
@@ -150,16 +150,16 @@ fn a_pi_window_holds_the_proxy_name_and_counts_as_a_live_fleet_session() {
 
     let runtime = seeing(Visibility::Private).with_windows(Arc::new(PiWindows::at(state, agent.clone())));
     let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(runtime)]), Arc::new(Paper::default())).unwrap();
-    let record = fleet.adopt("proxy", "pi-window", "/tmp".into()).unwrap();
+    let record = fleet.adopt("coordinator", "pi-window", "/tmp".into()).unwrap();
 
     assert!(record.adopted());
     assert_eq!(record.conversation.as_deref(), Some("pi-window"));
     assert_eq!(fleet.status(&record), Status::Idle, "dispatch sees the Pi window as a live session");
-    assert!(fleet.listens("proxy").unwrap(), "a report to the proxy reaches the Pi window");
+    assert!(fleet.listens("coordinator").unwrap(), "a report to the coordinator reaches the Pi window");
     assert!(agent.join("extensions/north-fleet.ts").is_file(), "adopt installs the bridge the window loads");
     assert_eq!(PiWindows::conversation_of(|name| (name == "PI_SESSION_ID").then(|| "pi-window".to_owned())).as_deref(), Some("pi-window"));
 
-    fleet.send_message(&Sender::Session("lead".into()), "proxy", "main is red", Delivery::Queued).unwrap();
+    fleet.send_message(&Sender::Session("lead".into()), "coordinator", "main is red", Delivery::Queued).unwrap();
     let (mut report, _) = listener.accept().unwrap();
     let mut text = String::new();
     report.read_to_string(&mut text).unwrap();

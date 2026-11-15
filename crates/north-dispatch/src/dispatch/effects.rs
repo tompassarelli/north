@@ -1,5 +1,5 @@
 //! What a dispatch run does to the world: start each placed box through `north fleet launch` (on the laptop through
-//! its job queue), record the attempt, send Tom's one ntfy line, and send the triage lead, else the proxy, its daily
+//! its job queue), record the attempt, send Tom's one ntfy line, and send the triage lead, else the coordinator, its daily
 //! list of issues that need a box.
 use super::issues::Issue;
 use super::plan::Launch;
@@ -7,7 +7,7 @@ use super::revive::Revive;
 use super::record::{self, Record};
 use super::survey::Survey;
 use crate::pacing::placement::{self, gate};
-use crate::fleet::runtime::PROXY;
+use crate::fleet::runtime::COORDINATOR;
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::process::run_within;
 use serde_json::json;
@@ -233,18 +233,18 @@ pub fn deliver(line: &str, alert: &mut dyn FnMut(&str) -> Result<(), String>, pa
         Ok(()) => Ok(Delivery::Alert),
         Err(why) => match page(line) {
             Ok(()) => Ok(Delivery::Page),
-            Err(page) => Err(format!("nexus-alert: {why}; the proxy page: {page}")),
+            Err(page) => Err(format!("nexus-alert: {why}; the coordinator page: {page}")),
         },
     }
 }
 
-pub fn page_proxy(line: &str) -> Result<(), String> {
-    fleet_send(&["fleet", "send", "--now", "--from", SENDER, PROXY, line])
+pub fn page_coordinator(line: &str) -> Result<(), String> {
+    fleet_send(&["fleet", "send", "--now", "--from", SENDER, COORDINATOR, line])
 }
 
-/// Pages the proxy under the fleet store's condition `key`, which it delivers once per episode.
+/// Pages the coordinator under the fleet store's condition `key`, which it delivers once per episode.
 pub fn page_condition(key: &str, line: &str) -> Result<(), String> {
-    fleet_send(&["fleet", "send", "--now", "--from", SENDER, "--key", key, PROXY, line])
+    fleet_send(&["fleet", "send", "--now", "--from", SENDER, "--key", key, COORDINATOR, line])
 }
 
 fn fleet_send(arguments: &[&str]) -> Result<(), String> {
@@ -256,20 +256,20 @@ fn fleet_send(arguments: &[&str]) -> Result<(), String> {
     }
 }
 
-/// Sends `line` through nexus-alert unless the same line went out in the last six hours, and pages the proxy when nexus-alert fails.
+/// Sends `line` through nexus-alert unless the same line went out in the last six hours, and pages the coordinator when nexus-alert fails.
 pub fn tell_tom(line: &str, dry_run: bool, at: f64) -> Result<(), String> {
     let mut alert = |line: &str| match run_within("nexus-alert", &["normal", line, "north fleet dispatch"], Duration::from_secs(30)) {
         Some(output) if output.status.success() => Ok(()),
         Some(output) => Err(format!("exited {}", output.status)),
         None => Err("did not return within 30 s".to_owned()),
     };
-    let mut page = |line: &str| page_proxy(line);
+    let mut page = |line: &str| page_coordinator(line);
     let mut written = |line: &str, at: f64| remember("alert.json", &json!({"text": line, "at": at}));
     tell_tom_with(line, dry_run, at, &mut alert, &mut page, &mut written)
 }
 
 /// `tell_tom` with its sinks and its record passed in: a failed alert is itself a page, and either
-/// sink failing still returns `Err`, so the dispatch run exits non-zero even when the proxy page goes out.
+/// sink failing still returns `Err`, so the dispatch run exits non-zero even when the coordinator page goes out.
 pub(super) fn tell_tom_with(
     line: &str,
     dry_run: bool,
@@ -294,23 +294,23 @@ pub(super) fn tell_tom_with(
             Ok(())
         }
         Ok(Delivery::Page) => {
-            println!("paged the proxy: {line}");
+            println!("paged the coordinator: {line}");
             written(line, at);
-            Err(format!("nexus-alert failed; paged the proxy instead: {line}"))
+            Err(format!("nexus-alert failed; paged the coordinator instead: {line}"))
         }
         Err(why) => Err(format!("{why}; the line was: {line}")),
     }
 }
 
-/// Pages the proxy about each launch failure cause under its condition key, which the fleet store delivers once per episode however many dispatch runs repeat it.
+/// Pages the coordinator about each launch failure cause under its condition key, which the fleet store delivers once per episode however many dispatch runs repeat it.
 pub fn watch_failures(pages: &[record::FailurePage], send: &mut dyn FnMut(&str, &str) -> bool) -> bool {
     let mut sent_all = true;
     for page in pages {
         let line = page.line();
         if send(&page.condition(), &line) {
-            println!("paged the proxy: {line}");
+            println!("paged the coordinator: {line}");
         } else {
-            eprintln!("north fleet dispatch: could not page the proxy: {line}");
+            eprintln!("north fleet dispatch: could not page the coordinator: {line}");
             sent_all = false;
         }
     }
@@ -321,7 +321,7 @@ pub fn report_failures(records: &[Record], at: f64, dry_run: bool) -> bool {
     let pages = record::failure_pages(records, at);
     if dry_run {
         for page in &pages {
-            println!("would page the proxy: {}", page.line());
+            println!("would page the coordinator: {}", page.line());
         }
         return true;
     }
@@ -335,9 +335,9 @@ pub fn boxless_summary(issues: &[&Issue]) -> String {
 }
 
 /// Who is asked to box them: the session `[dispatch] triage_lead` names while some registry lists
-/// it, else the proxy.
+/// it, else the coordinator.
 pub fn boxless_recipient<'a>(cfg: &'a DocumentMut, listed: &BTreeSet<String>) -> &'a str {
-    cfg.get("dispatch").and_then(|rules| rules.get("triage_lead")).and_then(Item::as_str).filter(|lead| listed.contains(*lead)).unwrap_or(PROXY)
+    cfg.get("dispatch").and_then(|rules| rules.get("triage_lead")).and_then(Item::as_str).filter(|lead| listed.contains(*lead)).unwrap_or(COORDINATOR)
 }
 
 /// Sends `boxless_summary` to `boxless_recipient` at most once a day; a failed send waits the day too,

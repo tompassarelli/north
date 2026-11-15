@@ -75,6 +75,6 @@ fn a_gate_answer_from_another_host_is_admitted_as_tom_only_from_the_machine_tom_
     let admitted = crate::fleet::peer_row::admit(&from_tom, "whiterabbit", &ledger, OWNER).unwrap();
     assert_eq!((admitted.origin.as_deref(), admitted.urgent), (Some("whiterabbit"), false));
     assert!(crate::fleet::peer_row::admit(&answer("2-parent", Sender::Session("gex45-worker".into())), "gex45", &ledger, OWNER).is_ok());
-    ledger[0].parent = Some("proxy".into());
+    ledger[0].parent = Some("coordinator".into());
     assert!(matches!(crate::fleet::peer_row::admit(&answer("3-stranger", Sender::Session("gex45-worker".into())), "gex45", &ledger, OWNER), Err(crate::fleet::peer_row::Refusal::Spoofed(_))));
 }

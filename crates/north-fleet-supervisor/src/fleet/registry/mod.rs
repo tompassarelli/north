@@ -77,7 +77,7 @@ mod senders;
 mod status;
 mod rebooting;
 mod stranding;
-mod proxy_window;
+mod coordinator_window;
 mod testing;
 #[doc(hidden)]
 pub mod fixtures;
@@ -101,7 +101,7 @@ pub use takeover::backlog_line;
 pub use messages::Sent;
 pub use spend_rows::Spent;
 pub use wait_rows::Waiting;
-pub use proxy_window::{NoDesk, OpenedWindows, ProxyDesk};
+pub use coordinator_window::{NoDesk, OpenedWindows, CoordinatorDesk};
 
 #[derive(Clone)]
 pub struct Fleet {
@@ -123,7 +123,7 @@ pub struct Fleet {
     recording: Arc<dyn RunRecording>,
     remote_lanes: Arc<dyn RemoteLanes>,
     held_units: Arc<dyn HeldUnits>,
-    desk: Arc<dyn ProxyDesk>,
+    desk: Arc<dyn CoordinatorDesk>,
     reckon: Arc<dyn Reckon>,
     rewrites: Arc<dyn Rewrites>,
     spools_as: Option<String>,
@@ -184,13 +184,13 @@ impl Fleet {
         self
     }
 
-    /// Shows the proxy on `desk`, the desktop Tom types on; a fleet without one starts no proxy.
-    pub fn showing_proxy_on(mut self, desk: Arc<dyn ProxyDesk>) -> Self {
+    /// Shows the coordinator on `desk`, the desktop Tom types on; a fleet without one starts no coordinator.
+    pub fn showing_coordinator_on(mut self, desk: Arc<dyn CoordinatorDesk>) -> Self {
         self.desk = desk;
         self
     }
 
-    pub fn proxy_window_closed(&self) -> Option<String> {
+    pub fn coordinator_window_closed(&self) -> Option<String> {
         self.desk.closed()
     }
 

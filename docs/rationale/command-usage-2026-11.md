@@ -236,7 +236,7 @@ Lines are Rust totals of `git ls-files 'crates/CRATE/*.rs'` at 14871e01b3, all l
 | `ssh-session` | north-core | 22 | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 3 |  |
 | `desktop private start` | north-ops | 21 | 21 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |  |
 | `ledger opencode` | north-providers | 21 | 19 | 2 | 0 | 0 | 0 | 0 | 0 | 2 |  |
-| `config proxy calls` | north (root) | 20 | 3 | 17 | 0 | 0 | 0 | 0 | 0 | 3 |  |
+| `config coordinator calls` | north (root) | 20 | 3 | 17 | 0 | 0 | 0 | 0 | 0 | 3 |  |
 | `land scan denylist` | north-land-scans | 20 | 8 | 12 | 0 | 0 | 0 | 0 | 0 | 1 |  |
 | `laptop-runner` | north-runtime | 20 | 7 | 10 | 0 | 1 | 1 | 1 | 0 | 2 |  |
 | `work show` | north (root) | 20 | 10 | 10 | 0 | 0 | 0 | 0 | 0 | 1 |  |

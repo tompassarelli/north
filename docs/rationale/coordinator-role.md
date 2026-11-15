@@ -1,28 +1,28 @@
-# The proxy's role: route and judge, delegate the rest, and measure it
+# The coordinator's role: route and judge, delegate the rest, and measure it
 
 Tom asked on 2026-11-05 for the orchestrating session to act as one: do brief cross-cutting work itself
 and delegate everything that takes several steps, with a deterministic mechanism behind each rule
-wherever one can carry it. This page measures what the proxy did in one day, then designs the role so
+wherever one can carry it. This page measures what the coordinator did in one day, then designs the role so
 that code, hooks, gates and alarmed metrics hold it, and prose only where nothing can check the rule.
 Each design part ends with an **Enforced by** line.
 
 ## 0. The org chart
 
-North has one primary coordinator, the proxy, accountable to Tom, who sets goals and steers; every
+North has one primary coordinator, the coordinator, accountable to Tom, who sets goals and steers; every
 other session reports up a chain that ends at it, a lead's or worker's `--parent` and then that
-session's parent. Anything the proxy cannot answer at once — an investigation, a debug, engineering,
+session's parent. Anything the coordinator cannot answer at once — an investigation, a debug, engineering,
 a deep analysis — goes to a worker or a lead, and whatever can run in the background does, so a
-report to the proxy never waits behind the proxy's own work (Tom's direction, 2026-11-11). The guard
-carries the last line: `crates/north-guard/src/guard/proxy_background.rs` refuses a proxy foreground
+report to the coordinator never waits behind the coordinator's own work (Tom's direction, 2026-11-11). The guard
+carries the last line: `crates/north-guard/src/guard/coordinator_background.rs` refuses a coordinator foreground
 call that can wait past 30 s on a launch, a remote command or a job, and names `run_in_background: true`.
 
-## 1. Evidence: one day of the proxy
+## 1. Evidence: one day of the coordinator
 
-Source: the terminal proxy's transcript, conversation `895929a7-6218-4168-b513-3dced3440bf6` (on the
+Source: the terminal coordinator's transcript, conversation `895929a7-6218-4168-b513-3dced3440bf6` (on the
 laptop), copied on 2026-11-05. It covers about 24 hours from 2026-11-04 to
 2026-11-05: 5,880 Opus 5.5 turns, 2,753 tool calls, 116 messages typed into the session and
 11 context compactions. Its turns read 1,549 M cache tokens, about 263 k per turn, so every call the
-proxy makes re-reads a quarter of a million Opus tokens of context.
+coordinator makes re-reads a quarter of a million Opus tokens of context.
 
 Headline: **2,259 Bash calls against 220 Agent delegations** (the brief counted 2,241 Bash at its time
 of writing; the session kept running). With fleet launches added, 282 calls of 2,753 handed work away.
@@ -55,7 +55,7 @@ Counts (2,753 calls):
 - Tom-facing: 99
 - briefing: 15
 
-Streaks: between two delegations, child messages, briefs or Tom-facing calls the proxy ran 281 streaks
+Streaks: between two delegations, child messages, briefs or Tom-facing calls the coordinator ran 281 streaks
 of other calls, median 5, 90th percentile 18, longest 64. A warning at 5 consecutive calls would have
 fired 145 times; 42 streaks reached 15. 646 calls ran inside 112 distinct lane worktrees, the lanes
 other sessions own.
@@ -73,32 +73,32 @@ Work that should have been delegated, by the calls it took:
 - Reading lander logs to learn why a lane was refused: 327 calls. The lander's verdict line and the
   conflicting files already exist in its journal (for example `etxtbsy-helper ... conflict
   tests/it/land_serve.rs` at 2:54 AM); they belong in a message to the lane's session, not in the
-  proxy's context.
+  coordinator's context.
 - Polling status: 214 calls, 75 of them `north fleet show NAME`. Receipts deliver a child's report to
-  its parent, but the proxy is no fleet session: 54 of its 60 fleet launches passed `--parent none`,
+  its parent, but the coordinator is no fleet session: 54 of its 60 fleet launches passed `--parent none`,
   so no report, landing or silence notice could reach it and it polled instead. Its 220 `Agent`
   delegations (112 `worker-sonnet`, 80 `worker`, 20 `worker-haiku`, 8 `planner`) were in-process
-  subagents, whose results return into the proxy's own context.
+  subagents, whose results return into the coordinator's own context.
 - Post-landing bookkeeping: 122 calls verifying ancestry, stopping and forgetting sessions, ticking and
   closing issues and keeping a scratchpad queue. The landing knows every fact these calls re-derive.
 - Monitoring scripts: 182 calls standing up and tearing down watchers for runs that the fleet's waits
   and receipts already report.
 
-The root cause under all ten kinds is one gap: **the harness cannot name the proxy.** The proxy runs
+The root cause under all ten kinds is one gap: **the harness cannot name the coordinator.** The coordinator runs
 outside the fleet with `NORTH_FLEET_SESSION` unset, so it cannot be a parent, a lander ticket's
 session or an alarm's recipient. Its children report to nobody (`--parent none`) or to the idle
-fleet session that is also called `proxy`: launches with no `--parent` and no caller
+fleet session that is also called `coordinator`: launches with no `--parent` and no caller
 default to that name (`src/cli/fleet/lineage.rs:19`), and `north ops check`, `north ops dividend` and
 `north ledger flow` alerts all send to it (`crates/north-ops/src/ops/check/mod.rs:45`,
 `crates/north-flow/src/flow/alerts.rs:68`). So the session Tom reads hears nothing, and the
 session that hears everything has no reader. The lander already tells a ticket's session when its
 lane lands or is refused, with the conflicting files (`crates/north-landing/src/land/bisect.rs:126`),
-but a lane the proxy pushed itself, or one an in-process subagent pushed, has no session it can reach,
-so the proxy read the journal instead.
+but a lane the coordinator pushed itself, or one an in-process subagent pushed, has no session it can reach,
+so the coordinator read the journal instead.
 
 What Tom does in that terminal besides typing, from the same transcript: one each of `/model`, `/effort` and `/goal`, one pasted image and one `!` shell line. 6,576 of the transcript's 8,578 working-directory entries are `~/code/north/main`, whose project memory and project instructions load with it. In-process subagent calls do not appear in it (every turn has `isSidechain: false`), so subagent work is invisible to this count.
 
-The counts reproduce on the laptop through box P2's readout (`north proxy calls TRANSCRIPT`); the transcript itself stays private and is not committed.
+The counts reproduce on the laptop through box P2's readout (`north coordinator calls TRANSCRIPT`); the transcript itself stays private and is not committed.
 
 The same inference by absence recurs one level down, at the sender: every `north fleet send` from
 outside a session is unsigned (`src/cli/send.rs:24`), and so are fleet receipts and silence notices
@@ -115,7 +115,7 @@ message from an alarm. The design fixes both absences with values the compiler c
 ### 2.1 The sender is a required value
 
 `send_signed` and the fleet row's sender take `Sender`, an enum of `Tom`, `Session(name)` and
-`Service(unit)`, with no default. The TUI composer and `north proxy` pass `Tom`; the lander, receipts,
+`Service(unit)`, with no default. The TUI composer and `north coordinator` pass `Tom`; the lander, receipts,
 waits and every timer pass `Service` with their own unit name; a fleet session passes its name. A
 message from `Tom` reaches the session unprefixed, any other with `[from NAME]`, and the session's
 hooks see the sender as a field of the delivered message, not as the absence of a prefix.
@@ -124,41 +124,41 @@ Enforced by: types. A new timer cannot send without naming itself, so it cannot 
 
 ### 2.2 The session's role is set by the launcher
 
-- `SessionRecord` (`crates/north-core/src/fleet/model.rs:135`) gains `role: Role` with `Proxy`,
-  `Lead` and `Worker`. `north fleet launch --role proxy` sets it; a launch with a task (`--task` or an
+- `SessionRecord` (`crates/north-core/src/fleet/model.rs:135`) gains `role: Role` with `Coordinator`,
+  `Lead` and `Worker`. `north fleet launch --role coordinator` sets it; a launch with a task (`--task` or an
   `Item:` line) is `Worker`, any other `Lead`. The launcher exports `NORTH_FLEET_ROLE` beside
   `NORTH_FLEET_SESSION` (`crates/north-providers/src/providers/claude/session_env.rs:30`).
-- At most one live session has role `Proxy`, named `proxy`, the constant receipts, alarms and lineage
-  already use (`crates/north-core/src/fleet/runtime.rs:94`). A second proxy launch is refused unless it
-  passes `--take-over`. For a proxy, take-over archives the old record and hands over one digest line
+- At most one live session has role `Coordinator`, named `coordinator`, the constant receipts, alarms and lineage
+  already use (`crates/north-core/src/fleet/runtime.rs:94`). A second coordinator launch is refused unless it
+  passes `--take-over`. For a coordinator, take-over archives the old record and hands over one digest line
   (how many messages, from which senders, the oldest age) instead of replaying the backlog into the new
-  proxy's first turn; the live `proxy` record and the parked `proxy-gex45` record are
-  both archived this way by the first `north proxy`.
-- The proxy moves to another account through the same take-over when its window runs out, the
+  coordinator's first turn; the live `coordinator` record and the parked `coordinator-gex45` record are
+  both archived this way by the first `north coordinator`.
+- The coordinator moves to another account through the same take-over when its window runs out, the
   handover the provider-reserve plan already designs for work in flight (north `d7509e4ea`). While
   idle it parks like any session and the next message revives it.
-- Every place that infers the proxy from an absence reads the field:
+- Every place that infers the coordinator from an absence reads the field:
   `crates/north-providers/src/providers/claude/runs/mod.rs:147` and `crates/north-providers/src/providers/ledger_rows.rs:89`
-  (no parent and no children means proxy), `crates/north-guard/src/guard/lead_timer.rs:36` (a name
+  (no parent and no children means coordinator), `crates/north-guard/src/guard/lead_timer.rs:36` (a name
   containing `lead`), `harness/hooks/prompt-grounding.sh:29` (absent from fleet records).
 
-Enforced by: code. Membership is set by the launcher, never remembered; the single-proxy rule is a
+Enforced by: code. Membership is set by the launcher, never remembered; the single-coordinator rule is a
 registry refusal with a test.
 
 ### 2.3 The session Tom types into is that fleet session
 
-`north proxy` launches or revives the fleet session `proxy` with `--role proxy --parent none`, in
-`~/code/north/main` so the project memory and instructions the proxy has today keep loading, on the
+`north coordinator` launches or revives the fleet session `coordinator` with `--role coordinator --parent none`, in
+`~/code/north/main` so the project memory and instructions the coordinator has today keep loading, on the
 account `agents plan` routes it to. It then opens north's fleet TUI focused on it; the TUI already
 sends from a composer and renders the transcript (`crates/north-tui/src/tui/fleet/screen.rs:70`,
-`:378`). The launcher passes `--agent proxy` (Claude Code 2.1.318 has the flag), so the role file is
-the agent definition from the first turn. Firn's entry for Tom's proxy window runs `north proxy`.
+`:378`). The launcher passes `--agent coordinator` (Claude Code 2.1.318 has the flag), so the role file is
+the agent definition from the first turn. Firn's entry for Tom's coordinator window runs `north coordinator`.
 
 What Tom loses: a fleet session runs `claude -p --input-format stream-json`
 (`crates/north-providers/src/providers/claude/fleet.rs:50`), which has no slash commands beyond the wired
 `/compact`, no image paste and no `!` shell. In the measured day he used each once (`/model`,
-`/effort`, `/goal`, one image, one shell line). `north proxy` covers model and effort with a TUI slash
-command that relaunches the proxy through take-over. The F1 test box (2026-11-05) found image paste
+`/effort`, `/goal`, one image, one shell line). `north coordinator` covers model and effort with a TUI slash
+command that relaunches the coordinator through take-over. The F1 test box (2026-11-05) found image paste
 works in the TUI (Ctrl+V from the Wayland clipboard), as do Esc interrupt and a 3,426-word reply;
 `!` is not covered. Voice dictation does not reach the TUI: Tom dictates with Claude Code's built-in
 voice mode (`voice.enabled`, `mode: hold`, sox `rec` as a child of the interactive `claude`), which
@@ -166,16 +166,16 @@ records and transcribes inside Claude Code's own UI, and no desktop-wide dictati
 type into the focused window. A hold-to-talk local Whisper module was chosen instead, filed
 as box F1v on north#112. Box F1 waits on Tom's answer and on that box.
 
-The rule that refused a second proxy while Tom's own Claude window had written in the last 30 minutes (`src/cli/fleet/one_proxy.rs`, 2026-11-06) is removed with the window search it needed (north#1048, 2026-11-13).
+The rule that refused a second coordinator while Tom's own Claude window had written in the last 30 minutes (`src/cli/fleet/one_coordinator.rs`, 2026-11-06) is removed with the window search it needed (north#1048, 2026-11-13).
 
-Rejected, two ways to keep the interactive Claude Code window as the proxy:
+Rejected, two ways to keep the interactive Claude Code window as the coordinator:
 
 - Adopting it into the fleet through a SessionStart hook and `CLAUDE_ENV_FILE`. Messages would reach
   it only when a hook fires, so an idle window would hear nothing until Tom typed, the failure being
   fixed, and it too is a vendor-UI workaround.
 - Pushing north's messages through Claude Code's own cross-session inbox
   (`/run/user/1000/cc-socks/<pid>.sock`, which `SendMessage` uses). It does reach an idle
-  interactive session: at 3:58 AM on 2026-11-05 (laptop time) a peer's message woke the idle proxy
+  interactive session: at 3:58 AM on 2026-11-05 (laptop time) a peer's message woke the idle coordinator
   terminal. It is rejected because north would still not own the runtime: no failover to another
   account when one runs out, no parking and no sender on messages (Claude Code already resumes on
   its own after a usage limit, as Tom noted on 2026-11-05); because the socket protocol is
@@ -184,50 +184,50 @@ Rejected, two ways to keep the interactive Claude Code window as the proxy:
   north writer into them would cross it from the other side; and because it is the vendor-UI
   workaround the standing order rules out.
 
-Revisited 2026-11-06 (north#636): after the fleet proxy ran out of its window and Tom took the role
-over in his own window, every report, red-main alarm and credential notice sent to `proxy` kept
+Revisited 2026-11-06 (north#636): after the fleet coordinator ran out of its window and Tom took the role
+over in his own window, every report, red-main alarm and credential notice sent to `coordinator` kept
 reviving the idle fleet session, because no take-over path existed for a window north did not start.
 The issue plan now owns this call and orders the inbox route for that case alone: `north fleet adopt
 --name NAME` binds the name to the window, and north writes the two JSON lines Claude Code itself
 logs as its injection form (an `auth` line with the peer token from `sessions/PID.PEER.key`, then a
 `user` line) into the socket `sessions/PID.json` names. The objections above still hold for it: an
-adopted window gets no account failover from the fleet (`north proxy move` moves it), a protocol
+adopted window gets no account failover from the fleet (`north coordinator move` moves it), a protocol
 change breaks only delivery to it and shows as a failed send naming the window, and the north binary
 reading peer keys is the boundary crossing named above, accepted for this one sender path.
 
-Revisited 2026-11-14 (north#1281, gap 1): the fleet screen may now hold the proxy's conversation
+Revisited 2026-11-14 (north#1281, gap 1): the fleet screen may now hold the coordinator's conversation
 where no client window can open. Release condition 2 of north#1281 asks that the operator's daily
 loop can begin in the screen on a host with no desktop, and the window rule of north#1048 refused
-every start of the proxy there. `north proxy` decides when the operator runs it on a proxy that is
+every start of the coordinator there. `north coordinator` decides when the operator runs it on a coordinator that is
 not live: where the fleet's desk names why no window can open, it prints that reason and starts the
-proxy held by the screen, an ordinary fleet host the screen types into, and every start the operator
-did not type keeps the surface on the record, while a revive by `north proxy` on a desktop takes a
-proxy the screen held back to a window. The plan's three questions were answered by the owner
-on 2026-11-14. The proxy holds the same commands in the screen as in the window, so a session in the
+coordinator held by the screen, an ordinary fleet host the screen types into, and every start the operator
+did not type keeps the surface on the record, while a revive by `north coordinator` on a desktop takes a
+coordinator the screen held back to a window. The plan's three questions were answered by the owner
+on 2026-11-14. The coordinator holds the same commands in the screen as in the window, so a session in the
 coordinator role is refused `north runtime hold`, which the window, running in no session's scope,
 cannot reach either. It runs under the same user and sandbox as the window does today, neither wider
-nor narrower. Any host where the operator's own user runs `north proxy` may hold it, with no new list
+nor narrower. Any host where the operator's own user runs `north coordinator` may hold it, with no new list
 of hosts. What stays: on a desktop the window is the path, with every refusal of the window rule
-unchanged, and there is still no second proxy, since the screen only sends to the host and never
+unchanged, and there is still no second coordinator, since the screen only sends to the host and never
 takes its conversation.
 
-Receipt volume: once the proxy has a reader it is the default parent of every launch from outside the
+Receipt volume: once the coordinator has a reader it is the default parent of every launch from outside the
 fleet (`src/cli/fleet/lineage.rs:19`), and each message wakes a turn at about 263 k context. Messages
-to the proxy from `Service` and `Session` senders coalesce into one digest delivered at most every 10
-minutes (`proxy.digest_minutes`), except urgent ones: red main, a gate opened, a decision stop and an
+to the coordinator from `Service` and `Session` senders coalesce into one digest delivered at most every 10
+minutes (`coordinator.digest_minutes`), except urgent ones: red main, a gate opened, a decision stop and an
 alarm. Messages from `Tom` are never held.
 
-Enforced by: code (`north proxy`, `--agent`, the digest), plus Firn config for the entry point.
+Enforced by: code (`north coordinator`, `--agent`, the digest), plus Firn config for the entry point.
 
 ### 2.4 The role file
 
-`harness/claude/agents/proxy.md`, beside `worker.md` and `planner.md`. Frontmatter: `model: fable`,
+`harness/claude/agents/coordinator.md`, beside `worker.md` and `planner.md`. Frontmatter: `model: fable`,
 `effort: high`, and a `tools` list whose only `Agent` entry is `Agent(Explore, Plan)`, which Claude
 Code enforces as an allowlist of in-process subagent types ("a deny rule, the Agent(x,y) allowlist or
 an agent.offer hook excludes it", from the 2.1.318 binary). In-process subagents are read-only; every
 worker is a fleet session the lander can tell. The body holds only what no mechanism checks:
 
-- You are Tom's proxy and route and judge: turn what Tom asks into briefs, staff them, read
+- You are Tom's coordinator and route and judge: turn what Tom asks into briefs, staff them, read
   their reports against what he meant, and tell him results and decisions.
 - What stays with you: judging a result against Tom's intent (a `Done:` that does not do what he asked
   is not done); calls that touch many lanes at once (which overlapping lane waits, a cross-repo order, a
@@ -236,42 +236,42 @@ worker is a fleet session the lander can tell. The body holds only what no mecha
 - Do a task yourself only when it takes about 3 tool calls or its answer is predictable; anything
   longer is a brief.
 - The names (from `know-fleet-names`): the fleet is Tom's set of sessions coordinated by
-  the proxy; North is its harness; the proxy is Tom's primary assistant, and voice transcription may write "Play-Doh";
+  the coordinator; North is its harness; the coordinator is Tom's primary assistant, and voice transcription may write "Play-Doh";
   Nexus is the always-on server.
 
-`crates/north-core/src/fleet/prompt.rs` renders a role-specific preamble: the proxy keeps the standing
-orders and drops the worker line "Tom and the proxy reach you only through fleet messages".
-`harness/hooks/prompt-grounding.sh` fires for role `Proxy` on messages whose sender is `Tom`, instead
+`crates/north-core/src/fleet/prompt.rs` renders a role-specific preamble: the coordinator keeps the standing
+orders and drops the worker line "Tom and the coordinator reach you only through fleet messages".
+`harness/hooks/prompt-grounding.sh` fires for role `Coordinator` on messages whose sender is `Tom`, instead
 of on the absence of a fleet record, so 2.2 does not switch grounding off.
 
 Enforced by: Claude Code for the subagent allowlist; text for the judgment lines, because whether a
 result matches Tom's intent or an answer was predictable cannot be computed from a transcript; `north
 agent-config-check` checks that the file is installed and holds the text of every rule placed
-`agent:proxy` (section 3).
+`agent:coordinator` (section 3).
 
 ### 2.5 The delegation rule, counted by a hook
 
 **Kinds come from the verb.** Each `north` verb declares its kind (delegate, brief, child message,
 Tom-facing, bookkeeping, landing, status, diagnosis) in the CLI dispatch table, and a test fails any
 verb without one, so a new delegating verb cannot fall through to diagnosis. The classifier,
-`crates/north-core/src/proxy/calls.rs`, asks that table for `north ...` commands and keeps an ordered
+`crates/north-core/src/coordinator/calls.rs`, asks that table for `north ...` commands and keeps an ordered
 rule list only for foreign commands (`git`, `rg`, `gh`, `cargo`, `safe-push`, `ssh`). It is pure, and
 the guard, the readout and P2's replay of section 1 share it.
 
-**The guard**, `crates/north-guard/src/guard/proxy_delegation.rs`, runs only for role `Proxy`:
+**The guard**, `crates/north-guard/src/guard/coordinator_delegation.rs`, runs only for role `Coordinator`:
 
 - Events: `hook.rs` maps PreToolUse only for Bash, edits, `Agent` and timers
   (`crates/north-core/src/hook.rs:126`); G1 adds a `PreOther` kind so `Monitor`, `TaskStop`, `Read`,
   `ToolSearch` and `SendMessage` reach the guard too, with a test per tool.
 - State is keyed by session and `agent_id`, as `codex_conduct` keys it
   (`crates/north-guard/src/guard/codex_conduct/state.rs:42`), in
-  `$XDG_RUNTIME_DIR/north/proxy-calls/`, under a file lock. Calls with an `agent_id` are the read-only
-  subagents of 2.4; they never count toward the proxy's streak and are counted as their own metric.
+  `$XDG_RUNTIME_DIR/north/coordinator-calls/`, under a file lock. Calls with an `agent_id` are the read-only
+  subagents of 2.4; they never count toward the coordinator's streak and are counted as their own metric.
 - Counted: diagnosis, landing logs, status checks, monitoring scripts and bookkeeping. Reset: only a
   delegate or brief call, or a message from `Tom`. Child messages and Tom-facing calls neither count
   nor reset, so a no-op `ListAgents` cannot clear a denial.
-- At 5 (`proxy.warn_streak`) PostToolUse adds one line: the streak, its kinds and the brief command
-  for the work it looks like. At 15 (`proxy.deny_streak`) PreToolUse denies the next counted call with
+- At 5 (`coordinator.warn_streak`) PostToolUse adds one line: the streak, its kinds and the brief command
+  for the work it looks like. At 15 (`coordinator.deny_streak`) PreToolUse denies the next counted call with
   that line. The source of both numbers is section 1: the warning would have fired 145 times, and 42
   streaks reached 15.
 - Hands-on landing and lane edits are denied from the first call: `safe-push --to`, `north land
@@ -280,45 +280,45 @@ the guard, the readout and P2's replay of section 1 share it.
   session runs it (`harness/skills/workers/references/cloud.md:33`).
 - Always allowed, tested in the denied state: delegate and brief verbs, child messages, `north gate`,
   `north config agents off|on`, `north land abandon` and ticket removal, `north fleet stop|forget`.
-- Escape: `north proxy incident REASON` grants a budget of 30 calls (`proxy.incident_budget`) for an
-  incident the proxy must work itself, and writes a metric row with the reason, so the escape is
+- Escape: `north coordinator incident REASON` grants a budget of 30 calls (`coordinator.incident_budget`) for an
+  incident the coordinator must work itself, and writes a metric row with the reason, so the escape is
   counted rather than a persistent switch-off.
 
 **Recurring work becomes code**: the classifier reduces each counted call to a shape (the verb, or
 the first two words of each pipeline stage after any `cd`), and the readout files one issue per
-counted shape the proxy ran 20 or more times in a day. Delegating verbs are not counted kinds, so
+counted shape the coordinator ran 20 or more times in a day. Delegating verbs are not counted kinds, so
 `north fleet launch` never files one. In the measured day the rule names `north fleet show` (75), the
 land queue directory (101), `merge-base --is-ancestor` (47) and the lander's journal (57).
 
-What shipped first (north#838, 2026-11-07): on 2026-11-08 the proxy worked a laptop-load question,
+What shipped first (north#838, 2026-11-07): on 2026-11-08 the coordinator worked a laptop-load question,
 cost tables and attribution through long read-only turns while launches waited. The hook
-`crates/north-guard/src/guard/proxy_role.rs` now reads the tail of the proxy's transcript after each
+`crates/north-guard/src/guard/coordinator_role.rs` now reads the tail of the coordinator's transcript after each
 call and counts the turn's read-only calls (diagnosis, status checks, landing logs, through the same
 classifier) since its prompt or its last launch, send, gate or brief; Tom's next message starts a new
-streak, and subagent calls never count. Past `proxy_read_streak` it refuses the next
-read-only call before it runs and the turn goes on (a guard that ended the turn stopped the proxy
-mid-directive on 2026-11-11, so no proxy guard ends a turn); it tells the proxy, in one message, the subject (the prompt's first line), what
+streak, and subagent calls never count. Past `coordinator_read_streak` it refuses the next
+read-only call before it runs and the turn goes on (a guard that ended the turn stopped the coordinator
+mid-directive on 2026-11-11, so no coordinator guard ends a turn); it tells the coordinator, in one message, the subject (the prompt's first line), what
 the calls read and the brief to write instead. Other work calls, such as bookkeeping, neither count
-nor reset. `north config proxy calls TRANSCRIPT` prints the same streaks per turn, which is how the
+nor reset. `north config coordinator calls TRANSCRIPT` prints the same streaks per turn, which is how the
 limit is replayed against a transcript.
 
-The streak resets on a send, so a proxy that interleaves one every few reads never trips it
+The streak resets on a send, so a coordinator that interleaves one every few reads never trips it
 (north#1106, 2026-11-11: about 50 reads over two messages, the guard fired once). The same hook also
 counts looks per message from Tom, which a launch, send or gate does not refill: past
-`proxy_look_budget` it refuses the next look. Skill loads, reads of the profile's skills, `north work brief new` and
+`coordinator_look_budget` it refuses the next look. Skill loads, reads of the profile's skills, `north work brief new` and
 `north ... --help` are the harness's own loads and spend none of it. Reads of repository source and of other hosts have a budget of 0
-(north#1106, 2026-11-11, after the proxy traced a launch inside the old budget of 8):
-`crates/north-guard/src/guard/proxy_reach.rs` refuses from the proxy, before the call runs, a remote command
+(north#1106, 2026-11-11, after the coordinator traced a launch inside the old budget of 8):
+`crates/north-guard/src/guard/coordinator_reach.rs` refuses from the coordinator, before the call runs, a remote command
 other than the fleet, threads, gate and status verbs, any trace, journal or process-table read on any host, and any
 read under a repository checkout but `git log --oneline`, naming the brief to write; only break-glass lifts it. The role guard also refuses builds and tests in any
 runner (cargo, bun, npm, make, go, pytest, nix build) and shell writes into a repository (redirect,
-tee, patch, git apply) from the proxy.
+tee, patch, git apply) from the coordinator.
 
-All of this reads one table, `proxy_role` in `harness/defaults.toml` (north#1106): one row per class of
-call, owned by the proxy (launch, send, ask, stop, adopt, gate, issue-box, status, placement-look) or by
+All of this reads one table, `coordinator_role` in `harness/defaults.toml` (north#1106): one row per class of
+call, owned by the coordinator (launch, send, ask, stop, adopt, gate, issue-box, status, placement-look) or by
 a worker it briefs (source-read, remote-read, build, test, repository-edit).
-`crates/north-guard/src/guard/proxy_table.rs` reads it into typed rows, refusing a missing, duplicated or
-unknown class, and `north config proxy role` prints it. Section 7 gives `north fleet break-glass`.
+`crates/north-guard/src/guard/coordinator_table.rs` reads it into typed rows, refusing a missing, duplicated or
+unknown class, and `north config coordinator role` prints it. Section 7 gives `north fleet break-glass`.
 
 Enforced by: hook for the streak, the landing denial and the exemptions; types for verb kinds;
 metric with an alarm for recurring work. "Predictable answer" stays text; the streak bounds what
@@ -326,23 +326,23 @@ misjudging it costs.
 
 ### 2.6 The readout and its alarm
 
-`north ops proxy` writes one row a day to the threads database (`~/.local/state/threads/threads.db`):
+`north ops coordinator` writes one row a day to the threads database (`~/.local/state/threads/threads.db`):
 
-- calls by kind from the proxy's transcript, split into streaks a `Tom` message started and streaks
-  the proxy started on its own (diagnosis Tom asks for is not the proxy's failure);
-- research subagents launched and `north proxy incident` escapes;
+- calls by kind from the coordinator's transcript, split into streaks a `Tom` message started and streaks
+  the coordinator started on its own (diagnosis Tom asks for is not the coordinator's failure);
+- research subagents launched and `north coordinator incident` escapes;
 - turns woken by fleet messages, by sender kind;
 - landed boxes, counted from `Box:` trailers on commits that reached a main branch that day (section
   4), so every landing path counts, not only the lander's;
-- **proxy hands-on calls per landed box**, the self-started counted calls over landed boxes. With no
+- **coordinator hands-on calls per landed box**, the self-started counted calls over landed boxes. With no
   landed box that day the ratio is not computed and the alarm does not read the day.
 - **Tom's corrections per day**, read from the outcome loop's count from the grounding ledger once that
   lane lands; until then the row leaves it empty. A lexical classifier over Tom's messages is rejected:
   the measured day matched 54 of 116 messages, which is noise, and the standing-order line count is
-  written by the proxy itself, so it would grade its own work.
+  written by the coordinator itself, so it would grade its own work.
 
-One alarm: hands-on calls per landed box above `proxy.hands_on_per_box` two days running opens or
-updates one issue and sends the proxy one line. It and the repeat-shape rule are detectors in the
+One alarm: hands-on calls per landed box above `coordinator.hands_on_per_box` two days running opens or
+updates one issue and sends the coordinator one line. It and the repeat-shape rule are detectors in the
 self-detectors filer once that lane lands, rather than a second issue filer; if the experiments judge
 has landed first, the thresholds of 2.5 and this alarm each carry its registry entry. The threshold's
 first value comes from the first week of rows, because the commit counts of section 1 (336 commits)
@@ -354,32 +354,32 @@ done only when a row is written and the check runs on its schedule.
 
 Enforced by: metric with an alarm, on a running timer.
 
-## 3. The five dropped proxy rules
+## 3. The five dropped coordinator rules
 
-South's `agents/rules.toml` registers five rules written for the proxy whose placement is `dropped`:
-the three in its `Proxy` section (`status-in-toms-terms`, `ground-before-answering`,
+South's `agents/rules.toml` registers five rules written for the coordinator whose placement is `dropped`:
+the three in its `Coordinator` section (`status-in-toms-terms`, `ground-before-answering`,
 `check-facts-before-stating`), `know-fleet-names`, which the same role hook carried, and
-`proxy-delegates-durable-work`.
+`coordinator-delegates-durable-work`.
 
 Why they are dropped, from South's history:
 
 - 2026-10-12, South `024f6a5` (the C2 policy cut) gave every rule a placement; these five were
-  `hook:org-role`, injected by the org-role hook into the session it recognised as the proxy.
+  `hook:org-role`, injected by the org-role hook into the session it recognised as the coordinator.
 - 2026-10-16, South `5684064` removed the supervisor and mailbox and with them the org-role hook and
   its role registrations. The five flipped to `global`, but no bullet for them was added to
   `agents/AGENTS.md`, so no session received them.
 - 2026-10-29, South `c3c795e` (north#351): `north check harness` requires each `global` rule to
   have its bullet, so these five were marked `dropped` to make the register match the loaded policy.
 
-So since 2026-10-16 the proxy has had none of them. The cause is structural, not editorial: role
-policy lost its only home when the harness stopped being able to tell the proxy apart from other
+So since 2026-10-16 the coordinator has had none of them. The cause is structural, not editorial: role
+policy lost its only home when the harness stopped being able to tell the coordinator apart from other
 sessions, and today it still can only by absence (no fleet record, `CLAUDE_CODE_ENTRYPOINT=cli`, the
 test `harness/hooks/prompt-grounding.sh` uses). The role identity in section 2 gives role policy a home
 again, and a new placement kind gives the check something to verify.
 
 Disposition, each with what enforces it:
 
-- `proxy-delegates-durable-work`: **placed** as `hook:proxy-delegation`, with the text rewritten to the
+- `coordinator-delegates-durable-work`: **placed** as `hook:coordinator-delegation`, with the text rewritten to the
   delegation rule in section 2.5. Enforced by the delegation guard (hook) and the repeat alarm (metric).
 - `ground-before-answering`: **placed** as `hook:prompt-grounding`. That hook already injects the
   Grounding block with each of Tom's messages; the rule's text moves into the block's header so it
@@ -395,8 +395,8 @@ Disposition, each with what enforces it:
   each issue, gate, session or commit in plain words with its number trailing. Text only: no Stop
   guard exists (`crates/north-core/src/hook.rs:201` registers none), and a blocking Stop check would
   cost a full-context turn to catch a bare number.
-- `know-fleet-names`: **placed** as `agent:proxy`, a new placement kind meaning "this rule's text
-  is in `harness/claude/agents/NAME.md`". Only the proxy reads Tom's voice-transcribed messages, so the
+- `know-fleet-names`: **placed** as `agent:coordinator`, a new placement kind meaning "this rule's text
+  is in `harness/claude/agents/NAME.md`". Only the coordinator reads Tom's voice-transcribed messages, so the
   names belong in its role file, not in every session's global rules. Its text also carries a typo
   (a misspelt possessive) fixed in the same change. Enforced by `north check harness`:
   for every `agent:NAME` placement it checks that the role file exists and contains the rule's text,
@@ -446,8 +446,8 @@ Enforced by: code (land scan, the tick function, the shared writer, the fleet wa
 the pure body edit, a hung `gh`, and a direct safe-push landing.
 
 The gap until boxes L1 to L3 land is the measured 122 bookkeeping calls a day, 47 of them
-landed-ancestor checks. The proxy keeps doing them by hand, they count in its streak, and those boxes
-come early because they remove the most proxy calls per minute of work.
+landed-ancestor checks. The coordinator keeps doing them by hand, they count in its streak, and those boxes
+come early because they remove the most coordinator calls per minute of work.
 
 ## 5. Boxes, in landing order
 
@@ -466,19 +466,19 @@ push access to South and the Firn timers are host configuration.
    without `--from service:UNIT` is refused, and a source test finds no `north fleet send` shell-out
    without `--from`.
 2. **P2 verb kinds and the classifier.** feature, cross-module, rust, local-test; 45 min. Files: the
-   CLI dispatch table under `src/cli/`, `crates/north-core/src/proxy/` (`calls.rs`, `shape.rs`), a
-   `north proxy calls TRANSCRIPT` readout. Needs: nothing. Done when: `cargo test -p north-core proxy::`
+   CLI dispatch table under `src/cli/`, `crates/north-core/src/coordinator/` (`calls.rs`, `shape.rs`), a
+   `north coordinator calls TRANSCRIPT` readout. Needs: nothing. Done when: `cargo test -p north-core coordinator::`
    passes a truth table with a case per kind and per foreign-command rule, and a test that fails a verb
-   with no declared kind; on the laptop `north proxy calls` over the measured transcript prints the
+   with no declared kind; on the laptop `north coordinator calls` over the measured transcript prints the
    section 1 counts within the difference the verb table makes, recorded in this page.
 3. **R1 role on the session record.** feature, cross-module, rust, local-test; 45 min. Files:
    `crates/north-core/src/fleet/model.rs`, `src/cli/fleet/launch.rs`, `src/cli/fleet/lineage.rs`,
    `crates/north-core/src/fleet/registry/launching.rs`, `crates/north-providers/src/providers/claude/session_env.rs`,
    `crates/north-providers/src/providers/claude/runs/mod.rs`, `crates/north-providers/src/providers/ledger_rows.rs`,
    `crates/north-guard/src/guard/lead_timer.rs`. Needs: the staffing-overlap lane, which edits the same
-   launch files. Done when: `cargo test -p north-core fleet::` passes cases where `--role proxy`
-   records `Proxy` and exports `NORTH_FLEET_ROLE=proxy`, a task launch records `Worker`, a second live
-   proxy is refused without `--take-over`, and the ledger and lead timer read the field.
+   launch files. Done when: `cargo test -p north-core fleet::` passes cases where `--role coordinator`
+   records `Coordinator` and exports `NORTH_FLEET_ROLE=coordinator`, a task launch records `Worker`, a second live
+   coordinator is refused without `--take-over`, and the ledger and lead timer read the field.
 4. **L1 `Item:` and `Box:` trailers, checked before the push.** feature, cross-module, rust,
    local-test; 40 min. Files: `north work brief new`, `north land scan` in `crates/north-landing/src/land/scans/`,
    `north cloud land`, `harness/skills/workers/references/brief.md`. Needs: the incidents-by-construction
@@ -504,18 +504,18 @@ push access to South and the Firn timers are host configuration.
    ticket landed, a `Done:` report and `Next:` none or an issue, and kept for a bare `Next:` text, a
    `Split:` or a second unlanded ticket.
 8. **A1 the role file and the `agent:NAME` placement.** docs-policy, cross-module, rust, local-test;
-   30 min. Files: `harness/claude/agents/proxy.md`, `crates/north-core/src/agent_config_check/rules.rs`.
+   30 min. Files: `harness/claude/agents/coordinator.md`, `crates/north-core/src/agent_config_check/rules.rs`.
    Needs: nothing. Done when: `cargo test -p north-core agent_config_check` passes a case where an
-   `agent:proxy` rule whose text is absent from `proxy.md` is refused and one where it is present
-   passes, and `proxy.md`'s tools carry `Agent(Explore, Plan)`.
+   `agent:coordinator` rule whose text is absent from `coordinator.md` is refused and one where it is present
+   passes, and `coordinator.md`'s tools carry `Agent(Explore, Plan)`.
 9. **R2 role prompt and grounding.** feature, cross-module, rust, local-test; 30 min. Files:
    `crates/north-core/src/fleet/prompt.rs`, `harness/hooks/prompt-grounding.sh`,
    `crates/north-core/src/fleet/audience.rs` (the hook's audience, passed into `north graph ground hook`
    by the CLI root). Needs: R1, W1. Done when: `cargo test -p north-core fleet::audience`
-   passes cases where a role-proxy session gets the block for a `Tom` message and not for a `Service`
+   passes cases where a role-coordinator session gets the block for a `Tom` message and not for a `Service`
    or `Session` one and a worker gets none, and `cargo test -p north-core fleet::prompt` shows the
-   proxy preamble.
-   **R2b grounded recommendations** extends R2 to the proxy's final report. When the last paragraph
+   coordinator preamble.
+   **R2b grounded recommendations** extends R2 to the coordinator's final report. When the last paragraph
    that says "I recommend", "Recommended:", "the fix is" or "the fix would be" reaches the Stop hook,
    `crates/north-guard/src/guard/recommendation_grounding.rs` runs that paragraph through the
    UserPromptSubmit hook's retrieval (`north_core::grounding::bearing`) and, when a decision record or
@@ -526,82 +526,82 @@ push access to South and the Firn timers are host configuration.
    reached tier A on edit words alone. The block reads:
    "These recorded decisions bear on your recommendation: …; read them and confirm or revise."
    `stop_hook_active` lets the revised report through, and a Stop that also carries an ask joins both
-   reasons in one block. Recurrence on 2026-11-05: the proxy recommended building the laptop runtime
+   reasons in one block. Recurrence on 2026-11-05: the coordinator recommended building the laptop runtime
    on gex45 and shipping it, which South's gex45 access plan (P3b, B3, B17) forbids, and found the
    record only after Tom replied. **Enforced by** the Stop hook; its test in
    `crates/north-guard/src/guard/recommendation_grounding_tests.rs` replays that recommendation: the
    fixture decision record is named once and `stop_hook_active` lets the revised report through.
 10. **G1 the delegation guard.** feature, module, rust, local-test; 45 min. Files:
-    `crates/north-guard/src/guard/proxy_delegation.rs`, `crates/north-core/src/hook.rs` (`PreOther`),
-    `harness/defaults.toml` (`proxy.warn_streak`, `proxy.deny_streak`). Needs: R1, P2, W1. Done when:
-    `cargo test -p north-core guard::proxy_delegation` passes the 5th counted call warning, the 15th
+    `crates/north-guard/src/guard/coordinator_delegation.rs`, `crates/north-core/src/hook.rs` (`PreOther`),
+    `harness/defaults.toml` (`coordinator.warn_streak`, `coordinator.deny_streak`). Needs: R1, P2, W1. Done when:
+    `cargo test -p north-core guard::coordinator_delegation` passes the 5th counted call warning, the 15th
     denied, each exemption passing while denied, a `ListAgents` neither counting nor resetting, a
     delegate call and a `Tom` message resetting, a call with an `agent_id` not counting, two parallel
     writers under the lock, a test per `PreOther` tool, and a worker session untouched; with its
     experiments registry entries if the experiments judge is on main.
 11. **G2 the landing denial and the incident escape.** feature, module, rust, local-test; 40 min.
-    Files: the guard, `north cloud land` and the cloud courier, a `north proxy incident` verb. Needs:
-    G1. Done when: `cargo test -p north-core guard::proxy_delegation` passes a first-call denial of
-    `safe-push --to` and of a write inside a lane worktree, `north proxy incident REASON` granting 30
+    Files: the guard, `north cloud land` and the cloud courier, a `north coordinator incident` verb. Needs:
+    G1. Done when: `cargo test -p north-core guard::coordinator_delegation` passes a first-call denial of
+    `safe-push --to` and of a write inside a lane worktree, `north coordinator incident REASON` granting 30
     calls and writing its row, and a cloud lane landing with no `north cloud land` from the launching
     session.
 12. **S1 South: place the five rules.** Repository: south, laptop. docs-policy, one-file, docs,
     local-test; 20 min. Files: `agents/rules.toml`. Needs: A1, G1, R2 on the runtime. Done when:
     `north check harness policy-gate session` exits 0 on the South lane with the placements of
     section 3 and the typo fixed.
-13. **R3 `north proxy`.** feature, cross-module, rust, local-test; 45 min. Files: `src/cli/` (a
-    `proxy` verb), `crates/north-tui/src/tui/fleet/` (model and effort slash commands),
+13. **R3 `north coordinator`.** feature, cross-module, rust, local-test; 45 min. Files: `src/cli/` (a
+    `coordinator` verb), `crates/north-tui/src/tui/fleet/` (model and effort slash commands),
     `crates/north-providers/src/providers/claude/fleet.rs` (`--agent`), `crates/north-core/src/fleet/registry/takeover.rs`.
-    Needs: R1, R2, A1, W1. Done when: an integration test under `tests/it/` shows `north proxy` with no
-    proxy launching one with role proxy, `--parent none`, cwd `~/code/north/main` and `--agent proxy`
-    in the fake Claude's argv; with a live proxy it attaches without launching; with the old `proxy`
-    and `proxy-gex45` records present it archives both and delivers one digest line;
-    and `north proxy --interactive` stops the fleet proxy before it execs `claude --resume` on the same
+    Needs: R1, R2, A1, W1. Done when: an integration test under `tests/it/` shows `north coordinator` with no
+    coordinator launching one with role coordinator, `--parent none`, cwd `~/code/north/main` and `--agent coordinator`
+    in the fake Claude's argv; with a live coordinator it attaches without launching; with the old `coordinator`
+    and `coordinator-gex45` records present it archives both and delivers one digest line;
+    and `north coordinator --interactive` stops the fleet coordinator before it execs `claude --resume` on the same
     conversation, and refuses while the fleet session still runs.
-14. **R4 the proxy's digest.** feature, module, rust, local-test; 40 min. Files:
+14. **R4 the coordinator's digest.** feature, module, rust, local-test; 40 min. Files:
     `crates/north-core/src/fleet/registry/messages.rs`, `crates/north-core/src/fleet/receipts.rs`,
-    `harness/defaults.toml` (`proxy.digest_minutes`). Needs: W1, R1. Done when:
+    `harness/defaults.toml` (`coordinator.digest_minutes`). Needs: W1, R1. Done when:
     `cargo test -p north-core fleet::` passes cases where five receipts within 10 minutes reach the
-    proxy as one message, a red-main notice, a gate, a decision stop and an alarm pass at once, and a
+    coordinator as one message, a red-main notice, a gate, a decision stop and an alarm pass at once, and a
     `Tom` message is never held.
-15. **F1 Firn: Tom's proxy window runs `north proxy`.** Repository: nixos-config, laptop. mechanical,
+15. **F1 Firn: Tom's coordinator window runs `north coordinator`.** Repository: nixos-config, laptop. mechanical,
     one-file, nix, local-test; 30 min. Needs: R3 on the runtime and Tom's answer to the gate below.
-    Done when: `rg -n 'north proxy' ~/code/nixos-config/main` names the entry, and after the rebuild
-    the box drives the real `north proxy` against `claude -p`: a typed message gets a reply, `/model`
+    Done when: `rg -n 'north coordinator' ~/code/nixos-config/main` names the entry, and after the rebuild
+    the box drives the real `north coordinator` against `claude -p`: a typed message gets a reply, `/model`
     relaunches on the new model, and a forced compaction leaves the session answering. Escape hatch, if
-    the fleet TUI fails Tom: `north proxy --interactive` (built in R3) stops the fleet proxy and resumes
+    the fleet TUI fails Tom: `north coordinator --interactive` (built in R3) stops the fleet coordinator and resumes
     the same conversation in Claude Code's own UI with `claude --resume <session-id>`, never with both
     running; the box drives it once and sees the fleet record stopped and the resumed window answer.
     Voice in that window comes from the nixos-config `dictation` module (box F1v): hold the Menu key,
     release to type the transcript into the focused window.
 16. **M1 the daily readout.** feature, module, rust, local-test; 45 min. Files:
-    `crates/north-ops/src/ops/proxy/`, the threads database schema. Needs: P2, L2. Done when:
-    `cargo test -p north-core ops::proxy` on a synthetic transcript fixture (no Tom text) gives calls by
+    `crates/north-ops/src/ops/coordinator/`, the threads database schema. Needs: P2, L2. Done when:
+    `cargo test -p north-core ops::coordinator` on a synthetic transcript fixture (no Tom text) gives calls by
     kind split by who started the streak, research subagents, escapes, wakes by sender kind, landed
     boxes from trailers, the ratio, the no-box day with no ratio, and an empty corrections field until
     the outcome loop is on main.
 17. **M2 the alarm and the repeat rule.** feature, module, rust, local-test; 40 min. Files: the
-    self-detectors module, `harness/defaults.toml` (`proxy.hands_on_per_box`, `proxy.repeat_shape`).
+    self-detectors module, `harness/defaults.toml` (`coordinator.hands_on_per_box`, `coordinator.repeat_shape`).
     Needs: M1 and the self-detectors lane. Done when: its tests pass two days over the threshold
     opening one issue and sending one line, one day over opening none, and a counted shape run 20
     times filing one issue that the next day updates; with its experiments registry entry if the
     experiments judge is on main.
 18. **T1 the timers.** Repository: nixos-config, laptop. mechanical, one-file, nix, local-test; 30
     min. Needs: M1. Done when: `systemctl --user list-timers` on the ledger host lists the
-    `north ops check` and `north ops proxy` timers, and the threads database holds a `north ops proxy`
+    `north ops check` and `north ops coordinator` timers, and the threads database holds a `north ops coordinator`
     row written by the timer.
 19. **D1 the docs.** docs-policy, cross-module, docs, none; 30 min. Files: `docs/harness.md`,
     `harness/skills/workers/SKILL.md`, `harness/skills/workers/references/cloud.md`. Needs: R3, G2, L3.
-    Done when: `rg -n 'north proxy|Box:|Next:' docs/harness.md harness/skills/workers/SKILL.md`
-    finds the proxy's entry point, the trailers and the report line.
+    Done when: `rg -n 'north coordinator|Box:|Next:' docs/harness.md harness/skills/workers/SKILL.md`
+    finds the coordinator's entry point, the trailers and the report line.
 
 Order by payback: W1, P2, A1 and B1 start at once; R1 and L1 as soon as the lanes they collide with
 land; L2 and L3 next, because bookkeeping is the cheapest large cut; then R2, G1, G2 and S1; R3, R4
-and F1 make the window Tom uses the fleet proxy; M1, M2 and T1 measure what the others changed; D1
+and F1 make the window Tom uses the fleet coordinator; M1, M2 and T1 measure what the others changed; D1
 closes.
 
-F1 changes the window Tom types into. In the recommended design the proxy window
-opens north's fleet TUI on the `proxy` session, so every receipt, landing and alarm reaches the
+F1 changes the window Tom types into. In the recommended design the coordinator window
+opens north's fleet TUI on the `coordinator` session, so every receipt, landing and alarm reaches the
 session he reads; he keeps model and effort changes through the TUI, and loses image paste and the
 `!` shell line, which he used once each in the measured day. The alternative keeps the Claude Code
 terminal and adopts it into the fleet through hooks: he keeps everything he uses there, but messages
@@ -618,7 +618,7 @@ Rejected or changed:
   `north land scan`, which covers makgora's lock queue and cloud lanes, where no ticket carries a box.
 - Taking landed changes from the outcome loop's join for the denominator: trailers count landed boxes
   on every path without waiting on an unlanded lane.
-- The standing-order line count as the corrections signal: the proxy writes those lines, so it would
+- The standing-order line count as the corrections signal: the coordinator writes those lines, so it would
   grade its own work. The outcome loop's count from the grounding ledger is used once it lands.
 - Moving every docs line into one closing box: a box that adds a verb still adds its
   features entry, because the features-index check requires it in the same landing.
@@ -627,10 +627,10 @@ Rejected or changed:
 
 ## 7. Break glass
 
-The proxy's look budgets exist so that an investigation goes to a worker. They cannot bind when no
+The coordinator's look budgets exist so that an investigation goes to a worker. They cannot bind when no
 worker can start, so `north fleet break-glass --issue REPO#N REASON...` lifts them for at most 30 minutes
 (`break_glass_minutes`), and only when the harness measures the stall itself: the last two launches
-failed, or the launch probe exits non-zero. A proxy that merely wants to read more is refused. The grant
+failed, or the launch probe exits non-zero. A coordinator that merely wants to read more is refused. The grant
 is recorded with who, why and when, opens a box on the issue that tracks the cause, and is printed in
 Tom's next `north gate digest`, so the lift is never silent and never outlasts the stall.
 **Enforced by** `crates/north-guard/src/guard/break_glass.rs`.
@@ -644,10 +644,10 @@ The share of coordinator turns triggered only by a `Done:` report or landing not
 The feature record `0021-launch-claims.md` was cut to a short entry; this is its earlier text, kept for the reasons and dates it holds.
 
 - Launch claims: `north fleet launch` claims every issue its session holds before it starts (`--task REF`, else the issues the brief's first `Item:` line names, else the issue its body opens with, as `north#855: run ...` does), leaving a whole-issue task its parent chain holds to that holder and passing the chain to the ledger, so a lead keeps its issue while the children it staffs take the boxes they work, refusing a live claim outside the tree and taking one a stopped session left, and releases them when the session ends or fails to start; `north fleet list --json` shows them as `tasks`. With `--box TEXT`, or a `Box:` line in the brief, the claim covers that one box of the first issue: a second launch on another box of the same issue is admitted, a second launch on the same box is refused, a launch outside the leader's tree on the whole issue beside a box, or on a box beside the whole issue, is refused, and the run row records the issue and the box. A box text that names no box of its issue is refused before placement or any claim, naming the boxes the issue has (north#1152: on 2026-11-11 two such launches started their workers holding nothing and a third was refused after 30 s with a message that blamed the ledger); a claim the ledger refuses after it was queued refuses the launch in the ledger's own words as soon as the spool sends it. Dispatch staffs every issue box by box on these box claims, up to the free slots, or up to N workers when its body says `Workers: N`.
-- Filed claims: when a fleet worker files an issue, on whichever host it runs, the PostToolUse filing hook runs `north fleet hold REPO#N` as soon as `gh issue create` returns the URL, which names the issue in the session's own record beside a launch's `--task` (so `north fleet list --json` shows it in `tasks`, as it does a launched session's, to every host's dispatch) and claims it in the threads ledger, so north fleet dispatch never staffs a second session on it while the session lives; before north#817, a session launched without `--task` held a filed issue only as a ledger claim, and dispatch staffed north#815 beside the session that had filed it. A blocker it files (a `Blocks:` line) and an issue the proxy files stay unclaimed for dispatch to staff, except an issue the worker files as its own item (its brief's `Item:` line says to file it first), which it keeps whatever it names as blocked. Before this, dispatch staffed north#736, north#737, north#738 and north#739 beside the sessions that had just filed them. `north fleet hold --release REPO#N` undoes it: the session's record drops the issue, with any box its launch named on it, and every claim the session holds on the issue is given up, so dispatch staffs it on its next run; before north#1054 a hold had no release, and on 2026-11-10 dispatch kept skipping north#722 as held by the proxy after its cause was fixed.
+- Filed claims: when a fleet worker files an issue, on whichever host it runs, the PostToolUse filing hook runs `north fleet hold REPO#N` as soon as `gh issue create` returns the URL, which names the issue in the session's own record beside a launch's `--task` (so `north fleet list --json` shows it in `tasks`, as it does a launched session's, to every host's dispatch) and claims it in the threads ledger, so north fleet dispatch never staffs a second session on it while the session lives; before north#817, a session launched without `--task` held a filed issue only as a ledger claim, and dispatch staffed north#815 beside the session that had filed it. A blocker it files (a `Blocks:` line) and an issue the coordinator files stay unclaimed for dispatch to staff, except an issue the worker files as its own item (its brief's `Item:` line says to file it first), which it keeps whatever it names as blocked. Before this, dispatch staffed north#736, north#737, north#738 and north#739 beside the sessions that had just filed them. `north fleet hold --release REPO#N` undoes it: the session's record drops the issue, with any box its launch named on it, and every claim the session holds on the issue is given up, so dispatch staffs it on its next run; before north#1054 a hold had no release, and on 2026-11-10 dispatch kept skipping north#722 as held by the coordinator after its cause was fixed.
 
 ## Feature record "Window move", as written until 2026-11-13
 
-The feature record `0027-proxy-move.md` was cut to a short entry; this is its earlier text, kept for the reasons and dates it holds.
+The feature record `0027-coordinator-move.md` was cut to a short entry; this is its earlier text, kept for the reasons and dates it holds.
 
-- Window move: `north proxy move [--to ACCOUNT] [--auto] [--dry-run]` moves the window holding the conversation the fleet record names for the coordinator, whatever other interactive `claude` windows are open, when its account's outlook is under 45 minutes (or out), or when `--to` names an account with week headroom, to the account with the most week headroom whose own outlook is not under 45 minutes; it refuses when that conversation has no live window on a terminal and names the windows it saw (north#636, north#1238). The caller only starts the user unit `north-window-move` and prints its result, so a sandboxed shell, the coordinator's own included, can run it: the unit reads the windows, runs the terminal test and prints the plan, which `--dry-run` stops at. Otherwise it starts the unit `north-window-move-swap`, which runs the steps at once, beside the running old window, saying on the old window what it does: carry the session's transcript, subagent files, file history and session environment into the target profile; open a ghostty window running `claude-ACCOUNT --resume SESSION` with the old window's flags and wait until it runs under the target profile's `CLAUDE_CONFIG_DIR`; change the fleet record's account and bind the coordinator's name to the new window; deliver its undelivered messages with a fleet tick; and only then, once the old window's turn ends or after 30 seconds at most, stop the old daemon-hosted session, hang up the old window's shell and put the new window in the old one's workspace and column with focus restored. A failure before that last step closes only the new window and binds the name back to the old one, which keeps running as it was. A turn the old window takes after the carry stays in the old account's transcript, and the new window does not see it (north#1238: a move that waited for the old turn first showed nothing for minutes, because delivered messages kept waking the old window). The fleet tick runs `--auto`, which reads the coordinator's account from the fleet record and starts the swap unit at most once in 20 minutes.
+- Window move: `north coordinator move [--to ACCOUNT] [--auto] [--dry-run]` moves the window holding the conversation the fleet record names for the coordinator, whatever other interactive `claude` windows are open, when its account's outlook is under 45 minutes (or out), or when `--to` names an account with week headroom, to the account with the most week headroom whose own outlook is not under 45 minutes; it refuses when that conversation has no live window on a terminal and names the windows it saw (north#636, north#1238). The caller only starts the user unit `north-window-move` and prints its result, so a sandboxed shell, the coordinator's own included, can run it: the unit reads the windows, runs the terminal test and prints the plan, which `--dry-run` stops at. Otherwise it starts the unit `north-window-move-swap`, which runs the steps at once, beside the running old window, saying on the old window what it does: carry the session's transcript, subagent files, file history and session environment into the target profile; open a ghostty window running `claude-ACCOUNT --resume SESSION` with the old window's flags and wait until it runs under the target profile's `CLAUDE_CONFIG_DIR`; change the fleet record's account and bind the coordinator's name to the new window; deliver its undelivered messages with a fleet tick; and only then, once the old window's turn ends or after 30 seconds at most, stop the old daemon-hosted session, hang up the old window's shell and put the new window in the old one's workspace and column with focus restored. A failure before that last step closes only the new window and binds the name back to the old one, which keeps running as it was. A turn the old window takes after the carry stays in the old account's transcript, and the new window does not see it (north#1238: a move that waited for the old turn first showed nothing for minutes, because delivered messages kept waking the old window). The fleet tick runs `--auto`, which reads the coordinator's account from the fleet record and starts the swap unit at most once in 20 minutes.

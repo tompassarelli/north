@@ -14,7 +14,7 @@ const PROBE_PROVIDER: &str = "claude";
 const PROBE_LIMIT: Duration = Duration::from_secs(300);
 const OWNER: &str = "tompassarelli";
 
-pub const USAGE: &str = "Usage: north fleet break-glass --issue REPO#N REASON... (lifts the proxy's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero; REPO#N is the issue that tracks the cause)";
+pub const USAGE: &str = "Usage: north fleet break-glass --issue REPO#N REASON... (lifts the coordinator's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero; REPO#N is the issue that tracks the cause)";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Grant {
@@ -38,7 +38,7 @@ impl Refusal {
     pub fn message(&self) -> String {
         match self {
             Self::NoReason => format!("break glass needs a reason. {USAGE}"),
-            Self::WorkersCanLaunch(measured) => format!("break glass refused: workers can launch ({measured}), so the proxy's budgets stay; write the brief and staff a worker instead"),
+            Self::WorkersCanLaunch(measured) => format!("break glass refused: workers can launch ({measured}), so the coordinator's budgets stay; write the brief and staff a worker instead"),
             Self::Unrecorded(why) => format!("break glass refused: the ledger could not record it ({why}), so nothing was lifted"),
             Self::BoxNotOpened(why) => format!("break glass is lifted and recorded, but the box on the tracking issue was not opened ({why}); open it by hand"),
         }
@@ -104,7 +104,7 @@ pub fn digest_section(grants: &[Grant], since_ms: u64, now_ms: u64) -> String {
     if used.is_empty() {
         return String::new();
     }
-    let mut text = format!("Break glass used since you last looked ({}): the proxy's look budgets were lifted because workers could not start; each opened a box on the issue that tracks the cause.\n", used.len());
+    let mut text = format!("Break glass used since you last looked ({}): the coordinator's look budgets were lifted because workers could not start; each opened a box on the issue that tracks the cause.\n", used.len());
     for grant in used {
         let state = if now_ms < grant.until_ms { format!("lifted until {}", clock(grant.until_ms)) } else { format!("expired at {}", clock(grant.until_ms)) };
         text.push_str(&format!("- {} by {} ({state}): {}\n  Measured: {}\n  Cause tracked in: {}\n", clock(grant.at_ms), grant.who, one_line(&grant.reason), grant.evidence, grant.issue));

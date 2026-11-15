@@ -50,10 +50,10 @@ impl Fleet {
         Err(NorthError::Refused(format!("{} is only for an eval: launch from an {EVAL_UNIT_PREFIX}* unit or from the {EVALS_LEAD} session, so no other session {}", flag.word, flag.misuse)))
     }
 
-    /// Why this launch may not carry `--priority urgent`, or None when it may. Only the coordinator grants urgent, on positive proof: a process in the operator's login scope (the user slice of the uid that owns the fleet root, so another user's login never counts), in an eval unit, in the scope of the live proxy session, or replaying a queue entry admitted as urgent (a replay is judged by its entry, never by the tick that runs it); any other unit, session or not, is refused. `cgroup` is the launcher's `/proc/self/cgroup`, which a worker cannot change.
+    /// Why this launch may not carry `--priority urgent`, or None when it may. Only the coordinator grants urgent, on positive proof: a process in the operator's login scope (the user slice of the uid that owns the fleet root, so another user's login never counts), in an eval unit, in the scope of the live coordinator session, or replaying a queue entry admitted as urgent (a replay is judged by its entry, never by the tick that runs it); any other unit, session or not, is refused. `cgroup` is the launcher's `/proc/self/cgroup`, which a worker cannot change.
     pub fn urgent_denied(&self, asked: bool, name: &str, caller: Option<&str>, queued: Option<&str>, cgroup: &str) -> Option<String> {
         let replay = queued == Some(name);
-        if !asked || self.queued_with(|request| request.urgent, name, queued) || (!replay && (self.in_operator_login(cgroup) || in_eval_unit(cgroup) || self.is_live_proxy(caller, cgroup))) {
+        if !asked || self.queued_with(|request| request.urgent, name, queued) || (!replay && (self.in_operator_login(cgroup) || in_eval_unit(cgroup) || self.is_live_coordinator(caller, cgroup))) {
             return None;
         }
         Some(format!("only the coordinator grants urgent priority, so {name} launches at normal priority"))
@@ -63,15 +63,15 @@ impl Fleet {
     pub fn operator_caller(&self, caller: Option<&str>, cgroup: &str) -> bool {
         let Some(path) = cgroup.lines().last().and_then(|line| line.split_once("::")).map(|(_, path)| path).filter(|path| path.starts_with('/')) else { return false };
         let in_session = path.split('/').any(|leaf| leaf.starts_with(north_base::platform::session_scope::SESSION_UNIT_PREFIX));
-        !in_session || caller.is_some_and(|caller| matches!(self.role_of(caller), Some(Role::Lead | Role::Proxy)) && self.in_scope_of(caller, cgroup))
+        !in_session || caller.is_some_and(|caller| matches!(self.role_of(caller), Some(Role::Lead | Role::Coordinator)) && self.in_scope_of(caller, cgroup))
     }
 
     fn in_operator_login(&self, cgroup: &str) -> bool {
         std::fs::metadata(&self.root).is_ok_and(|root| in_login_scope(cgroup, std::os::unix::fs::MetadataExt::uid(&root)))
     }
 
-    fn is_live_proxy(&self, caller: Option<&str>, cgroup: &str) -> bool {
-        caller.is_some_and(|caller| self.role_of(caller) == Some(Role::Proxy) && self.in_scope_of(caller, cgroup))
+    fn is_live_coordinator(&self, caller: Option<&str>, cgroup: &str) -> bool {
+        caller.is_some_and(|caller| self.role_of(caller) == Some(Role::Coordinator) && self.in_scope_of(caller, cgroup))
     }
 
     fn in_scope_of(&self, caller: &str, cgroup: &str) -> bool {

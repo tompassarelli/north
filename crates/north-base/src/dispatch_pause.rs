@@ -1,4 +1,4 @@
-//! The stop the proxy records for north fleet dispatch on a host, under `~/.local/state/north`: while it exists dispatch
+//! The stop the coordinator records for north fleet dispatch on a host, under `~/.local/state/north`: while it exists dispatch
 //! launches nothing and the timer is meant stopped. It names its cause, who set it and what lifts it: a check command whose
 //! exit 0 means the cause is gone, an expiry time, or both, so a stop that outlives its reason ends on its own (north#1136).
 use std::path::{Path, PathBuf};
@@ -67,7 +67,7 @@ pub fn record_path(home: &Path) -> PathBuf {
     home.join(".local/state/north").join(RECORD)
 }
 
-/// Why dispatch is paused on the host whose home is `home`, while the proxy's pause stands.
+/// Why dispatch is paused on the host whose home is `home`, while the coordinator's pause stands.
 pub fn standing(home: &Path) -> Option<String> {
     Pause::read(&record_path(home)).map(|pause| pause.reason)
 }

@@ -1,6 +1,6 @@
 //! Whether a dispatched session spent a try on its item: a commit, a check run or a report other than
 //! a capacity wait spends one; a session that only waited on admission, a usage limit or a failed host
-//! did no work, so dispatch does not count it toward the two tries that hand an item to the proxy. A session that got
+//! did no work, so dispatch does not count it toward the two tries that hand an item to the coordinator. A session that got
 //! nowhere on its rung (`stops::nowhere`) is no try either: its box climbs one rung, and the ladder's top bounds the climb.
 use regex::Regex;
 use serde_json::Value;

@@ -13,7 +13,7 @@ const UNREACHED: &str = "lander-unreached";
 const ALARM_AFTER_SECONDS: u64 = 15 * 60;
 pub const RETRY_AFTER_QUIET_SECONDS: u64 = 15 * 60;
 pub const CLOCK: &str = "NORTH_LAND_PROMOTE_CLOCK";
-const PROXY: &str = "proxy";
+const COORDINATOR: &str = "coordinator";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hold {
@@ -119,14 +119,14 @@ fn record(hold: Hold, candidate: &str, reason: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// Notes one refused promotion in `home`; past the alarm line it records the hold's one incident row and messages the proxy under the hold's condition key, which the fleet store delivers once per hold.
+/// Notes one refused promotion in `home`; past the alarm line it records the hold's one incident row and messages the coordinator under the hold's condition key, which the fleet store delivers once per hold.
 pub fn held(home: &Path, now: u64, candidate: &str, reason: &str) {
     let previous = fs::read_to_string(path(home)).ok().as_deref().and_then(parse);
     let (hold, due) = extend(previous, now);
     if due {
         let minutes = now.saturating_sub(hold.since) / 60;
         let recorded = record(hold, candidate, reason);
-        let told = send_condition(PROXY, &key(hold), false, &message(minutes, candidate, reason));
+        let told = send_condition(COORDINATOR, &key(hold), false, &message(minutes, candidate, reason));
         if !recorded || !told {
             println!("north land promote: the {minutes}-minute hold alarm reached {}", if recorded || told { "only part of its targets" } else { "none of its targets" });
         }

@@ -51,7 +51,7 @@ impl Fleet {
         Ok((Some(Err(failed)), Box::new(|| Ok(()))))
     }
 
-    /// The claim keys of a taken-over seat its successor `name` still has to take: a key the name or a session below it already holds stays with its holder, so the seat's children keep the issues they work and a refused take-over gives up none of the old seat's claims. A proxy that `routes` its tasks rather than working them also leaves an issue any other session holds to that session.
+    /// The claim keys of a taken-over seat its successor `name` still has to take: a key the name or a session below it already holds stays with its holder, so the seat's children keep the issues they work and a refused take-over gives up none of the old seat's claims. A coordinator that `routes` its tasks rather than working them also leaves an issue any other session holds to that session.
     pub(super) fn left_to_claim(&self, name: &str, keys: &[String], routes: bool) -> Vec<String> {
         let issues: Vec<String> = keys.iter().map(|key| claims::split_key(key).0.to_owned()).collect();
         let Ok(rows) = self.claims.holders(Rows::Items(&issues)) else { return keys.to_vec() };

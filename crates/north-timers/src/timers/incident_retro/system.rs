@@ -69,7 +69,7 @@ impl World for System {
         self.fleet.launch(launch)
     }
 
-    fn tell_proxy(&self, text: &str) -> Result<(), String> {
-        self.fleet.tell_proxy(text)
+    fn tell_coordinator(&self, text: &str) -> Result<(), String> {
+        self.fleet.tell_coordinator(text)
     }
 }

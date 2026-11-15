@@ -7,7 +7,7 @@ use super::Fleet;
 use super::stopping::Halt;
 use super::super::model::{LaunchRequest, Role, SessionRecord};
 use super::super::records::record_file;
-use super::super::runtime::PROXY;
+use super::super::runtime::COORDINATOR;
 use super::super::store::{Addressee, Claim, FleetRow, RowKind};
 
 /// The session a takeover ended.
@@ -74,7 +74,7 @@ impl Fleet {
     /// Claims what a launch taking over `seat` needs before the seat is stopped, so a refused claim leaves the seat running; returns the keys the launch still has to claim and whether they were claimed here.
     pub(super) fn claim_for(&self, seat: &Seat<'_>, request: &LaunchRequest, record: &mut SessionRecord, tasks: &[String], verification: bool) -> NorthResult<(Vec<String>, bool)> {
         let tasks = match seat.held() {
-            Some(held) if carries_for(held, &request.tasks()) => self.left_to_claim(&request.name, &carry_into(held, record), request.role() == Role::Proxy),
+            Some(held) if carries_for(held, &request.tasks()) => self.left_to_claim(&request.name, &carry_into(held, record), request.role() == Role::Coordinator),
             Some(_) => self.left_to_claim(&request.name, tasks, false),
             None => tasks.to_vec(),
         };
@@ -127,20 +127,20 @@ impl Fleet {
         }
     }
 
-    pub fn fleet_proxy(&self) -> NorthResult<Option<SessionRecord>> {
-        Ok(self.sessions()?.into_iter().find(|record| record.name == PROXY && record.role == Some(Role::Proxy)))
+    pub fn fleet_coordinator(&self) -> NorthResult<Option<SessionRecord>> {
+        Ok(self.sessions()?.into_iter().find(|record| record.name == COORDINATOR && record.role == Some(Role::Coordinator)))
     }
 
     pub fn earlier_proxies(&self) -> NorthResult<Vec<SessionRecord>> {
         let earlier = |record: &SessionRecord| match record.role {
-            None => record.name == PROXY || record.name.starts_with("proxy-"),
-            Some(role) => role == Role::Proxy && record.name != PROXY,
+            None => record.name == COORDINATOR || record.name.starts_with("coordinator-"),
+            Some(role) => role == Role::Coordinator && record.name != COORDINATOR,
         };
         Ok(self.sessions()?.into_iter().filter(earlier).collect())
     }
 
-    pub fn retire_proxy(&self, name: &str) -> NorthResult<PathBuf> {
-        self.archive(name, Halt::Retired, "a proxy take-over retired it")
+    pub fn retire_coordinator(&self, name: &str) -> NorthResult<PathBuf> {
+        self.archive(name, Halt::Retired, "a coordinator take-over retired it")
     }
 
     pub fn addressee(&self, record: &SessionRecord, floor: u64) -> NorthResult<Addressee> {
@@ -153,14 +153,14 @@ pub fn backlog_line(retired: &[String], rows: &[FleetRow], now_ms: u64) -> Strin
     let messages: Vec<&FleetRow> = rows.iter().filter(|row| row.kind == RowKind::Message).collect();
     let names = retired.join(" and ");
     let Some(oldest) = messages.iter().map(|row| row.sent_at).min() else {
-        return format!("[north: north proxy archived {names}; no messages to them were waiting]");
+        return format!("[north: north coordinator archived {names}; no messages to them were waiting]");
     };
     let mut senders: Vec<String> = messages.iter().map(|row| row.sender.prefix().unwrap_or_else(|| "Tom".to_owned())).collect();
     senders.sort();
     senders.dedup();
     let count = messages.len();
     format!(
-        "[north: north proxy archived {names}; {count} message{} to them were not replayed, from {}, the oldest {} old]",
+        "[north: north coordinator archived {names}; {count} message{} to them were not replayed, from {}, the oldest {} old]",
         if count == 1 { "" } else { "s" },
         senders.join(", "),
         age(now_ms.saturating_sub(oldest))
@@ -331,18 +331,18 @@ mod tests {
         assert!(claims.holders(Rows::Items(&["north#1054".to_owned()])).unwrap().contains(&("north#1054".to_owned(), "slice".to_owned())), "the refused take-over gave up the old session's claim");
 
         let home = tempfile::tempdir().unwrap();
-        let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(())).showing_proxy_on(Arc::new(NoDesk));
-        live(&fleet, PROXY);
-        let mut record = fleet.session(PROXY).unwrap();
-        record.role = Some(Role::Proxy);
-        write_record(&fleet.root.join(PROXY), &record).unwrap();
-        let before = std::fs::read(fleet.root.join(PROXY).join("session.json")).unwrap();
+        let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(())).showing_coordinator_on(Arc::new(NoDesk));
+        live(&fleet, COORDINATOR);
+        let mut record = fleet.session(COORDINATOR).unwrap();
+        record.role = Some(Role::Coordinator);
+        write_record(&fleet.root.join(COORDINATOR), &record).unwrap();
+        let before = std::fs::read(fleet.root.join(COORDINATOR).join("session.json")).unwrap();
 
         let refused = fleet.take_over(&LaunchRequest { prompt: "carry on".into(), resume: None, ..LaunchRequest::relaunching(&record) });
 
         assert!(refused.is_err(), "{refused:?}");
-        assert_eq!(std::fs::read(fleet.root.join(PROXY).join("session.json")).unwrap(), before, "the window-held take-over whose window never opened changed the old proxy's record");
-        assert!(!fleet.root.join(ARCHIVE).exists(), "the window-held take-over whose window never opened archived the old proxy");
+        assert_eq!(std::fs::read(fleet.root.join(COORDINATOR).join("session.json")).unwrap(), before, "the window-held take-over whose window never opened changed the old coordinator's record");
+        assert!(!fleet.root.join(ARCHIVE).exists(), "the window-held take-over whose window never opened archived the old coordinator");
     }
 
     /// A ledger in which a claim another session holds is refused, as the threads ledger refuses one a live owner holds.
@@ -475,32 +475,32 @@ mod tests {
         assert_eq!(claims.holders(Rows::Items(&["north#1508".to_owned()])).unwrap(), [("north#1508".to_owned(), "broker".to_owned())]);
     }
 
-    /// On 2026-11-14 the floor tick's take-over of the coordinator's window-held proxy was refused north#643, which a worker owned, after it had retired the old record.
+    /// On 2026-11-14 the floor tick's take-over of the coordinator's window-held coordinator was refused north#643, which a worker owned, after it had retired the old record.
     #[test]
-    fn a_taken_over_proxy_carries_its_task_list_keeps_its_own_claims_held_or_spooled_and_leaves_another_sessions_item_to_it() {
+    fn a_taken_over_coordinator_carries_its_task_list_keeps_its_own_claims_held_or_spooled_and_leaves_another_sessions_item_to_it() {
         let home = tempfile::tempdir().unwrap();
         let claims = Arc::new(Owned::default());
         let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap().arming(|_| Ok(())).starting_hosts(standing_host);
-        live(&fleet, PROXY);
-        let mut record = fleet.session(PROXY).unwrap();
-        (record.role, record.task_ref, record.extra_tasks) = (Some(Role::Proxy), Some("north#643".into()), vec!["north#1427".into()]);
-        write_record(&fleet.root.join(PROXY), &record).unwrap();
+        live(&fleet, COORDINATOR);
+        let mut record = fleet.session(COORDINATOR).unwrap();
+        (record.role, record.task_ref, record.extra_tasks) = (Some(Role::Coordinator), Some("north#643".into()), vec!["north#1427".into()]);
+        write_record(&fleet.root.join(COORDINATOR), &record).unwrap();
         claims.hold("north#643", "north-643-worker", &BTreeSet::new()).unwrap();
-        claims.hold("north#1427", PROXY, &BTreeSet::new()).unwrap();
+        claims.hold("north#1427", COORDINATOR, &BTreeSet::new()).unwrap();
         let request = LaunchRequest { prompt: "carry on".into(), resume: None, ..LaunchRequest::relaunching(&record) };
-        let taken = fleet.take_over(&request).unwrap_or_else(|error| panic!("the proxy take-over was refused: {}", error.user_message()));
+        let taken = fleet.take_over(&request).unwrap_or_else(|error| panic!("the coordinator take-over was refused: {}", error.user_message()));
         assert_eq!(taken.tasks().collect::<Vec<_>>(), ["north#643", "north#1427"]);
-        assert_eq!(claims.holders(Rows::Items(&["north#1427".to_owned()])).unwrap(), [("north#1427".to_owned(), PROXY.to_owned())], "the old proxy's retire gave up the claim its window-held successor carries");
+        assert_eq!(claims.holders(Rows::Items(&["north#1427".to_owned()])).unwrap(), [("north#1427".to_owned(), COORDINATOR.to_owned())], "the old coordinator's retire gave up the claim its window-held successor carries");
 
         let home = tempfile::tempdir().unwrap();
         let spool = Arc::new(Unanswered::default());
         let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), spool.clone()).unwrap().arming(|_| Ok(()));
-        live(&fleet, PROXY);
-        let mut record = fleet.session(PROXY).unwrap();
-        (record.role, record.task_ref) = (Some(Role::Proxy), Some("north#1427".into()));
-        write_record(&fleet.root.join(PROXY), &record).unwrap();
-        fleet.take_over(&LaunchRequest { prompt: "carry on".into(), resume: None, ..LaunchRequest::relaunching(&record) }).unwrap_or_else(|error| panic!("the proxy take-over was refused: {}", error.user_message()));
-        assert!(spool.0.lock().unwrap().contains(&("north#1427".to_owned(), PROXY.to_owned())), "the old proxy's retire withdrew the claim its successor spooled under the same name");
+        live(&fleet, COORDINATOR);
+        let mut record = fleet.session(COORDINATOR).unwrap();
+        (record.role, record.task_ref) = (Some(Role::Coordinator), Some("north#1427".into()));
+        write_record(&fleet.root.join(COORDINATOR), &record).unwrap();
+        fleet.take_over(&LaunchRequest { prompt: "carry on".into(), resume: None, ..LaunchRequest::relaunching(&record) }).unwrap_or_else(|error| panic!("the coordinator take-over was refused: {}", error.user_message()));
+        assert!(spool.0.lock().unwrap().contains(&("north#1427".to_owned(), COORDINATOR.to_owned())), "the old coordinator's retire withdrew the claim its successor spooled under the same name");
         assert_eq!(claims.holders(Rows::Items(&["north#643".to_owned()])).unwrap(), [("north#643".to_owned(), "north-643-worker".to_owned())]);
     }
 }

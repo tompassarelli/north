@@ -167,7 +167,7 @@ stand: nothing tonight was a runtime network fault a VM test would have caught.
 Where it falls short, and what follows: the fleet's findings under this claim are machine posture, so they are
 in south's record with their measurement (south#120). The public method is the talk's own order: measure what agents
 reach before drawing an allowlist, since Landlock's network rights filter by port only
-([landlock-net](../references.md#landlock-net)) and any host allowlist needs a filter or a proxy of its own.
+([landlock-net](../references.md#landlock-net)) and any host allowlist needs a filter or a coordinator of its own.
 
 ## Claim 9: deterministic checks, not skills, and property tests
 
@@ -224,7 +224,7 @@ Each is an experiment with one measurement, and kept only if its measurement say
   while GitHub binds every client; the rewrite half is already server-side (north#973), the rest is south#119.
 - A day's measurement of where worker sandboxes connect, and an outbound allowlist drawn from it: adopted as the
   measurement, with enforcement priced and left to its own decision, since every way to enforce a host allowlist adds
-  a filter, a proxy or a tool (south#120).
+  a filter, a coordinator or a tool (south#120).
 - Property tests on the lifecycle kernel and the land queue in place of example tests: changed; dropped for the
   lifecycle kernel, which the exhaustive machine check already covers, and tried for the land queue (north#1245).
 - A scheduled advisory scan of the Cargo lock and the system closure that opens a patch lane with a dated note to

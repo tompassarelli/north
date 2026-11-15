@@ -109,7 +109,7 @@ fn condition(unit: &str) -> String {
     format!("harness-unit-start:{unit}")
 }
 
-/// Tells the proxy of each failing unit under its condition key on every check, which the fleet store delivers once per episode and again when the cause changes, and of each unit told failing that recovered, which ends the episode.
+/// Tells the coordinator of each failing unit under its condition key on every check, which the fleet store delivers once per episode and again when the cause changes, and of each unit told failing that recovered, which ends the episode.
 pub(super) fn announce(failing: &[Failing], told: &mut Told, send: &mut dyn FnMut(&str, &str, bool) -> bool) {
     for one in failing {
         if send(&page(one), &condition(&one.unit), false) {
@@ -133,12 +133,12 @@ pub(super) fn journal() -> Result<String, String> {
     )
 }
 
-pub(super) fn tell_proxy(message: &str, key: &str, cleared: bool) -> bool {
+pub(super) fn tell_coordinator(message: &str, key: &str, cleared: bool) -> bool {
     let mut arguments = vec!["fleet", "send", "--from", "service:north-health", "--key", key];
     if cleared {
         arguments.push("--cleared");
     }
-    arguments.extend(["proxy", message]);
+    arguments.extend(["coordinator", message]);
     super::command("north", &arguments, None, 20).is_ok()
 }
 

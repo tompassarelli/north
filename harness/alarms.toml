@@ -3,7 +3,7 @@
 [[alarm]]
 source = "north-health"
 action = "restart the failed harness unit and fix the first error line the page quotes, or revert the commit that broke it"
-owner = "proxy"
+owner = "coordinator"
 
 [[alarm]]
 source = "north-land-watch"
@@ -13,32 +13,32 @@ owner = "land-lead"
 [[alarm]]
 source = "north-ops-flow"
 action = "revert or fix the main commit a red-main page names, fix the security finding it quotes, or free the disk it names"
-owner = "proxy"
+owner = "coordinator"
 
 [[alarm]]
 source = "north-capacity-watchdog"
 action = "free disk on the host the page names by reclaiming caches and closed lanes"
-owner = "proxy"
+owner = "coordinator"
 
 [[alarm]]
 source = "north-lease-reaper"
 action = "free disk on the build host the page names by closing the leases it lists or evicting the largest cache"
-owner = "proxy"
+owner = "coordinator"
 
 [[alarm]]
 source = "north-runtime"
 action = "read the failing probe the rollback page names and fix or revert the commit that broke it before the next promotion"
-owner = "proxy"
+owner = "coordinator"
 
 [[alarm]]
 source = "north-runtime-lag"
 action = "restart the process the page names on the host it names, so it runs the runtime its host's link names"
-owner = "proxy"
+owner = "coordinator"
 
 [[alarm]]
 source = "north-runtime-update"
 action = "read the update failure the page quotes and rerun the host's runtime update once its cause is fixed"
-owner = "proxy"
+owner = "coordinator"
 
 [[alarm]]
 source = "north-land"

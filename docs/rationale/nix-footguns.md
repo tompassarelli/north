@@ -23,7 +23,7 @@ Status, 2026-11-13: part of this is built. `harness/nix/cards.toml` is tracked, 
   Most rescan sessions repeat a cause already in a row, so they raise that row's session count; four rows are new
   (N10 exit in the shellHook, N11 land-shell home and `.git`, N12 missing system tools and `convo`). Rescan minutes
   use the 1 to 2 minutes per bare-tool failure below, except where a row gives its own.
-- The laptop proxy transcript (`proxy-transcript-895929a7.jsonl`, to 03:23 on 2026-11-05) and the lander logs of
+- The laptop coordinator transcript (`coordinator-transcript-895929a7.jsonl`, to 03:23 on 2026-11-05) and the lander logs of
   2026-11-05 00:40 to 03:48 (`~/.cache/north-evidence/nix-evidence/`, `lander-journal-0230-0330.txt`).
 - `gh issue list --state all --search "nix OR dev-shell OR depbox OR land-shell OR flake OR 127 OR shim"` on north, wisp,
   makgora and firn (the system repository; `tompassarelli/nixos-config` does not exist on GitHub), then the bodies.
@@ -77,7 +77,7 @@ are UTC unless a time says laptop time. Ref is an issue, a commit, a lander cand
 | 11-01 | north, wisp | north#465, a7ab53869, 5c707090e; boxes 2f, 3d, wisp-water-crests | cargo through `capacity host run` and the lease wrappers | a lease enters the dev shell | bare PATH: 127, one exit 0 with no tests (false green), 3 window builds failed | 1 false green, about 5 failed runs, a 45 min fix |
 | 11-04 07:00 to 07:35 | north | three workers; 602d51c9b | `north capacity offload run --host gex45 -- cargo …` | cargo is on the slot's PATH | `cargo: command not found behind the north capacity gate` | 3 workers re-ran by hand; one suite counted as not run |
 | 11-04 10:51 | North Lander | train 6c, fails-first-gate | offload `land-shell --dev -- cargo run … land-fails-first` | the landing variables are set remotely | `usage: north land-fails-first …`, exit 75 | train 6c stopped and relaunched as 6d (14 lanes) |
-| 11-04 11:11 | north | proxy preflight8 | offload `cargo clippy` with no shell wrapper | it runs in the dev shell | `exit 1` with no error lines | one rerun, about 2 min |
+| 11-04 11:11 | north | coordinator preflight8 | offload `cargo clippy` with no shell wrapper | it runs in the dev shell | `exit 1` with no error lines | one rerun, about 2 min |
 | 11-04 | north | north#546 (open); 7c98ac5c | `north capacity exec --dev-shell DIR -- cargo --version` | the flag enters the shell | it sets a marker and execs from the current PATH; 127 | blocks leased runs that use it; about 5 min |
 | 11-04 16:05 | north | b7f35960 | a stress loop running the test binary outside `nix develop` | the binary is self-contained | `sccache rustc -vV … cannot find binary path` | about 5 min; a 20-run baseline was noisy |
 

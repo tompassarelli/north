@@ -214,7 +214,7 @@ fn a_session_retires_when_finished_and_its_cli_runs_nothing_when_its_host_ended_
     assert!(fleet.session("finished").is_err() && fleet.session("ended").is_err() && fleet.session("monitoring").is_ok());
 }
 
-// KEEP(bug): on 2026-11-10 at 3:20 PM 27 DeepSeek sessions whose lanes had landed and whose Done reports sat in the proxy's held digest kept their claims on seven issues until forgotten by hand; north#1054
+// KEEP(bug): on 2026-11-10 at 3:20 PM 27 DeepSeek sessions whose lanes had landed and whose Done reports sat in the coordinator's held digest kept their claims on seven issues until forgotten by hand; north#1054
 #[test]
 fn a_done_session_whose_lane_landed_gives_up_every_claim_and_leaves_the_fleet_in_one_reaper_tick() {
     use crate::fleet::claims::{Claims, Held, Rows};

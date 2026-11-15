@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 
-pub use north_fleet_store::runtime::{PROXY, ROLE_ENV, SESSION_ENV, SPOOLED_ENV, binary, now_ms};
+pub use north_fleet_store::runtime::{COORDINATOR, ROLE_ENV, SESSION_ENV, SPOOLED_ENV, binary, now_ms};
 use super::gates::Question;
 use super::model::{Account, Effort, LaunchRequest, Machine, ProviderName, Quota, Transcript};
 use super::roster::Roster;
@@ -169,7 +169,7 @@ pub trait Runtime: Send + Sync {
 
 
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
-/// The longest `timeout` a session may ask for: the hand-in wait and room to print its verdict, for a lead or the proxy that runs `safe-push --to main --wait` in the foreground; a worker never waits on its own landing and the worker-wait guard keeps it out of foreground waits.
+/// The longest `timeout` a session may ask for: the hand-in wait and room to print its verdict, for a lead or the coordinator that runs `safe-push --to main --wait` in the foreground; a worker never waits on its own landing and the worker-wait guard keeps it out of foreground waits.
 pub const HAND_IN_CAP_SECS: u64 = north_base::land_ticket::HAND_IN_WAIT.as_secs() + 300;
 pub const ACTOR_ENV: &str = "THREADS_ACTOR";
 pub const CAPACITY_NEED_ENV: &str = "AGENT_CAPACITY_NEED";

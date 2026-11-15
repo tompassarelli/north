@@ -1,4 +1,4 @@
-//! The fleet tick's concern line: the proxy hears of red concerns the tick after they turn red, again when
+//! The fleet tick's concern line: the coordinator hears of red concerns the tick after they turn red, again when
 //! the set of red concerns changes and as a reminder every few hours, and a tick reads the oracles at most every few minutes.
 use std::path::{Path, PathBuf};
 

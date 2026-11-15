@@ -1,11 +1,11 @@
 //! A session is taken over onto another source when `usage::decide::assess` says so: a worker with
-//! unlanded work once its source is out or paused, a proxy or lead before its source runs out. A worker
+//! unlanded work once its source is out or paused, a coordinator or lead before its source runs out. A worker
 //! resumes its own conversation there; one that never started a conversation gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
 //! A session on an API organization moves only to another API organization, never to a subscription account; with none open it stays, and `api_pool::move_spent` acts on the provider's own refusal.
-//! A proxy held in an interactive window is never moved: that window is Tom's, not the fleet's.
+//! A coordinator held in an interactive window is never moved: that window is Tom's, not the fleet's.
 use std::collections::{BTreeMap, BTreeSet};
 
-pub mod proxy;
+pub mod coordinator;
 #[cfg(test)]
 mod tests;
 
@@ -71,7 +71,7 @@ pub fn hand_over(
             if let Some(wait) = parked.as_ref().filter(|wait| wait.newer_reading(&observed.readings).is_none()) {
                 limits.push(LimitEvent { account: wait.account.clone(), window: wait.window, resets_at: Some(wait.until), at: wait.parked_at });
             }
-            let standing = if record.role() == Role::Proxy { Standing::Proxy } else if leads.contains(record.name.as_str()) { Standing::Lead } else { Standing::Worker };
+            let standing = if record.role() == Role::Coordinator { Standing::Coordinator } else if leads.contains(record.name.as_str()) { Standing::Lead } else { Standing::Worker };
             session_of(record, standing, parked.map(|wait| wait.parked_at))
         })
         .collect();
@@ -113,9 +113,9 @@ pub fn hand_over(
             done.lines.push(format!("{}: stays on account {}: a session on an API organization moves only to another one, not to {}", record.name, record.account, to.0));
             continue;
         }
-        if record.role() == Role::Proxy {
+        if record.role() == Role::Coordinator {
             moving.insert(record.name.as_str());
-            done.lines.extend(proxy::advance(fleet, record, &to.0, family, take_over, now_ms));
+            done.lines.extend(coordinator::advance(fleet, record, &to.0, family, take_over, now_ms));
             continue;
         }
         let stopped = limit_stop(fleet, record, &waits);
@@ -128,7 +128,7 @@ pub fn hand_over(
             account: to.0.clone(),
             prompt: match (&record.conversation, &stopped) {
                 (Some(_), Some(stop)) => stop.resumed(record, &to.0),
-                (Some(_), None) => proxy::resumed(record, &to.0),
+                (Some(_), None) => coordinator::resumed(record, &to.0),
                 (None, _) => brief(record, lane, &to.0),
             },
             placement: Some(format!("handed over from account {}", record.account)),
@@ -155,8 +155,8 @@ pub fn hand_over(
             }
         }
     }
-    for record in records.iter().filter(|record| record.role() == Role::Proxy && !moving.contains(record.name.as_str())) {
-        proxy::Desk::of(&fleet.root, &record.name).clear();
+    for record in records.iter().filter(|record| record.role() == Role::Coordinator && !moving.contains(record.name.as_str())) {
+        coordinator::Desk::of(&fleet.root, &record.name).clear();
     }
     done
 }
@@ -187,10 +187,10 @@ impl LimitStop {
 
     fn page(&self, fleet: &Fleet, record: &SessionRecord, to: &str) -> Vec<String> {
         let line = format!("{} hit its usage limit on account {} ({}); moved to account {to} and its pending message re-delivered", record.name, record.account, self.reply);
-        let Some(proxy) = fleet.sessions().unwrap_or_default().into_iter().find(|session| session.role() == Role::Proxy) else { return vec![line] };
-        match fleet.send_signed(&Sender::fleet(), &proxy.name, &line, Delivery::Now) {
+        let Some(coordinator) = fleet.sessions().unwrap_or_default().into_iter().find(|session| session.role() == Role::Coordinator) else { return vec![line] };
+        match fleet.send_signed(&Sender::fleet(), &coordinator.name, &line, Delivery::Now) {
             Ok(()) => vec![line],
-            Err(error) => vec![line, format!("{}: proxy {} was not paged: {}", record.name, proxy.name, error.user_message())],
+            Err(error) => vec![line, format!("{}: coordinator {} was not paged: {}", record.name, coordinator.name, error.user_message())],
         }
     }
 }
@@ -203,7 +203,7 @@ fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {
         .unwrap_or_default()
         .into_iter()
         .filter(|record| record.provider.label() == "claude" && !record.verification)
-        .filter(|record| !(record.role() == Role::Proxy && record.adopted()))
+        .filter(|record| !(record.role() == Role::Coordinator && record.adopted()))
         .filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::IdleExited)))
         .filter(|record| if record.adopted() { fleet.running(record) } else { recent(record) && (fleet.running(record) || parked(&record.name)) })
         .collect()

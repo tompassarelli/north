@@ -81,7 +81,7 @@ impl Fleet {
 
     fn apply_gate_answer(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         if let Some(writer) = row.spooled_by.as_deref().filter(|_| row.sender == Sender::Tom) {
-            eprintln!("north fleet: refused GATE-ANSWER row {} from {writer}'s spool: an answer as Tom comes only from his own shell or a proxy relaying his typed turn", row.id);
+            eprintln!("north fleet: refused GATE-ANSWER row {} from {writer}'s spool: an answer as Tom comes only from his own shell or a coordinator relaying his typed turn", row.id);
             return self.journaled(row, || Ok(()));
         }
         if let Sender::Service(unit) = &row.sender {

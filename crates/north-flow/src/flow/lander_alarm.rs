@@ -1,5 +1,5 @@
 //! A stalled lander, told the way a red main is: while a repository's lander queue holds lanes and
-//! origin/main stays unmoved past its limit, one urgent fleet message reaches the proxy and the
+//! origin/main stays unmoved past its limit, one urgent fleet message reaches the coordinator and the
 //! repository's "landing is stalled" issue opens; when the queue moves again one more message goes
 //! out and the issue closes.
 use std::collections::BTreeMap;
@@ -83,7 +83,7 @@ fn save(path: &Path, state: &State) -> Result<(), String> {
 }
 
 fn tell(host: &dyn Host, text: &str) -> bool {
-    host.run(&["north", "fleet", "send", "--now", "--from", FROM, "proxy", text], None, None).is_some()
+    host.run(&["north", "fleet", "send", "--now", "--from", FROM, "coordinator", text], None, None).is_some()
 }
 
 pub fn alert(places: &Places, host: &dyn Host, rows: &[Value]) -> Result<(), String> {

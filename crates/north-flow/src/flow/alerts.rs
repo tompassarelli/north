@@ -1,4 +1,4 @@
-//! Telling the Fleet parent and the proxy of a stall, a stranded or refused lane, a broken guard or a
+//! Telling the Fleet parent and the coordinator of a stall, a stranded or refused lane, a broken guard or a
 //! saturated host. Each alert goes out once per episode, keyed on its kind and the facts that make
 //! it actionable, after two consecutive runs see it, and again only after a run stops seeing it.
 use std::collections::{BTreeMap, BTreeSet};
@@ -60,7 +60,7 @@ fn parent_of(nodes: &[Node], repo: &str) -> String {
 }
 
 fn candidates(repo: &str, parent: &str, key: &str, text: &str) -> Vec<Action> {
-    [parent, "proxy"]
+    [parent, "coordinator"]
         .iter()
         .map(|node| Action { repo: repo.into(), key: key.replace("{node}", node), node: (*node).into(), channel: "fleet", text: text.into() })
         .collect()

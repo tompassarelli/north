@@ -2,12 +2,12 @@
 //! the week before, prints the dashboard line, writes the ETA and budget cells to the graph as one
 //! transaction of writer `tune`, appends each changed cell's evidence to the provenance
 //! file, prints the cells whose cost per closed box rose more than 25% week on week and tells the
-//! proxy once whenever that set of cells changes, and prints the open north issue count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
+//! coordinator once whenever that set of cells changes, and prints the open north issue count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
 //! today's beside the last earlier day's. It reads each landed plan issue's dividend from the same
-//! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
+//! week, keeps the reading once a day in the readings file, and tells the coordinator once when one turns
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
 //! prints the cells whose ratio at the quantile their estimator covers drifted out of the calibrated band, where an estimate replayed
-//! from their own runs of the 7 days before each run would have sat inside it, telling the proxy once whenever that set changes, and counts beside it the cells outside the band under every estimator. It scores each category's runs against the Budget stored at their launch
+//! from their own runs of the 7 days before each run would have sat inside it, telling the coordinator once whenever that set changes, and counts beside it the cells outside the band under every estimator. It scores each category's runs against the Budget stored at their launch
 //! (share over it, actual/E p50 and p90) and reads the budget cells' multiplier from that p90 once
 //! a category holds enough runs carrying one, and moves an ETA or budget cell at most 2x from its prior value per tick. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
@@ -45,12 +45,12 @@ const USAGE: &str = "usage: north tune [--dry-run | --backtest]";
 const REPO: &str = "tompassarelli/north";
 const REPLAY_WINDOW: &str = "14d";
 
-/// The north issue tracker a tick reads and the proxy it tells.
+/// The north issue tracker a tick reads and the coordinator it tells.
 pub trait Tracker {
     /// How many north issues are open.
     fn open(&self) -> Result<usize, String>;
-    /// Sends the proxy session a fleet message.
-    fn tell_proxy(&mut self, text: &str) -> Result<(), String>;
+    /// Sends the coordinator session a fleet message.
+    fn tell_coordinator(&mut self, text: &str) -> Result<(), String>;
 }
 
 /// The ledger as one tick reads it, with the skills agents can load and `runs` the last day's
@@ -64,11 +64,11 @@ pub struct Ledger {
     pub skills: Vec<String>,
 }
 
-/// The cells each week-window alarm last told the proxy of, by alarm.
+/// The cells each week-window alarm last told the coordinator of, by alarm.
 pub type Alarms = BTreeMap<String, BTreeSet<String>>;
 
 /// What earlier ticks left: the cells they wrote, the costs and dividend readings they kept, and the
-/// cells each alarm last told the proxy of.
+/// cells each alarm last told the coordinator of.
 #[derive(Default)]
 pub struct Prior {
     pub cells: Cells,
@@ -141,7 +141,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, alarms, failed }
 }
 
-/// Tells the proxy when the set of cells under an alarm changed since the last tell, and keeps the
+/// Tells the coordinator when the set of cells under an alarm changed since the last tell, and keeps the
 /// set told; a tell that did not go keeps the earlier set, so the next tick tells again. A dry run
 /// tells no one.
 fn tell_alarm(tracker: &mut dyn Tracker, alarms: &mut Alarms, title: &str, cells: BTreeSet<String>, dry_run: bool, lines: &mut Vec<String>) -> bool {
@@ -154,14 +154,14 @@ fn tell_alarm(tracker: &mut dyn Tracker, alarms: &mut Alarms, title: &str, cells
         format!("north tune: {title}: {}; `north tune --dry-run` shows them.", cells.iter().cloned().collect::<Vec<_>>().join(", "))
     };
     if dry_run {
-        lines.push(format!("  would tell the proxy: {text}"));
+        lines.push(format!("  would tell the coordinator: {text}"));
         return false;
     }
-    if let Err(error) = tracker.tell_proxy(&text) {
-        lines.push(format!("  proxy not told of {title}: {error}"));
+    if let Err(error) = tracker.tell_coordinator(&text) {
+        lines.push(format!("  coordinator not told of {title}: {error}"));
         return true;
     }
-    lines.push(format!("  told the proxy: {title}: {} cells", cells.len()));
+    lines.push(format!("  told the coordinator: {title}: {} cells", cells.len()));
     if cells.is_empty() {
         alarms.remove(title);
     } else {
@@ -170,18 +170,18 @@ fn tell_alarm(tracker: &mut dyn Tracker, alarms: &mut Alarms, title: &str, cells
     false
 }
 
-/// Tells the proxy of each dividend that decayed and returns the rows to keep: a dividend whose
+/// Tells the coordinator of each dividend that decayed and returns the rows to keep: a dividend whose
 /// message did not go keeps no row, so the next tick tells again. A dry run tells no one.
 fn tell_decays(tracker: &mut dyn Tracker, rows: Vec<(String, Value)>, alerts: Vec<(String, String)>, dry_run: bool, lines: &mut Vec<String>) -> (Vec<Value>, bool) {
     let mut untold = Vec::new();
     for (name, text) in alerts {
         if dry_run {
-            lines.push(format!("  would tell the proxy: {text}"));
-        } else if let Err(error) = tracker.tell_proxy(&text) {
-            lines.push(format!("  proxy not told of {name}: {error}"));
+            lines.push(format!("  would tell the coordinator: {text}"));
+        } else if let Err(error) = tracker.tell_coordinator(&text) {
+            lines.push(format!("  coordinator not told of {name}: {error}"));
             untold.push(name);
         } else {
-            lines.push(format!("  told the proxy: {name} decayed"));
+            lines.push(format!("  told the coordinator: {name} decayed"));
         }
     }
     let kept = rows.into_iter().filter(|(name, _)| !untold.contains(name)).map(|(_, row)| row).collect();
@@ -312,8 +312,8 @@ struct Gh;
 
 fn tell(text: &str) -> Result<(), String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
-    let status = std::process::Command::new(north).args(["fleet", "send", "--from", "service:north-tune", "proxy"]).arg(text).status().map_err(|error| format!("cannot run north fleet send: {error}"))?;
-    status.success().then_some(()).ok_or_else(|| format!("north fleet send proxy: {status}"))
+    let status = std::process::Command::new(north).args(["fleet", "send", "--from", "service:north-tune", "coordinator"]).arg(text).status().map_err(|error| format!("cannot run north fleet send: {error}"))?;
+    status.success().then_some(()).ok_or_else(|| format!("north fleet send coordinator: {status}"))
 }
 
 fn open_count() -> Result<usize, String> {
@@ -326,7 +326,7 @@ impl Tracker for Gh {
         open_count()
     }
 
-    fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
+    fn tell_coordinator(&mut self, text: &str) -> Result<(), String> {
         tell(text)
     }
 }

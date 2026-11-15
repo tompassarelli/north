@@ -1,4 +1,4 @@
-//! The proxy's move to another account, however it was started: the tick asks it once for a hand-over and lets it end its turn, then
+//! The coordinator's move to another account, however it was started: the tick asks it once for a hand-over and lets it end its turn, then
 //! launches its successor on the new account with that hand-over as its first prompt and stops it; when no hand-over came within the
 //! deadline, the same conversation resumes on the new account instead. A turn in progress is never cut short.
 use std::fs;
@@ -42,7 +42,7 @@ struct Asked {
     asked_ms: u64,
 }
 
-/// Where one proxy writes its hand-over and where the tick notes that it asked for it, outside the session directory a take-over archives.
+/// Where one coordinator writes its hand-over and where the tick notes that it asked for it, outside the session directory a take-over archives.
 pub struct Desk {
     dir: PathBuf,
     name: String,
@@ -87,7 +87,7 @@ impl Desk {
     }
 }
 
-/// Takes the proxy `record` one step toward account `to` and says what it did; None while it waits for its hand-over or its turn.
+/// Takes the coordinator `record` one step toward account `to` and says what it did; None while it waits for its hand-over or its turn.
 pub fn advance(fleet: &Fleet, record: &SessionRecord, to: &str, family: Option<ModelFamily>, take_over: &dyn Fn(&LaunchRequest) -> NorthResult<SessionRecord>, now_ms: u64) -> Option<String> {
     let desk = Desk::of(&fleet.root, &record.name);
     let (name, from) = (&record.name, &record.account);
@@ -155,8 +155,8 @@ fn free(fleet: &Fleet, record: &SessionRecord) -> NorthResult<()> {
 fn ask(record: &SessionRecord, to: &str, file: &Path) -> String {
     format!(
         "[north: account {from} is at or past its floor, so `north fleet tick` moves {name} to account {to}, the source above the floor with the most headroom] \
-         Write your hand-over for the next proxy to {file} now: what is in flight, who owns each open item, what waits on whom, and the next steps. Then end your turn. \
-         Once your turn has ended, the tick starts the new proxy on account {to} with that file as its first prompt and stops this session. \
+         Write your hand-over for the next coordinator to {file} now: what is in flight, who owns each open item, what waits on whom, and the next steps. Then end your turn. \
+         Once your turn has ended, the tick starts the new coordinator on account {to} with that file as its first prompt and stops this session. \
          With no file after {minutes} min, this conversation resumes on account {to} instead.",
         from = record.account,
         name = record.name,
@@ -167,7 +167,7 @@ fn ask(record: &SessionRecord, to: &str, file: &Path) -> String {
 
 fn successor(record: &SessionRecord, to: &str, handover: &str) -> String {
     format!(
-        "[north: account {from} is at or past its floor, so `north fleet tick` moved {name} to account {to}, the source above the floor with the most headroom, as a new conversation. The previous proxy wrote this hand-over:]\n\n{handover}",
+        "[north: account {from} is at or past its floor, so `north fleet tick` moved {name} to account {to}, the source above the floor with the most headroom, as a new conversation. The previous coordinator wrote this hand-over:]\n\n{handover}",
         from = record.account,
         name = record.name,
     )

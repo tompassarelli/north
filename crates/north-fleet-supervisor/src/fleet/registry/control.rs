@@ -65,7 +65,7 @@ impl Fleet {
         }
     }
 
-    /// Runs `verb` on `name` as `caller` ordered it, so a stop or interrupt a proxy ordered records the proxy as its cause.
+    /// Runs `verb` on `name` as `caller` ordered it, so a stop or interrupt a coordinator ordered records the coordinator as its cause.
     pub(super) fn run_control(&self, verb: ControlVerb, name: &str, caller: Option<&str>) -> NorthResult<()> {
         let why = self.ordered_by(caller, Halt::Ordered);
         match verb {

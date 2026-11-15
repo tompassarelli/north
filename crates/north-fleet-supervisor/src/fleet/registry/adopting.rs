@@ -11,7 +11,7 @@ use crate::fleet::model::{LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::records::write_record;
 use crate::fleet::host::{SOCKET, alive};
-use crate::fleet::runtime::{LiveWindow, PROXY, Runtime, WindowInbox, now_ms};
+use crate::fleet::runtime::{LiveWindow, COORDINATOR, Runtime, WindowInbox, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
 use super::takeover::Predecessor;
@@ -60,7 +60,7 @@ impl Fleet {
                 self.hang_up_other_windows(conversation, inbox.pid)?;
             }
         }
-        let role = if name == PROXY { Role::Proxy } else { Role::Lead };
+        let role = if name == COORDINATOR { Role::Coordinator } else { Role::Lead };
         let request = LaunchRequest {
             verification: false,
             gates_aside: false,
@@ -178,10 +178,10 @@ impl Fleet {
         self.adopt(name, conversation, cwd).map(Some)
     }
 
-    /// Binds a proxy name whose holder is dead to the free live window on the holder's own conversation, so a window that resumed the proxy holds the name without anyone running adopt; with no such window nothing is bound.
-    pub(super) fn rebind_dead_proxy(&self, name: &str) -> NorthResult<()> {
+    /// Binds a coordinator name whose holder is dead to the free live window on the holder's own conversation, so a window that resumed the coordinator holds the name without anyone running adopt; with no such window nothing is bound.
+    pub(super) fn rebind_dead_coordinator(&self, name: &str) -> NorthResult<()> {
         let held = self.record(name)?;
-        if held.role() != Role::Proxy || self.holds(&held) {
+        if held.role() != Role::Coordinator || self.holds(&held) {
             return Ok(());
         }
         let bound: Vec<String> = self.sessions()?.into_iter().filter(|record| record.adopted() && self.holds(record)).filter_map(|record| record.conversation).collect();
@@ -252,29 +252,29 @@ mod tests {
     use crate::fleet::model::EntryKind;
     use crate::fleet::runtimes::Runtimes;
 
-    const HOLDER: &str = "conversation-of-the-dead-proxy";
+    const HOLDER: &str = "conversation-of-the-dead-coordinator";
     const OTHER: &str = "conversation-of-an-empty-window";
 
     #[test]
-    fn an_adopted_window_takes_a_dead_proxy_name_and_its_follower_shows_the_conversation() {
+    fn an_adopted_window_takes_a_dead_coordinator_name_and_its_follower_shows_the_conversation() {
         let home = tempfile::tempdir().unwrap();
         let runtime = Arc::new(Windows { live: Mutex::new(vec![(OTHER.to_owned(), 4102)]) });
         let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
         let request: LaunchRequest = serde_json::from_value(serde_json::json!({
-            "verification": false, "name": PROXY, "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "prompt": "", "system_prompt": null,
-            "foreground_cap_secs": null, "prompt_mode": "north", "idle_exit_minutes": null, "parent": null, "task_ref": null, "placement": null, "machine": null, "role": "proxy"
+            "verification": false, "name": COORDINATOR, "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "prompt": "", "system_prompt": null,
+            "foreground_cap_secs": null, "prompt_mode": "north", "idle_exit_minutes": null, "parent": null, "task_ref": null, "placement": null, "machine": null, "role": "coordinator"
         }))
         .unwrap();
-        let session_dir = fleet.session_dir(PROXY).unwrap();
+        let session_dir = fleet.session_dir(COORDINATOR).unwrap();
         fs::create_dir_all(&session_dir).unwrap();
         write_record(&session_dir, &request.record(None, Some(HOLDER.to_owned()), false, 0)).unwrap();
 
-        fleet.rebind_dead_proxy(PROXY).unwrap();
-        assert!(!fleet.record(PROXY).unwrap().adopted(), "a window on another conversation never takes a dead proxy's name");
+        fleet.rebind_dead_coordinator(COORDINATOR).unwrap();
+        assert!(!fleet.record(COORDINATOR).unwrap().adopted(), "a window on another conversation never takes a dead coordinator's name");
 
         runtime.live.lock().unwrap().push((HOLDER.to_owned(), 4103));
-        fleet.rebind_dead_proxy(PROXY).unwrap();
-        let held = fleet.record(PROXY).unwrap();
+        fleet.rebind_dead_coordinator(COORDINATOR).unwrap();
+        let held = fleet.record(COORDINATOR).unwrap();
         assert_eq!((held.conversation.as_deref(), held.placement.as_deref()), (Some(HOLDER), Some("adopted window, process 4103")));
 
         let account = fleet.accounts().into_iter().find(|account| account.label == "c").unwrap();
@@ -287,7 +287,7 @@ mod tests {
         ];
         fs::write(&log, lines.iter().map(|line| format!("{line}\n")).collect::<String>()).unwrap();
 
-        let mut follower = fleet.follow(PROXY).unwrap();
+        let mut follower = fleet.follow(COORDINATOR).unwrap();
         let shown: Vec<(EntryKind, String)> = follower.transcript().entries.iter().map(|entry| (entry.kind, entry.text.clone())).collect();
         assert_eq!(shown, [(EntryKind::User, "ship it".to_owned()), (EntryKind::Tool, "Bash cargo test".to_owned()), (EntryKind::Assistant, "tests pass".to_owned())]);
         assert_eq!(follower.transcript().status, Status::Idle, "the live window is idle, whatever the file's last line says");

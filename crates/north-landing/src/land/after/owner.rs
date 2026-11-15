@@ -6,7 +6,7 @@ use serde_json::Value;
 use super::follow::{self, send};
 
 const LIVE: [&str; 2] = ["idle", "working"];
-const ALARMED: &str = "proxy";
+const ALARMED: &str = "coordinator";
 const DROPPED: [&str; 3] = ["Prior report:", "ETA:", "Budget:"];
 const SUFFIX: &str = "-back";
 

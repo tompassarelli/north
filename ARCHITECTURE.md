@@ -129,7 +129,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-lander-doctor | The lander doctor: each health bound read live and the remedy for each stuck state. |
 | 6 operations | north-land-watch | The watch on landings and their GitHub checks. |
 | 6 operations | north-graph-ingest | Load what north already records into the fact graph. |
-| 6 operations | north-core | The agent catalog and policy contract. Grounding, the crate-split tool, build time, Nix upkeep and the contract probe and proxy calls move out before the crate is removed (docs/rationale/architecture-layers.md). |
+| 6 operations | north-core | The agent catalog and policy contract. Grounding, the crate-split tool, build time, Nix upkeep and the contract probe and coordinator calls move out before the crate is removed (docs/rationale/architecture-layers.md). |
 | 7 command | north-tui | The fleet terminal screen, input, transcript and digest views. |
 | 7 command | north-monitor | One live terminal screen of fleet, landing queue, runtime versions and health. |
 | 7 command | north | The `north` command: argument routing and the composition root. The dash report, the eval runner and launch placement move out (L07, L45, L46, docs/rationale/architecture-layers.md); verify-north has no planned owner yet. |

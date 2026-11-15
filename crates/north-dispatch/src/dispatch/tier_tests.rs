@@ -138,11 +138,11 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
         Grounds { eta_cell: Some(Figure { value: eta, date: "2026-11-08".into() }), budget_cell: Some(Figure { value: usd, date: "2026-11-08".into() }), ..Grounds::default() }
     };
     let brief = "Item: north#706\nCategory: feature\nTier: sonnet-high\nSpec: measured\n\nDo the box.";
-    let ask = Ask { item: "north#706", brief, prompt: brief, model: Some("claude-opus-5-5"), reason: Some("the proxy staffs this box on Opus"), worker: true, places: false };
+    let ask = Ask { item: "north#706", brief, prompt: brief, model: Some("claude-opus-5-5"), reason: Some("the coordinator staffs this box on Opus"), worker: true, places: false };
     let launched = start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
     assert_eq!(launched.prompt.lines().filter(|line| line.starts_with("Arm: ")).count(), 1, "{}", launched.prompt);
     assert!(crate::fleet::compaction::window(&launched.prompt).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{}", launched.prompt);
-    assert!(untasked_window("the-proxy", "feature", &History::default(), &BTreeMap::new()).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)));
+    assert!(untasked_window("the-coordinator", "feature", &History::default(), &BTreeMap::new()).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)));
     assert!(launched.overridden.is_some() && launched.route.tier == Tier::Sonnet, "{:?}", launched.route);
     let head: Vec<&str> = launched.prompt.lines().take_while(|line| !line.is_empty()).collect();
     assert!(head.iter().any(|line| line.starts_with("ETA: 102 min (tune cell, 2026-11-08")), "{head:?}");
@@ -158,7 +158,7 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     let bug = super::facets::launch_header(&["\n", "Item: north#706\nCategory: bug\nSpec: exact\n\nDo the box.", ""]);
     let refused = crate::router::brief::facet_refusal(&bug).unwrap_or_default();
     assert!(refused.contains("Category: bug") && refused.contains("bug-known-cause"), "a hand launch whose Category is outside the vocabulary is refused naming it: {refused:?}");
-    let fable = Ask { model: Some("claude-fable-5-2"), reason: Some("the proxy staffs this box on Fable"), ..ask };
+    let fable = Ask { model: Some("claude-fable-5-2"), reason: Some("the coordinator staffs this box on Fable"), ..ask };
     let sized = start(&fable, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
     let head: Vec<&str> = sized.prompt.lines().take_while(|line| !line.is_empty()).collect();
     assert!(head.iter().any(|line| line.starts_with("ETA: 77 min (tune cell, 2026-11-08")) && head.iter().any(|line| line.starts_with("Budget: E p90 $33.30 (tune cell, 2026-11-08")), "a fable launch is sized by the fable family: {head:?}");

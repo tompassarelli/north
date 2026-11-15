@@ -1,6 +1,6 @@
 //! The spend rules a host start meets on the account it resolves to, never the name it was given
 //! (docs/rationale/spend-rule.md): the owner's hold on every API organization refuses it to every caller of every
-//! role; the operational reserve the policy declares (`[accounts.claude] reserve`) is drawn only by the proxy, a
+//! role; the operational reserve the policy declares (`[accounts.claude] reserve`) is drawn only by the coordinator, a
 //! scheduled routine, the owner's own sessions, the privacy judge, the lander and canaries, so a worker or subagent
 //! neither starts on it nor continues on it; and a plan profile whose settings would bill by token starts no session.
 use std::path::Path;
@@ -9,7 +9,7 @@ use super::Fleet;
 use super::stopping::Halt;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Delivery, Phase, Role, SessionRecord};
-use crate::fleet::runtime::PROXY;
+use crate::fleet::runtime::COORDINATOR;
 use crate::fleet::sender::Sender;
 use crate::spend::hold::{self, Hold};
 
@@ -35,9 +35,9 @@ pub fn declared(policy: &Path) -> Reserve {
     }
 }
 
-/// Whether a session of `role` under `parent` is a worker or subagent: anything but the proxy that a parent started or that holds a task.
+/// Whether a session of `role` under `parent` is a worker or subagent: anything but the coordinator that a parent started or that holds a task.
 pub fn kept_off(role: Role, parent: Option<&str>) -> bool {
-    role != Role::Proxy && (role == Role::Worker || parent.is_some())
+    role != Role::Coordinator && (role == Role::Worker || parent.is_some())
 }
 
 /// The one-line refusal of a start on `account`, or none: under the hold, an API organization for every role and caller; a plan profile whose settings would bill by token; else a worker or subagent whose account resolves to a declared reserve, unless a reserve caller's service unit launched it (`caller`).
@@ -50,7 +50,7 @@ pub fn refusal(reserve: &Reserve, account: &Account, role: Role, parent: Option<
         return Some(format!("{resolved} is refused: {why}"));
     }
     (caller.is_none() && kept_off(role, parent) && reserve.labels.iter().any(|held| *held == resolved || *held == account.label))
-        .then(|| format!("{resolved} is the operational reserve: no worker or subagent starts on it, whatever account it was launched under; only the proxy, scheduled routines, the privacy judge, the lander and canaries draw it"))
+        .then(|| format!("{resolved} is the operational reserve: no worker or subagent starts on it, whatever account it was launched under; only the coordinator, scheduled routines, the privacy judge, the lander and canaries draw it"))
 }
 
 /// The reserve caller a host start draws as: the one `record` was stamped with, only while the process starting it runs in that same unit, so a revive or relaunch from anywhere else meets the rule afresh.
@@ -75,7 +75,7 @@ impl Fleet {
             .map(|record| match self.halt(&record.name, Halt::Reserve) {
                 Ok(()) => {
                     let line = format!("{}: stopped: {}; revive it with --account naming a plan account", record.name, reserve.why(&record.account));
-                    let told = record.parent.as_deref().unwrap_or(PROXY);
+                    let told = record.parent.as_deref().unwrap_or(COORDINATOR);
                     match self.send_spooled(&Sender::fleet(), told, &line, Delivery::Queued) {
                         Ok(()) => line,
                         Err(error) => format!("{line}; {told} was not told: {}", error.user_message()),
@@ -111,7 +111,7 @@ mod tests {
         assert!(line.starts_with("api:fixture-reserve-org is the operational reserve"), "{line}");
         assert!(refusal(&reserve, &account("api:fixture-reserve-org", Some("fixture-reserve-org")), Role::Lead, Some("fixture-parent"), None).is_some());
         assert_eq!(refusal(&reserve, &account("api", Some("fixture-other-org")), Role::Worker, Some("fixture-parent"), None), None);
-        assert_eq!(refusal(&reserve, &pooled, Role::Proxy, None, None), None);
+        assert_eq!(refusal(&reserve, &pooled, Role::Coordinator, None, None), None);
         assert_eq!(refusal(&reserve, &pooled, Role::Lead, None, None), None);
     }
 

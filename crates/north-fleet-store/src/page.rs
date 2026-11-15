@@ -1,7 +1,7 @@
-//! Which service alarms wake the proxy now, and which wait for `north fleet digest`: Tom's gates, a red
+//! Which service alarms wake the coordinator now, and which wait for `north fleet digest`: Tom's gates, a red
 //! main, a runtime rollback, a disk past its watermark, a security finding, a health alarm opening a
 //! cause, a land-watch page its follower check let through, and a land-watch page that the remote-execution
-//! grid or every hand-in lost its verdicts, whose cleared notice wakes the proxy too. A message from a session,
+//! grid or every hand-in lost its verdicts, whose cleared notice wakes the coordinator too. A message from a session,
 //! Tom or a landing sender is not an alarm service and passes unchanged.
 use crate::sender::Sender;
 
@@ -19,7 +19,7 @@ pub fn wakes(sender: &Sender, text: &str) -> bool {
     }
 }
 
-/// Whether a message only informs the digest whoever it is sent to: the runtime update unit's notice that a hosted run gives no verdict, which trips nothing and asks nothing of the proxy.
+/// Whether a message only informs the digest whoever it is sent to: the runtime update unit's notice that a hosted run gives no verdict, which trips nothing and asks nothing of the coordinator.
 pub fn digest_only(sender: &Sender, text: &str) -> bool {
     matches!(sender, Sender::Service(unit) if unit.split('@').next() == Some("north-runtime-update")) && text.contains(" is not judged and trips nothing: ")
 }

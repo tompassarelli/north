@@ -76,11 +76,11 @@ impl Fleet {
         Ok(())
     }
 
-    /// Whether a report to `name` reaches a live session; a proxy name whose holder died first moves to a live window, as a message to it would.
+    /// Whether a report to `name` reaches a live session; a coordinator name whose holder died first moves to a live window, as a message to it would.
     pub fn listens(&self, name: &str) -> NorthResult<bool> {
         match self.record(name) {
             Ok(_) => {
-                self.rebind_dead_proxy(name)?;
+                self.rebind_dead_coordinator(name)?;
                 Ok(self.status(&self.record(name)?) != Status::Exited)
             }
             Err(_) => self.known_elsewhere(name),

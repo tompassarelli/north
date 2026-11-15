@@ -8,7 +8,7 @@ use crate::error::NorthResult;
 use super::ask_once;
 use super::gates::{Gate, GateBook, GateRequest};
 use super::model::{Delivery, Entry, SessionRecord};
-use super::runtime::{PROXY, summarize};
+use super::runtime::{COORDINATOR, summarize};
 use super::turns::TurnExit;
 pub use super::upward::is_final;
 use super::upward::{Facts, opens};
@@ -127,9 +127,9 @@ fn head(reply: &str) -> Vec<String> {
 pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
     let open: Vec<Gate> = gates.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && gate.request.session == report.child).collect();
     let facts = Facts::of(report.reply.as_deref().unwrap_or_default().trim(), report.landed.as_deref(), open.iter().map(|gate| gate.id).collect(), report.waiting);
-    let Some((notice, delivery)) = report.notice(lines, parent == PROXY) else { return Ok(false) };
+    let Some((notice, delivery)) = report.notice(lines, parent == COORDINATOR) else { return Ok(false) };
     let told = (report.exit == TurnExit::Completed).then_some(facts);
-    let pages = match (&told, parent == PROXY, courier.leads(parent)) {
+    let pages = match (&told, parent == COORDINATOR, courier.leads(parent)) {
         (Some(facts), true, _) | (Some(facts), false, true) => facts.wakes_coordinator(),
         (Some(facts), false, false) => facts.worth_telling(),
         (None, true, _) => false,
@@ -164,10 +164,10 @@ fn gate_line(gate: &Gate, now_ms: u64) -> String {
     let option = |number: usize| gate.option(number).unwrap_or_default();
     let request = &gate.request;
     let Some(at) = gate.default_at_ms() else {
-        return format!("[gate {} is open: recommends {} ({}); it has no default and waits for Tom, who answers by telling the proxy]", gate.id, request.recommend, option(request.recommend));
+        return format!("[gate {} is open: recommends {} ({}); it has no default and waits for Tom, who answers by telling the coordinator]", gate.id, request.recommend, option(request.recommend));
     };
     let left = at.saturating_sub(now_ms) / 60_000;
-    format!("[gate {} is open: recommends {} ({}); defaults to {} ({}) in {left}m unless Tom answers by telling the proxy]", gate.id, request.recommend, option(request.recommend), request.default, option(request.default))
+    format!("[gate {} is open: recommends {} ({}); defaults to {} ({}) in {left}m unless Tom answers by telling the coordinator]", gate.id, request.recommend, option(request.recommend), request.default, option(request.default))
 }
 
 pub struct HostDeath<'a> {
@@ -291,13 +291,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_page_now_classes_wake_the_proxy() {
+    fn only_the_page_now_classes_wake_the_coordinator() {
         use crate::fleet::fold::{Admit, admit};
         use crate::fleet::sender::Sender;
 
         let home = tempfile::tempdir().unwrap();
         let service = |unit: &str| Sender::Service(unit.to_owned());
-        let alarm = |sender: &Sender, text: &str| admit(home.path(), sender, "proxy", text, None, 0);
+        let alarm = |sender: &Sender, text: &str| admit(home.path(), sender, "coordinator", text, None, 0);
         assert_eq!(alarm(&Sender::Tom, "gate 7 is open: recommends 1"), Admit::Send, "Tom's gate passes");
         assert_eq!(alarm(&service("north-ops-flow"), "north ops watch: north: possible red main: Cargo"), Admit::Send);
         assert_eq!(alarm(&service("north-runtime"), "north runtime canary: the launch probe failed; nexus rolled back to 11111111"), Admit::Send);
@@ -315,7 +315,7 @@ mod tests {
 
         let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
         let report = |turn, reply: &str| Report { child: "kid".into(), turn, exit: TurnExit::Completed, landed: None, reply: Some(reply.into()), waiting: false };
-        let deliver = |report: Report| deliver_report(&book, &book, &inbox, "proxy", &report, &[], 1).unwrap();
+        let deliver = |report: Report| deliver_report(&book, &book, &inbox, "coordinator", &report, &[], 1).unwrap();
         assert!(!deliver(report(1, "Done: all four boxes.")));
         assert!(!deliver(report(2, "Split: the rest is north#1032.")));
         assert!(deliver(report(3, "Blocked: the build host refused the lease.")));

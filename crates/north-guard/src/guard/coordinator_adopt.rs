@@ -1,5 +1,5 @@
-use crate::fleet::runtime::PROXY;
-use crate::guard::proxy_role::{self, Live, World};
+use crate::fleet::runtime::COORDINATOR;
+use crate::guard::coordinator_role::{self, Live, World};
 use crate::hook_input::{HookInput, Verdict};
 use crate::platform::process;
 use std::process::Command;
@@ -9,7 +9,7 @@ const ADOPT_LIMIT: Duration = Duration::from_secs(5);
 const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let window = proxy_role::is_tom_window(&Live, input).then(|| Live.claude_start()).flatten().and_then(|start| start.conversation);
+    let window = coordinator_role::is_tom_window(&Live, input).then(|| Live.claude_start()).flatten().and_then(|start| start.conversation);
     adoption(input, window.as_deref(), |session| adopt(session, input.data["cwd"].as_str()))
 }
 
@@ -27,7 +27,7 @@ fn adoption(input: &HookInput, window: Option<&str>, adopt: impl FnOnce(&str) ->
 fn adopt(session: &str, cwd: Option<&str>) -> Option<String> {
     let north = std::env::var("NORTH_BIN").unwrap_or_else(|_| "north".to_owned());
     let mut command = Command::new(north);
-    command.args(["fleet", "adopt", "--name", PROXY, "--if-free"]).env(CONVERSATION_ENV, session);
+    command.args(["fleet", "adopt", "--name", COORDINATOR, "--if-free"]).env(CONVERSATION_ENV, session);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }

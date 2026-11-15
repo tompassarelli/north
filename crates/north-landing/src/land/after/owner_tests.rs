@@ -51,7 +51,7 @@ fn a_revert_goes_to_the_culprits_live_session_with_the_failing_step_and_log_else
     assert!(prompt.starts_with("Item: north#1 Thing\nBox: The thing works\nFollows: thing-lane landed as abcdef0123456789"), "{prompt}");
     assert!(prompt.contains("step cargo clippy") && prompt.contains("/logs/post-land-fedcba987654.log") && prompt.contains("git cherry-pick abcdef0123456789") && prompt.ends_with("Goal: make the thing work."), "{prompt}");
     assert!(!prompt.contains("halfway") && !prompt.contains("Budget:"), "{prompt}");
-    assert!(gone.sent.borrow().iter().all(|(session, _)| session == "proxy"), "only the proxy hears of a restaff: {:?}", gone.sent.borrow());
+    assert!(gone.sent.borrow().iter().all(|(session, _)| session == "coordinator"), "only the coordinator hears of a restaff: {:?}", gone.sent.borrow());
 
     let unknown = Fake::default();
     tell(&unknown, Some("thing"), &reverted());

@@ -89,7 +89,7 @@ impl Screen {
         Ok(!run.red || self.trips.cleared(&run.head)? || self.trips.revert_asked(&run.head)?)
     }
 
-    /// Whether red `run` gives no verdict (main_runs::judge), recorded once with the proxy told; a run whose log was read before keeps its verdict, and a read of the run that fails is an error that records nothing, so the head is refused as not screened and the next screen reads it again.
+    /// Whether red `run` gives no verdict (main_runs::judge), recorded once with the coordinator told; a run whose log was read before keeps its verdict, and a read of the run that fails is an error that records nothing, so the head is refused as not screened and the next screen reads it again.
     fn unjudged(&self, run: &MainRun) -> Result<bool, String> {
         if !run.red || self.trips.cleared(&run.head)? || self.trips.read(&run.head)?.is_some() || self.trips.failed(&run.head)?.is_some() {
             return Ok(false);

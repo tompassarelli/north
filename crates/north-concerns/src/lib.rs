@@ -1,7 +1,7 @@
 //! `north check concerns`: each project's concerns, written as named checks with a measured oracle, a
 //! bound and a class. A contract is never red, and a landing that turns it red is reverted. A
 //! debt-allowed concern may be red up to its ceiling while a `Target-debt:` record names its owner and
-//! revisit trigger (docs/rationale/targets.md). A red concern reaches the proxy through the fleet tick.
+//! revisit trigger (docs/rationale/targets.md). A red concern reaches the coordinator through the fleet tick.
 pub mod attribute;
 pub mod ceiling;
 pub mod history;

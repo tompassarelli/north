@@ -45,7 +45,7 @@ pub struct Survey {
     pub box_holds: record::BoxHolds,
     /// The files running sessions predicted they would write, by holder; a box naming one waits unless nothing else is ready.
     pub predicted: BTreeMap<String, Vec<String>>,
-    /// The open boxes dispatch tried twice in a day without ticking, by box slug, which wait for the proxy and count toward no cap.
+    /// The open boxes dispatch tried twice in a day without ticking, by box slug, which wait for the coordinator and count toward no cap.
     pub box_tries: record::BoxHolds,
     /// The CLI verbs and deleted paths of origin/main, which hold a box whose check names one it no longer has.
     pub mainline: super::retired::Mainline,

@@ -1,11 +1,11 @@
-//! The proxy stays free to answer: a foreground call that can wait past 30 s on a launch, a remote
-//! command or a job is refused, and the proxy runs it with `run_in_background: true` instead, so a
+//! The coordinator stays free to answer: a foreground call that can wait past 30 s on a launch, a remote
+//! command or a job is refused, and the coordinator runs it with `run_in_background: true` instead, so a
 //! report reaches it while its own work runs (north#1048).
 use crate::hook_input::{HookInput, Verdict};
 use north_base::shell::{basename, command as command_start, segments, strip_heredocs, words};
 use serde_json::Value;
 
-const UNIT: &str = "proxy-background-guard";
+const UNIT: &str = "coordinator-background-guard";
 const LIMIT_SECONDS: f64 = 30.0;
 const MAX_DEPTH: usize = 3;
 const PREFIXES: &[&str] = &["env", "exec", "time", "timeout", "nice", "ionice", "builtin", "nohup", "setsid", "stdbuf"];
@@ -20,7 +20,7 @@ pub fn evaluate(input: &HookInput, status_verb: &dyn Fn(&[&str]) -> bool) -> Ver
     }
 }
 
-/// The refusal for a proxy's foreground call that can hold its turn open, or `None` when the call is
+/// The refusal for a coordinator's foreground call that can hold its turn open, or `None` when the call is
 /// backgrounded, bounded below the limit, a status read, or does no waiting.
 pub(super) fn refusal(input: &HookInput, status_verb: &dyn Fn(&[&str]) -> bool) -> Option<String> {
     if !input.is_shell() || input.runs_in_background() {
@@ -35,7 +35,7 @@ pub(super) fn refusal(input: &HookInput, status_verb: &dyn Fn(&[&str]) -> bool) 
 
 fn message(what: &str) -> String {
     format!(
-        "BLOCKED ({UNIT}): the proxy stays free to answer, so it does not hold its turn open in the foreground on {what}, which can wait longer than {LIMIT_SECONDS:.0} s. Run it with run_in_background: true and read the completion note it sends, whether that is a `north fleet launch`, a remote `ssh` command or a `north job-run` job; the report it produces then never waits behind the proxy's own work. Foreground sends, gates and reads stay open."
+        "BLOCKED ({UNIT}): the coordinator stays free to answer, so it does not hold its turn open in the foreground on {what}, which can wait longer than {LIMIT_SECONDS:.0} s. Run it with run_in_background: true and read the completion note it sends, whether that is a `north fleet launch`, a remote `ssh` command or a `north job-run` job; the report it produces then never waits behind the coordinator's own work. Foreground sends, gates and reads stay open."
     )
 }
 
@@ -76,7 +76,7 @@ fn remote_waits(args: &[String], depth: usize, status_verb: &dyn Fn(&[&str]) -> 
     if let Some(what) = waits(&remote, depth + 1, status_verb) {
         return Some(what);
     }
-    (!super::proxy_reach::status_only(&remote, status_verb)).then_some("a remote command")
+    (!super::coordinator_reach::status_only(&remote, status_verb)).then_some("a remote command")
 }
 
 fn ssh_remote(args: &[String]) -> String {

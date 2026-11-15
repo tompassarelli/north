@@ -89,7 +89,7 @@ pub struct View {
     pub held: Option<hold::Hold>,
 }
 
-/// Who starts: a worker or an Agent-tool subagent, or a reserved caller (the proxy, a scheduled routine, one of
+/// Who starts: a worker or an Agent-tool subagent, or a reserved caller (the coordinator, a scheduled routine, one of
 /// Tom's own sessions, the privacy judge, lander and canaries), which alone may use the operational reserve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Starter {

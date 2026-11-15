@@ -5,7 +5,7 @@
 /// The fleet sender the lander signs its notices with; a session on another host sees it as `SENDER@HOST`.
 pub const SENDER: &str = "service:north-land";
 
-/// The fleet session that owns the lander and hears its alarms and what a lane with no owner would; a send to it while it is not live reaches the proxy, prefixed with this name.
+/// The fleet session that owns the lander and hears its alarms and what a lane with no owner would; a send to it while it is not live reaches the coordinator, prefixed with this name.
 pub const OWNER: &str = "land-lead";
 
 const REFUSED: &str = "north land: ";

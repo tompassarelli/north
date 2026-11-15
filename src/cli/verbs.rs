@@ -1,6 +1,6 @@
-//! The kind of work each north verb does, for the proxy's call classifier: a two-word entry
+//! The kind of work each north verb does, for the coordinator's call classifier: a two-word entry
 //! overrides its verb's kind for that subcommand, and every verb the CLI dispatches must appear.
-use crate::proxy::{Kind, VerbKinds};
+use crate::coordinator::{Kind, VerbKinds};
 
 use Kind::{Bookkeeping, Brief, ChildMessage, Delegate, Diagnosis, Landing, Status, TomFacing};
 
@@ -36,12 +36,14 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("codex-runtime-gcroots", Bookkeeping),
     ("config agents", Status),
     ("config context", Diagnosis),
+    ("config coordinator", Status),
     ("config operator", Status),
-    ("config proxy", Status),
     ("config", Bookkeeping),
     ("contract-probe", Diagnosis),
     ("control-plane", Bookkeeping),
     ("convo", Diagnosis),
+    ("coordinator move", Bookkeeping),
+    ("coordinator", Delegate),
     ("cross-project-scan", Diagnosis),
     ("dash", Status),
     ("defaults-measure", Diagnosis),
@@ -161,8 +163,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("policy-replay", Diagnosis),
     ("private-check", Diagnosis),
     ("provider-capacity", Status),
-    ("proxy move", Bookkeeping),
-    ("proxy", Delegate),
     ("red-main-notify", ChildMessage),
     ("remote-serve audit", Status),
     ("remote-serve", Bookkeeping),

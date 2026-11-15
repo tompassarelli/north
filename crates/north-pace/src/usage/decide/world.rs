@@ -123,7 +123,7 @@ pub enum Owner {
 pub enum Standing {
     Worker,
     Lead,
-    Proxy,
+    Coordinator,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -421,7 +421,7 @@ footguns plan and the nix-development skill's regrounding.
 - <a id="ghuntley-nix-demo"></a>**ghuntley/nix-demo**, https://github.com/ghuntley/nix-demo. The post's companion
   repository; no license file, so nothing was copied. Outcome: rejected.
 - <a id="docker-sandboxes"></a>**Docker Sandboxes**, https://docs.docker.com/ai/sandboxes/ and
-  https://docs.docker.com/ai/sandboxes/architecture/. Outcome: rejected; its credential proxy kept as a proposal.
+  https://docs.docker.com/ai/sandboxes/architecture/. Outcome: rejected; its credential coordinator kept as a proposal.
 - <a id="microvm-nix"></a>**microvm.nix**, https://github.com/microvm-nix/microvm.nix. Outcome: rejected.
 - <a id="nixos-containers"></a>**NixOS manual, containers**, https://nixos.org/manual/nixos/stable/#ch-containers.
   Outcome: rejected.
@@ -686,7 +686,7 @@ historical or synthetic reference data. They do not select the active
 repository or require its executable, source checkout or build dependency.
 
 <a id="inspiration-org-shape"></a>**The fleet org shape.** The harness's hooks, lib and agent commands were copied into north from firn (4645127a),
-and the fleet tree, a proxy at the root with leads, sub-leads and workers under it, is now
+and the fleet tree, a coordinator at the root with leads, sub-leads and workers under it, is now
 represented by [Fleet session parent links](features/03-fleet-sessions/). The former org schema was retired
 when its status bus callers moved to Fleet (d304e9c0). Where the shape and its names came from: origin
 not recorded.
@@ -798,7 +798,7 @@ found 2026-11-12 by web search. Figures come from abstracts and search summaries
 
 - <a id="aide2"></a>**Recursive self-improvement of AI research agents** (arXiv 2609.26457, https://arxiv.org/abs/2609.26457) and
   **Reward Hacking in Self-Improving Code Agents** (ICLR 2026, https://iclr.cc/virtual/2026/10018648), accessed 2026-11-12.
-  Informed: 7 of 99 self-rewrites were kept under held-out acceptance, and most optimizations on one benchmark were proxy gains, so
+  Informed: 7 of 99 self-rewrites were kept under held-out acceptance, and most optimizations on one benchmark were coordinator gains, so
   candidates and their scoring must be cheap and acceptance held out.
   Outcome: prior only.
 

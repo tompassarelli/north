@@ -26,14 +26,14 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub fn decide(input: &HookInput, session: &str) -> Verdict {
-    match proxy_report(input, session).as_deref().and_then(offer) {
+    match coordinator_report(input, session).as_deref().and_then(offer) {
         Some(_) => Verdict::Deny(REASON.into()),
         None => Verdict::Allow,
     }
 }
 
-pub fn proxy_report(input: &HookInput, session: &str) -> Option<String> {
-    if input.data["stop_hook_active"] == Value::Bool(true) || !(session.is_empty() || session == crate::fleet::runtime::PROXY) {
+pub fn coordinator_report(input: &HookInput, session: &str) -> Option<String> {
+    if input.data["stop_hook_active"] == Value::Bool(true) || !(session.is_empty() || session == crate::fleet::runtime::COORDINATOR) {
         return None;
     }
     match input.data["last_assistant_message"].as_str() {
@@ -105,7 +105,7 @@ pub fn evaluate_handoff(input: &HookInput) -> Verdict {
 }
 
 pub fn decide_handoff(input: &HookInput, session: &str) -> Verdict {
-    match proxy_report(input, session).as_deref().is_some_and(hands_over_a_command) {
+    match coordinator_report(input, session).as_deref().is_some_and(hands_over_a_command) {
         true => Verdict::Deny(HANDOFF_REASON.into()),
         false => Verdict::Allow,
     }

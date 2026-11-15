@@ -379,24 +379,24 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: 
 }
 
 /// A failure that fails at the tip and on main without each landed lane, on every host: main itself is broken, so no lane is
-/// reverted and the proxy is told which checks to fix.
+/// reverted and the coordinator is told which checks to fix.
 fn main_breakage(request: &Request, tip: &str, cases: &[Failure], mut notify: impl FnMut(&str, &str) -> bool) -> String {
     let text = format!("north land: sheriff: main is broken, not a lane: {} fail on a fresh run at main {} and on main without each landed lane since {}; nothing is reverted; log: {}", names(cases), short(tip), short(&request.parent), request.log);
-    if !notify("proxy", &text) {
+    if !notify("coordinator", &text) {
         println!("{text}");
     }
-    format!("main breakage: {} fail on fresh runs at the tip {} and on main without each landed lane; the proxy is told; nothing is reverted", names(cases), short(tip))
+    format!("main breakage: {} fail on fresh runs at the tip {} and on main without each landed lane; the coordinator is told; nothing is reverted", names(cases), short(tip))
 }
 
 /// A failure the pinned host gives at every commit: no lane caused it, so nothing is reverted; when no other host reached a
-/// verdict either, the proxy is paged, since no host can say whether main is red.
+/// verdict either, the coordinator is paged, since no host can say whether main is red.
 fn host_fault(request: &Request, tip: &str, host: &str, cases: &[Failure], elsewhere: Option<&str>) -> String {
     let Some(other) = elsewhere else {
         let text = format!("north land: sheriff: {} fail on {host} at main {} and on main without each landed lane, and no other host reached a verdict on them, so no host can say whether main is red; nothing is reverted; log: {}", names(cases), short(tip), request.log);
-        if !super::after::send("proxy", &text) {
+        if !super::after::send("coordinator", &text) {
             println!("{text}");
         }
-        return format!("host fault on {host}: {} fail there whatever lane is removed and no other host reached a verdict; the proxy is paged; nothing is reverted", names(cases));
+        return format!("host fault on {host}: {} fail there whatever lane is removed and no other host reached a verdict; the coordinator is paged; nothing is reverted", names(cases));
     };
     format!("host fault on {host}: {} fail there whatever lane is removed and pass at the tip {} on {other}, so {host}, not main, is at fault; nothing is reverted", names(cases), short(tip))
 }
@@ -429,7 +429,7 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
         Finding::Revert { lane, cases } => revert(lander, worktree, &request, &main, &lane, &cases),
         Finding::Flaky { lane, cases } => {
             let text = format!("north land: sheriff: {} failed at the tip {} and passed on main without {}, but did not fail twice at the tip and pass twice without it in back-to-back reruns, so they are flaky, not that lane's failure; nothing is reverted; file the flaky test on its owner; log: {}", names(&cases), short(&main), short(&lane), request.log);
-            if !super::after::send("proxy", &text) {
+            if !super::after::send("coordinator", &text) {
                 println!("{text}");
             }
             Ok(format!("flaky: {} flipped between runs at the tip {}; nothing is reverted", names(&cases), short(&main)))

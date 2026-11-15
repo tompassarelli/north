@@ -45,8 +45,8 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
         true
     });
     assert!(report.contains("main breakage: suite::x") && report.contains("nothing is reverted"), "{report}");
-    assert_eq!(told.len(), 1, "the proxy is told once: {told:?}");
-    assert!(told[0].0 == "proxy" && told[0].1.contains("main is broken, not a lane: suite::x"), "{told:?}");
+    assert_eq!(told.len(), 1, "the coordinator is told once: {told:?}");
+    assert!(told[0].0 == "coordinator" && told[0].1.contains("main is broken, not a lane: suite::x"), "{told:?}");
     infrastructure_reaches_no_verdict();
     let (commit, other) = ("c".repeat(40), "f".repeat(40));
     let run = tempfile::tempdir().unwrap();

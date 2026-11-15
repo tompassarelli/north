@@ -68,7 +68,7 @@ impl Placer<'_> {
         if placed.is_err() {
             return Ok(placed);
         }
-        let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
+        let starter = if request.role == Some(Role::Coordinator) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
         let view = match view {
             Ok(read) => read,
             Err(why) => return Ok(Err(Refusal::Spend(format!("spend view unread: {why}")))),

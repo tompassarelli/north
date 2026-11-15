@@ -31,7 +31,7 @@ Adopted:
 8. The operator surface is derived from state: what changed and which decisions are the owner's. Every question
    carries options, a recommendation, a default and when the default applies, and the agent keeps working.
 
-Adopted from the Opus review only: a flat proxy-to-workers structure with a lead only for a multi-session
+Adopted from the Opus review only: a flat coordinator-to-workers structure with a lead only for a multi-session
 workstream; one standing-orders file injected at every fleet launch and revive, gaining a line whenever the owner
 repeats an instruction; mechanical bulk work as one script; running something when running it answers the question.
 Adopted from the Codex review only: consequential briefs carry the behaviour trace and the rationale behind the

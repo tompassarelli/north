@@ -13,7 +13,7 @@ pub(super) trait World {
     fn worktree(&self, name: &str) -> Result<PathBuf, String>;
     fn discard(&self, name: &str, path: &Path);
     fn launch(&self, launch: &Launch) -> Result<(), LaunchError>;
-    fn tell_proxy(&self, text: &str) -> Result<(), String>;
+    fn tell_coordinator(&self, text: &str) -> Result<(), String>;
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -162,9 +162,9 @@ pub(super) fn execute(world: &dyn World, text: &str, today: &str, stamp: &str, d
     }
     let mut failed = !done.failed.is_empty();
     if let Some(text) = message(&done, today).filter(|_| !dry_run)
-        && let Err(why) = world.tell_proxy(&text)
+        && let Err(why) = world.tell_coordinator(&text)
     {
-        eprintln!("watch-review: proxy not reachable: {why}");
+        eprintln!("watch-review: coordinator not reachable: {why}");
         failed = true;
     }
     u8::from(failed)

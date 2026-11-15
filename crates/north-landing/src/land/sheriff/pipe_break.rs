@@ -29,7 +29,7 @@ const PROBE_SECONDS: &str = "1800";
 const TIMED_OUT: i32 = 124;
 const NO_VERDICT: i32 = 75;
 const OFFLOAD_CHECK: &str = "the land offload of a check that exits 0";
-const PAGED: &str = "proxy";
+const PAGED: &str = "coordinator";
 
 /// The newest commit on main that crosses the trust boundary, when it landed, and whether a landing other than a revert followed it.
 #[derive(Clone, Debug, PartialEq)]

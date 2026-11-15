@@ -1,6 +1,6 @@
 //! `north ops dividend`: each open issue labelled `bet` names the checks of its Dividend section;
 //! a run evaluates them over the last seven days, comments PAYING or DECAYED on the issue once a
-//! day, and sends the proxy a fleet message for each bet that comments DECAYED.
+//! day, and sends the coordinator a fleet message for each bet that comments DECAYED.
 use crate::foundation::clock::Timestamp;
 use checks::{Check, Facts, Standing, Verdict, evaluate};
 use live::Gh;
@@ -136,10 +136,10 @@ fn post_standing(
             detail(verdicts)
         );
         match board.alert(&message) {
-            Ok(()) => report.lines.push("  alerted the proxy".into()),
+            Ok(()) => report.lines.push("  alerted the coordinator".into()),
             Err(error) => {
                 report.failed = true;
-                report.lines.push(format!("  proxy not alerted: {error}"));
+                report.lines.push(format!("  coordinator not alerted: {error}"));
             }
         }
     }

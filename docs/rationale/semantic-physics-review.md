@@ -80,7 +80,7 @@ The invariants:
 
 Today a failure becomes a guard by a chain of hands:
 1. A detector or the attribution line in `north ledger flow` surfaces the class.
-2. The proxy or a detector files a box.
+2. The coordinator or a detector files a box.
 3. Dispatch staffs it.
 4. A worker writes a test, a gate or harness text.
 

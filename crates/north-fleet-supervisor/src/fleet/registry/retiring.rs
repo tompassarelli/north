@@ -109,7 +109,7 @@ impl Fleet {
         self.nearest_heir(record)
     }
 
-    /// The nearest ancestor of `record` still in the fleet, else the live proxy.
+    /// The nearest ancestor of `record` still in the fleet, else the live coordinator.
     pub(super) fn nearest_heir(&self, mut record: SessionRecord) -> NorthResult<Option<String>> {
         for _ in 0..MOST_HOPS {
             let Some(parent) = record.parent.clone() else { break };
@@ -121,7 +121,7 @@ impl Fleet {
                 None => break,
             }
         }
-        Ok(self.sessions()?.into_iter().find(|session| session.role() == Role::Proxy && !session.ended()).map(|proxy| proxy.name))
+        Ok(self.sessions()?.into_iter().find(|session| session.role() == Role::Coordinator && !session.ended()).map(|coordinator| coordinator.name))
     }
 
     pub fn dead_letters_since(&self, since_ms: u64) -> i64 {

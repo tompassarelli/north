@@ -7,8 +7,8 @@ use crate::flow::{Host, Places, write_atomic};
 
 const STATE: &str = "paged.json";
 const FROM: &str = "service:north-ops-flow";
-/// The coordinator is the proxy session, paged urgently; dispatch takes the page in its ordinary queue.
-const RECIPIENTS: [(&str, bool); 2] = [("proxy", true), ("dispatch", false)];
+/// The coordinator is the coordinator session, paged urgently; dispatch takes the page in its ordinary queue.
+const RECIPIENTS: [(&str, bool); 2] = [("coordinator", true), ("dispatch", false)];
 
 fn load(places: &Places) -> BTreeSet<String> {
     std::fs::read_to_string(places.flow().join(STATE)).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
@@ -46,7 +46,7 @@ pub fn deliver(places: &Places, host: &dyn Host, pages: &[Finding]) -> Vec<Strin
         let text = format!("{} {}", finding.detail, finding.done_when);
         if RECIPIENTS.iter().all(|(session, urgent)| send(host, session, *urgent, &finding.key, false, &text)) {
             open.insert(finding.key.clone());
-            lines.push(format!("detectors: {} {}: paged proxy and dispatch", finding.detector.name(), finding.key));
+            lines.push(format!("detectors: {} {}: paged coordinator and dispatch", finding.detector.name(), finding.key));
         } else {
             lines.push(format!("detectors: {} {}: page not sent", finding.detector.name(), finding.key));
         }

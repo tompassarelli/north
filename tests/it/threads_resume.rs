@@ -104,7 +104,7 @@ fn an_expired_claim_stays_held_for_its_live_holder_here_and_through_the_ledger_h
     bash(&rig.root.join("bin/ssh"), SSH);
     assert!(rig.threads(&["unowned"], false).contains(held));
     let trace = fs::read_to_string(rig.root.join("ssh.trace")).unwrap();
-    assert!(trace.contains("THREADS_ALIVE_OWNERS=") && !trace.contains("pid"), "the proxy relays exact caller liveness without PIDs: {trace}");
+    assert!(trace.contains("THREADS_ALIVE_OWNERS=") && !trace.contains("pid"), "the coordinator relays exact caller liveness without PIDs: {trace}");
     rig.holder(true);
     assert!(rig.threads(&["unowned"], false).contains(free));
 }

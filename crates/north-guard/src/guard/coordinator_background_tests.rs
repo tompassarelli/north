@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use super::proxy_role::{self, ClaudeStart, Registered, World};
+use super::coordinator_role::{self, ClaudeStart, Registered, World};
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::json;
 
@@ -16,7 +16,7 @@ impl World for Role {
         }
     }
 
-    fn registered_proxy(&self) -> Option<Registered> {
+    fn registered_coordinator(&self) -> Option<Registered> {
         None
     }
 
@@ -64,19 +64,19 @@ fn bounded_bash(command: &str, timeout_ms: u64) -> HookInput {
 }
 
 #[test]
-fn the_proxy_backgrounds_a_call_that_waits() {
-    let proxy = Role("proxy");
+fn the_coordinator_backgrounds_a_call_that_waits() {
+    let coordinator = Role("coordinator");
     for (command, class) in [
         ("north fleet launch --task north#1048", "a fleet launch"),
-        ("north fleet revive proxy", "a fleet launch"),
+        ("north fleet revive coordinator", "a fleet launch"),
         ("north fleet dispatch", "a fleet launch"),
         ("ssh nexus 'north fleet launch --task north#1048'", "a fleet launch"),
         ("north job-run nightly -- north fleet tick", "a job"),
     ] {
-        let Verdict::Deny(reason) = proxy_role::decide(&proxy, &bash(command, false)) else { panic!("{command} held the proxy's turn open in the foreground") };
+        let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash(command, false)) else { panic!("{command} held the coordinator's turn open in the foreground") };
         assert!(reason.contains(class), "{command}: {reason}");
         assert!(reason.contains("run_in_background: true") && reason.contains("north fleet launch"), "{command}: {reason}");
-        assert_eq!(proxy_role::decide(&proxy, &bash(command, true)), Verdict::Allow, "{command} in the background");
+        assert_eq!(coordinator_role::decide(&coordinator, &bash(command, true)), Verdict::Allow, "{command} in the background");
     }
     for open in [
         "north fleet tree",
@@ -89,12 +89,12 @@ fn the_proxy_backgrounds_a_call_that_waits() {
         "ssh -T nexus -- 'north land status | head -20'",
         "bash -c 'north fleet tree'",
     ] {
-        assert_eq!(proxy_role::decide(&proxy, &bash(open, false)), Verdict::Allow, "{open}");
+        assert_eq!(coordinator_role::decide(&coordinator, &bash(open, false)), Verdict::Allow, "{open}");
     }
-    let Verdict::Deny(reason) = proxy_role::decide(&proxy, &bash("timeout 120 north fleet launch --task north#1048", false)) else { panic!("a 120 s bound still lets a launch wait past 30 s") };
+    let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash("timeout 120 north fleet launch --task north#1048", false)) else { panic!("a 120 s bound still lets a launch wait past 30 s") };
     assert!(reason.contains("a fleet launch"), "{reason}");
-    let Verdict::Deny(reason) = proxy_role::decide(&proxy, &bash("bash -c 'north fleet launch --task north#1048'", false)) else { panic!("a shell wrapper hid the launch") };
+    let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash("bash -c 'north fleet launch --task north#1048'", false)) else { panic!("a shell wrapper hid the launch") };
     assert!(reason.contains("a fleet launch"), "{reason}");
-    assert_eq!(proxy_role::decide(&proxy, &bounded_bash("north fleet launch --task north#1048", 30_000)), Verdict::Allow, "the tool's own 30 s bound");
-    assert_eq!(proxy_role::decide(&Role("worker"), &bash("north fleet launch --task north#1048", false)), Verdict::Allow, "a worker is not the proxy");
+    assert_eq!(coordinator_role::decide(&coordinator, &bounded_bash("north fleet launch --task north#1048", 30_000)), Verdict::Allow, "the tool's own 30 s bound");
+    assert_eq!(coordinator_role::decide(&Role("worker"), &bash("north fleet launch --task north#1048", false)), Verdict::Allow, "a worker is not the coordinator");
 }

@@ -38,7 +38,7 @@ impl Sender {
     pub fn declared(from: Option<&str>, caller: Option<String>) -> NorthResult<Self> {
         match (from, caller) {
             (Some(text), _) => match Self::from_str(text)? {
-                Self::Tom => Err(NorthError::Usage("--from tom is refused: only the fleet TUI and north proxy send as Tom".into())),
+                Self::Tom => Err(NorthError::Usage("--from tom is refused: only the fleet TUI and north coordinator send as Tom".into())),
                 sender => Ok(sender),
             },
             (None, Some(session)) => Ok(Self::Session(session)),

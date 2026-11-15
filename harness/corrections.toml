@@ -3,7 +3,7 @@
 # A correction takes the first class whose pattern matches its typed text; its ledger row keeps the
 # paraphrase, never Tom's words. A class seen twice gets one box on its owner proposing the guard.
 # When that guard lands, set guarded_at to its landing time (ISO, UTC): a correction of the class
-# after it is a recurrence and prints red in the proxy's fleet tick for a week.
+# after it is a recurrence and prints red in the coordinator's fleet tick for a week.
 # A class may name skill, the harness/skills directory whose rule it corrects: a correction of that class after the skill's
 # last review files the skill-review detector's box for the skill.
 # Each class names not_structural, why no graph fact holds it.
@@ -13,7 +13,7 @@ name = "unanswered"
 pattern = '''did (you|u) (answer|reply|respond)|you didn'?t answer|didn'?t answer (my|the) question'''
 paraphrase = "Tom said the reply did not answer his question."
 owner = "north#641"
-guard = "The proxy's Stop hook refuses a final message when Tom's last prompt asked a question and the message's first line answers none of it (no yes, no, number, name or fact in reply to the question's words)."
+guard = "The coordinator's Stop hook refuses a final message when Tom's last prompt asked a question and the message's first line answers none of it (no yes, no, number, name or fact in reply to the question's words)."
 not_structural = "what a reply answers is in the session's messages, which no graph fact holds"
 
 [[class]]
@@ -21,7 +21,7 @@ name = "recommendation-dropped"
 pattern = '''whenever you have a rec|(plan|rec\w*) (just )?automatically (becomes|gets)|so it doesn'?t (just )?get lost'''
 paraphrase = "Tom asked that a recommendation be filed as an issue and acted on instead of left in the conversation."
 owner = "north#641"
-guard = "The proxy's Stop hook refuses a message that recommends a change and names no issue box whose text carries it."
+guard = "The coordinator's Stop hook refuses a message that recommends a change and names no issue box whose text carries it."
 not_structural = "a recommendation lives in a session's message; the graph holds issues, not what a reply recommended"
 
 [[class]]
@@ -128,10 +128,10 @@ not_structural = "red-main intervals come from the buck2.yml run history `north 
 [[class]]
 name = "dropped-thread"
 pattern = '''let (this|that|it) slip|slip like this|(dropped|lost) the (ball|thread)'''
-paraphrase = "Tom said the proxy let a thread that waited on it slip."
+paraphrase = "Tom said the coordinator let a thread that waited on it slip."
 owner = "north#636"
-guard = "The proxy's fleet tick lists every message that names the proxy as the one waited on and has had no reply for 10 minutes."
-not_structural = "a waiting message is in the proxy's thread, and the wording that dropped it is issue text"
+guard = "The coordinator's fleet tick lists every message that names the coordinator as the one waited on and has had no reply for 10 minutes."
+not_structural = "a waiting message is in the coordinator's thread, and the wording that dropped it is issue text"
 
 [[class]]
 name = "noise-in-report"
@@ -145,14 +145,14 @@ not_structural = "noise is behaviour in a report's text"
 name = "misrelayed-intent"
 paraphrase = "Tom said the reply relayed his intent wrongly."
 owner = "north#636"
-guard = "A relayed instruction carries Tom's request paraphrase and the worker's first turn echoes its Done when, which the proxy's tick compares against the request."
+guard = "A relayed instruction carries Tom's request paraphrase and the worker's first turn echoes its Done when, which the coordinator's tick compares against the request."
 not_structural = "intent lives in Tom's request and the relayed brief, text the graph does not hold"
 
 [[class]]
 name = "low-ambition"
 paraphrase = "Tom said the plan was adequate but not ambitious enough."
 owner = "north#636"
-guard = "The proxy's tick names idle admitted capacity beside the ready box count, so a plan that leaves capacity idle is visible."
+guard = "The coordinator's tick names idle admitted capacity beside the ready box count, so a plan that leaves capacity idle is visible."
 not_structural = "ambition is a judgement over a plan, and idle capacity lives in capacity leases, not graph facts"
 
 [[class]]

@@ -14,21 +14,21 @@ A mismatch is now a decision with a bound, made in the same promotion run:
   `Replay-change: land.<kind> <reason>`, where kind is the verdict the candidate now replays
   (landed, failed, conflict, undecided, deferred, transient, red-main, error). When every
   mismatching round replays a declared kind, the link follows, each divergence is logged with the
-  commit that declared it, and the proxy is told. `north land enqueue` refuses a malformed trailer,
+  commit that declared it, and the coordinator is told. `north land enqueue` refuses a malformed trailer,
   so a typo cannot silently fail to declare.
 - Undeclared. The judge replays the first undeclared round with the built runtimes in
   `~/.local/state/north/runtimes` whose commits lie on main's first-parent line between the held
   and the candidate runtime, held first. If the held runtime does not reproduce the recorded
   verdict either, no commit between them caused it and holding the link gains nothing: the link
-  follows and the proxy is told to file the flaky test (2026-11-07: holding on b96d3b9e for 39
+  follows and the coordinator is told to file the flaky test (2026-11-07: holding on b96d3b9e for 39
   minutes after north-798 failed on the candidate and again on the held runtime, north#634). When
   the held runtime fails the round the same way but the candidate adds failures the held runtime
-  lacks, those failures are the candidate's own: the link stays and the proxy is told. Otherwise
+  lacks, those failures are the candidate's own: the link stays and the coordinator is told. Otherwise
   a binary search finds the first runtime that diverges; a runtime that cannot replay is skipped,
   so the search always ends. The commits between the last matching and the first diverging runtime
   that touch the lander's crates (all of them when none do) are reverted through the sheriff's
   queue path, ahead of the queue, with `Sheriff-Reverts:` and `Replay-divergence:` trailers, and
-  the proxy is told. A record under the queue's `sheriff/replay-SHA` keeps a later promotion from
+  the coordinator is told. A record under the queue's `sheriff/replay-SHA` keeps a later promotion from
   queueing the same revert twice; once the revert lands, the next runtime replays the round as
   recorded and the link follows.
 
@@ -57,7 +57,7 @@ that as a divergence, bisected it to 9d67ceebd and fc091653d, queued a false rev
 link. A transient replay of a round recorded transient still matches, and the shadow pass still
 counts a repeated transient as an error, so a candidate that breaks the check environment for
 every lane is held there. The lander doctor retries a no-verdict promotion through
-`north runtime promote` and pages the proxy at the third in a row
+`north runtime promote` and pages the coordinator at the third in a row
 (docs/rationale/lander-doctor.md).
 
 ## The link moves first (2026-11-10, north#902)

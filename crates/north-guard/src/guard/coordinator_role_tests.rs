@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use super::host::{MessageReads, ReadStreak};
-use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, streak_verdict};
-use super::proxy_loads::harness_load;
+use super::coordinator_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, streak_verdict};
+use super::coordinator_loads::harness_load;
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
@@ -30,7 +30,7 @@ impl World for Fake {
             _ => None,
         }
     }
-    fn registered_proxy(&self) -> Option<Registered> {
+    fn registered_coordinator(&self) -> Option<Registered> {
         (self.registered.is_some() || self.account.is_some()).then(|| Registered { conversation: self.registered.map(str::to_owned), account: self.account.map(str::to_owned) })
     }
     fn profile(&self, account: &str) -> Option<String> {
@@ -50,8 +50,8 @@ impl World for Fake {
     }
 }
 
-fn proxy() -> Fake {
-    Fake { role: Some("proxy"), session: Some("proxy"), ..Fake::default() }
+fn coordinator() -> Fake {
+    Fake { role: Some("coordinator"), session: Some("coordinator"), ..Fake::default() }
 }
 
 fn worker() -> Fake {
@@ -78,11 +78,11 @@ fn reads(looks: usize, looking: bool) -> ReadStreak {
 const BUDGETS: Budgets = Budgets { looks: 25 };
 
 #[test]
-fn a_proxy_over_its_read_budget_is_refused_and_its_turn_continues() {
+fn a_coordinator_over_its_read_budget_is_refused_and_its_turn_continues() {
     let interleaved = reads(26, true);
     assert_eq!(streak_verdict(&interleaved, 15), Verdict::Allow, "sends keep resetting the streak, so the streak limit alone never fires");
     let Verdict::Deny(reason) = budget_verdict(&interleaved, &BUDGETS) else { panic!("the 26th look of one message went on") };
-    assert!(reason.contains("26 read-only calls") && reason.contains("proxy_look_budget") && reason.contains("only Tom's next message does") && reason.contains("north work brief new") && reason.contains("north fleet launch"), "{reason}");
+    assert!(reason.contains("26 read-only calls") && reason.contains("coordinator_look_budget") && reason.contains("only Tom's next message does") && reason.contains("north work brief new") && reason.contains("north fleet launch"), "{reason}");
     assert!(reason.contains("your turn goes on") && !reason.contains("STOPPED"), "{reason}");
     assert_eq!(budget_verdict(&reads(25, true), &BUDGETS), Verdict::Allow, "the budget itself still runs");
     assert_eq!(budget_verdict(&reads(26, false), &BUDGETS), Verdict::Allow, "the launch that hands the work off is not a look");
@@ -92,7 +92,7 @@ fn a_proxy_over_its_read_budget_is_refused_and_its_turn_continues() {
 }
 
 #[test]
-fn harness_required_loads_spend_no_proxy_read_budget() {
+fn harness_required_loads_spend_no_coordinator_read_budget() {
     let load = |tool: &str, text: &str| harness_load("/home/tom", Some("/home/tom/.local/state/north/profiles/claude-d"), tool, text);
     for (tool, text) in [
         ("Skill", ""),
@@ -119,7 +119,7 @@ fn harness_required_loads_spend_no_proxy_read_budget() {
 }
 
 #[test]
-fn the_proxy_cannot_build_test_or_edit_a_repository() {
+fn the_coordinator_cannot_build_test_or_edit_a_repository() {
     let refused = [
         "bun test",
         "bun run build",
@@ -141,18 +141,18 @@ fn the_proxy_cannot_build_test_or_edit_a_repository() {
         "ssh gex45 'cd ~/code/north/main && bun test'",
     ];
     for command in refused {
-        assert!(denied(&proxy(), &bash(command)), "{command}");
+        assert!(denied(&coordinator(), &bash(command)), "{command}");
         assert_eq!(decide(&worker(), &bash(command)), Verdict::Allow, "a worker may run {command}");
     }
     let open = ["bun run script.ts", "npm view left-pad", "nix develop -c true", "echo x > /tmp/note", "echo x 2>&1 | cat", "git apply --check /tmp/fix.diff", "go version", "north fleet list"];
     for command in open {
-        let verdict = decide(&proxy(), &bash(command));
+        let verdict = decide(&coordinator(), &bash(command));
         assert_eq!(verdict, Verdict::Allow, "{command}");
     }
 }
 
 #[test]
-fn the_proxy_has_no_diagnosis_budget_without_break_glass() {
+fn the_coordinator_has_no_diagnosis_budget_without_break_glass() {
     let diagnosis = [
         bash("ssh nexus 'cd ~/code/north/main && strace -f -e trace=openat north fleet launch --provider opencode x 2>&1 | tail'"),
         bash("ssh nexus journalctl --user -u north-dispatch -n 50"),
@@ -175,15 +175,15 @@ fn the_proxy_has_no_diagnosis_budget_without_break_glass() {
         bash("git -C /home/tom/code/north/main log -p -3 origin/main"),
         bash("bash -c 'grep -r opencode ~/code/north/main/src'"),
         bash("echo $(cat ~/code/north/main/Cargo.toml)"),
-        tool("Read", json!({"file_path": "/home/tom/code/north/main/crates/north-guard/src/guard/proxy_role.rs"})),
+        tool("Read", json!({"file_path": "/home/tom/code/north/main/crates/north-guard/src/guard/coordinator_role.rs"})),
         tool("Grep", json!({"pattern": "deepseek"})),
         tool("Glob", json!({"pattern": "**/*.rs", "path": "/home/tom/code/north/main/crates"})),
     ];
     for input in &diagnosis {
-        let Verdict::Deny(reason) = decide(&proxy(), input) else { panic!("the proxy diagnosed outside break-glass: {:?}", input.tool_input) };
-        assert!(reason.contains("proxy-reach-guard") && reason.contains("north work brief new") && reason.contains("`Item:`") && reason.contains("`Done when:`") && reason.contains("north fleet launch"), "{reason}");
+        let Verdict::Deny(reason) = decide(&coordinator(), input) else { panic!("the coordinator diagnosed outside break-glass: {:?}", input.tool_input) };
+        assert!(reason.contains("coordinator-reach-guard") && reason.contains("north work brief new") && reason.contains("`Item:`") && reason.contains("`Done when:`") && reason.contains("north fleet launch"), "{reason}");
         assert_eq!(decide(&worker(), input), Verdict::Allow, "a worker may {:?}", input.tool_input);
-        assert_eq!(decide(&Fake { glass: true, ..proxy() }, input), Verdict::Allow, "break-glass lifts {:?}", input.tool_input);
+        assert_eq!(decide(&Fake { glass: true, ..coordinator() }, input), Verdict::Allow, "break-glass lifts {:?}", input.tool_input);
     }
     let open = [
         bash("north fleet send n1106 'go'"),
@@ -192,21 +192,21 @@ fn the_proxy_has_no_diagnosis_budget_without_break_glass() {
         bash("cd /home/tom/code/north/main && north fleet tree 2>&1 | cut -c1-200 | sed -n 1,60p"),
         bash("north land status"),
         bash("gh issue view 1106 -R tompassarelli/north"),
-        bash("gh issue edit 1106 -R tompassarelli/north --body-file /tmp/proxy/body.md"),
+        bash("gh issue edit 1106 -R tompassarelli/north --body-file /tmp/coordinator/body.md"),
         bash("git -C /home/tom/code/north/main log --oneline -10 origin/main"),
         bash("git -C ~/code/north/main fetch -q origin"),
-        bash("cat /tmp/proxy/brief.md"),
+        bash("cat /tmp/coordinator/brief.md"),
         bash("cat ~/.local/state/north/fleet/n1106/report.md"),
-        bash("rg -n Done ~/.local/state/north/proxy/notes.md"),
+        bash("rg -n Done ~/.local/state/north/coordinator/notes.md"),
         bash("ssh nexus north fleet tree"),
         bash("ssh -T nexus -- 'north land status | head -20'"),
         bash("ssh gex45 'north glance'"),
         bash("uptime"),
-        tool("Read", json!({"file_path": "/tmp/proxy/brief.md"})),
+        tool("Read", json!({"file_path": "/tmp/coordinator/brief.md"})),
         tool("Read", json!({"file_path": "/home/tom/.local/state/north/fleet/n1106/report.md"})),
-        tool("Write", json!({"file_path": "/tmp/proxy/brief.md", "content": "Item: north#1106 x"})),
+        tool("Write", json!({"file_path": "/tmp/coordinator/brief.md", "content": "Item: north#1106 x"})),
     ];
     for input in &open {
-        assert_eq!(decide(&proxy(), input), Verdict::Allow, "{:?}", input.tool_input);
+        assert_eq!(decide(&coordinator(), input), Verdict::Allow, "{:?}", input.tool_input);
     }
 }

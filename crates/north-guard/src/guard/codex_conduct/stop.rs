@@ -74,7 +74,7 @@ pub(super) fn stop(ctx: &Ctx, event: &Value) -> Verdict {
     }
     let last = if message.to_lowercase().contains("decision for tom:") { String::new() } else { last_sentence(tail_chars(message, 600)) };
     if STOP_ASKING.is_match(&last) {
-        return Verdict::Deny("No. You ended by asking permission. Tom gave you authority over everything reversible: do it now and report the result. If it truly needs him (money, accounts, sending as Tom, deleting data you didn't create, a product fork), end with `Blocked: decision for Tom: <question>` and your recommendation; the proxy puts it to Tom through the AskUserQuestion picker. Never address Tom yourself.".into());
+        return Verdict::Deny("No. You ended by asking permission. Tom gave you authority over everything reversible: do it now and report the result. If it truly needs him (money, accounts, sending as Tom, deleting data you didn't create, a product fork), end with `Blocked: decision for Tom: <question>` and your recommendation; the coordinator puts it to Tom through the AskUserQuestion picker. Never address Tom yourself.".into());
     }
     if STOP_NARRATING.is_match(&last) {
         return Verdict::Deny("No. You ended on a plan or a hand-off. That's not an ending. Do the next step yourself, now, and stop only when it's done or blocked.".into());

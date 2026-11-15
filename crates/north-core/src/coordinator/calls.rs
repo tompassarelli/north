@@ -1,4 +1,4 @@
-//! What one tool call of the proxy did, by kind: `north` commands ask the verb table the CLI
+//! What one tool call of the coordinator did, by kind: `north` commands ask the verb table the CLI
 //! declares, and an ordered rule list classifies the foreign commands.
 use serde_json::Value;
 

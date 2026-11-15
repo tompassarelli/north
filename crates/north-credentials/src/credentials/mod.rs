@@ -96,10 +96,10 @@ impl renew::Effects for Machine {
     }
 
     fn alert(&self, text: &str) -> Result<(), String> {
-        let args = ["fleet", "send", "--from", "service:north-credentials", "proxy", text];
+        let args = ["fleet", "send", "--from", "service:north-credentials", "coordinator", text];
         match north_base::platform::process::run_within("north", &args, ALERT_WITHIN) {
             Some(output) if output.status.success() => Ok(()),
-            _ => Err("north fleet send to the proxy failed".into()),
+            _ => Err("north fleet send to the coordinator failed".into()),
         }
     }
 

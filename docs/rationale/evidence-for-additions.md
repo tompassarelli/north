@@ -18,7 +18,7 @@ note holds the method, what was measured before it landed and what would overtur
 
 - **Most categories already had a home with an evidence field.** Tests have the operator's test rule and the
   test-admission land check. Each of the 248 keys in [harness/defaults.toml](../../harness/defaults.toml) names its
-  `source`: 88 measured, 60 set by Tom, 69 marked `prior`, the rest standard, derived or a recorded proxy decision.
+  `source`: 88 measured, 60 set by Tom, 69 marked `prior`, the rest standard, derived or a recorded coordinator decision.
   Landing gates outside build, tests, secrets, privacy and test admission earn refusal in shadow by naming a real fault
   ([landing-refusals-shadow.md](landing-refusals-shadow.md)). A planning box cites a measurement before dispatch
   staffs it, and the planning skill's ceremony budget
@@ -64,7 +64,7 @@ ordinary lane adds something nothing points to; the review below takes that meas
 
 The correction class `unevidenced-addition` in [harness/corrections.toml](../../harness/corrections.toml) matches the
 ways Tom has objected to such additions before. The rule is its guard, set at the rule's landing time, so each later
-correction of the class is a recurrence: it is recorded in the corrections ledger and prints red in the proxy's fleet
+correction of the class is a recurrence: it is recorded in the corrections ledger and prints red in the coordinator's fleet
 tick for a week.
 
 ## Replay

@@ -10,17 +10,17 @@ use super::OpenedWindows;
 
 /// On 2026-11-14 a take-over of the coordinator started a headless host and opened a window that only printed its transcript (north#1427).
 #[test]
-fn a_take_over_of_a_window_held_proxy_opens_its_interactive_client_on_the_assigned_conversation_with_the_first_prompt_and_binds_the_name_to_it() {
+fn a_take_over_of_a_window_held_coordinator_opens_its_interactive_client_on_the_assigned_conversation_with_the_first_prompt_and_binds_the_name_to_it() {
     let home = tempfile::tempdir().unwrap();
     let desk = Arc::new(OpenedWindows::default());
-    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(())).showing_proxy_on(desk.clone());
+    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(())).showing_coordinator_on(desk.clone());
     let request = LaunchRequest {
         verification: false,
         gates_aside: false,
         urgent: false,
         container_shell: false,
         container_dir: None,
-        name: "proxy".into(),
+        name: "coordinator".into(),
         provider: ProviderName::new("claude"),
         account: "a".into(),
         cwd: home.path().into(),
@@ -37,7 +37,7 @@ fn a_take_over_of_a_window_held_proxy_opens_its_interactive_client_on_the_assign
         placement: None,
         machine: None,
         capacity_need: None,
-        role: Some(Role::Proxy),
+        role: Some(Role::Coordinator),
         resume: None,
         compact_window: None,
         dispatched: false,
@@ -47,10 +47,10 @@ fn a_take_over_of_a_window_held_proxy_opens_its_interactive_client_on_the_assign
 
     let launched = fleet.take_over(&request).unwrap_or_else(|error| panic!("{}", error.user_message()));
 
-    let held = fleet.session("proxy").unwrap();
+    let held = fleet.session("coordinator").unwrap();
     let conversation = held.conversation.clone().expect("the launch assigned no conversation");
     assert_eq!(launched.conversation.as_deref(), Some(conversation.as_str()));
-    assert_eq!(desk.opened(), [("proxy".to_owned(), ["client", "--session-id", &conversation, "[north: take the fleet]"].map(str::to_owned).to_vec())]);
-    assert_eq!(held.host_pid, None, "a host started for a proxy held in a window");
+    assert_eq!(desk.opened(), [("coordinator".to_owned(), ["client", "--session-id", &conversation, "[north: take the fleet]"].map(str::to_owned).to_vec())]);
+    assert_eq!(held.host_pid, None, "a host started for a coordinator held in a window");
     assert!(held.adopted(), "the name is not bound to the window's conversation: {held:?}");
 }

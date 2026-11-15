@@ -227,25 +227,25 @@ impl crate::fleet::waits::Probe for Closed {
 #[test]
 fn a_hook_spawned_run_under_the_session_scope_wakes_no_session() {
     let root = tempfile::tempdir().unwrap();
-    let host = root.path().join("proxy");
+    let host = root.path().join("coordinator");
     std::fs::create_dir_all(&host).unwrap();
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": null})).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "coordinator", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": null})).unwrap();
     write_record(&host, &record).unwrap();
     let distill = Detached { pid: 41, started: 1 };
     let judge = Detached { pid: 42, started: 1 };
     let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host).reading_scope(Arc::new(Transport(vec![distill, judge])));
     let _ = watch.rest(Duration::from_secs(1), None);
     let waits = Waits::in_root(root.path());
-    assert!(waits.of("proxy").is_empty(), "a hook child of the session registers no wait");
-    waits.register("proxy", Run::Process { pid: 41, started: 1 }, Path::new("/tmp"), Some("north graph ground distill capture")).unwrap();
+    assert!(waits.of("coordinator").is_empty(), "a hook child of the session registers no wait");
+    waits.register("coordinator", Run::Process { pid: 41, started: 1 }, Path::new("/tmp"), Some("north graph ground distill capture")).unwrap();
     let told = Mutex::new(Vec::new());
-    let settled = waits.settle(&Closed, &|name| name == "proxy", &|name, text| {
+    let settled = waits.settle(&Closed, &|name| name == "coordinator", &|name, text| {
         told.lock().unwrap().push((name.to_owned(), text.to_owned()));
         Ok(())
     });
     assert!(settled.is_empty(), "a hook child's end settles no wait: {settled:?}");
     assert!(told.into_inner().unwrap().is_empty(), "a hook child's end wakes no session");
-    assert!(waits.of("proxy").is_empty(), "the unregistered pid wait is dropped without a message");
+    assert!(waits.of("coordinator").is_empty(), "the unregistered pid wait is dropped without a message");
 }
 
 fn escalations(finished: Option<bool>, lane_record: bool, route: Option<&str>, checkout: bool) -> (Vec<String>, Vec<String>) {

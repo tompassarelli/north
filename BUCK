@@ -17,7 +17,7 @@ RUSTC_FLAGS = [
 
 rust_binary(
     name = "fake_claude",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
@@ -109,7 +109,7 @@ rust_binary(
 north_rust_test(
     name = "fake_claude-unittest",
     binary_id = "north::bin/fake_claude",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
@@ -204,7 +204,7 @@ north_rust_test(
 
 rust_binary(
     name = "north",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
@@ -296,7 +296,7 @@ rust_binary(
 north_rust_test(
     name = "north-unittest",
     binary_id = "north::bin/north",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
@@ -391,7 +391,7 @@ north_rust_test(
 
 rust_binary(
     name = "push_trace_git",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
@@ -483,7 +483,7 @@ rust_binary(
 north_rust_test(
     name = "push_trace_git-unittest",
     binary_id = "north::bin/push_trace_git",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
@@ -578,7 +578,7 @@ north_rust_test(
 
 rust_binary(
     name = "verify-north",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",
@@ -670,7 +670,7 @@ rust_binary(
 north_rust_test(
     name = "verify-north-unittest",
     binary_id = "north::bin/verify-north",
-    srcs = glob(["src/**"]) + ["harness/claude/agents/proxy.md"],
+    srcs = glob(["src/**"]) + ["harness/claude/agents/coordinator.md"],
     mapped_srcs = {
         "//crates/north-guard:src/guard/fixtures/proxy_load_trace_2026_11_11.json": "crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json",
         "//crates/north-runtime:src/runtime/fixtures/orchestration-hosts.toml": "crates/north-runtime/src/runtime/fixtures/orchestration-hosts.toml",

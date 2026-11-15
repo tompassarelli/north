@@ -1,5 +1,5 @@
 //! The launch freeze alarm: while dispatch runs find ready boxes and free slots and launch none for
-//! `dispatch_freeze_alarm_min` minutes, the proxy gets one urgent message naming the guards that refuse, spend guards and closed hosts alike.
+//! `dispatch_freeze_alarm_min` minutes, the coordinator gets one urgent message naming the guards that refuse, spend guards and closed hosts alike.
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use crate::spend::Starter;
 
 const FILE: &str = "freeze.json";
 
-/// One stretch of frozen runs: when it began, when a run last saw it, and whether the proxy was told.
+/// One stretch of frozen runs: when it began, when a run last saw it, and whether the coordinator was told.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Stretch {
     pub since: f64,
@@ -32,7 +32,7 @@ pub fn frozen(outcome: &Outcome, stopped: &[String], guards: &[String]) -> Optio
     Some(format!("{} ready, {} free slots and no launch; {guards}; first refusal: {}", outcome.ready.len(), outcome.free, first.unwrap_or_else(|| "none recorded".into())))
 }
 
-/// The stretch after a run at `at` and the text due to the proxy now. A stretch no run saw within the limit has ended, so the next frozen run starts a new one.
+/// The stretch after a run at `at` and the text due to the coordinator now. A stretch no run saw within the limit has ended, so the next frozen run starts a new one.
 pub fn step(previous: Option<Stretch>, frozen: Option<String>, at: f64, limit_minutes: f64) -> (Option<Stretch>, Option<String>) {
     let limit = limit_minutes * 60.0;
     let Some(basis) = frozen else { return (None, None) };
@@ -57,7 +57,7 @@ pub fn closed(hosts: &[Host]) -> Vec<String> {
     hosts.iter().filter_map(|host| host.running.as_ref().err().map(|why| if why.starts_with(&host.name) { why.clone() } else { format!("{}: {why}", host.name) })).collect()
 }
 
-/// Keeps the stretch in `FILE` across runs and tells the proxy once it passes the limit; a failed send is retried on the next frozen run. Returns false when a page due this run did not go out.
+/// Keeps the stretch in `FILE` across runs and tells the coordinator once it passes the limit; a failed send is retried on the next frozen run. Returns false when a page due this run did not go out.
 pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) -> bool {
     let path = record::directory().join(FILE);
     let previous = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<Stretch>(&bytes).ok());
@@ -67,12 +67,12 @@ pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) -> bool
     if let Some(text) = text {
         let text = format!("north fleet dispatch on {here}: {text}");
         if dry_run {
-            println!("would tell the proxy: {text}");
+            println!("would tell the coordinator: {text}");
             return true;
         }
         let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
-        let sent = run_within(&north, &["fleet", "send", "--now", "--from", "service:north-dispatch", crate::fleet::runtime::PROXY, &text], Duration::from_secs(30)).is_some_and(|output| output.status.success());
-        println!("{}: {text}", if sent { "told the proxy" } else { "could not tell the proxy" });
+        let sent = run_within(&north, &["fleet", "send", "--now", "--from", "service:north-dispatch", crate::fleet::runtime::COORDINATOR, &text], Duration::from_secs(30)).is_some_and(|output| output.status.success());
+        println!("{}: {text}", if sent { "told the coordinator" } else { "could not tell the coordinator" });
         sent_all = sent;
         if let Some(stretch) = stretch.as_mut() {
             stretch.told = sent;

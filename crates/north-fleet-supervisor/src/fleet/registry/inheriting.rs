@@ -5,7 +5,7 @@ use crate::fleet::records::{read_record, write_record};
 use super::Fleet;
 
 impl Fleet {
-    /// A lead launched with `Follows:` naming a lead that is gone takes over that lead's live children on this host, so their reports and the lander's notices reach it, not the proxy their gone parent's messages fall back to. Returns the children it took.
+    /// A lead launched with `Follows:` naming a lead that is gone takes over that lead's live children on this host, so their reports and the lander's notices reach it, not the coordinator their gone parent's messages fall back to. Returns the children it took.
     pub(super) fn inherit_workers(&self, request: &LaunchRequest, successor: &SessionRecord) -> NorthResult<Vec<String>> {
         if request.role() != Role::Lead {
             return Ok(Vec::new());
@@ -68,7 +68,7 @@ mod tests {
             foreground_cap_secs: None,
             prompt_mode: PromptMode::North,
             idle_exit_minutes: None,
-            parent: Some("proxy".into()),
+            parent: Some("coordinator".into()),
             task_ref: None,
             claim_box: None,
             placement: None,
@@ -91,24 +91,24 @@ mod tests {
     }
 
     #[test]
-    fn a_follows_successor_to_a_retired_lead_receives_its_live_workers_next_reports_not_the_proxy() {
+    fn a_follows_successor_to_a_retired_lead_receives_its_live_workers_next_reports_not_the_coordinator() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
-        let proxy = live(&fleet, "proxy");
+        let coordinator = live(&fleet, "coordinator");
         let lead2 = live(&fleet, "lead2");
         let _lead = live(&fleet, "lead");
         let _guards = live_under(&fleet, "guards", Some("lead"));
         fleet.retire("lead", "test", None).unwrap();
 
         report_to_parent(&fleet, "guards");
-        assert_eq!(proxy.frames.lock().unwrap().len(), 1, "before the successor, the retired lead's worker reports to the proxy");
+        assert_eq!(coordinator.frames.lock().unwrap().len(), 1, "before the successor, the retired lead's worker reports to the coordinator");
 
         let (request, record) = successor("lead", Role::Lead);
         assert_eq!(fleet.inherit_workers(&request, &record).unwrap(), ["guards"]);
         report_to_parent(&fleet, "guards");
 
         assert_eq!(fleet.record("guards").unwrap().parent.as_deref(), Some("lead2"));
-        assert_eq!(proxy.frames.lock().unwrap().len(), 1, "the next report skips the proxy");
+        assert_eq!(coordinator.frames.lock().unwrap().len(), 1, "the next report skips the coordinator");
         assert!(lead2.frames.lock().unwrap().is_empty(), "a worker's Done report woke the successor lead");
         assert!(fleet.held_since(0).iter().any(|row| row.to == "lead2" && row.text.contains("Done: landed.")), "the successor's held log lacks its worker's report");
     }

@@ -12,7 +12,7 @@ Each line gives the end time, the session and issue, the bar's class, then what 
 - 11-07 04:14 gex45-n757-leases north#757, capacity: it reported "Clippy and the lease_lifecycle test run are queued in admission, and their end will notify me ... Stop: capacity". The reaper then retired it as "its parent took its final report" while those builds were still queued.
 - 11-07 04:19 north-744-d0351 north#744, halted: it was parked on a usage limit and moved, then a fleet stop ended the turn (boundary rows at 03:53, 04:20, 04:23 and 04:24).
 - 11-07 04:26 north-766-d0421 north#766, capacity: its first fleet test run was killed after 20 min queued in admission. It restarted the run, ended its turn waiting on it on claude-api, and never ran again.
-- 11-07 06:03 n-land-slice north#784, capacity: it said the proxy had parked the issue on usage. The reaper retired it as "its parent took its final report" with its tests and clippy not yet run.
+- 11-07 06:03 n-land-slice north#784, capacity: it said the coordinator had parked the issue on usage. The reaper retired it as "its parent took its final report" with its tests and clippy not yet run.
 - 11-07 06:25 north-786-d0611 north#786, capacity: its new tests had not run when it ended on `Stop: capacity` on claude-api, and it never ran again.
 - 11-07 08:03 n730-arms north#730, halted: it was parked on a usage limit and moved twice, then a launch took over its name mid-turn.
 - 11-07 08:04 north-796-d0801 north#796, capacity: the box's readings exist only on whiterabbit, and the session ran on gex45, which cannot resolve whiterabbit.

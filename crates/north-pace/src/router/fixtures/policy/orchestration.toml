@@ -113,7 +113,7 @@
 "resident_cap" = 6
 
 ["router"]
-"source" = "tom: 2026-10-15 proxy 8261; synthetic recorded policy"
+"source" = "tom: 2026-10-15 coordinator 8261; synthetic recorded policy"
 "order" = ["expiring", "claude_over_codex", "cheapest_tier", "off_laptop"]
 "five_hour_target" = 90
 "five_hour_ceiling" = 95

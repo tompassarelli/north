@@ -443,7 +443,7 @@ fn a_replay_that_reaches_no_verdict_holds_nothing_queues_no_revert_and_the_next_
         assert!(!stdout.contains("bisect:"), "a replay with no verdict was bisected: {stdout}");
         assert!(chain.reverts().is_empty(), "a replay with no verdict queued a revert: {stdout}");
         assert!(!chain.state.join("north/lander-held").exists(), "a replay with no verdict held the link: {stdout}");
-        assert_eq!(chain.told(), "", "a replay with no verdict alarmed the proxy");
+        assert_eq!(chain.told(), "", "a replay with no verdict alarmed the coordinator");
         assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
         assert!(std::fs::read_to_string(&unreached).unwrap().starts_with(&format!("{candidate}\t{attempt}\t")), "{stdout}");
     }

@@ -55,12 +55,12 @@ const UNIFORM: &[(&str, Run)] = &[
     ("defaults-measure", north_tune::defaults_measure::run),
     ("spend", super::spend::run),
     ("control-plane", north_ops::ops::control_plane::run),
-    ("proxy", |arguments| match arguments.first().map(String::as_str) {
+    ("coordinator", |arguments| match arguments.first().map(String::as_str) {
         Some("calls") => {
-            eprintln!("did you mean: north config proxy {}", arguments.join(" "));
+            eprintln!("did you mean: north config coordinator {}", arguments.join(" "));
             2
         }
-        _ => super::fleet::proxy(arguments),
+        _ => super::fleet::coordinator(arguments),
     }),
     ("ops", ops),
     ("private-check", crate::private_check::run),
@@ -267,7 +267,7 @@ fn keep_disk() {
 fn config(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((noun, rest)) if noun == "context" => crate::context_audit::run(rest, agent_config_check::startup_tokens),
-        Some((noun, rest)) if noun == "proxy" => crate::proxy::run(rest, &super::verbs::VERB_KINDS, crate::guard::proxy_role::streak_limit(), crate::guard::proxy_table::run),
+        Some((noun, rest)) if noun == "coordinator" => crate::coordinator::run(rest, &super::verbs::VERB_KINDS, crate::guard::coordinator_role::streak_limit(), crate::guard::coordinator_table::run),
         _ => 2,
     }
 }

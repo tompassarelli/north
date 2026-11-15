@@ -17,7 +17,7 @@ use crate::threads::claims::lifecycle::Moved as ClaimMoved;
 use crate::threads::claims::{box_slug, key};
 use crate::threads::verb::{Context, Failure, event_as, text_or_null};
 
-const ROLES: [&str; 5] = ["worker", "parent", "proxy", "routine", "probe"];
+const ROLES: [&str; 5] = ["worker", "parent", "coordinator", "routine", "probe"];
 const STAGES: [&str; 3] = ["staffed", "review_requested", "landed_at"];
 const CONTEXT: [&str; 8] = ["role", "peak_ctx", "compactions", "handoff_fires", "handoff_ignored", "input_tokens", "cache_read_tokens", "idle_gap_misses"];
 const ACTIVITY: [&str; 4] = ["turns", "tool_calls", "active_min", "wait_min"];

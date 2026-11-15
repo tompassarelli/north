@@ -130,7 +130,7 @@ const NARROW: &str = "safe-push: the Rust checks cover -p north -p north-safe-pu
 const FULL: &str = "safe-push: the Rust checks cover -p north -p north-base\n        PASS [   0.006s] ( 97/668) north-base error::tests::drill\n";
 
 #[test]
-fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert() {
+fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert() {
     a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_records_a_red_main();
     a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the_red_record_when_they_pass();
     let scratch = tempfile::tempdir().unwrap();
@@ -168,7 +168,7 @@ fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_
     at(&commit("also red"), RED, red());
     assert_eq!(sent.borrow().len(), 1, "a second red verdict of the episode is silent: {:?}", sent.borrow());
     let (session, message) = sent.borrow()[0].clone();
-    assert_eq!(session, "proxy");
+    assert_eq!(session, "coordinator");
     assert!(message.contains("error::tests::drill") && message.contains(&format!("suspect commit {culprit}")) && message.contains(&episode.log.display().to_string()) && message.contains("lane-a, lane-b"), "{message}");
     at(&commit("docs"), NARROW, Verdict::Green);
     assert_eq!(sent.borrow().len(), 1, "a green run that skipped the failing test sends no green message: {:?}", sent.borrow());

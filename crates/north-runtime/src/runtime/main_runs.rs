@@ -32,7 +32,7 @@ pub(crate) struct MainRuns {
 
 impl MainRuns {
     pub(crate) fn main() -> Self {
-        Self { page: Box::new(page), kept: Box::new(|run| main_run_verdict::kept(REPOSITORY, run)), alert: Box::new(super::alert::alert_proxy) }
+        Self { page: Box::new(page), kept: Box::new(|run| main_run_verdict::kept(REPOSITORY, run)), alert: Box::new(super::alert::alert_coordinator) }
     }
 
     #[cfg(test)]

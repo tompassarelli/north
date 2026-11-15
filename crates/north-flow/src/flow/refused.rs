@@ -1,6 +1,6 @@
 //! The land branches Autoland refused: a tip whose `autoland` status is failure or error stays on
 //! origin until someone pushes a fix. The session that pushed it hears the refusal from safe-push's
-//! wait; when that session is gone, the stall alert names the branch to the Fleet parent and the proxy.
+//! wait; when that session is gone, the stall alert names the branch to the Fleet parent and the coordinator.
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};

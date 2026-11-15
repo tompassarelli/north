@@ -80,7 +80,7 @@ pub fn read_hosts(host: &dyn Host, policy: &Path) -> Vec<Reading> {
     readings
 }
 
-/// Alerts the proxy once per episode when a host has stayed saturated for ten minutes; the record is dropped when it
+/// Alerts the coordinator once per episode when a host has stayed saturated for ten minutes; the record is dropped when it
 /// has room again, and a host that did not answer keeps its record.
 pub fn saturation_plan(readings: &[Reading], previous: &State, now: f64, disk_floor_gib: f64) -> (State, Vec<Action>) {
     let mut state = previous.clone();
@@ -92,16 +92,16 @@ pub fn saturation_plan(readings: &[Reading], previous: &State, now: f64, disk_fl
         };
         let record = state.entry(reading.host.clone()).or_insert_with(|| Record { since: now, ..Record::default() });
         let held = now - record.since;
-        let key = "saturation:fleet:proxy";
+        let key = "saturation:fleet:coordinator";
         if held >= HOLD_SECONDS && !record.sent.contains_key(key) {
             let text = format!("Host {} saturated for {:.0}m: {why}. Stop launching onto it, move work to a free host, clear the blocker", reading.host, held / 60.0);
-            actions.push(Action { repo: reading.host.clone(), key: key.into(), node: "proxy".into(), channel: "fleet", text });
+            actions.push(Action { repo: reading.host.clone(), key: key.into(), node: "coordinator".into(), channel: "fleet", text });
         }
     }
     (state, actions)
 }
 
-/// Alerts the proxy once per episode when a host outside `build_hosts` has held leased heavy runs for five minutes
+/// Alerts the coordinator once per episode when a host outside `build_hosts` has held leased heavy runs for five minutes
 /// while a build host had a free slot; the record is dropped once either stops (north#1036).
 pub fn spill_plan(readings: &[Reading], build_hosts: &[String], previous: &State, now: f64) -> (State, Vec<Action>) {
     let mut state = previous.clone();
@@ -114,7 +114,7 @@ pub fn spill_plan(readings: &[Reading], build_hosts: &[String], previous: &State
         }
         let record = state.entry(reading.host.clone()).or_insert_with(|| Record { since: now, ..Record::default() });
         let held = now - record.since;
-        let key = "spill:fleet:proxy";
+        let key = "spill:fleet:coordinator";
         if held >= SPILL_HOLD_SECONDS && !record.sent.contains_key(key) {
             let room = free.iter().map(|host| format!("{} {:.1} free cores", host.host, host.free_cpus)).collect::<Vec<_>>().join(", ");
             let text = format!(
@@ -123,7 +123,7 @@ pub fn spill_plan(readings: &[Reading], build_hosts: &[String], previous: &State
                 reading.fleet_cpus,
                 held / 60.0
             );
-            actions.push(Action { repo: reading.host.clone(), key: key.into(), node: "proxy".into(), channel: "fleet", text });
+            actions.push(Action { repo: reading.host.clone(), key: key.into(), node: "coordinator".into(), channel: "fleet", text });
         }
     }
     (state, actions)

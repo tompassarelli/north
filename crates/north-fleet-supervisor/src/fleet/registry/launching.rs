@@ -18,7 +18,7 @@ use crate::fleet::store::{Claim, SessionRow};
 use super::grounding;
 use super::reserve;
 use super::stopping::Halt;
-use super::proxy_window::{held_in_window, hosts_early};
+use super::coordinator_window::{held_in_window, hosts_early};
 use super::takeover::{Predecessor, Seat};
 use super::starting::{OpenedHost, Settling};
 use super::{Fleet, efforts, session_running};
@@ -198,7 +198,7 @@ impl Fleet {
         if let Some(parent) = &request.parent {
             self.reaches(parent)?;
         }
-        self.refuse_second_proxy(request, claim)?;
+        self.refuse_second_coordinator(request, claim)?;
         Ok(verification)
     }
 
@@ -231,7 +231,7 @@ impl Fleet {
             Some(opened) => self.go_live_claimed(record, opening, hooks, opened?, claimed)?,
             None if held_in_window(record) => {
                 claimed()?;
-                self.open_proxy_window(record, account, opening, Some(&prompt().0), hooks)?;
+                self.open_coordinator_window(record, account, opening, Some(&prompt().0), hooks)?;
                 return self.join_launch_task(record);
             }
             None => {
@@ -270,13 +270,13 @@ impl Fleet {
         Ok(())
     }
 
-    fn refuse_second_proxy(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<()> {
-        if request.role() != Role::Proxy {
+    fn refuse_second_coordinator(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<()> {
+        if request.role() != Role::Coordinator {
             return Ok(());
         }
-        let live = self.sessions()?.into_iter().filter(|record| record.role() == Role::Proxy && self.status(record) != Status::Exited);
+        let live = self.sessions()?.into_iter().filter(|record| record.role() == Role::Coordinator && self.status(record) != Status::Exited);
         match live.into_iter().find(|record| claim == Claim::Fresh || record.name != request.name) {
-            Some(proxy) => Err(NorthError::Usage(format!("{} is the live proxy; a proxy launch with --take-over ends it and moves the role to the new session", proxy.name))),
+            Some(coordinator) => Err(NorthError::Usage(format!("{} is the live coordinator; a coordinator launch with --take-over ends it and moves the role to the new session", coordinator.name))),
             None => Ok(()),
         }
     }

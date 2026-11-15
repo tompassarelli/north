@@ -1,7 +1,7 @@
 use super::{hands_over_a_command, offer};
 
 #[test]
-fn the_proxy_replies_that_handed_tom_rm_commands_on_2026_11_08_or_offered_work_as_a_question_are_refused_and_plain_or_quoting_reports_pass_north_937() {
+fn the_coordinator_replies_that_handed_tom_rm_commands_on_2026_11_08_or_offered_work_as_a_question_are_refused_and_plain_or_quoting_reports_pass_north_937() {
     assert!(offer("Done: landed.\n\nWant me to delete the lane?").is_some());
     assert!(offer("Done: landed.\n\nThe stop check refuses \"want me to\" and `should i ` when they close a report.").is_none(), "a phrase only quoted is not an offer");
     let handed = [

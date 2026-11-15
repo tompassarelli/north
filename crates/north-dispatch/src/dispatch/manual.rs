@@ -94,7 +94,7 @@ fn context_armed(ask: &Ask, prompt: String, route: Route, overridden: bool, hist
     (armed, Route { why: format!("{}, {why}", route.why), ..route })
 }
 
-/// The auto-compact window a launch that names no issue, the proxy's own included, draws from its category's context shares.
+/// The auto-compact window a launch that names no issue, the coordinator's own included, draws from its category's context shares.
 pub fn untasked_window(name: &str, category: &str, history: &History, ledger: &BTreeMap<String, Evidence>) -> Option<u64> {
     let evidence = ledger.get(category).cloned().unwrap_or_default();
     let (arm, drawn) = tier::context_arm(name, category, history, &evidence);

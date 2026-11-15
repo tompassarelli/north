@@ -44,7 +44,7 @@ fn harness_cap(fleet: &Fleet, request: &LaunchRequest) -> Result<(), String> {
 
 /// Whether the spend rule admits one more session on the request's own account: what a tick's hand-over checks before it starts a session elsewhere.
 pub(super) fn spend_admits(fleet: &Fleet, request: &LaunchRequest) -> NorthResult<()> {
-    let starter = if request.role == Some(Role::Proxy) { Starter::Reserved } else { Starter::Worker };
+    let starter = if request.role == Some(Role::Coordinator) { Starter::Reserved } else { Starter::Worker };
     let view = spend_now(fleet, &fleet.roster()).map_err(|why| NorthError::Saturated(format!("spend view unread: {why}")))?;
     let account = format!("{}:{}", request.provider.label(), request.account);
     view.admit(&account, starter).map_err(|refusal| NorthError::Saturated(refusal.to_string()))

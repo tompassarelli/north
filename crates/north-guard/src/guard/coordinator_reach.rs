@@ -1,4 +1,4 @@
-//! What a proxy call would read to find a cause: a trace, a journal or a process table on any
+//! What a coordinator call would read to find a cause: a trace, a journal or a process table on any
 //! host, a file under a repository checkout, or another host past the fleet's status verbs.
 use crate::guard::paths::{expanduser, join, normpath};
 use north_base::shell::{basename, command, heredoc_bodies, is_separator, shell_substitutions, strip_heredocs, words};

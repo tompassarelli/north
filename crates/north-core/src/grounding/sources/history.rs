@@ -3,16 +3,16 @@ use std::collections::{HashMap, HashSet};
 pub fn is_brief(text: &str) -> bool {
     let trimmed = text.trim_start();
     let harness=(trimmed.starts_with('<')&&!trimmed.starts_with("<pasted_content")&&!trimmed.starts_with("<north_machine_relay"))||re(r"^\s*(/|\[Request interrupted|\[routine:|Caveat:|This session is being continued|Stop hook feedback)").is_match(text);
-    harness||re(r"(?i)^\s*(Delegation:|Read (and follow|\S+ and follow|(?:/home/tom|~|\$HOME)/\.local/state/agents/handoffs)|You are (a|an|the) |(LEAD )?COACH\b|Coach repl|\S+-lead -> |From (\S+-lead|the proxy)|\S+-lead box |Run exactly this |New priority:|Use (the Agent tool|spawn_agent|the automation-chrome)|(Review|Adversarial review) (this|of a) diff|─{5})").is_match(text)||cut(text,400).contains("Another Claude session sent a message")||re(r"(?m)^(Category|Scope|Surface|Verify|Spec|Parent|Setup|Done when):").find_iter(text).count()>=2
+    harness||re(r"(?i)^\s*(Delegation:|Read (and follow|\S+ and follow|(?:/home/tom|~|\$HOME)/\.local/state/agents/handoffs)|You are (a|an|the) |(LEAD )?COACH\b|Coach repl|\S+-lead -> |From (\S+-lead|the coordinator)|\S+-lead box |Run exactly this |New priority:|Use (the Agent tool|spawn_agent|the automation-chrome)|(Review|Adversarial review) (this|of a) diff|─{5})").is_match(text)||cut(text,400).contains("Another Claude session sent a message")||re(r"(?m)^(Category|Scope|Surface|Verify|Spec|Parent|Setup|Done when):").find_iter(text).count()>=2
 }
 pub fn session_kind(opening: Option<&str>) -> &'static str {
     let Some(text) = opening else {
         return "tom";
     };
-    if re(r"(?i)handoffs/proxy-handoff|take over as the proxy|You are the proxy")
+    if re(r"(?i)handoffs/coordinator-handoff|take over as the coordinator|You are the coordinator")
         .is_match(&cut(text, 600))
     {
-        "proxy"
+        "coordinator"
     } else if is_brief(text) {
         "agent"
     } else {
@@ -21,7 +21,7 @@ pub fn session_kind(opening: Option<&str>) -> &'static str {
 }
 pub fn speaker(role: &str, kind: &str, text: &str) -> Option<&'static str> {
     if role == "user" {
-        let relay=re(r"(from=proxy|^<north_machine_relay/>\s*(EVENT \d+ \w+\s+from=proxy|Proxy)|\bTom\b|\bTOM\b)").is_match(&cut(text,600));
+        let relay=re(r"(from=coordinator|^<north_machine_relay/>\s*(EVENT \d+ \w+\s+from=coordinator|Coordinator)|\bTom\b|\bTOM\b)").is_match(&cut(text,600));
         if re(r"^\s*(Claude[:,] |\S+-lead[,:] )").is_match(text) && relay {
             return Some("relay");
         }
@@ -41,7 +41,7 @@ pub fn speaker(role: &str, kind: &str, text: &str) -> Option<&'static str> {
     if kind == "agent" {
         None
     } else if role == "assistant" && text.split_whitespace().count() >= 4 {
-        Some("proxy")
+        Some("coordinator")
     } else {
         None
     }

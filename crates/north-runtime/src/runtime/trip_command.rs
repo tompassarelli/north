@@ -76,7 +76,7 @@ fn run(head: &str, now: u64) -> Result<(), Failure> {
 }
 
 fn replayed(trips: &Trips, asked: &Trip, checkout: &Path, now: u64) -> Result<Option<Trip>, String> {
-    let alert = |text: &str| super::alert::alert_proxy(text);
+    let alert = |text: &str| super::alert::alert_coordinator(text);
     let (asked, command, red, named) = match asked.cases.is_empty() {
         true => {
             let steps = failed_steps(asked)?;

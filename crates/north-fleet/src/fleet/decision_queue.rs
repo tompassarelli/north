@@ -15,7 +15,7 @@ pub fn digest(gates: &[Gate], elsewhere: &[GateRow], since_ms: u64, now_ms: u64)
         }
     }
     if !defaulted.is_empty() {
-        text.push_str(&format!("Decided by default since you last looked ({}): tell the proxy to reverse any.\n", defaulted.len()));
+        text.push_str(&format!("Decided by default since you last looked ({}): tell the coordinator to reverse any.\n", defaulted.len()));
         for gate in defaulted {
             let answer = gate.closure.as_ref().map_or("", |closure| closure.answer.as_str());
             text.push_str(&format!("- gate {} ({}): {}\n  Applied: {answer}\n", gate.id, gate.request.session, one_line(&gate.request.question)));
@@ -42,7 +42,7 @@ fn waiting_entry(gate: &Waiting, now_ms: u64) -> String {
     };
     let category = request.ask_once.as_deref().map_or_else(String::new, |category| format!("  Ask-once category: {category}\n"));
     format!(
-        "- gate {} ({}, open {hours} h): {}\n  Recommended: {}\n  Alternatives: {}\n  Holds: {holds}\n{category}  Answer: by telling the proxy\n",
+        "- gate {} ({}, open {hours} h): {}\n  Recommended: {}\n  Alternatives: {}\n  Holds: {holds}\n{category}  Answer: by telling the coordinator\n",
         gate.label,
         request.session,
         one_line(&request.question),
