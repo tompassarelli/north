@@ -134,9 +134,7 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     std::fs::write(own.join("crates/b/src/lib.rs"), "pub fn g() -> u8 { 0 }\n").unwrap();
     std::fs::write(own.join("target/debug/.fingerprint/a/lib-a"), "stale\n").unwrap();
     std::fs::write(own.join("target/debug/deps/a.d"), "mutated\n").unwrap();
-    std::fs::write(own.join("target/debug/deps/liba.rlib.new"), "mutant\n").unwrap();
-    std::fs::rename(own.join("target/debug/deps/liba.rlib.new"), own.join("target/debug/deps/liba.rlib")).unwrap();
-    assert!(tree.written_through().is_empty());
+    std::fs::write(own.join("target/debug/deps/liba.rlib"), "mutant\n").unwrap();
     drop(tree);
     assert!(!own.exists());
     let killed = OwnTree::of(repo, &second, sweeps.path()).unwrap();

@@ -2,32 +2,21 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::ErrorKind;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use rustix::fs::{FlockOperation, flock};
 
 use super::super::super::git;
 
 const PROFILE: &str = "target/debug";
-const LINKED: [&str; 3] = ["deps", "incremental", "examples"];
 const OWNER: &str = "owner";
 const TREE: &str = "tree";
 
 pub(super) struct OwnTree {
     origin: PathBuf,
     root: PathBuf,
-    linked: Vec<Linked>,
     _scratch: tempfile::TempDir,
     _owner: fs::File,
-}
-
-struct Linked {
-    origin: PathBuf,
-    inode: u64,
-    len: u64,
-    modified: Option<SystemTime>,
 }
 
 impl OwnTree {
@@ -39,7 +28,7 @@ impl OwnTree {
         let path = root.display().to_string();
         git::text(top, &["-c", "core.hooksPath=/dev/null", "clone", "--quiet", "--shared", "--no-checkout", ".", &path]).ok_or_else(|| format!("git clone --shared . {path} failed"))?;
         git::text(&root, &["-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", head]).ok_or_else(|| format!("git checkout {head} in {path} failed"))?;
-        let mut tree = Self { origin: top.to_path_buf(), root, linked: Vec::new(), _scratch: scratch, _owner: owner };
+        let tree = Self { origin: top.to_path_buf(), root, _scratch: scratch, _owner: owner };
         tree.keep_times()?;
         if top.join(PROFILE).is_dir() {
             tree.mirror().map_err(|error| format!("copying {}: {error}", top.join(PROFILE).display()))?;
@@ -49,19 +38,6 @@ impl OwnTree {
 
     pub(super) fn root(&self) -> &Path {
         &self.root
-    }
-
-    pub(super) fn written_through(&self) -> Vec<PathBuf> {
-        let written: Vec<PathBuf> = self
-            .linked
-            .iter()
-            .filter(|linked| fs::metadata(&linked.origin).is_ok_and(|now| now.ino() == linked.inode && (now.len() != linked.len || now.modified().ok() != linked.modified)))
-            .map(|linked| linked.origin.clone())
-            .collect();
-        for path in &written {
-            let _ = fs::remove_file(path);
-        }
-        written
     }
 
     fn keep_times(&self) -> Result<(), String> {
@@ -77,7 +53,7 @@ impl OwnTree {
         Ok(())
     }
 
-    fn mirror(&mut self) -> std::io::Result<()> {
+    fn mirror(&self) -> std::io::Result<()> {
         let mut pending = vec![PathBuf::from(PROFILE)];
         while let Some(directory) = pending.pop() {
             fs::create_dir_all(self.root.join(&directory))?;
@@ -96,32 +72,18 @@ impl OwnTree {
         Ok(())
     }
 
-    fn place(&mut self, relative: &Path, kind: fs::FileType) -> std::io::Result<()> {
+    fn place(&self, relative: &Path, kind: fs::FileType) -> std::io::Result<()> {
         let (from, to) = (self.origin.join(relative), self.root.join(relative));
         if kind.is_symlink() {
             return std::os::unix::fs::symlink(fs::read_link(&from)?, &to);
         }
-        if !linked(relative) {
-            fs::copy(&from, &to)?;
-            return stamp(&to, &fs::metadata(&from)?);
-        }
-        fs::hard_link(&from, &to)?;
-        let meta = fs::metadata(&to)?;
-        self.linked.push(Linked { origin: from, inode: meta.ino(), len: meta.len(), modified: meta.modified().ok() });
-        Ok(())
+        fs::copy(&from, &to)?;
+        stamp(&to, &fs::metadata(&from)?)
     }
 }
 
 fn stamp(path: &Path, like: &fs::Metadata) -> std::io::Result<()> {
     fs::File::options().write(true).open(path)?.set_modified(like.modified()?)
-}
-
-fn linked(relative: &Path) -> bool {
-    let Ok(inner) = relative.strip_prefix(PROFILE) else { return false };
-    let name = inner.file_name().and_then(OsStr::to_str).unwrap_or_default();
-    let rewritten = name.starts_with('.') || name.ends_with(".d") || name.ends_with(".o");
-    let first = inner.components().next().and_then(|first| first.as_os_str().to_str()).unwrap_or_default();
-    !rewritten && (inner.components().count() == 1 || LINKED.contains(&first))
 }
 
 fn held(path: &Path, top: &Path) -> std::io::Result<fs::File> {

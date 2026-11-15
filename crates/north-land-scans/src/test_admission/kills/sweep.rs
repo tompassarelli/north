@@ -10,7 +10,7 @@ use toml_edit::DocumentMut;
 use north_build_system::{MutantStep, Mutants, Shell};
 use super::own_tree::OwnTree;
 use super::super::MutantBuild;
-use super::{BASELINE_FAILED, End, Lane, SHOWN, Tally, git, judge, sweep_cap, unavailable};
+use super::{BASELINE_FAILED, End, Lane, Tally, git, judge, sweep_cap, unavailable};
 
 const WORK: &str = "target/mutant-kills";
 const POLL: Duration = Duration::from_secs(2);
@@ -37,14 +37,7 @@ pub(super) fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) 
         Ok(tree) => tree,
         Err(why) => return unavailable(out, &format!("no copy of the check's checkout and build: {why}")),
     };
-    let mut judged = Vec::new();
-    let code = sweep(tree.root(), lane, cap, copying.elapsed().as_secs(), &mut judged);
-    let written = tree.written_through();
-    if !written.is_empty() {
-        return unavailable(out, &format!("the sweep wrote through a hard link into {} file(s) of the check's build directory, removed there so cargo rebuilds them: {}", written.len(), written.iter().take(SHOWN).map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")));
-    }
-    let _ = out.write_all(&judged);
-    code
+    sweep(tree.root(), lane, cap, copying.elapsed().as_secs(), out)
 }
 
 fn sweep(own: &Path, lane: &Lane, cap: u64, copied: u64, out: &mut impl Write) -> u8 {

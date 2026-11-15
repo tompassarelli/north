@@ -75,7 +75,7 @@ fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accep
     let lists = lists_at(directory, listed_at)?;
     let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {listed_at} lists no trust_boundary_paths, so no change can be told to cross one"))?;
     let unreviewed = reverts_unreviewed(directory, &fork, head, accepts, finished);
-    let crossing: Vec<String> = crossing.into_iter().filter(|_| !unreviewed).collect();
+    let crossing: Vec<String> = crossing.into_iter().filter(|_| !unreviewed).map(str::to_owned).collect();
     if crossing.is_empty() {
         return Ok(());
     }
@@ -100,7 +100,7 @@ fn gate_commit(directory: &Path) -> Option<String> {
 /// Whether `commit` landed after `gate`, crossed a trust-boundary path at its own landing, and holds no reviewer accept of its patch.
 fn unreviewed_landing(directory: &Path, gate: Option<&str>, commit: &str, accepts: &Accepts, finished: &[Finished]) -> bool {
     let parent = format!("{commit}^");
-    let crossed = changed(directory, &parent, commit).zip(lists_at(directory, &parent).ok()).and_then(|(files, lists)| trust_boundary::crossing(&lists, &files)).is_some_and(|crossing| !crossing.is_empty());
+    let crossed = changed(directory, &parent, commit).zip(lists_at(directory, &parent).ok()).is_some_and(|(files, lists)| trust_boundary::crossing(&lists, &files).is_some_and(|crossing| !crossing.is_empty()));
     let after_gate = gate.is_some_and(|gate| git::text(directory, &["merge-base", "--is-ancestor", gate, commit]).is_some());
     let unaccepted = reviewers(directory, &parent, commit, accepts, finished).is_ok_and(|(_, accepted)| accepted.is_empty());
     [crossed, after_gate, unaccepted].into_iter().all(std::convert::identity)
