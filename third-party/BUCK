@@ -123,6 +123,44 @@ cargo.rust_library(
 )
 
 http_archive(
+    name = "anstyle-1.0.14.crate",
+    sha256 = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000",
+    strip_prefix = "anstyle-1.0.14",
+    urls = ["https://static.crates.io/crates/anstyle/1.0.14/download"],
+    visibility = [],
+)
+
+cargo.rust_library(
+    name = "anstyle-1",
+    srcs = [":anstyle-1.0.14.crate"],
+    crate = "anstyle",
+    crate_root = "anstyle-1.0.14.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "anstyle",
+        "CARGO_CRATE_NAME": "anstyle",
+        "CARGO_MANIFEST_DIR": "anstyle-1.0.14.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "ANSI text styling",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "anstyle",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/rust-cli/anstyle.git",
+        "CARGO_PKG_RUST_VERSION": "1.66.0",
+        "CARGO_PKG_VERSION": "1.0.14",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "14",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "default",
+        "std",
+    ],
+    visibility = [],
+)
+
+http_archive(
     name = "autocfg-1.5.1.crate",
     sha256 = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53",
     strip_prefix = "autocfg-1.5.1",
@@ -686,6 +724,173 @@ cargo.rust_library(
         ":crypto-common-0.1",
         ":inout-0.1",
     ],
+)
+
+alias(
+    name = "clap",
+    actual = ":clap-4",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "clap-4.6.7.crate",
+    sha256 = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946",
+    strip_prefix = "clap-4.6.7",
+    urls = ["https://static.crates.io/crates/clap/4.6.7/download"],
+    visibility = [],
+)
+
+cargo.rust_library(
+    name = "clap-4",
+    srcs = [":clap-4.6.7.crate"],
+    crate = "clap",
+    crate_root = "clap-4.6.7.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "clap",
+        "CARGO_CRATE_NAME": "clap",
+        "CARGO_MANIFEST_DIR": "clap-4.6.7.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "A simple to use, efficient, and full-featured Command Line Argument Parser",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "clap",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/clap-rs/clap",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "4.6.7",
+        "CARGO_PKG_VERSION_MAJOR": "4",
+        "CARGO_PKG_VERSION_MINOR": "6",
+        "CARGO_PKG_VERSION_PATCH": "7",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "derive",
+        "error-context",
+        "std",
+    ],
+    visibility = [],
+    deps = [
+        ":clap_builder-4",
+        ":clap_derive-4",
+    ],
+)
+
+http_archive(
+    name = "clap_builder-4.6.7.crate",
+    sha256 = "ec0797fb7aeb1406c84efac526901f7ec3ead2124f946b494e72879d4b54704d",
+    strip_prefix = "clap_builder-4.6.7",
+    urls = ["https://static.crates.io/crates/clap_builder/4.6.7/download"],
+    visibility = [],
+)
+
+cargo.rust_library(
+    name = "clap_builder-4",
+    srcs = [":clap_builder-4.6.7.crate"],
+    crate = "clap_builder",
+    crate_root = "clap_builder-4.6.7.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "clap_builder",
+        "CARGO_CRATE_NAME": "clap_builder",
+        "CARGO_MANIFEST_DIR": "clap_builder-4.6.7.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "A simple to use, efficient, and full-featured Command Line Argument Parser",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "clap_builder",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/clap-rs/clap",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "4.6.7",
+        "CARGO_PKG_VERSION_MAJOR": "4",
+        "CARGO_PKG_VERSION_MINOR": "6",
+        "CARGO_PKG_VERSION_PATCH": "7",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "error-context",
+        "std",
+    ],
+    visibility = [],
+    deps = [
+        ":anstyle-1",
+        ":clap_lex-1",
+    ],
+)
+
+http_archive(
+    name = "clap_derive-4.6.7.crate",
+    sha256 = "f9c751b79415d4e559e3d1fcf128e09e720eb673a06d26cf6f392d37d75b66e0",
+    strip_prefix = "clap_derive-4.6.7",
+    urls = ["https://static.crates.io/crates/clap_derive/4.6.7/download"],
+    visibility = [],
+)
+
+cargo.rust_library(
+    name = "clap_derive-4",
+    srcs = [":clap_derive-4.6.7.crate"],
+    crate = "clap_derive",
+    crate_root = "clap_derive-4.6.7.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "clap_derive",
+        "CARGO_CRATE_NAME": "clap_derive",
+        "CARGO_MANIFEST_DIR": "clap_derive-4.6.7.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "Parse command line argument by defining a struct, derive crate.",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "clap_derive",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/clap-rs/clap",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "4.6.7",
+        "CARGO_PKG_VERSION_MAJOR": "4",
+        "CARGO_PKG_VERSION_MINOR": "6",
+        "CARGO_PKG_VERSION_PATCH": "7",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = ["default"],
+    proc_macro = True,
+    visibility = [],
+    deps = [
+        ":heck-0.5",
+        ":proc-macro2-1",
+        ":quote-1",
+        ":syn-3",
+    ],
+)
+
+http_archive(
+    name = "clap_lex-1.1.1.crate",
+    sha256 = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486",
+    strip_prefix = "clap_lex-1.1.1",
+    urls = ["https://static.crates.io/crates/clap_lex/1.1.1/download"],
+    visibility = [],
+)
+
+cargo.rust_library(
+    name = "clap_lex-1",
+    srcs = [":clap_lex-1.1.1.crate"],
+    crate = "clap_lex",
+    crate_root = "clap_lex-1.1.1.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "clap_lex",
+        "CARGO_CRATE_NAME": "clap_lex",
+        "CARGO_MANIFEST_DIR": "clap_lex-1.1.1.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "Minimal, flexible command line parser",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "clap_lex",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/clap-rs/clap",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "1.1.1",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
 )
 
 http_archive(

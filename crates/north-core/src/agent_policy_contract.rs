@@ -1,3 +1,4 @@
+use clap::Parser;
 use regex::Regex;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -45,39 +46,23 @@ fn py_list<'a>(items: impl Iterator<Item = &'a str>) -> String {
     format!("[{}]", items.map(py_repr).collect::<Vec<_>>().join(", "))
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
 struct Options {
+    #[arg(long, value_name = "FIRN", allow_hyphen_values = true, required = true)]
     repo: PathBuf,
+    #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
     north: Option<PathBuf>,
+    #[arg(long)]
     local: bool,
+    #[arg(long)]
     write: bool,
+    #[arg(long)]
     codex_adapters: bool,
 }
 
 fn parse(arguments: &[String]) -> Result<Options, String> {
-    let mut options = Options {
-        repo: PathBuf::new(),
-        north: None,
-        local: false,
-        write: false,
-        codex_adapters: false,
-    };
-    let mut repo = None;
-    let mut arguments = arguments.iter();
-    while let Some(argument) = arguments.next() {
-        let mut value = |flag: &str| {
-            arguments.next().map(PathBuf::from).ok_or_else(|| format!("{flag} needs a value"))
-        };
-        match argument.as_str() {
-            "--repo" => repo = Some(value("--repo")?),
-            "--north" => options.north = Some(value("--north")?),
-            "--local" => options.local = true,
-            "--write" => options.write = true,
-            "--codex-adapters" => options.codex_adapters = true,
-            other => return Err(format!("unknown argument {other}")),
-        }
-    }
-    options.repo = repo.ok_or("--repo is required")?;
-    Ok(options)
+    crate::arguments::parse(arguments)
 }
 
 struct Locations {
@@ -198,3 +183,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     verdict.code
 }
+
+#[cfg(test)]
+#[path = "agent_policy_contract_tests.rs"]
+mod tests;

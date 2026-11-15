@@ -1,0 +1,5 @@
+[[module]]
+name = "arguments"
+paths = ["crates/north-core/src/arguments.rs"]
+responsibility = "Parse a verb's arguments with clap's derive and translate its errors into north's usage messages, so every converted verb reports usage errors the same way."
+may_use = []
