@@ -46,7 +46,7 @@ exit "$status"
 
 const MINT: &str = r#"#!/usr/bin/env bash
 set -eu
-[ "$*" = "--app lander" ] || { echo "unexpected arguments: $*" >&2; exit 2; }
+case "$*" in "--app lander" | "--app lander --permission contents:write") ;; *) echo "unexpected arguments: $*" >&2; exit 2 ;; esac
 [ ! -e "$LAND_TRACE/mint-fail" ] || { echo "token exchange failed: HTTP 502" >&2; exit 1; }
 printf x >>"$LAND_TRACE/mints"
 echo app-token
