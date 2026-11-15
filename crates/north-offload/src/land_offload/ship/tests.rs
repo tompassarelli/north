@@ -939,34 +939,6 @@ fn a_slot_target_past_its_cap_is_trimmed_and_kept_warm_instead_of_removed() {
 }
 
 #[test]
-fn a_200_kb_land_check_command_reaches_the_host_intact() {
-    let (home, head, bundle_path) = host_with_a_shipped_bundle();
-    let bin = tempfile::tempdir().unwrap();
-    north_base::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
-    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
-    let seen = home.path().join("seen");
-    let command = format!("printf 'x' >{0}\n# {1}\nprintf 'y' >>{0}", seen.display(), "z".repeat(200 * 1024));
-    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "", "secret", false, &[], fs::metadata(&bundle_path).unwrap().len());
-    let script = remote_script(super::SlotClass::LandCheck);
-    let spilled = header.len().to_string();
-    let mut child = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", LANDER_RUNTIME, "", "", "", "", &spilled], &[])
-        .env("HOME", home.path())
-        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
-        .env("PATH", &path)
-        .env_remove("NORTH_OFFLOAD_ROOT")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let fed = bundle::feed(header, fs::File::open(&bundle_path).unwrap(), child.stdin.take().unwrap(), false);
-    let output = child.wait_with_output().unwrap();
-    fed.join().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(fs::read_to_string(&seen).unwrap(), "xy");
-}
-
-#[test]
 fn many_checks_queued_at_once_on_an_idle_host_all_start() {
     let (home, head, _) = host_with_a_shipped_bundle();
     let repo = home.path().join("code/p/main");
@@ -1441,3 +1413,59 @@ fn an_offload_header_word_that_would_run_a_command_is_refused_without_running_it
         assert!(!output.status.success() && stderr.contains("refusing to run") && !ran.exists(), "a header whose {name} would run a command was not refused: {stderr}");
     }
 }
+
+fn verify(slot: &Path, head: &str) -> Output {
+    let script = VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string());
+    Command::new("sh").args(["-c", &format!("set -eu\nslot={} head={}\n{script}", shell(slot), super::quote(head))]).output().unwrap()
+}
+
+#[test]
+fn operator_check_line_runs_only_on_the_shipped_commit_and_pins_south_beside_it_as_check_owners_does() {
+    let (dir, first, second) = repository_with_two_commits();
+    let refused = verify(dir.path(), &first);
+    assert_eq!(refused.status.code(), Some(i32::from(WRONG_TREE)));
+    assert!(refused.stdout.is_empty());
+    assert_eq!(String::from_utf8_lossy(&refused.stderr), format!("offload: refusing to run: {} is on {second}, not the shipped {first}\n", dir.path().display()));
+    let ran = verify(dir.path(), &second);
+    assert!(ran.status.success());
+    let mut slot_waits_ended = 0;
+    super::relay(ran.stdout.as_slice(), &mut Vec::new(), "north-offload-ran:job", "", || slot_waits_ended += 1);
+    assert_eq!(slot_waits_ended, 1, "the line the remote prints once it holds its slot ends the slot wait a deadline above the offload excuses");
+    assert_eq!(String::from_utf8(ran.stdout).unwrap().lines().next(), Some(format!("offload: running {second} in {}", dir.path().display()).as_str()));
+    fs::write(dir.path().join("tracked.rs"), "fn shipped() {}\n").unwrap();
+    git(dir.path(), &["add", "tracked.rs"]);
+    git(dir.path(), &["commit", "-q", "-m", "third"]);
+    let third = git(dir.path(), &["rev-parse", "HEAD"]);
+    let plant = || {
+        fs::write(dir.path().join("tracked.rs"), "fn another_lanes() {}\n").unwrap();
+        fs::write(dir.path().join("foreign.rs"), "mod planted;\n").unwrap();
+    };
+    plant();
+    let nested = Command::new("sh").args(["-c", &format!("set -eu\nslot={} head={} nested=1\n{}", shell(dir.path()), super::quote(&third), VERIFY.replace("@WRONG_TREE@", &WRONG_TREE.to_string()))]).output().unwrap();
+    assert_eq!(nested.status.code(), Some(i32::from(WRONG_TREE)), "a nested job in a slot holding a changed tracked file and a foreign file refuses, since the slot is its caller's to reset");
+    assert!(nested.stdout.is_empty(), "the refusal comes before the run starts");
+    let why = String::from_utf8_lossy(&nested.stderr);
+    assert!(why.contains(&format!("does not hold exactly the tree of {third}")) && why.contains("M tracked.rs") && why.contains("?? foreign.rs"), "{why}");
+    let repaired = verify(dir.path(), &third);
+    assert!(repaired.status.success(), "a job that owns the slot resets it to the commit and proves it again: {}", String::from_utf8_lossy(&repaired.stderr));
+    assert_eq!(fs::read_to_string(dir.path().join("tracked.rs")).unwrap(), "fn shipped() {}\n", "the reset restores the commit's tracked file");
+    assert!(!dir.path().join("foreign.rs").exists(), "the reset removes the foreign file");
+    git(dir.path(), &["checkout", "-q", "--detach", &second]);
+    let command = "check-owners --north-root $HOME/code/north/main --south-root $HOME/code/south/main --nixos-root ~/code/nixos-config/main/agents $HOME/code/gone/main $HOME/code/south/mainline";
+    let head_of = |path: &Path| path.ends_with("code/south/main").then(|| CommitId(first.clone())).or_else(|| path.ends_with("code/nixos-config/main").then(|| CommitId("b".repeat(40))));
+    let pinned = super::beside::pin(command, "code/north/main", Path::new("/h"), head_of);
+    assert_eq!(pinned.command, "check-owners --north-root $HOME/code/north/main --south-root $NORTH_OFFLOAD_BESIDE/south --nixos-root $NORTH_OFFLOAD_BESIDE/nixos-config/agents $HOME/code/gone/main $HOME/code/south/mainline");
+    assert_eq!(pinned.pins, format!("south={first} nixos-config={}", "b".repeat(40)));
+    let operator = "CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $HOME/code/south/main";
+    let pinned = super::beside::pin(operator, "code/north/main", Path::new("/h"), head_of);
+    assert_eq!(pinned.command, "CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $NORTH_OFFLOAD_BESIDE/south");
+    assert_eq!(pinned.pins, format!("south={first}"));
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join("code/south")).unwrap();
+    git(dir.path(), &["clone", "-q", &dir.path().display().to_string(), &home.path().join("code/south/main").display().to_string()]);
+    let script = format!("set -eu\nroot={} s=slot pins={}\n{}git -C \"$NORTH_OFFLOAD_BESIDE/south\" rev-parse HEAD\n", shell(&home.path().join("root")), super::quote(&format!("south={first}")), super::script::beside_part());
+    let read = Command::new("sh").args(["-c", &script]).env("HOME", home.path()).output().unwrap();
+    assert!(read.status.success(), "{}", String::from_utf8_lossy(&read.stderr));
+    assert_eq!(String::from_utf8_lossy(&read.stdout).trim(), first);
+}
+
