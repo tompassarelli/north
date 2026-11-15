@@ -62,4 +62,8 @@ fn the_land_check_outcome_file_reads_as_the_runner_writes_it_and_a_private_file_
     std::env::set_current_dir(&sealed_repo).unwrap();
     assert!(super::scan(&["sealed", &format!("{sealed_base}..{plain}")]).is_err(), "a plaintext file under secrets/ passed the sealed gate");
     assert!(super::scan(&["sealed", &format!("{plain}..{sealed_head}")]).is_ok(), "a sops-encrypted file under secrets/ was refused");
+    let mixed = commit(&sealed_repo, "secrets/mixed.yaml", &format!("{SEALED}token: fixture-not-a-credential\n"));
+    let left_plain = commit(&sealed_repo, "secrets/left-plain.yaml", &format!("{SEALED}note_unencrypted: fixture-note\n"));
+    assert!(super::scan(&["sealed", &format!("{sealed_head}..{mixed}")]).is_err(), "a plaintext value beside a sops block passed the sealed gate");
+    assert!(super::scan(&["sealed", &format!("{mixed}..{left_plain}")]).is_ok(), "a sops block with a plaintext key that its own unencrypted suffix allows was refused");
 }
