@@ -72,11 +72,11 @@ pub(super) fn one_lane(flag: Option<&str>) -> bool {
     flag == Some("1")
 }
 
-/// Judges each lane of `range` against its own diff with `judge` and returns the worst verdict, stopping at the first refusal, so one lane's added tests are never paired with the mutants of another lane's diff. `--here` and a range the checks before queueing flag as one lane are one lane; any other range splits at the probe's `tips` when they end at its head, else at each commit, since a lane lands as one commit.
+/// Judges each lane of `range` against its own diff with `judge` and returns the worst verdict, stopping at the first refusal, so one lane's added tests are never paired with the mutants of another lane's diff. `--here` and a range the checks before queueing flag as one lane are one lane; a probe of several lanes splits at its `tips` when they end at its head, else at each commit; any other range is one lane, so a later commit that strengthens an earlier commit's test counts.
 fn judge_each<O: Write>(directory: &Path, range: &str, tips: &str, whole: bool, mut judge: impl FnMut(&Lane, &mut O) -> u8, out: &mut O) -> Option<u8> {
     let mut worst = 0;
     let mut judged = false;
-    for part in crate::lanes::ranges(directory, range, tips, whole)? {
+    for part in crate::lanes::ranges(directory, range, tips, whole || tips.split_whitespace().next().is_none())? {
         let Some(lane) = lane(directory, &part)? else { continue };
         judged = true;
         match judge(&lane, out) {

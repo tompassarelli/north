@@ -44,7 +44,6 @@ fn lane(repo: &Path, path: &str, text: &str) -> String {
     git_in(repo, &["rev-parse", "HEAD"])
 }
 
-#[test]
 fn a_probe_judges_the_mutant_kill_on_its_merged_tree_only_when_two_of_its_lanes_touch_the_same_file() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();
@@ -63,6 +62,7 @@ fn a_probe_judges_the_mutant_kill_on_its_merged_tree_only_when_two_of_its_lanes_
 
 #[test]
 fn kills_judges_each_added_test_against_the_lane_that_added_it() {
+    a_probe_judges_the_mutant_kill_on_its_merged_tree_only_when_two_of_its_lanes_touch_the_same_file();
     let root = tempfile::tempdir().unwrap();
     let repo = root.path();
     git_in(repo, &["init", "-q", "-b", "main"]);
@@ -81,7 +81,8 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     let mut out = Vec::new();
 
     let mut judged = Vec::new();
-    let code = judge_each(repo, &range, "", false, |lane, _| {
+    let tips = format!("{first} {second}");
+    let code = judge_each(repo, &range, &tips, false, |lane, _| {
         judged.push((lane.names.iter().cloned().collect::<Vec<_>>(), lane.files.clone()));
         0
     }, &mut out);
@@ -91,7 +92,7 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     assert!(judged[0].1.iter().all(|file| file.starts_with("crates/a/")), "the first lane's tests are judged against the first lane's diff only: {judged:?}");
 
     let mut by_tips = 0;
-    judge_each(repo, &range, &format!("{first} {second}"), false, |_, _| { by_tips += 1; 0 }, &mut out);
+    judge_each(repo, &range, &tips, false, |_, _| { by_tips += 1; 0 }, &mut out);
     assert_eq!(by_tips, 1, "lane tips split the range the same way");
 
     let mut whole = Vec::new();
@@ -104,7 +105,7 @@ fn kills_judges_each_added_test_against_the_lane_that_added_it() {
     let work = root.path().join("work");
     std::fs::create_dir_all(work.join("mutants.out")).unwrap();
     std::fs::write(work.join("mutants.out/missed.txt"), "crates/a/src/lib.rs:1:5: replace f -> u8 with 0\n").unwrap();
-    let survived = judge_each(repo, &range, "", false, |lane, out| judge(&work, lane, &End::Exited(ExitStatus::from_raw(0)), Tally { total: 1, cap: 900, seconds: 1 }, out), &mut out);
+    let survived = judge_each(repo, &range, &tips, false, |lane, out| judge(&work, lane, &End::Exited(ExitStatus::from_raw(0)), Tally { total: 1, cap: 900, seconds: 1 }, out), &mut out);
     assert_eq!(survived, Some(1), "a lane whose own added tests kill none of its own mutants still fails");
     assert!(String::from_utf8_lossy(&out).contains("a_test_guards_f survive all 1 mutant(s)"));
 
@@ -165,4 +166,32 @@ fn snapshot(root: &Path) -> Vec<(std::path::PathBuf, Vec<u8>, std::time::SystemT
     }
     found.sort();
     found
+}
+
+#[test]
+fn a_lane_whose_second_commit_strengthens_its_test_is_judged_as_one_diff() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    let safe_push = "[mutant]\n\tsource = \":(glob)crates/*/src/**/*.rs\"\n\tsource = \":(exclude,glob)**/*tests*.rs\"\n";
+    lane(repo, ".safe-push", safe_push);
+    lane(repo, "crates/a/src/lib_tests.rs", "use super::*;\n");
+    let main = lane(repo, "crates/a/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    std::fs::write(repo.join("crates/a/src/lib.rs"), "pub fn f() -> u8 { 3 }\n").unwrap();
+    std::fs::write(repo.join("crates/a/src/lib_tests.rs"), "use super::*;\n#[test]\nfn a_test_guards_f() {\n    assert_eq!(f() > 0, true);\n}\n").unwrap();
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-qm", "fix and weak test"]);
+    std::fs::write(repo.join("crates/a/src/lib_tests.rs"), "use super::*;\n#[test]\nfn a_test_guards_f() {\n    assert_eq!(f(), 3);\n}\n").unwrap();
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-qm", "stronger test"]);
+    let head = git_in(repo, &["rev-parse", "HEAD"]);
+
+    let mut judged = 0;
+    let code = judge_each(repo, &format!("{main}..{head}"), "", false, |lane, _| {
+        judged += 1;
+        assert_eq!(lane.head, head);
+        0
+    }, &mut Vec::new());
+    assert_eq!(code, Some(0));
+    assert_eq!(judged, 1, "on 2026-11-11 a lane whose second commit strengthened its first commit's test was refused at the first commit (north#1575)");
 }
