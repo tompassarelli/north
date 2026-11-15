@@ -9,7 +9,7 @@ use super::evidence::IssueState;
 use super::exec::{git, git_with, LIMIT};
 use north_base::foundation::clock::Timestamp;
 
-pub(super) const CLOSED_ISSUE_HOURS: f64 = 7.0 * 24.0;
+pub(super) const CLOSED_ISSUE_HOURS: f64 = 24.0;
 pub(super) const NO_ISSUE_HOURS: f64 = 14.0 * 24.0;
 const LOCK_STALE_MS: i64 = 3_600_000;
 const STALE_LOCK: std::time::Duration = std::time::Duration::from_secs(60);

@@ -273,7 +273,7 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     let dry = fixture.run(&["--dry-run"]);
     for expected in [
         "north: retire ~/code/north/worktrees/equiv (equiv, ",
-        "north: superseded ~/code/north/worktrees/sup: keep (touched within 7 days)",
+        "north: archive ~/code/north/worktrees/sup (",
         "north: stale-dirty ~/code/north/worktrees/wip: surface to north-parent",
         "north: owned ~/code/north/worktrees/own: surface to north-parent (north#5 north#6)",
         "north: owned ~/code/north/worktrees/held: surface to north-parent",
@@ -287,18 +287,17 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     assert!(dry.contains("north: drop the origin/main upstream of 1 lane branches"), "{dry}");
 
     let out = fixture.run(&[]);
-    assert!(fixture.gone("equiv") && !fixture.gone("sup") && fixture.kept_intact(), "{out}");
+    assert!(fixture.gone("equiv") && fixture.gone("sup") && fixture.kept_intact(), "{out}");
     assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.gone.remote"]), "a section whose branch no longer exists is pruned: {out}");
     assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.equiv.remote"]), "a section whose branch this run deleted is pruned: {out}");
     assert!(rig.git_ok(&fixture.main, &["config", "--get", "branch.wip.remote"]), "a kept branch keeps its config: {out}");
-    assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.sup.merge"]) && !rig.git_ok(&fixture.main, &["config", "--get", "branch.sup.remote"]), "a kept lane drops the origin/main upstream lanes no longer write: {out}");
     assert_eq!(rig.github_calls(), 2, "one search per run: {}", rig.read("gh-calls"));
     let wip = rig.home.join("code/north/worktrees/wip");
     assert!(wip.join("new.txt").is_file() && fs::read_to_string(wip.join("README")).unwrap().contains("edited"));
 
     let mut unlanded: Vec<String> = rig.read("unlanded.txt").lines().filter(|line| !line.starts_with('#')).map(|line| line.split('\t').collect::<Vec<_>>()).filter(|fields| fields[1] == "north").map(|fields| fields[3].to_string()).collect();
     unlanded.sort();
-    assert_eq!(unlanded, ["held", "loose", "own", "sup", "wip"]);
+    assert_eq!(unlanded, ["held", "loose", "own", "wip"]);
     let stale: Value = serde_json::from_str(&rig.read("stale.json")).unwrap();
     let mut owned: Vec<(String, Vec<String>, String)> = stale["repos"]["north"]["owned"]
         .as_array()
@@ -311,16 +310,12 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     let fault = || vec!["fault: names no issue".to_string()];
     assert_eq!(
         owned,
-        [("held".into(), fault(), parent.clone()), ("loose".into(), fault(), parent.clone()), ("own".into(), vec!["north#5=closed".into(), "north#6=open".into()], parent.clone()), ("sup".into(), vec!["north#5=closed".into()], parent.clone()), ("wip".into(), fault(), parent)]
+        [("held".into(), fault(), parent.clone()), ("loose".into(), fault(), parent.clone()), ("own".into(), vec!["north#5=closed".into(), "north#6=open".into()], parent.clone()), ("wip".into(), fault(), parent)]
     );
     let alerts = rig.read("alerts");
     assert_eq!(alerts.lines().count(), 1, "{alerts}");
     assert!(alerts.starts_with("normal|scratch-parent: 26 lanes hold unique work"), "{alerts}");
 
-    let later = String::from_utf8(Command::new("date").args(["-u", "-d", &format!("{} + 8 days", &fixture.now[..10]), "+%F"]).output().unwrap().stdout).unwrap();
-    let week_on = fixture.now.replace(&fixture.now[..10], later.trim());
-    let out = rig.lane_gc(&week_on, &[], &[]);
-    assert!(fixture.gone("sup") && fixture.kept_intact(), "{out}");
     let bundles: Vec<PathBuf> = fs::read_dir(rig.home.join("archive/lanes/north")).unwrap().map(|entry| entry.unwrap().path()).filter(|path| path.extension().is_some_and(|ext| ext == "bundle")).collect();
     assert_eq!(bundles.len(), 1, "{out}");
     assert!(rig.git_ok(&fixture.main, &["bundle", "verify", "-q", bundles[0].to_str().unwrap()]));
