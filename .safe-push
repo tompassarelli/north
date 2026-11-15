@@ -25,6 +25,7 @@
 [land]
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets ${SAFE_PUSH_LAND_CHANGED:---workspace} --locked --offline -- -D warnings
 	check = @enqueue,Cargo.toml,Cargo.lock,crates/,BUCK,build/,third-party/,toolchains/ :: north buck targets --check --third-party
+	check = @enqueue,build/host-cases.list,Cargo.toml,:(glob)**/BUCK :: north buck targets --check
 	check = Cargo.toml,Cargo.lock,crates/,BUCK,build/,third-party/,toolchains/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-buck/src/,crates/north-build-system/src/,src/cli/ --no-build buck targets --check
 	check = @enqueue,@lane,harness/gates.toml,.safe-push :: north land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = Cargo.lock,:(glob)**/BUCK,:(glob)**/*.bzl,build/,third-party/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-checks/src/,crates/north-build-system/src/,src/cli/ --no-build land graph-build
@@ -92,6 +93,7 @@
 	after-only = it reports the tree's Rust line-budget excess on its issue and refuses no lane for size :: ./bin/land-shell --dev -- north code-health budget --json | CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ code-health over-budget
 	after-only = it runs every shell and Python harness test on a clean runner, where the changed ones run as the machine-bound land tests on the lander :: .github/workflows/harness.yml:test
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north buck targets --check --third-party"
+	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north buck targets --check"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan review-accept ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan safe-push-keys ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
