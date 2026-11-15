@@ -19,17 +19,28 @@ fn granted(lane: &Path, head: &str, turn: &Path) -> Granted {
     Granted { session: "w-joining".to_owned(), arguments: [FLAG, CHECKED, "--", "sh", "-c", &command].map(str::to_owned).to_vec(), directory: lane.to_owned(), environment, command, head: head.to_owned(), _turn: std::fs::File::create(turn).unwrap() }
 }
 
-/// A finish check joins the run before queueing only on a build host the broker's own placement names: with none, or with this host, the worker's command keeps its domain.
+/// A finish check joins the run before queueing only on a build host the broker's own placement names: with none, or with this host, the worker's command keeps its domain. Its base is origin/main of the trusted mirror, not of the lane's store, whose origin a worker can point at a repository it made.
 pub(in crate::worker_sandbox) fn joins_only_on_a_build_host_the_brokers_own_placement_names() {
     let scratch = tempfile::tempdir().unwrap();
-    let (lane, north) = (scratch.path().join("lane"), scratch.path().join("north"));
-    std::fs::create_dir_all(&lane).unwrap();
-    git(&lane, &["init", "-q", "-b", "lane"]);
+    let project = scratch.path().join("p");
+    let (origin, forged, main, lane, north) = (scratch.path().join("origin.git"), scratch.path().join("forged.git"), project.join("main"), project.join("worktrees/lane"), scratch.path().join("north"));
+    std::fs::create_dir_all(&main).unwrap();
+    git(scratch.path(), &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()]);
+    git(scratch.path(), &["init", "-q", "--bare", "-b", "main", &forged.to_string_lossy()]);
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "What origin sent"]);
+    let sent = git(&main, &["rev-parse", "HEAD"]);
+    git(&main, &["remote", "add", "origin", &origin.to_string_lossy()]);
+    git(&main, &["push", "-q", "origin", "main"]);
+    north_trusted_mirror::Mirror::open(&main).unwrap();
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "A base the worker chose"]);
+    git(&main, &["push", "-q", &forged.to_string_lossy(), "main"]);
+    git(&main, &["remote", "set-url", "origin", &forged.to_string_lossy()]);
+    git(&main, &["worktree", "add", "-q", "-b", "lane", &lane.to_string_lossy()]);
     std::fs::write(lane.join(".safe-push"), "[land]\n\tcheck = ** :: true\n").unwrap();
     git(&lane, &["add", ".safe-push"]);
     git(&lane, &["commit", "-qm", "A head whose checks name no runner"]);
     let head = git(&lane, &["rev-parse", "HEAD"]);
-    git(&lane, &["update-ref", "refs/remotes/origin/main", &head]);
     write_script(&north, NORTH);
     let domain = granted(&lane, &head, &scratch.path().join("turn")).arguments;
 
@@ -42,7 +53,7 @@ pub(in crate::worker_sandbox) fn joins_only_on_a_build_host_the_brokers_own_plac
 
     std::fs::write(north.with_extension("host"), "builder\n").unwrap();
     let placed = granted(&lane, &head, &scratch.path().join("turn")).joining(&north);
-    assert_eq!(placed.arguments, ["land", "checks", "--accept", "echo ran >> /tmp/outside-the-lane", "--base", &head, "--head", &head, "--runner-host", "builder"], "a joined finish check did not go to the broker's build host alone, on the destination's tip");
+    assert_eq!(placed.arguments, ["land", "checks", "--accept", "echo ran >> /tmp/outside-the-lane", "--base", &sent, "--head", &head, "--runner-host", "builder"], "a joined finish check did not go to the broker's build host alone, on origin/main of the trusted mirror");
 }
 
 /// A finish check asked from a process in a scope nested under the session's own scope is the session's, found by its record.

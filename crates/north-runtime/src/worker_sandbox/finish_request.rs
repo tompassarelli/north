@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use north_base::platform::finish_record::{FinishRecords, Finished};
+use north_trusted_mirror::Mirror;
 
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
@@ -108,7 +109,7 @@ fn on_lane(head: &str, checkout: &Checkout, environment: &[(String, String)]) ->
 }
 
 impl Granted {
-    /// The same grant with the acceptance command run as one more check of the lane's run before queueing on the commit it names (north#1036), when the broker's own `north capacity offload choose` names a build host other than this one and the runtime's `north land checks` says the command joins that run (the switch is on, and the command and every check before queueing are portable): the broker starts that run itself, outside the worker domain as it starts a session's safe-push, so the land checks key and record each verdict as the lander's own, every check sent through the offload grant, first to that host (`--runner-host`) and spread over the hosts the same placement names, which may hold this host's own offload slots, never to one the head's `.safe-push` names and never run outside the offload, since the command's text is the worker's; and the exit code it records from is the run's verdict on the command, never a word of the request. The base is the destination's tip fetched as the finish call fetches it, so the keys are the ones safe-push reads. A grant that names no commit, a host with no build host to give, or a command that does not join keeps its own command, run in a worker domain.
+    /// The same grant with the acceptance command run as one more check of the lane's run before queueing on the commit it names (north#1036), when the broker's own `north capacity offload choose` names a build host other than this one and the runtime's `north land checks` says the command joins that run (the switch is on, and the command and every check before queueing are portable): the broker starts that run itself, outside the worker domain as it starts a session's safe-push, so the land checks key and record each verdict as the lander's own, every check sent through the offload grant, first to that host (`--runner-host`) and spread over the hosts the same placement names, which may hold this host's own offload slots, never to one the head's `.safe-push` names and never run outside the offload, since the command's text is the worker's; and the exit code it records from is the run's verdict on the command, never a word of the request. The base is origin/main of the project's trusted mirror, fetched from origin, never a ref or remote of the lane's store, which the worker writes. A grant that names no commit, a host with no build host to give, or a command that does not join keeps its own command, run in a worker domain.
     pub(super) fn joining(mut self, north: &Path) -> Self {
         if self.head.is_empty() {
             return self;
@@ -144,13 +145,8 @@ impl Granted {
     }
 
     fn base(&self) -> Option<String> {
-        let git = |arguments: &[&str]| {
-            let output = Command::new("git").arg("-C").arg(&self.directory).args(arguments).env_clear().envs(self.environment.iter().cloned()).stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|output| output.status.success());
-            output.map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|text| !text.is_empty())
-        };
-        let destination = git(&["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]).and_then(|reference| reference.strip_prefix("refs/remotes/origin/").map(str::to_owned)).filter(|name| !name.is_empty()).unwrap_or_else(|| "main".to_owned());
-        let _ = git(&["fetch", "-q", "origin", &format!("+refs/heads/{destination}:refs/remotes/origin/{destination}")]);
-        git(&["rev-parse", "--verify", &format!("refs/remotes/origin/{destination}^{{commit}}")])
+        let main = self.directory.parent()?.parent()?.join("main");
+        Mirror::open(&main).ok()?.fetch_origin().ok()
     }
 
     /// Writes the session's finish record for the command's exit code `code`, in the store of the broker's own environment, once the lane's working state after the run is exactly the tree of the commit the record names: the command ran on that working state, and the record vouches for that tree, so a commit whose tree differs from what ran is recorded for nothing.
