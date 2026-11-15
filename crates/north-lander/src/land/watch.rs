@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+mod covered;
 mod hand_off;
 mod culprits;
 mod journal;
@@ -295,11 +296,23 @@ impl Watch {
     }
 
     fn start_next(&mut self, lander: &Lander) {
-        if self.pending.batches.is_empty() {
+        let now = epoch();
+        let limit = after_runs(lander);
+        if self.running.len() >= limit || !self.pending.batches.iter().any(|batch| batch.retry_at <= now) {
             return;
         }
-        let limit = after_runs(lander);
+        self.drop_covered(lander);
         while self.running.len() < limit && self.start_one(lander) {}
+    }
+
+    fn drop_covered(&mut self, lander: &Lander) {
+        let Some(passed) = covered::passed(lander) else { return };
+        let (dropped, waiting): (Vec<Batch>, Vec<Batch>) = std::mem::take(&mut self.pending.batches).into_iter().partition(|batch| covered::covers(lander, &passed, batch));
+        self.pending.batches = waiting;
+        for batch in dropped {
+            println!("north land: the full test line passed at {passed}, which holds the {} landings the waiting after-landing run of {} covers, so that run is dropped", batch.heads.len(), batch.head);
+            retire(lander, &batch, &format!("covered by the full test line that passed at {passed}"));
+        }
     }
 
     fn start_one(&mut self, lander: &Lander) -> bool {
