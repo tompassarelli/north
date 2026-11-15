@@ -16,16 +16,22 @@ const LOCK: &str = "Cargo.lock";
 const LOCKED: [&str; 4] = ["name", "version", "source", "checksum"];
 
 pub(super) fn covers_command(layout: &Layout, flags: &[String]) -> Option<Result<(), Failure>> {
-    let (mut head, mut code) = ("HEAD", Vec::new());
+    let (mut head, mut from, mut code) = ("HEAD", None, Vec::new());
     let mut rest = flags.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
             ("--head", Some(value)) => head = value.as_str(),
+            ("--from", Some(value)) => from = Some(value.as_str()),
             ("--code", Some(value)) => code.extend(value.split(',').filter(|path| !path.is_empty()).map(str::to_owned)),
             _ => return None,
         }
     }
-    Some(covers(layout, Path::new("."), head, &code).map(|north| println!("{}", north.display())))
+    let checkout = Path::new(".");
+    Some(match from {
+        Some(from) if code_unchanged(checkout, from, head, &code) => Ok(()),
+        Some(from) => Err(failed(1, format!("{head} changes {} since {from}", changed_what(&code)))),
+        None => covers(layout, checkout, head, &code).map(|north| println!("{}", north.display())),
+    })
 }
 
 pub(super) fn covers(layout: &Layout, checkout: &Path, head: &str, code: &[String]) -> Result<PathBuf, Failure> {
@@ -34,17 +40,24 @@ pub(super) fn covers(layout: &Layout, checkout: &Path, head: &str, code: &[Strin
     if !north.is_file() {
         return Err(failed(1, format!("{} is missing", north.display())));
     }
+    if !code_unchanged(checkout, &live, head, code) {
+        return Err(failed(1, format!("{head} changes {} since the live runtime {}", changed_what(code), layout::short(&live))));
+    }
+    Ok(north)
+}
+
+fn code_unchanged(checkout: &Path, from: &str, head: &str, code: &[String]) -> bool {
     let lock_moved = std::cell::OnceCell::new();
     let input = |path: &str| match path {
         _ if code.is_empty() => rust_build_input(path),
-        LOCK => *lock_moved.get_or_init(|| !keeps_every_locked_package(checkout, &live, head)),
+        LOCK => *lock_moved.get_or_init(|| !keeps_every_locked_package(checkout, from, head)),
         _ => path == TOOLCHAIN || code.iter().any(|prefix| path.starts_with(prefix.as_str())),
     };
-    if !unchanged_by(checkout, &live, head, input) {
-        let what = if code.is_empty() { "a Rust build input".to_owned() } else { format!("{}, a package Cargo.lock held or {TOOLCHAIN}", code.join(", ")) };
-        return Err(failed(1, format!("{head} changes {what} since the live runtime {}", layout::short(&live))));
-    }
-    Ok(north)
+    unchanged_by(checkout, from, head, input)
+}
+
+fn changed_what(code: &[String]) -> String {
+    if code.is_empty() { "a Rust build input".to_owned() } else { format!("{}, a package Cargo.lock held or {TOOLCHAIN}", code.join(", ")) }
 }
 
 pub(super) fn reuse(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, commissioned_only: bool) -> bool {

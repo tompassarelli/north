@@ -237,8 +237,8 @@ fn live_covering(worktree: &Path, code: &[String]) -> Option<PathBuf> {
     String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim())).filter(|path| path.is_file())
 }
 
-/// The north that runs the due `north` generators: for an urgent fix the installed one, so it never waits on a build (north#1631); else the live one when it covers their code, else the one built ahead for the merged tree; none when no due generator is a `north` command.
-fn generator_north(worktree: &Path, due: &[(&merge_set::Rule, &String, &Vec<String>)], installed: bool) -> Result<Option<PathBuf>, Unrefreshed> {
+/// The north that runs the due `north` generators: for an urgent fix the installed one, so it never waits on a build (north#1631); else the live one when it covers their code, else the one built ahead for the base tree when it covers them, else the one built ahead for the merged tree; none when no due generator is a `north` command.
+fn generator_north(worktree: &Path, base: &str, due: &[(&merge_set::Rule, &String, &Vec<String>)], installed: bool) -> Result<Option<PathBuf>, Unrefreshed> {
     let north: Vec<_> = due.iter().filter(|(_, command, _)| command.split_whitespace().next() == Some("north")).collect();
     if north.is_empty() {
         return Ok(None);
@@ -247,10 +247,19 @@ fn generator_north(worktree: &Path, due: &[(&merge_set::Rule, &String, &Vec<Stri
         return merge_set::driver_program().map(Some).ok_or_else(|| Unrefreshed::from("no installed north runs this lander to regenerate an urgent fix's derived files".to_owned()));
     }
     let code: Vec<String> = north.iter().flat_map(|(_, _, generator)| generator.iter().cloned()).collect();
-    if let Some(live) = live_covering(worktree, &code) {
-        return Ok(Some(live));
+    if let Some(covering) = live_covering(worktree, &code).or_else(|| base_covering(worktree, base, &code)) {
+        return Ok(Some(covering));
     }
     Ok(Some(built_ahead(worktree, stdout(worktree, &["rev-parse", "HEAD^{tree}"])?.trim())?))
+}
+
+/// The north built ahead for the tree of `base` when HEAD changes none of `code` since it, so a lane behind a landing that changed a generator waits on no build of its merged tree while that landing's runtime is not yet live (north#1247).
+fn base_covering(worktree: &Path, base: &str, code: &[String]) -> Option<PathBuf> {
+    let north = merge_set::driver_program()?;
+    Command::new(&north).args(["runtime", "covers", "--from", base, "--head", "HEAD", "--code", &code.join(",")]).current_dir(worktree).output().ok().filter(|output| output.status.success())?;
+    let tree = stdout(worktree, &["rev-parse", &format!("{base}^{{tree}}")]).ok()?;
+    let output = Command::new(&north).args(["runtime", "build-ahead", "--fetch", "--tree", tree.trim()]).current_dir(worktree).output().ok().filter(|output| output.status.success())?;
+    String::from_utf8_lossy(&output.stdout).lines().last().map(|path| PathBuf::from(path.trim())).filter(|path| path.is_file())
 }
 
 /// Runs, once each, the generator of every derived file the list at `base` names whose file, inputs or generator code
@@ -271,7 +280,7 @@ pub fn refresh(worktree: &Path, base: &str, picked_onto: &str, installed: bool) 
     if due.is_empty() {
         return Ok(Vec::new());
     }
-    let built = generator_north(worktree, &due, installed)?;
+    let built = generator_north(worktree, base, &due, installed)?;
     let mut ran: Vec<&String> = Vec::new();
     for (_, command, generator) in &due {
         if !ran.contains(command) {
