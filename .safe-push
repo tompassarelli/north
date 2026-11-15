@@ -56,7 +56,7 @@
 	check = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/ --no-build docs readme --check
 	check = @enqueue,flake.lock,harness/nix/lock-allow.toml :: north check nix --lock flake.lock --allow harness/nix/lock-allow.toml
 	check = "@enqueue,@lane,src/,crates/,tests/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/ --no-build land scan test-admission kills --remote-north \"CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/\" ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
-	check = @enqueue,** :: north check citations --root $PWD
+	check = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ check citations --root $PWD
 	check = @enqueue,harness/scripts/,harness/lib/,bin/,.safe-push,flake.nix :: north land scan nix-entry ${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,.safe-push,src/,crates/ :: north land scan safe-push-verbs ${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: north check experiments --root .
@@ -102,7 +102,7 @@
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health gate ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health habits --new-since ${SAFE_PUSH_LAND_BASE}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check nix --lock flake.lock --allow harness/nix/lock-allow.toml"
-	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check citations --root $PWD"
+	local-only = "static scan on the hand-in host that runs the lane's own north only when the CLI or the checker changed, so no other lane build waits for a build-host slot (north#1247) :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ check citations --root $PWD"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan nix-entry ${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan safe-push-verbs ${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check experiments --root ."
