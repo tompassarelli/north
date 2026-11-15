@@ -14,6 +14,8 @@ const RECENT_LAUNCHES: usize = 2;
 const PROBE_PROVIDER: &str = "claude";
 const PROBE_LIMIT: Duration = Duration::from_secs(300);
 const OWNER: &str = "tompassarelli";
+const LANDING_REPO: &str = "north";
+const LANDER_SILENT: Duration = Duration::from_secs(30 * 60);
 
 pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's look budgets for at most 30 minutes, only while the last two launches failed or the launch probe exits non-zero, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard while `north ledger flow --stall-alarm` reports a landing stall, until the stall clears)";
 
@@ -89,15 +91,15 @@ pub fn invoke(world: &impl World, reason: &str, issue: Option<&str>) -> Result<G
         return Err(Refusal::NoReason);
     }
     let now = world.now_ms();
-    if let Some((repo, episode)) = world.landing_stalls().into_iter().next() {
+    if let Some(episode) = world.landing_stalls().remove(LANDING_REPO) {
         let grant = Grant {
             at_ms: now,
             until_ms: now,
             who: world.who(),
             reason: reason.to_owned(),
             issue: None,
-            evidence: format!("the lander stalled in {repo}"),
-            landing: Some(Landing { repo, opened_ms: episode.opened_ms }),
+            evidence: format!("the lander stalled in {LANDING_REPO}"),
+            landing: Some(Landing { repo: LANDING_REPO.to_owned(), opened_ms: episode.opened_ms }),
         };
         world.record(&grant).map_err(Refusal::Unrecorded)?;
         return Ok(grant);
@@ -221,7 +223,9 @@ impl World for Live {
     }
 
     fn landing_stalls(&self) -> State {
-        landing_stall::load(&self.landing_file())
+        let path = self.landing_file();
+        let fresh = std::fs::metadata(&path).and_then(|meta| meta.modified()).ok().and_then(|modified| modified.elapsed().ok()).is_some_and(|age| age <= LANDER_SILENT);
+        if fresh { landing_stall::load(&path) } else { State::new() }
     }
 
     fn grants(&self) -> Vec<Grant> {

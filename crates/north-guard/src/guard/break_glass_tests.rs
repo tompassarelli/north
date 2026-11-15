@@ -106,4 +106,6 @@ fn break_glass_lifts_then_expires_and_is_in_the_digest() {
 
     let stall_digest = digest_section(&stall_grants, NOW - 1, NOW + 31 * 60_000);
     assert!(stall_digest.contains("lifted until the landing stall clears") && stall_digest.contains("the landing-is-stalled issue of north"), "{stall_digest}");
+    let other_repo = Fake::new(&[true, true], Some(0)).stalled("wisp", NOW - 60_000);
+    assert!(matches!(invoke(&other_repo, "landing outage", None), Err(Refusal::WorkersCanLaunch(_))), "a stall in another repository lifts nothing");
 }
