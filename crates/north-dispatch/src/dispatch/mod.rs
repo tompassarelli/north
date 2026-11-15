@@ -56,6 +56,7 @@ mod plan;
 mod record;
 mod report;
 mod retired;
+pub mod round;
 mod revive;
 mod screen;
 mod scope;
@@ -91,7 +92,7 @@ mod spread_tests;
 #[cfg(test)]
 mod revive_tests;
 
-const USAGE: &str = "usage: north fleet dispatch [--dry-run] [--draft REPO#N...] | review NAME --item REPO#N --category C [--box TEXT] [--landing] | verdict --session NAME --category C --sha SHA clean|defect CLASS | pause --reason TEXT | resume | paused | queued --by HOST --item REPO#N [--box TEXT] -- WORDS | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north fleet dispatch [--dry-run] [--draft REPO#N...] | review NAME --item REPO#N --category C [--box TEXT] [--landing] | verdict --session NAME --category C --sha SHA clean|defect CLASS | pause --reason TEXT | resume | paused | round | queued --by HOST --item REPO#N [--box TEXT] -- WORDS | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -231,6 +232,7 @@ fn review_verb(verb: &str, rest: &[String]) -> Option<u8> {
 fn queue_verb(verb: &str, rest: &[String]) -> Option<u8> {
     match (verb, rest) {
         ("paused", []) => Some(queued::paused()),
+        ("round", []) => Some(round::serve()),
         ("queued", _) => Some(queued::serve(rest)),
         ("needs", [item]) => Some(host_needs::serve(item)),
         ("need", [session, need, item @ ..]) if item.len() < 2 => Some(host_needs::serve_need(session, need, item.first().map(String::as_str))),
@@ -270,6 +272,9 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let stopped = execute(&survey, &outcome, dry_run);
+    if !dry_run && let Err(why) = round::Round::of(&outcome, &stopped, placement::now()).save() {
+        eprintln!("north fleet dispatch: round not recorded: {why}");
+    }
     print_lines(leads::stop_all(&outcome.tree.stops, dry_run, |lead| effects::stop_lead(&survey, lead)));
     print_lines(drafting::pass(&survey, &outcome, &mut pools, None, dry_run));
     print_lines(deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run));
