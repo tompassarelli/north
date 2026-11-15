@@ -157,9 +157,13 @@ fn own_rules(home: &Path) {
     assert!(matches!(built.picks[..], [Pick::Included, Pick::Included]), "{:?}", built.picks.iter().map(candidate::recorded).collect::<Vec<_>>());
     let jailed = fs::read_to_string(home.join(JAILED)).unwrap_or_default();
     assert!(jailed.starts_with("--worker-sandbox --candidate -- ") && jailed.contains(&home.join("built-north").display().to_string()) && jailed.contains("structure-index"), "the landing base's regenerate command runs inside the candidate jail: {jailed:?}");
-    assert!(jailed.lines().any(|line| line.starts_with("--worker-sandbox --candidate -- env -C /tmp cargo metadata ")), "the compile after the rebase read the rebased manifest outside the candidate jail: {jailed:?}");
     let offloaded = fs::read_to_string(home.join(OFFLOADED)).unwrap_or_default();
-    assert!(!offloaded.is_empty() && offloaded.lines().all(|line| line.contains(" -- CARGO_TARGET_DIR=target north --worker-sandbox --candidate -- ./bin/land-shell --dev -- cargo check ")), "the compile line shipped to the build host runs the rebased lane outside the candidate jail: {offloaded:?}");
+    if north_lander::land::rebase_compile::enabled() {
+        assert!(jailed.lines().any(|line| line.starts_with("--worker-sandbox --candidate -- env -C /tmp cargo metadata ")), "the compile after the rebase read the rebased manifest outside the candidate jail: {jailed:?}");
+        assert!(!offloaded.is_empty() && offloaded.lines().all(|line| line.contains(" -- CARGO_TARGET_DIR=target north --worker-sandbox --candidate -- ./bin/land-shell --dev -- cargo check ")), "the compile line shipped to the build host runs the rebased lane outside the candidate jail: {offloaded:?}");
+    } else {
+        assert!(offloaded.is_empty() && !jailed.contains("cargo metadata"), "with rebase_compile off the lander compiles nothing at a lane's pick: {offloaded:?} {jailed:?}");
+    }
     assert_eq!(run(&worktree, &["show", "HEAD:structure.toml"]).matches("[[implicit_state.allow]]").count(), 2);
 }
 

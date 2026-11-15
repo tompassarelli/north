@@ -140,7 +140,11 @@ fn rebase_compile_scenario(dir: &Path) {
     compile_ahead(&repo, &logs, &north, &waiting);
     let ahead = Ahead { lane_head: head.clone(), picked_onto: moved.clone(), checked_on: checked_on.clone() };
     let lane_tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
-    assert!(rebase_compile::reused(&ahead, &lane_tree, "waiting").flatten().is_some_and(|refused| refused.verdict.contains("error[E0063]")), "the compile that ran while the lane waited, onto the main it is picked onto, still refuses it before its push");
+    if rebase_compile::enabled() {
+        assert!(rebase_compile::reused(&ahead, &lane_tree, "waiting").flatten().is_some_and(|refused| refused.verdict.contains("error[E0063]")), "the compile that ran while the lane waited, onto the main it is picked onto, still refuses it before its push");
+    } else {
+        assert!(rebase_compile::reused(&ahead, &lane_tree, "waiting").is_none(), "with rebase_compile off the lander compiles no waiting lane ahead of its pick");
+    }
     let offline = dir.join("offline");
     write_script(&offline, &format!("{PASS_JAILED}case \"$3\" in\n  choose) echo build-host-one ;;\n  run) echo 'error: no matching package named `a` found' >&2; exit 101 ;;\nesac\n"));
     assert!(rebase_compile::judge(&rebased, &offline, &logs, "lane").unwrap().is_none(), "cargo exits 101 for a resolver failure too, which says nothing about the lane");
