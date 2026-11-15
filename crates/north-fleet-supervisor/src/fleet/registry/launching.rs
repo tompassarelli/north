@@ -43,7 +43,6 @@ impl Fleet {
     }
 
     fn launch_as(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<SessionRecord> {
-        crate::fleet::launch_lane::check(&request.prompt, &request.cwd)?;
         if north_base::platform::review_accept::reserved(&request.name) {
             return Err(NorthError::Usage(format!("{} is a name only the broker's review call records accepts under, so no session is launched under it", request.name)));
         }
