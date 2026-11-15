@@ -12,6 +12,7 @@ north-foundation = { path = "../north-foundation" }
 north-shared-config = { path = "../north-shared-config" }
 base64.workspace = true
 percent-encoding.workspace = true
+nix = { workspace = true, features = ["socket"] }
 regex.workspace = true
 ring.workspace = true
 rusqlite.workspace = true

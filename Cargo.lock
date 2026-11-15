@@ -1096,6 +1096,7 @@ name = "north-base"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "nix 0.31.3",
  "north-foundation",
  "north-shared-config",
  "north-strategy-types",
@@ -1119,7 +1120,6 @@ name = "north-broker"
 version = "0.1.0"
 dependencies = [
  "base64",
- "nix 0.31.3",
  "north-base",
  "north-runtime-follow",
  "percent-encoding",
@@ -1562,7 +1562,6 @@ dependencies = [
 name = "north-github-broker"
 version = "0.1.0"
 dependencies = [
- "nix 0.31.3",
  "north-base",
  "north-runtime-follow",
  "rustix 0.38.44",

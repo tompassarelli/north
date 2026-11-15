@@ -10,6 +10,7 @@ regex = "=1.13.1"
 percent-encoding = "2.3.2"
 base64 = "0.22.1"
 clap = { version = "4.6.7", default-features = false, features = ["derive", "error-context", "std"] }
+nix = { version = "0.31", default-features = false }
 ring = "0.17"
 rusqlite = { version = "0.41", features = ["backup", "bundled", "functions", "hooks", "serialize"] }
 rustix = { version = "0.38", features = ["event", "fs", "mount", "net", "process", "pty", "stdio", "termios", "thread", "time"] }

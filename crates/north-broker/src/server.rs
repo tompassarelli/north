@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::io::Read;
-use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use north_base::foundation::clock::Timestamp;
-use north_base::platform::session_scope;
+use north_base::platform::{session_scope, socket_peer};
 use north_base::platform::broker_wire::{Request, Response, read_request, write_response};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -303,27 +302,13 @@ fn error_of(response: &Response) -> String {
 }
 
 pub(crate) fn peer(stream: &UnixStream) -> Option<Peer> {
-    let uid = rustix::net::sockopt::get_socket_peercred(stream).ok()?.uid.as_raw();
-    let pidfd = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::PeerPidfd).ok()?;
-    let pid = pid_of(&pidfd)?;
-    let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok();
-    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok();
-    let peer = Peer { uid, pid, lane_only: cgroup.as_deref().is_none_or(session_scope::lane_only_cgroup), no_new_privs: status.as_deref().is_none_or(no_new_privileges), unit: cgroup.as_deref().map_or_else(|| "-".to_owned(), unit_of) };
-    alive(&pidfd).then_some(peer)
+    let held = socket_peer::hold(stream, |pid| (std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok(), std::fs::read_to_string(format!("/proc/{pid}/status")).ok()))?;
+    let (cgroup, status) = held.read;
+    Some(Peer { uid: held.uid, pid: held.pid, lane_only: cgroup.as_deref().is_none_or(session_scope::lane_only_cgroup), no_new_privs: status.as_deref().is_none_or(no_new_privileges), unit: cgroup.as_deref().map_or_else(|| "-".to_owned(), unit_of) })
 }
 
 fn no_new_privileges(status: &str) -> bool {
     !status.lines().find_map(|line| line.strip_prefix("NoNewPrivs:")).is_some_and(|value| value.trim() == "0")
-}
-
-fn pid_of(pidfd: &OwnedFd) -> Option<i32> {
-    let fdinfo = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", pidfd.as_raw_fd())).ok()?;
-    fdinfo.lines().find_map(|line| line.strip_prefix("Pid:"))?.trim().parse().ok().filter(|pid| *pid > 0)
-}
-
-fn alive(pidfd: &OwnedFd) -> bool {
-    let mut exited = [rustix::event::PollFd::new(pidfd, rustix::event::PollFlags::IN)];
-    rustix::event::poll(&mut exited, 0).is_ok_and(|ready| ready == 0)
 }
 
 fn unit_of(cgroup: &str) -> String {

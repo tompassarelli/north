@@ -755,8 +755,8 @@ web search. A figure marked (secondary) comes from a summary, not the paper.
   Outcome: adopted as a dependency of north-land-sandbox; nothing copied.
 
 - <a id="nix-crate"></a>**`nix` crate 0.31.3** (https://github.com/nix-rust/nix, MIT), accessed 2026-11-15, pinned by `Cargo.lock` checksum; with the `socket` feature (and `process`, `ptrace` and `signal` for north-land-sandbox) it reaches libc, bitflags, cfg-if and memoffset, all already in the lock, and nothing at run time beyond the system calls it wraps.
-  Informed: the safe `getsockopt(SO_PEERPIDFD)` the broker takes each caller's pidfd with; rustix 0.38 has no such getter and the workspace forbids `unsafe`.
-  Outcome: adopted as a dependency of north-broker, and north-land-sandbox moves to it from 0.29 so north's own crates name one `nix` and Buck2 one `//third-party:nix` (mac_address and termwiz still bring in 0.29.0); nothing copied.
+  Informed: the safe `getsockopt(SO_PEERPIDFD)` with which north-base's `socket_peer` holds each broker caller by its pidfd; rustix 0.38 has no such getter and the workspace forbids `unsafe`.
+  Outcome: adopted as a workspace dependency of north-base, and north-land-sandbox moves to it from 0.29 so north's own crates name one `nix` and Buck2 one `//third-party:nix` (mac_address and termwiz still bring in 0.29.0); nothing copied.
 
 ### Machinery that takes over a model's judgment
 

@@ -311,16 +311,21 @@ fn a_services_rest_read_spends_the_app_token_and_falls_back_to_its_own_login_whe
     let (api, _github) = fake_github();
     let broker = Broker::new(Upstream::new(&api), Settings::default());
     let app = super::app_reads::AppReads::with(Box::new(|| Some("ghs_app".to_owned())));
-    let token = |caller: &str, method: &str, target: &str| {
+    let token = |unit: Option<&str>, method: &str, target: &str| {
         let headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), "token gho_personal".to_owned())];
-        let caller = super::calls::Caller { name: caller.to_owned(), cgroup: None };
+        let caller = super::calls::Caller { name: "lane-gc.service".to_owned(), cgroup: unit.map(|unit| format!("0::/user.slice/user-1000.slice/user@1000.service/{unit}\n")), ours: true };
         let (sent, response, _) = app.serve(&broker, &caller, Request { method: method.to_owned(), target: target.to_owned(), headers, body: Vec::new() });
         (response.status, sent.header("authorization").unwrap_or("").to_owned())
     };
-    assert_eq!(token("fleet-tick.service", "GET", "/whoami"), (200, "token ghs_app".to_owned()));
-    assert_eq!(token("app-niri-ghostty-1.scope", "GET", "/whoami"), (200, "token gho_personal".to_owned()), "an interactive shell keeps its own login");
-    assert_eq!(token("fleet-tick.service", "POST", "/repos/o/r/issues/1/comments"), (201, "token gho_personal".to_owned()), "a write keeps its author");
-    assert_eq!(token("fleet-tick.service", "GET", "/repos/o/uninstalled"), (200, "token gho_personal".to_owned()), "a repository the app cannot read is read with the unit's own login");
+    assert_eq!(token(Some("lane-gc.service"), "GET", "/whoami"), (200, "token ghs_app".to_owned()));
+    assert_eq!(token(Some("north-land@north.service"), "GET", "/whoami"), (200, "token ghs_app".to_owned()), "a repository's lander borrows");
+    assert_eq!(token(Some("run-p1234-i5678.service"), "GET", "/whoami"), (200, "token gho_personal".to_owned()), "a transient unit borrows nothing");
+    assert_eq!(token(Some("north-session-77c49ab1.scope"), "GET", "/whoami"), (200, "token gho_personal".to_owned()), "a caller whose environment names a service but whose cgroup does not borrows nothing");
+    assert_eq!(token(Some("north-worker-outside-4142672.service"), "GET", "/whoami"), (200, "token gho_personal".to_owned()), "a service outside the allowlist borrows nothing");
+    assert_eq!(token(None, "GET", "/whoami"), (200, "token gho_personal".to_owned()), "a peer whose cgroup was not held borrows nothing");
+    assert_eq!(token(Some("app-niri-ghostty-1.scope"), "GET", "/whoami"), (200, "token gho_personal".to_owned()), "an interactive shell keeps its own login");
+    assert_eq!(token(Some("lane-gc.service"), "POST", "/repos/o/r/issues/1/comments"), (201, "token gho_personal".to_owned()), "a write keeps its author");
+    assert_eq!(token(Some("lane-gc.service"), "GET", "/repos/o/uninstalled"), (200, "token gho_personal".to_owned()), "a repository the app cannot read is read with the unit's own login");
 }
 
 #[test]
@@ -331,7 +336,7 @@ fn a_worker_scope_callers_call_carries_a_credential_added_outside_its_domain() {
     let sent = |scope: &str, method: &str, credential: Option<&str>| {
         let mut headers = vec![("Host".to_owned(), "api.github.com".to_owned())];
         headers.extend(credential.map(|credential| ("Authorization".to_owned(), format!("token {credential}"))));
-        let caller = super::calls::Caller { name: "north-1397-worker".to_owned(), cgroup: Some(format!("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/{scope}\n")) };
+        let caller = super::calls::Caller { name: "north-1397-worker".to_owned(), cgroup: Some(format!("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/{scope}\n")), ours: false };
         let (sent, response, _) = app.serve(&broker, &caller, Request { method: method.to_owned(), target: "/whoami".to_owned(), headers, body: Vec::new() });
         (response.status, sent.header("authorization").unwrap_or("").to_owned())
     };

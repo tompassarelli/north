@@ -10,7 +10,6 @@ publish = false
 north-runtime-follow = { path = "../north-runtime-follow" }
 north-base = { path = "../north-base" }
 base64.workspace = true
-nix = { version = "0.31", default-features = false, features = ["socket"] }
 percent-encoding.workspace = true
 ring.workspace = true
 rustix.workspace = true
