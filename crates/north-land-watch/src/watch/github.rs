@@ -58,7 +58,7 @@ fn red_main(context: &WatchContext, repo: &RepoFacts) -> Vec<Alert> {
             continue;
         }
         let short = &run.head_sha[..run.head_sha.len().min(12)];
-        if crate::landing::pipe_verdicts::green_after_landing(&context.state, &run.head_sha) {
+        if crate::landing::pipe_verdicts::green_after_landing(&context.state, &repo.name, &run.head_sha) {
             let summary = format!("{} {workflow} on main commit {short} is red on the hosted runner but green in the lander's after-landing run on a build host: a hosted-runner difference, no commit is blamed ({})", repo.name, run.html_url);
             alerts.push(raise(repo, &format!("hosted-only-red:{workflow}"), Severity::Warn, None, summary, at(&run.updated_at).unwrap_or(context.now)));
             continue;

@@ -45,10 +45,10 @@ fn ledger_rows(state: &Path) -> Vec<String> {
 }
 
 /// Whether a lander's after-landing run on a build host read commit `sha` green.
-pub fn green_after_landing(state: &Path, sha: &str) -> bool {
+pub fn green_after_landing(state: &Path, repo: &str, sha: &str) -> bool {
     ledger_rows(state).iter().any(|row| {
         let columns: Vec<&str> = row.split('\t').collect();
-        columns.get(3) == Some(&"green") && columns.get(2).is_some_and(|landed| !sha.is_empty() && (landed.starts_with(sha) || sha.starts_with(landed)))
+        columns.get(1) == Some(&repo) && columns.get(3) == Some(&"green") && columns.get(2).is_some_and(|landed| landed.len() >= 7 && sha.len() >= 7 && (landed.starts_with(sha) || sha.starts_with(landed)))
     })
 }
 
