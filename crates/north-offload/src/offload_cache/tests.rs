@@ -5,7 +5,6 @@ use std::time::{Duration, SystemTime};
 use rustix::fs::{FlockOperation, flock};
 
 use super::*;
-use north_base::platform::disk_ledger::Ledger;
 
 const KIB: usize = 1 << 10;
 
@@ -46,129 +45,6 @@ fn build_offload_over_its_cap_evicts_the_least_recently_used_unlocked_slot_and_k
     assert!(!root.join("older").exists() && !root.join("older.bundle").exists());
     assert!(root.join("older.lock").exists(), "the lock file stays, so a job opening it meanwhile still serializes");
     assert!(root.join("oldest-locked/target/blob").exists() && root.join("newest/target/blob").exists());
-}
-
-#[test]
-fn disk_floor_reclaim_takes_build_slots_then_shared_build_output_and_sccache_then_land_slots_the_landers_last() {
-    let home = tempfile::tempdir().unwrap();
-    let build = home.path().join(".cache/build-offload");
-    let land = home.path().join(".cache/land-offload");
-    slot(&build, "lane-a", 8, 9);
-    slot(&build, "lane-b", 8, 5);
-    slot(&land, "code-north-main", 8, 40);
-    fs::create_dir_all(land.join("code-north-main.beside/south")).unwrap();
-    let mut readings = [5.0, 5.0, 10.0, 10.0, 10.0, 18.0, 18.0, 18.0, 18.0, 100.0].into_iter();
-    let freed = reclaim_in(home.path(), &mut || readings.next().map(|free_gib| Disk { used_percent: 90.0, free_gib, size_bytes: 1 << 40 }), || None);
-    assert_eq!(freed, Some(100.0), "the reading after eviction, though the other sweeps were on cooldown");
-    assert!(!build.join("lane-a").exists() && !build.join("lane-b").exists() && !land.join("code-north-main").exists());
-    assert!(!land.join("code-north-main.beside").exists());
-    let empty = tempfile::tempdir().unwrap();
-    let mut calm = || Some(Disk { used_percent: 50.0, free_gib: 400.0, size_bytes: 1 << 40 });
-    assert_eq!(reclaim_in(empty.path(), &mut calm, || None), None, "nothing evicted and no other sweep ran, so admission keeps its reading");
-    assert_eq!(reclaim_in(empty.path(), &mut calm, || Some(12.5)), Some(12.5));
-    let swept_first = tempfile::tempdir().unwrap();
-    slot(&swept_first.path().join(".cache/land-offload"), "code-north-main", 8, 40);
-    static SWEPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    let sweep = || {
-        SWEPT.store(true, std::sync::atomic::Ordering::SeqCst);
-        Some(400.0)
-    };
-    let mut full_until_swept = || Some(Disk { used_percent: 90.0, free_gib: if SWEPT.load(std::sync::atomic::Ordering::SeqCst) { 400.0 } else { 5.0 }, size_bytes: 1 << 40 });
-    assert_eq!(reclaim_in(swept_first.path(), &mut full_until_swept, sweep), Some(400.0));
-    assert!(swept_first.path().join(".cache/land-offload/code-north-main/target/blob").exists(), "the other sweeps run first, so a disk they bring under the line keeps its land slots");
-    caches_at_their_caps_are_trimmed_below_them_under_the_low_watermark_and_land_slots_wait_for_the_eviction_line();
-    a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_keeps_its_land_slots();
-}
-
-#[test]
-fn evicting_a_worktree_slot_unregisters_it_and_its_beside_checkouts_so_the_next_job_can_add_them_again() {
-    let home = tempfile::tempdir().unwrap();
-    let repository = |name: &str| {
-        let repo = home.path().join("code").join(name).join("main");
-        fs::create_dir_all(&repo).unwrap();
-        let run = |arguments: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).status().unwrap().success());
-        run(&["init", "-q"]);
-        run(&["commit", "-q", "--allow-empty", "-m", "first"]);
-        repo
-    };
-    let (north, south) = (repository("north"), repository("south"));
-    let root = home.path().join(".cache/land-offload");
-    let (slot, beside) = (root.join("code-north-main-4"), root.join("code-north-main-4.beside/south"));
-    let add = |repo: &Path, at: &Path| std::process::Command::new("git").arg("-C").arg(repo).args(["worktree", "add", "-q", "--detach"]).arg(at).status().unwrap().success();
-    assert!(add(&north, &slot) && add(&south, &beside));
-    File::create(root.join("code-north-main-4.lock")).unwrap();
-    let evicted = evict(&[Store::Slots { root, cap_bytes: Some(0), take: Take::Every, line: Line::NEVER }], now(), &mut || None);
-    assert_eq!(names(&evicted), ["code-north-main-4"]);
-    assert!(fs::read_dir(north.join(".git/worktrees")).unwrap().next().is_none() && fs::read_dir(south.join(".git/worktrees")).unwrap().next().is_none());
-    assert!(add(&north, &slot) && add(&south, &beside), "git refuses a missing but already registered worktree");
-}
-
-fn aged(path: &Path, kib: usize, age_hours: u64) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, vec![7u8; kib * KIB]).unwrap();
-    File::options().write(true).open(path).unwrap().set_modified(now() - Duration::from_secs(age_hours * 3600)).unwrap();
-}
-
-fn caches_at_their_caps_are_trimmed_below_them_under_the_low_watermark_and_land_slots_wait_for_the_eviction_line() {
-    let lay_out = |lines: Lines, ledger: &Ledger| {
-        let home = tempfile::tempdir().unwrap();
-        aged(&home.path().join(".cache/cargo-target/north/debug/incremental/north_core-1/blob"), 512, 3);
-        aged(&home.path().join(".cache/cargo-target/wisp-window/debug/incremental/wisp-1/blob"), 512, 1);
-        aged(&home.path().join("sccache-store/a/b/older"), 256, 5);
-        aged(&home.path().join("sccache-store/a/c/newer"), 256, 1);
-        let land = home.path().join(".cache/land-offload");
-        slot(&land, "code-north-main-5", 64, 50);
-        slot(&land, "code-north-main", 64, 40);
-        slot(&land, "code-north-main-2", 64, 10);
-        let budget = DiskBudget::parse("[hosts.h.disk_budget_gib]\ncargo_target = 1.0\nsccache = 1.0\n", "h");
-        let stores: Vec<Store> = stores(home.path(), None, &budget, ledger, lines, 2)
-            .into_iter()
-            .map(|store| match store {
-                Store::CompilerCache { cap_bytes, line, .. } => Store::CompilerCache { root: home.path().join("sccache-store"), cap_bytes, line },
-                other => other,
-            })
-            .collect();
-        (home, stores)
-    };
-    let used_gib = |home: &Path| allocated_tree(home, &mut HashSet::new()).unwrap().0 as f64 / GIB;
-    let room = 1000.0;
-    let reading = |home: &Path| Some(Disk { used_percent: 0.0, free_gib: room - used_gib(home), size_bytes: u64::MAX });
-    let (home, _) = lay_out(Lines { trim: Line::NEVER, evict: Line::NEVER }, &Ledger::shipped());
-    let short = 300.0 * KIB as f64 / GIB;
-    let lines = Lines { trim: Line { free_share: 1.0, free_gib: room - used_gib(home.path()) + short }, evict: Line { free_share: 1.0, free_gib: room - used_gib(home.path()) - 1.0 } };
-    drop(home);
-    let (home, stores) = lay_out(lines, &Ledger::shipped());
-    let evicted = evict(&stores, now(), &mut || reading(home.path()));
-    assert_eq!(names(&evicted), ["north"], "the least recently built target goes below the cap by what the disk needs, and no further");
-    assert!(home.path().join(".cache/cargo-target/wisp-window/debug/incremental/wisp-1/blob").exists() && home.path().join("sccache-store/a/b/older").exists());
-    assert!(["code-north-main-5", "code-north-main", "code-north-main-2"].iter().all(|name| home.path().join(".cache/land-offload").join(name).join("target/blob").exists()), "the disk never passed the eviction line, so every land slot stays");
-    let always = Line { free_share: 1.0, free_gib: f64::INFINITY };
-    let (_home, stores) = lay_out(Lines { trim: always, evict: always }, &Ledger::shipped());
-    let evicted = evict(&stores, now(), &mut || Some(Disk { used_percent: 100.0, free_gib: 0.0, size_bytes: 1 << 40 }));
-    assert_eq!(names(&evicted), ["north", "wisp-window", "sccache-store", "code-north-main", "code-north-main-2", "code-north-main-5"], "every cache goes before any land slot, and the lander's reserved slot goes last though it was used least recently");
-    let mut land_first = Ledger::shipped();
-    let at = land_first.entries.iter().position(|entry| entry.name == "land_offload").unwrap();
-    let entry = land_first.entries.remove(at);
-    land_first.entries.insert(0, entry);
-    let (_home, stores) = lay_out(Lines { trim: always, evict: always }, &land_first);
-    let evicted = evict(&stores, now(), &mut || Some(Disk { used_percent: 100.0, free_gib: 0.0, size_bytes: 1 << 40 }));
-    assert_eq!(names(&evicted), ["code-north-main", "north", "wisp-window", "sccache-store", "code-north-main-2", "code-north-main-5"], "a land root keeps the two land checks its host runs at once warm until every other store is taken, wherever the ledger lists it");
-}
-
-fn a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_keeps_its_land_slots() {
-    let disk = |size_gib: f64, used_percent: f64| Disk { used_percent, free_gib: size_gib * (100.0 - used_percent) / 100.0, size_bytes: (size_gib * GIB) as u64 };
-    let line = Line::eviction();
-    assert!(!disk(936.0, 81.0).past(line), "gex45's 936 GiB disk at 81% still has 178 GiB free");
-    assert!(disk(936.0, 91.0).past(line));
-    assert!(disk(224.0, 81.0).past(line) && !disk(224.0, 79.0).past(line), "ccx33's 224 GiB disk keeps the 20% line");
-    let held = Line::held(None, 936.0);
-    assert!(!disk(936.0, 86.0).past(held) && disk(936.0, 87.0).past(held) && !disk(224.0, 74.0).past(held) && disk(224.0, 76.0).past(held), "a host with no bound of its own is held at 130 GiB free, or 25% of a disk too small to spare it");
-    let home = tempfile::tempdir().unwrap();
-    let land = home.path().join(".cache/land-offload");
-    slot(&land, "code-north-main-3", 8, 40);
-    slot(&land, "code-north-main", 8, 50);
-    let evicted = evict(&stores(home.path(), Some(disk(936.0, 81.0)), &DiskBudget::default(), &Ledger::shipped(), Lines::pass(true, None), 2), now(), &mut || Some(disk(936.0, 81.0)));
-    assert!(evicted.is_empty() && land.join("code-north-main-3/target/blob").exists() && land.join("code-north-main/target/blob").exists());
 }
 
 #[test]

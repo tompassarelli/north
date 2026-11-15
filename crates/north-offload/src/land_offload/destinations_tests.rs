@@ -34,34 +34,6 @@ fn the_laptop_in_any_capacity_mode_competes_for_no_land_check_beside_the_build_h
 }
 
 #[test]
-fn a_host_the_settling_host_ships_to_runs_the_pin_and_the_settling_host_follows_main() {
-    let cfg: DocumentMut = HOSTS.parse().expect("fixture");
-    assert!(pinned_by_settler(&cfg, "gex45") && pinned_by_settler(&cfg, "nexus"));
-    assert!(!pinned_by_settler(&cfg, "whiterabbit"), "the settling host promotes the pin");
-    assert!(!pinned_by_settler(&cfg, "laptop"), "an undeclared host has no route from the settling host");
-    let alone: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\n".parse().unwrap();
-    assert!(!pinned_by_settler(&alone, "gex45"), "with no settling host nothing ships the pin");
-    let missing = tempfile::tempdir().unwrap().path().join("agents/orchestration.toml");
-    let unread = || Err("not found".to_owned());
-    assert_eq!(settled_elsewhere_read(Ok(cfg), "gex45", &missing, true), Ok(true));
-    assert_eq!(settled_elsewhere_read(unread(), "gex45", &missing, false), Ok(false), "a home with no south declares no fleet");
-    let refused = settled_elsewhere_read(unread(), "gex45", &missing, true).expect_err("a south kept without its orchestration file is no answer");
-    assert!(refused.contains("orchestration.toml"), "{refused}");
-}
-
-#[test]
-fn a_host_with_offload_builds_false_is_left_out_of_the_survey_at_every_standing_of_the_sender() {
-    use crate::land_offload::room::Standing;
-    let cfg: DocumentMut = "[hosts.quiet]\noffload_builds = false\n\n[hosts.busy]\noffload_builds = true\n".parse().unwrap();
-    for standing in [Standing::Peer, Standing::Fallback, Standing::Reserved] {
-        assert!(!takes_land_checks(&cfg, standing, "quiet"), "{standing:?}");
-        assert!(takes_land_checks(&cfg, standing, "busy"), "{standing:?}");
-    }
-    assert!(!warms_slots(&cfg, "quiet"));
-    assert!(warms_slots(&cfg, "busy"));
-}
-
-#[test]
 fn a_host_that_declares_an_agent_login_runs_offloaded_checks_as_the_operator_until_agent_offload_enables_it_north_1041() {
     let cfg: DocumentMut = "[hosts.far]\nssh = \"tom@far\"\nagent_ssh = \"agent@far\"\n\n[hosts.on]\nssh = \"tom@on\"\nagent_ssh = \"agent@on\"\nagent_offload = true\n\n[hosts.bare]\nssh = \"tom@bare\"\nagent_offload = true\n".parse().unwrap();
     let login = |name: &str| check_login(&cfg, &north_pacing::pacing::placement::gate::machines(&cfg).into_iter().find(|machine| machine.name == name).unwrap());

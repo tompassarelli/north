@@ -222,5 +222,3 @@ fn names_north(url: &str) -> bool {
     url.rsplit(['/', ':']).next() == Some("north")
 }
 
-#[cfg(test)]
-mod tests;

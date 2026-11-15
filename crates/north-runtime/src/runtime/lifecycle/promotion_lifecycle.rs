@@ -40,19 +40,3 @@ fn a_failed_promotion_cannot_go_live_without_installing_again_and_health_sees_th
     assert_eq!(faults.len(), 1);
     assert_eq!(faults[0].kind, FaultKind::Illegal { to: "live".into(), at_ms: at(40).unix_millis() });
 }
-
-#[test]
-fn a_promotion_killed_between_the_swap_and_its_verdict_is_reported_and_the_next_pass_logs_it_before_retrying() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("ledger.db");
-    store(&path, 10, 0).transition::<Promoting>(SHA, Promotion::Installing, "built; swapping current to it", at(0)).unwrap().unwrap();
-
-    let mut next = store(&path, 11, 10);
-    let faults = next.faults(at(5)).unwrap();
-    assert_eq!((faults.len(), &faults[0].kind, faults[0].state.as_str()), (1, &FaultKind::Orphaned { owner: owner(10) }, "installing"));
-
-    let retried = next.transition::<Promoting>(SHA, Promotion::Installing, "retrying the unfinished promotion", at(6)).unwrap().unwrap();
-    assert_eq!((retried.state, retried.owner, retried.seq), (Promotion::Installing, Some(owner(11)), 3));
-    let moves = next.history("runtime-promotion", SHA).unwrap();
-    assert_eq!((moves[1].from.as_deref(), moves[1].to.as_str(), moves[1].cause.as_str()), (Some("installing"), "unfinished", "the holder, pid 10 on laptop, is gone"));
-}

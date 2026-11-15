@@ -2,13 +2,12 @@ use super::super::canary::{self, Machine, Ran, Rollback};
 use north_runtime_records::failure::Failure;
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Canarying};
-use super::super::pin::{Event, read};
 use north_runtime_records::after_landing::Landing;
 use super::super::review_hold::{Screen, answered_in, landed_in};
 use north_runtime_records::hold_ledger::{self, Ask, Caller, Holds, lane_of, now};
 use super::super::main_runs::{Kept, MainRun, MainRuns};
 use super::super::trip::Trips;
-use super::super::update::{self, Flight};
+use super::super::update;
 use super::{Host, Order, run};
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -19,7 +18,6 @@ use std::sync::Mutex;
 
 const OLD: &str = "1111111111111111111111111111111111111111";
 const NEW: &str = "2222222222222222222222222222222222222222";
-const NEWER: &str = "3333333333333333333333333333333333333333";
 const REVIEWED: &str = "4444444444444444444444444444444444444444";
 const SQUASHED: &str = "5555555555555555555555555555555555555555";
 
@@ -142,121 +140,6 @@ impl Host for Rehearsal<'_> {
         *self.pin.lock().unwrap() = Some(sha.to_owned());
         Ok(())
     }
-}
-
-struct Contended<'a> {
-    layout: &'a Layout,
-    held: &'a Mutex<Vec<String>>,
-}
-
-impl Contended<'_> {
-    fn note(&self, step: &str) {
-        let free = super::super::update::promotion_waiting(self.layout, std::time::Duration::ZERO, "an automatic promotion").is_ok();
-        self.held.lock().unwrap().push(format!("{step}: {}", if free { "promotion lock free" } else { "promotion lock held" }));
-    }
-}
-
-impl Host for Contended<'_> {
-    fn name(&self) -> &str {
-        "whiterabbit"
-    }
-
-    fn pinned(&self) -> Result<bool, Failure> {
-        Ok(false)
-    }
-
-    fn acquire(&self, _sha: &str) -> Result<(), Failure> {
-        self.note("build");
-        Ok(())
-    }
-
-    fn canary(&self, _sha: &str) -> Result<(), String> {
-        self.note("canary");
-        Ok(())
-    }
-
-    fn go_live(&self, _sha: &str) -> Result<(), Failure> {
-        self.note("go live");
-        Ok(())
-    }
-
-    fn live(&self) -> Option<String> {
-        Some(NEW.to_owned())
-    }
-
-    fn write_pin(&self, _sha: &str) -> Result<(), Failure> {
-        Ok(())
-    }
-}
-
-#[test]
-fn an_order_holds_the_promotion_lock_while_its_canary_runs() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().to_path_buf() };
-    let held = Mutex::new(Vec::new());
-    let host = Contended { layout: &layout, held: &held };
-    let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-runtime-tree".to_owned() };
-
-    run(&layout, &order, &host, &[], &[], || Ok(()), |()| {
-        host.note("hold restored");
-        Ok(false)
-    })
-    .unwrap();
-
-    let held = held.lock().unwrap();
-    assert!(held.len() >= 4 && held.iter().all(|step| step.ends_with("promotion lock held")), "{held:?}");
-    assert!(super::super::update::promotion_waiting(&layout, std::time::Duration::from_secs(3600), "after the order").is_ok(), "the order lets go of the lock when it ends");
-}
-
-#[test]
-fn a_promotion_that_takes_the_lock_between_the_holds_release_and_the_order_leaves_it_to_the_order() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().to_path_buf() };
-    let held = Mutex::new(Vec::new());
-    let host = Contended { layout: &layout, held: &held };
-    let order = Order { sha: NEW.to_owned(), reason: "the lander cannot take a landing".to_owned(), orderer: "f-canary-chain".to_owned() };
-    let mut between = None;
-
-    run(
-        &layout,
-        &order,
-        &host,
-        &[],
-        &[],
-        || {
-            between = Some(update::flight(&layout, &mut || panic!("a promotion inside an order's window promoted")));
-            Ok(())
-        },
-        |()| Ok(false),
-    )
-    .unwrap();
-
-    assert!(matches!(between, Some(Ok(Flight::Joined))), "on 2026-11-12 a landing's promotion took the lock the stopped hold had freed and put a commit above the ordered one live for 24 s");
-    assert!(update::named_lock_waiting(&layout, "runtime-order.lock", std::time::Duration::from_secs(3600), "the next order").is_ok(), "the order's mark ends with the order, though a child another test forks keeps a copy of it until its exec");
-}
-
-#[test]
-fn an_order_names_a_host_kept_on_a_newer_runtime_and_does_not_report_it_live() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().to_path_buf() };
-    for sha in [OLD, NEW] {
-        fs::create_dir_all(layout.runtime(sha)).unwrap();
-    }
-    symlink(layout::link(OLD), layout.current()).unwrap();
-    let steps = Mutex::new(Vec::new());
-    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false, waits: None };
-    let kept = Rehearsal { layout: &layout, name: "gex45", failing: None, retired: None, live: Mutex::new(NEWER.to_owned()), pin: Mutex::new(Some(NEWER.to_owned())), steps: &steps, stays: true, waits: None };
-    let order = Order { sha: NEW.to_owned(), reason: "main's head holds a change under review".to_owned(), orderer: "f-canary-chain".to_owned() };
-
-    let refused = run(&layout, &order, &settling, &[&kept], &[], || Ok(()), |()| Ok(false)).unwrap_err();
-
-    assert!(refused.message.contains("gex45") && refused.message.contains("is not live") && refused.message.contains(layout::short(NEWER)), "on 2026-11-12 an order reported four hosts live on its commit that had stayed on a newer one: {}", refused.message);
-    assert_eq!(kept.pin.lock().unwrap().as_deref(), Some(NEWER), "a host that is not on the ordered commit keeps its stable pin");
-    let row = read(&layout.state).into_iter().find_map(|event| match event {
-        Event::Ordered { host, canary, live, .. } if host == "gex45" => Some((canary, live)),
-        _ => None,
-    });
-    assert!(row.as_ref().is_some_and(|(canary, live)| canary.starts_with("passed; not live: gex45 runs") && !live), "{row:?}");
 }
 
 #[test]

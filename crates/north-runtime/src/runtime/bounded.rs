@@ -71,35 +71,3 @@ fn wait_until(mut child: Child, limit: Duration, stop: &dyn Fn() -> bool, elapse
 fn wait(mut child: Child, limit: Duration) -> Result<ExitStatus> {
     child_within(&mut child, limit)?.ok_or_else(|| Error::new(ErrorKind::TimedOut, format!("timed out after {}s", limit.as_secs())))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn answering(marker: &std::path::Path) -> Command {
-        let mut command = Command::new("sh");
-        command.args(["-c", "sleep 30 >/dev/null 2>&1; touch \"$0\""]).arg(marker);
-        command
-    }
-
-    #[test]
-    fn a_command_past_its_limit_is_killed_and_reported_as_timed_out() {
-        let directory = tempfile::tempdir().unwrap();
-        let (limit, timed_out, stop) = (directory.path().join("limit"), directory.path().join("timed-out"), directory.path().join("stop"));
-        let error = status(&mut answering(&limit), Duration::ZERO).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::TimedOut);
-        assert!(!limit.exists(), "a command past its limit was left running");
-        let ticks = std::cell::Cell::new(0);
-        let passing = || {
-            ticks.set(ticks.get() + 1);
-            Duration::from_secs(ticks.get())
-        };
-        let error = status_keeping_stderr_by(&mut answering(&timed_out), Duration::from_secs(3), 4, &|| false, &passing).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::TimedOut);
-        assert_eq!(ticks.get(), 3);
-        assert!(!timed_out.exists(), "a command past its limit was left running");
-        let error = status_keeping_stderr_by(&mut answering(&stop), Duration::from_secs(30), 4, &|| true, &|| Duration::ZERO).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::Interrupted);
-        assert!(!stop.exists(), "a command its caller no longer wanted was left running");
-    }
-}

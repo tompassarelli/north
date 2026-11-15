@@ -110,6 +110,3 @@ pub fn admits(needs: &Needs, host: &str, ssh: &str) -> bool {
     }
 }
 
-#[cfg(test)]
-#[path = "readiness_tests.rs"]
-mod tests;

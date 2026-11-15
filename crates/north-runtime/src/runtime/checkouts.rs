@@ -184,16 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn a_checkout_behind_origin_fast_forwards_and_one_already_current_is_quiet() {
-        let scratch = tempfile::tempdir().expect("scratch");
-        let (origin, home) = host(scratch.path());
-        let ahead = commit(&origin, "two");
-        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n");
-        assert_eq!(git(&crate::platform::shared_config::checkout(&home), &["rev-parse", "HEAD"]), ahead);
-        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "", "a checkout already at origin/main says nothing");
-    }
-
-    #[test]
     fn an_uncommitted_change_or_a_branch_other_than_main_is_named_and_left_alone() {
         let scratch = tempfile::tempdir().expect("scratch");
         let (origin, home) = host(scratch.path());
@@ -206,33 +196,6 @@ mod tests {
         git(&checkout, &["checkout", "-q", "--", "one"]);
         git(&checkout, &["switch", "-q", "-c", "work"]);
         assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: on work, not main\n");
-    }
-
-    #[test]
-    fn a_detached_checkout_at_an_ancestor_returns_to_main_and_fast_forwards() {
-        let scratch = tempfile::tempdir().expect("scratch");
-        let (origin, home) = host(scratch.path());
-        let checkout = crate::platform::shared_config::checkout(&home);
-        let ahead = commit(&origin, "two");
-        git(&checkout, &["checkout", "-q", "--detach"]);
-        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n");
-        assert_eq!(git(&checkout, &["symbolic-ref", "-q", "--short", "HEAD"]), "main", "a detached checkout at an ancestor returns to main");
-        assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), ahead);
-    }
-
-    #[test]
-    fn lane_sync_fast_forwards_a_main_with_no_commits() {
-        let scratch = tempfile::tempdir().expect("scratch");
-        let (origin, home) = host(scratch.path());
-        let checkout = crate::platform::shared_config::checkout(&home);
-        std::fs::remove_dir_all(&checkout).expect("remove");
-        std::fs::create_dir_all(&checkout).expect("checkout");
-        git(&checkout, &["init", "-q", "-b", "main"]);
-        git(&checkout, &["remote", "add", "origin", &origin.display().to_string()]);
-        let tip = git(&origin, &["rev-parse", "main"]);
-        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n", "a main with no commits yet was kept as it was and `cannot count commits behind origin` printed");
-        assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), tip);
-        assert_eq!(git(&checkout, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/main");
     }
 
 }

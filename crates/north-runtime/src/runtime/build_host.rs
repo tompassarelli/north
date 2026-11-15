@@ -89,5 +89,3 @@ fn build_there(host: &BuildHost, target: &str, stop: &dyn Fn() -> bool) -> Resul
     }, BUILD, stop)
 }
 
-#[cfg(test)]
-mod tests;

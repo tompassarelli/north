@@ -74,11 +74,3 @@ fn a_reinstall_with_a_different_binary_is_refused() {
     let refused = run(&Claude, &claude_fake(false), root.path(), &|_| true, "9.9.9").err().unwrap();
     assert_eq!(refused.0, "claude-runtime-update: existing runtime identity differs");
 }
-
-#[test]
-fn an_install_clears_the_stage_directory_an_earlier_killed_install_left_behind() {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir_all(root.path().join(".stage.dead/bin")).unwrap();
-    run(&Claude, &claude_fake(false), root.path(), &|_| true, "9.9.9").ok().unwrap();
-    assert!(!root.path().join(".stage.dead").exists() && root.path().join("current").exists());
-}

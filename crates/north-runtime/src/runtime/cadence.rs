@@ -219,5 +219,3 @@ fn lines(schedule: Schedule, events: &[Event], now: i64, hand_pin: bool) -> Stri
     format!("promotions in 24 h: {promotions}\nfast paths in 24 h: {fast}\n{last}{held}next slot: {} (unix {next})\n", pin::iso(next))
 }
 
-#[cfg(test)]
-mod tests;

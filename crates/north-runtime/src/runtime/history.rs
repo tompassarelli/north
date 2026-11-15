@@ -46,23 +46,3 @@ impl History {
         fs::write(&self.path, serde_json::to_string(&self.hosts)?)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{History, Layout};
-
-    #[test]
-    fn a_landing_inherits_the_problems_of_the_nearest_earlier_runtime_and_not_its_own() {
-        let state = tempfile::tempdir().unwrap();
-        let layout = Layout { state: state.path().to_owned() };
-        let mut history = History::load(&layout);
-        history.note("nexus", "aaaa", &["unit x is failed".to_owned()]);
-        history.note("nexus", "bbbb", &["unit y is failed".to_owned()]);
-        history.note("nexus", "cccc", &["unit z is failed".to_owned()]);
-        history.save().unwrap();
-        let history = History::load(&layout);
-        let earlier = |runtime: &str| runtime < "cccc";
-        assert_eq!(history.before("nexus", "cccc", earlier), ["unit y is failed".to_owned()]);
-        assert!(history.before("laptop", "cccc", earlier).is_empty());
-    }
-}

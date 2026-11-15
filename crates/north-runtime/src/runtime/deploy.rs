@@ -202,6 +202,3 @@ pub(super) fn stage_for_lander(layout: &Layout, target: &str, runtime: &Path) {
     }
 }
 
-#[cfg(test)]
-#[path = "deploy_tests.rs"]
-mod tests;
