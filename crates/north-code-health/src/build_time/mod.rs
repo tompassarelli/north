@@ -39,7 +39,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let ledger = options.ledger.clone().unwrap_or_else(default_ledger);
     let host = crate::platform::host::name();
     let mut tracker = match options.file.then(|| issue::github_repo(&options.repo)).transpose() {
-        Ok(Some(repo)) if repo != issue::REPO => return fail(&format!("--file ticks {}#{}, so it measures only {}; origin is {repo}", issue::REPO, issue::SPLIT_ISSUE, issue::REPO)),
+        Ok(Some(repo)) if repo != issue::REPO => return fail(&format!("--file reports to {}, so it measures only {}; origin is {repo}", issue::REPO, issue::REPO)),
         Ok(repo) => repo.map(|_| Gh::north()),
         Err(error) => return fail(&error),
     };
@@ -123,7 +123,7 @@ fn measure_repo(options: &Options, builder: &mut Builder, ledger: &Path, host: &
         ledger::append(ledger, &row)?;
         println!("{}", report(&row));
         over |= verdict == Verdict::Over;
-        boxes.extend(issue::split_box(&row, &entry.leaf));
+        boxes.extend(issue::split_notice(&row, &entry.leaf));
     }
     println!("recorded in {}", ledger.display());
     if let Some(tracker) = tracker {

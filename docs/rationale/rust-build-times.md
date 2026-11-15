@@ -125,13 +125,12 @@ south's gex45 host and registered as south `agents/routines/build-time.md`, plac
 `north code-health build-time --repo ~/code/north/main --rev origin/main --file` under
 `north capacity host run --class heavy`. `--rev` fetches origin and measures a fresh detached checkout
 of origin/main that it removes afterwards, so the main checkout is never edited and every run is cold.
-`--file` opens no issue of its own: it keeps one box per workspace in the "## Split north-core" section
-of north#259 (creating the heading if absent), keyed by the workspace name in the box text. On `near` or
-`over` it adds `- [ ] Leaf-edit cargo test --no-run in WORKSPACE is N s, over the 10 s cap: split the
-crate holding LEAF (measured DATE on HOST at SHA)`, or rewrites that box's numbers when it is already
-there; when a later run measures `within`, it ticks the box with the number. Filing starts at near
-rather than over because a split takes days to land while the loop keeps slowing. `--file` refuses a
-repo whose origin is not tompassarelli/north.
+`--file` opens no issue and edits no issue body: it tells the coordinator, once per workspace, that the
+workspace is near or over its cap, and once more when a later run measures it `within`. The line on `near`
+or `over` is `build time: leaf-edit cargo test --no-run in WORKSPACE is N s, over the 10 s cap: split the
+crate holding LEAF (measured DATE on HOST at SHA)`, or `near` in place of `over`; the cleared line names
+the workspace and the number that is within. Filing starts at near rather than over because a split takes
+days to land while the loop keeps slowing. `--file` refuses a repo whose origin is not tompassarelli/north.
 
 ## The north_core unit-test harness, 2026-11-05
 
@@ -145,7 +144,7 @@ contention roughly doubles it.
 This entry first kept north-core as one crate, because the quiet-host median sat at 50% of the 88 s
 times-2 threshold. Against the 10 s cap it is over, so the split is due: moving `ops` (41.8k lines) out
 of north-core, after `capacity`, `threads`, `health` and `guard` stop depending on `ops`, is boxed in
-north#259's "Split north-core" section, and the daily run keeps its measured box there.
+north#259's "Split north-core" section, and the daily run reports each workspace's measurement to the coordinator.
 
 ## Toolchain levers, 2026-11-05
 

@@ -1,7 +1,7 @@
 use crate::platform::{issue_scope, process};
 pub use north_base::foundation::check_log::{Failure, failures, log_text};
 use north_base::foundation::exit::{NO_VERDICT, RED_MAIN};
-use crate::platform::rolling_issue::{self, Tracker, section_box, settle};
+use crate::platform::rolling_issue::{self, Tracker, settle};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -183,13 +183,10 @@ fn repository() -> Option<String> {
 }
 
 pub const ISSUE_TITLE: &str = "main is red";
-const SECTION: &str = "## Red mains";
 
-pub fn record_red(tracker: &mut dyn Tracker, main: &str, line: &str) -> Result<Option<u64>, String> {
+pub fn record_red(tracker: &mut dyn Tracker) -> Result<Option<u64>, String> {
     let base = tracker.open(ISSUE_TITLE)?.map_or_else(|| issue_scope::MAIN_RED_BODY.to_owned(), |issue| issue.body);
-    let key = format!("main is red at {}:", &main[..main.len().min(9)]);
-    let body = section_box(&base, SECTION, &key, &format!("- [ ] {line}"), true);
-    settle(tracker, ISSUE_TITLE, Some(&body), "")?;
+    settle(tracker, ISSUE_TITLE, Some(&base), "")?;
     Ok(tracker.open(ISSUE_TITLE)?.map(|issue| issue.number))
 }
 
@@ -245,7 +242,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let culprit = culprit(&request.main, &failed);
     let recorded = repository().ok_or_else(|| "gh repo view names no repository".to_owned()).and_then(|repo| {
-        record_red(&mut rolling_issue::Gh::of(&repo), &request.main, &event_line(&request.main, &red, &culprit, None))
+        record_red(&mut rolling_issue::Gh::of(&repo))
     });
     let issue = match recorded {
         Ok(issue) => issue.map(|number| number.to_string()),
