@@ -55,6 +55,10 @@ impl Layout {
         self.state.join("lander")
     }
 
+    pub fn leaving(&self) -> PathBuf {
+        self.state.join("lander-leaving")
+    }
+
     pub fn lander_rollback(&self) -> PathBuf {
         self.state.join(crate::LANDER_ROLLBACK)
     }

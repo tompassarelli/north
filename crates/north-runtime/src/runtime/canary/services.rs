@@ -74,7 +74,7 @@ pub(super) fn judge(layout: &Layout, judged: &str, listing: &str, draining: &[u3
         None => live.clone().filter(|live| live != judged),
     };
     let lander: Vec<String> = named(&layout.lander()).into_iter().chain(fs::read_to_string(layout.lander_rollback()).ok().and_then(|link| layout::linked_sha(Path::new(link.trim())).map(str::to_owned))).collect();
-    let follows = |process: &Process, runtime: &str| [Some(judged), live.as_deref(), replaced.as_deref()].into_iter().flatten().chain(lander.iter().map(String::as_str).filter(|_| process.kind == LANDER)).any(|followed| followed == runtime);
+    let follows = |process: &Process, runtime: &str| [Some(judged), live.as_deref(), replaced.as_deref()].into_iter().flatten().chain(lander.iter().map(String::as_str).filter(|_| process.kind == LANDER)).any(|followed| followed == runtime) || (process.kind == LANDER && north_runtime_follow::leaving::target(layout, process.pid).as_deref() == Some(judged));
     let ran_here = |runtime: &str| swapped.iter().any(|swapped| swapped == runtime) || layout.runtime(runtime).is_dir();
     let behind: Vec<(&Process, &str)> = processes.iter().filter_map(|process| process.runtime.as_deref().filter(|runtime| !follows(process, runtime) && ran_here(runtime)).map(|runtime| (process, runtime))).collect();
     let (sessions, services): (Vec<_>, Vec<_>) = behind.iter().partition(|(process, _)| SESSION.contains(&process.kind.as_str()));

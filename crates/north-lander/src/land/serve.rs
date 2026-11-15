@@ -17,6 +17,8 @@ use super::watchdog;
 use super::repositories;
 use north_foundation::foundation::exit::NO_VERDICT;
 use north_runtime_follow::Follow;
+use north_runtime_follow::layout::Layout;
+use north_runtime_follow::leaving;
 use options::{Options, lander_for, parse};
 
 mod ahead;
@@ -308,6 +310,10 @@ fn serve_once(options: &Options) -> u8 {
     })
 }
 
+fn in_flight_bound(running: &HashMap<PathBuf, Serving>) -> u64 {
+    running.values().flat_map(|serving| post_land::adoptable(&serving.lander.queue)).map(|(_, record)| record.started + record.deadline as f64).fold(0.0, f64::max) as u64
+}
+
 fn serve_forever(options: &Options) -> u8 {
     let mut runtime = Follow::current();
     let retire = Arc::new(AtomicBool::new(false));
@@ -319,6 +325,14 @@ fn serve_forever(options: &Options) -> u8 {
         if let Some(next) = runtime.replaced() {
             retire.store(true, Ordering::Relaxed);
             handover::announce(&next);
+            let layout = Layout::from_env();
+            let pid = std::process::id();
+            let until = in_flight_bound(&running);
+            if until > 0 {
+                if let Err(error) = leaving::write(&layout, pid, &next, until) {
+                    println!("north land: could not record that it waits to leave for {next}: {error}");
+                }
+            }
             let deadline = Instant::now() + handover::BOUND;
             while let Some(held) = running.values().find(|serving| !serving.handle.is_finished()) {
                 if Instant::now() >= deadline && handover::landing(held.lander.heartbeat.current().0) {
@@ -326,6 +340,7 @@ fn serve_forever(options: &Options) -> u8 {
                 }
                 std::thread::sleep(TICK);
             }
+            leaving::remove(&layout, pid);
             return 0;
         }
         running.retain(|_, serving| !serving.handle.is_finished());

@@ -7,6 +7,7 @@
 
 pub mod collection;
 pub mod layout;
+pub mod leaving;
 
 use std::ffi::OsString;
 use std::fs;
