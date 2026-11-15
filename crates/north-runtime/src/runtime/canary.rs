@@ -343,7 +343,10 @@ impl Machine for Live<'_> {
     fn lander_take_host(&self, sha: &str) -> Option<String> {
         let live = self.rollback_target(sha)?;
         let mirror = north_trusted_mirror::Mirror::open(&update::checkout()).ok()?;
-        take_host(mirror.git_dir(), &live, sha)
+        take_host(mirror.git_dir(), &live, sha).unwrap_or_else(|why| {
+            println!("north runtime canary: {}: no build host take probe: {why}", layout::short(sha));
+            None
+        })
     }
 
     fn listed_by(&self, host: &str, sha: &str) -> Result<CoreLoop, String> {
@@ -351,13 +354,19 @@ impl Machine for Live<'_> {
     }
 }
 
-pub(super) fn take_host(mirror: &std::path::Path, live: &str, candidate: &str) -> Option<String> {
+pub(super) fn take_host(mirror: &std::path::Path, live: &str, candidate: &str) -> Result<Option<String>, String> {
     let git = |args: &[&str]| north_trusted_mirror::command(mirror).args(args).output().ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
-    if git(&["diff", "--name-only", &format!("{live}..{candidate}")]).is_some_and(|changed| !probes::changes_a_take_path(&changed)) {
-        return None;
+    let held = || north_trusted_mirror::command(mirror).args(["cat-file", "-e", &format!("{candidate}^{{commit}}")]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| status.success());
+    if !held() && (git(&["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin"]).is_none() || !held()) {
+        return Err(format!("the trusted mirror {} holds no candidate commit {candidate}, even after fetching origin", mirror.display()));
     }
-    let hosts = git(&["config", "--blob", &format!("{candidate}:.safe-push"), "--get-all", "landing.remote-hosts"])?;
-    hosts.split(|character: char| character.is_whitespace() || character == ',').find(|host| !host.is_empty()).filter(|host| probes::plain_host(host)).map(str::to_owned)
+    if git(&["diff", "--name-only", &format!("{live}..{candidate}")]).is_some_and(|changed| !probes::changes_a_take_path(&changed)) {
+        return Ok(None);
+    }
+    let Some(hosts) = git(&["config", "--blob", &format!("{candidate}:.safe-push"), "--get-all", "landing.remote-hosts"]) else {
+        return Ok(None);
+    };
+    Ok(hosts.split(|character: char| character.is_whitespace() || character == ',').find(|host| !host.is_empty()).filter(|host| probes::plain_host(host)).map(str::to_owned))
 }
 
 #[cfg(test)]

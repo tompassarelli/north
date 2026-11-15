@@ -91,7 +91,7 @@ impl Machine for Fleet<'_> {
     }
 
     fn lander_take_host(&self, _sha: &str) -> Option<String> {
-        self.checkout.as_deref().and_then(|checkout| take_host(&checkout.join(".git"), "live", "candidate"))
+        self.checkout.as_deref().and_then(|checkout| take_host(&checkout.join(".git"), "live", "candidate").ok().flatten())
     }
 }
 
@@ -715,9 +715,23 @@ fn a_runtime_whose_lander_refuses_a_build_host_lane_is_rolled_back() {
 
     for hosts in ["$(touch${IFS}owned)", "-oProxyCommand=touch", "cpx62&touch"] {
         let history = runtime_history("crates/north-lander/src/land/serve.rs", hosts);
-        assert_eq!(take_host(&history.path().join(".git"), "live", "candidate"), None, "{hosts}");
+        assert_eq!(take_host(&history.path().join(".git"), "live", "candidate"), Ok(None), "{hosts}");
     }
     let history = runtime_history("crates/north-lander/src/land/serve.rs", "cpx62");
     fs::write(history.path().join(".safe-push"), "[landing]\n\tremote-hosts = $(touch owned)\n").unwrap();
-    assert_eq!(take_host(&history.path().join(".git"), "live", "candidate").as_deref(), Some("cpx62"), "the host is read from the candidate commit, not the working tree");
+    assert_eq!(take_host(&history.path().join(".git"), "live", "candidate"), Ok(Some("cpx62".to_owned())), "the host is read from the candidate commit, not the working tree");
+}
+
+#[test]
+fn a_promotion_judge_fetches_a_candidate_its_mirror_lacks() {
+    let origin = runtime_history("crates/north-landing/src/land/candidate.rs", "cpx62");
+    let sha = |name: &str| String::from_utf8(Command::new("git").arg("-C").arg(origin.path()).args(["rev-parse", name]).output().unwrap().stdout).unwrap().trim().to_owned();
+    let mirror = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| assert!(Command::new("git").arg("--git-dir").arg(mirror.path()).args(args).status().unwrap().success());
+    git(&["init", "-q", "--bare"]);
+    git(&["config", "remote.origin.url", &origin.path().to_string_lossy()]);
+    git(&["config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main"]);
+    git(&["fetch", "-q", "origin", "live:refs/remotes/origin/main"]);
+    assert_eq!(take_host(mirror.path(), &sha("live"), &sha("candidate")), Ok(Some("cpx62".to_owned())), "a mirror that had not yet fetched the candidate skipped the build host probe silently");
+    assert!(take_host(mirror.path(), &sha("live"), PROMOTED).is_err(), "a candidate origin lacks too is reported, not skipped silently");
 }
