@@ -42,6 +42,7 @@ impl Fleet {
     }
 
     pub fn send_signed(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+        self.refuse_coordinator(from, name, delivery)?;
         self.hand_in_signed(from, name, text, delivery).map(drop)
     }
 

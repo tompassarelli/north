@@ -3,6 +3,7 @@ pub use north_base::{error, foundation};
 pub mod alarm_stats;
 pub mod alike;
 pub mod claim_key;
+pub mod coordinator;
 pub mod effort;
 pub mod prompt_mode;
 pub mod session;

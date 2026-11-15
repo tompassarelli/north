@@ -1,4 +1,5 @@
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::coordinator::refusal;
 use crate::fleet::fold::{Admit, Condition, Route, admit_via, clears, told};
 use crate::fleet::model::{Delivery, Role, Status};
 use crate::fleet::runtime::{COORDINATOR, new_uuid, now_ms};
@@ -48,6 +49,7 @@ impl Fleet {
 
     /// Sends `text` as `send_message` does, naming the standing condition it reports so the store delivers it once per episode.
     pub fn send_condition(&self, from: &Sender, name: &str, text: &str, condition: Option<&Condition>, delivery: Delivery) -> NorthResult<Sent> {
+        self.refuse_coordinator(from, name, delivery)?;
         let now = now_ms();
         let absent = matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name);
         let spool = self.spool();
@@ -83,6 +85,14 @@ impl Fleet {
             return self.deliver_message(from, COORDINATOR, &format!("(for {name}, not live) {text}"), delivery).map(|_| Sent::Unreached);
         }
         self.deliver_message(from, name, text, delivery)
+    }
+
+    pub(super) fn refuse_coordinator(&self, from: &Sender, name: &str, delivery: Delivery) -> NorthResult<()> {
+        refusal(from, name, delivery == Delivery::Now, |session| self.parent_of(session)).map_or(Ok(()), |why| Err(NorthError::Refused(why)))
+    }
+
+    fn parent_of(&self, name: &str) -> Option<String> {
+        self.record(name).ok().and_then(|record| record.parent).or_else(|| self.held_elsewhere(name).ok().flatten().and_then(|row| row.parent))
     }
 
     fn holds_for_lead(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> bool {
