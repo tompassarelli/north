@@ -1,4 +1,5 @@
 use super::habits::findings;
+use north_base::test_inputs::git::git_in;
 use std::path::Path;
 
 fn call(prefix: &str, name: &str, args: &str, tail: &str) -> String {
@@ -118,17 +119,13 @@ fn allowances_only_fall() {
     use super::habits::{findings_new, grown};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
-    git(&["init", "-q"]);
-    git(&["config", "user.name", "Test"]);
-    git(&["config", "user.email", "test@example.invalid"]);
-    git(&["config", "commit.gpgsign", "false"]);
+    git_in(root, &["init", "-q"]);
     std::fs::write(root.join("structure.toml"), "[rust_habits]\nchecks = [\"ambient-test-input\"]\n[[rust_habits.ambient_inputs]]\ninput = \"clock\"\nallowlist = \"clocks.tsv\"\nfixture = \"inject the clock\"\n").unwrap();
     std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t1\n").unwrap();
     std::fs::create_dir(root.join("tests")).unwrap();
     std::fs::write(root.join("tests/debt.rs"), format!("#[test]\nfn t() {{\n    {};\n}}\n", call("std::thread::sleep", "", "(d)", ""))).unwrap();
-    git(&["add", "."]);
-    git(&["commit", "-qm", "base"]);
+    git_in(root, &["add", "."]);
+    git_in(root, &["commit", "-qm", "base"]);
 
     let base_findings = findings_new(root, "HEAD").unwrap();
     assert!(base_findings.is_empty(), "a finding the base already holds is not the lane's: {base_findings:?}");
@@ -151,16 +148,12 @@ fn allowances_only_fall() {
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
-    git(&["init", "-q"]);
-    git(&["config", "user.name", "Test"]);
-    git(&["config", "user.email", "test@example.invalid"]);
-    git(&["config", "commit.gpgsign", "false"]);
+    git_in(root, &["init", "-q"]);
     let habit = "[[rust_habits.allow]]\nrule = \"shared-mutability\"\npath = \"src/a.rs\"\nreason = \"fixture\"\n";
     let implicit = "[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"src/b.rs\"\nreason = \"fixture\"\n";
     std::fs::write(root.join("structure.toml"), format!("[rust_habits]\nchecks = []\n{habit}{implicit}")).unwrap();
-    git(&["add", "."]);
-    git(&["commit", "-qm", "base"]);
+    git_in(root, &["add", "."]);
+    git_in(root, &["commit", "-qm", "base"]);
 
     std::fs::write(root.join("structure.toml"), format!("[rust_habits]\nchecks = []\n{habit}{habit}{implicit}")).unwrap();
     let raised = grown(root, "HEAD").unwrap();
@@ -176,24 +169,20 @@ fn allowances_only_fall() {
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
-    git(&["init", "-q"]);
-    git(&["config", "user.name", "Test"]);
-    git(&["config", "user.email", "test@example.invalid"]);
-    git(&["config", "commit.gpgsign", "false"]);
+    git_in(root, &["init", "-q"]);
     std::fs::write(root.join("structure.toml"), "[rust_habits]\nchecks = [\"ambient-test-input\"]\n[[rust_habits.ambient_inputs]]\ninput = \"clock\"\nallowlist = \"clocks.tsv\"\nfixture = \"inject the clock\"\n").unwrap();
     std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t1\n").unwrap();
-    git(&["add", "."]);
-    git(&["commit", "-qm", "base"]);
-    git(&["checkout", "-q", "-b", "lane"]);
+    git_in(root, &["add", "."]);
+    git_in(root, &["commit", "-qm", "base"]);
+    git_in(root, &["checkout", "-q", "-b", "lane"]);
     std::fs::write(root.join("notes.txt"), "lane work\n").unwrap();
-    git(&["add", "."]);
-    git(&["commit", "-qm", "lane"]);
-    git(&["checkout", "-q", "-b", "landing", "HEAD~1"]);
+    git_in(root, &["add", "."]);
+    git_in(root, &["commit", "-qm", "lane"]);
+    git_in(root, &["checkout", "-q", "-b", "landing", "HEAD~1"]);
     std::fs::write(root.join("clocks.tsv"), "").unwrap();
-    git(&["add", "."]);
-    git(&["commit", "-qm", "landing drops the listed test"]);
-    git(&["checkout", "-q", "lane"]);
+    git_in(root, &["add", "."]);
+    git_in(root, &["commit", "-qm", "landing drops the listed test"]);
+    git_in(root, &["checkout", "-q", "lane"]);
     assert!(grown(root, "landing").unwrap().is_empty(), "a lane on an older base is not charged for a list the landing shrank");
     std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t2\n").unwrap();
     let raised = grown(root, "landing").unwrap();
