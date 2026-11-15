@@ -2,14 +2,12 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
-use north_base::build_inputs::live_fix;
 use north_base::platform::finish_record::{FinishRecords, Finished};
 use north_base::platform::harness::DEFAULTS;
 use north_base::platform::review_accept::{Accepts, patch_id};
 use north_base::platform::trust_boundary;
 use toml_edit::DocumentMut;
 
-use crate::test_file::is_test_file;
 use crate::{Range, git, holdlist};
 
 const SELF: &str = "review-accept";
@@ -62,7 +60,7 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
     Ok((patch, accepted))
 }
 
-/// `Err` is a lane that changes a `trust_boundary_paths` or `two_accept_paths` file of the harness/defaults.toml at its landing `base` and holds fewer accepts than it needs: the accepts of two distinct reviewer sessions for its patch id, or one for a change of test files alone, an exact revert, or a lane whose commits carry a `Live-fix:` trailer and change no `two_accept_paths` file.
+/// `Err` is a lane that changes a `trust_boundary_paths` file of the harness/defaults.toml at its landing `base` and holds no accept of its patch id from a reviewer session that did not author the lane.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
@@ -72,14 +70,10 @@ pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finish
         return Ok(());
     }
     let (patch, accepted) = reviewers(directory, &fork, head, accepts, finished)?;
-    let two = trust_boundary::needing_two(&lists, &files).unwrap_or_default();
-    let speed_cut = two.is_empty() && live_fix(&git::messages(directory, &fork, head)).is_some();
-    let needed = if speed_cut || files.iter().all(is_test_file) || reverted(directory, &fork, head, &patch).is_some() { 1 } else { 2 };
-    if accepted.len() >= needed {
+    if !accepted.is_empty() {
         return Ok(());
     }
-    let by = accepted.iter().map(String::as_str).collect::<Vec<_>>().join(", ");
-    Err(format!("the lane changes {} of trust_boundary_paths and holds {} of {needed} review accepts of its patch {patch} from distinct reviewer sessions that did not author the lane ({}); a reviewer's `north runtime accept {head}` records one", crossing.join(", "), accepted.len(), if by.is_empty() { "none" } else { &by }))
+    Err(format!("the lane changes {} of trust_boundary_paths and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
 }
 
 pub fn scan(directory: &Path, range: &str, state: &Path, accepts: &Accepts, finished: &FinishRecords, out: &mut impl Write) -> u8 {

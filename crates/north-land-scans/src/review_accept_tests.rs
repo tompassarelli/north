@@ -37,8 +37,10 @@ fn a_withdrawn_accept_no_longer_counts() {
     assert_eq!(check(&repo, &base, &lane, &accepts, &[]), Ok(()));
     let patch = patch_id(&repo, &base, &lane).unwrap();
     assert_eq!(accepts.withdraw(&patch, "reviewer-b"), Ok(true));
-    assert!(check(&repo, &base, &lane, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "a withdrawn accept still counted");
-    assert_eq!(accepts.withdraw(&patch, "reviewer-b"), Ok(false), "a second withdrawal finds nothing");
+    assert_eq!(check(&repo, &base, &lane, &accepts, &[]), Ok(()), "the other session's accept still counts");
+    assert_eq!(accepts.withdraw(&patch, "reviewer-a"), Ok(true));
+    assert!(check(&repo, &base, &lane, &accepts, &[]).unwrap_err().contains("holds no review accept"), "a withdrawn accept still counted");
+    assert_eq!(accepts.withdraw(&patch, "reviewer-a"), Ok(false), "a second withdrawal finds nothing");
 
     accept(&accepts, &repo, &lane, &test, "reviewer-b");
     assert_eq!(check(&repo, &lane, &test, &accepts, &[]), Ok(()));
@@ -84,33 +86,27 @@ fn a_live_fix_lane_that_changes_verify_north_login_with_no_review_accepts_is_ref
     let base = commit(&repo, &base_files, "base");
     let lane = commit(&repo, &files.map(|file| (file, "b\n")), "Make the Quickstart one command\n\nLive-fix: launch gate for north#1281");
     let refusal = check(&repo, &base, &lane, &accepts, &[]).unwrap_err();
-    assert!(refusal.contains("holds 0 of 2 review accepts") && refusal.contains("src/bin/verify_north/login.rs"), "{refusal}");
+    assert!(refusal.contains("holds no review accept") && refusal.contains("src/bin/verify_north/login.rs"), "{refusal}");
     accept(&accepts, &repo, &base, &lane, "reviewer-a");
-    assert!(check(&repo, &base, &lane, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "Live-fix does not cut a credential change to one accept");
+    assert_eq!(check(&repo, &base, &lane, &accepts, &[]), Ok(()), "one accept lands a credential change, Live-fix or not");
 }
 
 #[test]
-fn a_live_fix_speed_cut_lands_on_one_accept() {
+fn a_change_to_a_path_the_two_accept_list_named_lands_on_one_accept_from_either_reviewer_north_1422() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     let accepts = Accepts(root.path().join("accepts"));
     git_in(&repo, &["init", "-q", "-b", "main"]);
-    let base = commit(&repo, &[(LANDER, "a\n"), (DEFAULTS, north_lists())], "base");
-    let plain = commit(&repo, &[(LANDER, "b\n")], "a lander change");
-    accept(&accepts, &repo, &base, &plain, "reviewer-a");
-    assert!(check(&repo, &base, &plain, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "without Live-fix one accept does not land it");
-    git_in(&repo, &["reset", "-q", "--hard", &base]);
-    let fix = commit(&repo, &[(LANDER, "b\n")], "a lander change\n\nLive-fix: landing p90");
-    assert_eq!(check(&repo, &base, &fix, &accepts, &[]), Ok(()), "a Live-fix lane outside two_accept_paths lands on one accept");
-    git_in(&repo, &["reset", "-q", "--hard", &base]);
+    let base = commit(&repo, &[("crates/north-fleet/src/fleet/claims.rs", "a\n"), (DEFAULTS, north_lists())], "base");
     let claims = commit(&repo, &[("crates/north-fleet/src/fleet/claims.rs", "b\n")], "a claims change\n\nLive-fix: landing p90");
-    accept(&accepts, &repo, &base, &claims, "reviewer-a");
-    assert!(check(&repo, &base, &claims, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "Live-fix does not cut a claims change to one accept");
+    assert!(check(&repo, &base, &claims, &accepts, &[]).unwrap_err().contains("holds no review accept"), "a claims change needs an accept, Live-fix or not");
+    accept(&accepts, &repo, &base, &claims, "reviewer-b");
+    assert_eq!(check(&repo, &base, &claims, &accepts, &[]), Ok(()), "one accept from one reviewer session lands a claims change");
 }
 
 #[test]
-fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_distinct_sessions_and_one_for_a_test_or_an_exact_revert_north_1036() {
+fn a_lane_that_changes_a_trust_boundary_path_lands_on_one_review_accept_from_either_reviewer_session_north_1422() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
@@ -123,13 +119,9 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_
 
     git_in(&repo, &["reset", "-q", "--hard", &base]);
     let inside = commit(&repo, &[(LANDER, "b\n")], "inside the boundary");
-    assert!(check(&repo, &base, &inside, &accepts, &[]).unwrap_err().contains("holds 0 of 2 review accepts"));
-    accept(&accepts, &repo, &base, &inside, "reviewer-a");
-    assert!(check(&repo, &base, &inside, &accepts, &[]).unwrap_err().contains("holds 1 of 2 review accepts"), "one accept does not land it");
-    accept(&accepts, &repo, &base, &inside, "reviewer-a");
-    assert!(check(&repo, &base, &inside, &accepts, &[]).is_err(), "the same session twice is one accept");
+    assert!(check(&repo, &base, &inside, &accepts, &[]).unwrap_err().contains("holds no review accept"));
     accept(&accepts, &repo, &base, &inside, "reviewer-b");
-    assert_eq!(check(&repo, &base, &inside, &accepts, &[]), Ok(()), "two distinct sessions land it");
+    assert_eq!(check(&repo, &base, &inside, &accepts, &[]), Ok(()), "one accept from either reviewer session lands it");
 
     git_in(&repo, &["commit", "-q", "--amend", "-m", "the same patch, reworded"]);
     let reworded = git_in(&repo, &["rev-parse", "HEAD"]);
@@ -138,8 +130,7 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_
     let author = Finished { session: "author-x".to_owned(), command: String::new(), head: inside.clone(), passed: true, at: 1 };
     let few = Accepts(root.path().join("few"));
     accept(&few, &repo, &base, &inside, "author-x");
-    accept(&few, &repo, &base, &inside, "reviewer-a");
-    assert_eq!(check(&repo, &base, &inside, &few, &[]), Ok(()), "without a record of who wrote the lane, two sessions count");
+    assert_eq!(check(&repo, &base, &inside, &few, &[]), Ok(()), "without a record of who wrote the lane, its author's accept counts");
     assert!(check(&repo, &base, &inside, &few, std::slice::from_ref(&author)).is_err(), "a session that handed in a commit of the lane is not its reviewer");
     assert!(check(&repo, &base, &reworded, &few, std::slice::from_ref(&author)).is_err(), "nor once the lander has rewritten the commit it handed in");
 
@@ -155,11 +146,6 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_
     accept(&accepts, &repo, &inside, &revert, "reviewer-a");
     assert_eq!(check(&repo, &inside, &revert, &accepts, &[]), Ok(()), "one accept lands an exact revert");
 
-    git_in(&repo, &["reset", "-q", "--hard", &inside]);
-    let pretend = commit(&repo, &[(LANDER, "c\n")], &format!("Revert\n\nThis reverts commit {inside}."));
-    accept(&accepts, &repo, &inside, &pretend, "reviewer-a");
-    assert!(check(&repo, &inside, &pretend, &accepts, &[]).is_err(), "a message naming a revert does not make a different patch one");
-
     let south = root.path().join("south");
     std::fs::create_dir(&south).unwrap();
     git_in(&south, &["init", "-q", "-b", "main"]);
@@ -167,10 +153,9 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_with_two_review_accepts_from_
     let own_lists = "[trust_boundary_paths]\nvalue = [\"agents/decisions/harness/overhaul-2026-11-11/evals/\"]\n";
     let south_base = commit(&south, &[(DEFAULTS, own_lists), (eval, "a\n")], "base");
     let script = commit(&south, &[(eval, "b\n")], "an eval script");
-    assert!(check(&south, &south_base, &script, &accepts, &[]).unwrap_err().contains("holds 0 of 2 review accepts"), "an eval script of a repository whose own list names it needs two accepts");
+    assert!(check(&south, &south_base, &script, &accepts, &[]).unwrap_err().contains("holds no review accept"), "an eval script that the repository's own list names needs an accept");
     accept(&accepts, &south, &south_base, &script, "reviewer-a");
-    accept(&accepts, &south, &south_base, &script, "reviewer-b");
-    assert_eq!(check(&south, &south_base, &script, &accepts, &[]), Ok(()), "two accepts land it under the repository's own list");
+    assert_eq!(check(&south, &south_base, &script, &accepts, &[]), Ok(()), "one accept lands it under the repository's own list");
 }
 
 #[test]
@@ -186,7 +171,6 @@ fn accepts_recorded_on_the_reviewers_host_count_on_a_build_host_lander() {
     let reviewers_state = root.path().join("reviewers-host");
     let recorded = Accepts::of(&[("XDG_STATE_HOME".to_owned(), reviewers_state.display().to_string())], root.path());
     accept(&recorded, &repo, &base, &inside, "reviewer-a");
-    accept(&recorded, &repo, &base, &inside, "reviewer-b");
 
     let build_state = root.path().join("build-host");
     let mirror = build_state.join(ROOT);
@@ -197,5 +181,5 @@ fn accepts_recorded_on_the_reviewers_host_count_on_a_build_host_lander() {
     std::fs::write(mirror.join(STAMP), serde_json::to_vec(&Stamp { host: "reviewers-host".to_owned(), state: reviewers_state, at: 1.0 }).unwrap()).unwrap();
 
     let counted = Accepts::counted(&Records::of(&build_state, "build-host"));
-    assert_eq!(check(&repo, &base, &inside, &counted, &[]), Ok(()), "the two accepts recorded on the reviewers' host land the lane on the build host");
+    assert_eq!(check(&repo, &base, &inside, &counted, &[]), Ok(()), "the accept recorded on the reviewers' host lands the lane on the build host");
 }

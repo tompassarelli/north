@@ -8,7 +8,7 @@ use super::review_hold::{Caller, full_sha, git};
 pub(crate) const VERB: &str = "review-accept";
 const WITHDRAW: &str = "--withdraw";
 const BASE: &str = "origin/main";
-const USAGE: &str = "usage: north runtime accept [--withdraw] FULL-SHA  record the calling fleet session's accept, which only a session launched in the reviewer role may give, of the patch of FULL-SHA over its merge-base with origin/main, which a lane that changes a trust-boundary path needs from two sessions (one for a test-only change or an exact revert) before it lands; --withdraw removes the calling session's own accept of that patch, which then no longer counts; the accept is read on the host that settles the fleet";
+const USAGE: &str = "usage: north runtime accept [--withdraw] FULL-SHA  record the calling fleet session's accept, which only a session launched in the reviewer role may give, of the patch of FULL-SHA over its merge-base with origin/main, which a lane that changes a trust-boundary path needs from one reviewer session before it lands; --withdraw removes the calling session's own accept of that patch, which then no longer counts; the accept is read on the host that settles the fleet";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Accept {

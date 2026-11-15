@@ -1,8 +1,7 @@
-//! The files whose change crosses a host's trust boundary, read from `trust_boundary_paths`, `two_accept_paths` and `landing_path_paths` in harness/defaults.toml: the one reading behind the test line a hand-in keeps before queueing and the review accepts a landing asks for (north#1036, north#1492).
+//! The files whose change crosses a host's trust boundary, read from `trust_boundary_paths` and `landing_path_paths` in harness/defaults.toml: the one reading behind the test line a hand-in keeps before queueing and the review accepts a landing asks for (north#1036, north#1492).
 use crate::platform::harness::{DEFAULTS, document};
 
 const KEY: &str = "trust_boundary_paths";
-const TWO_ACCEPTS: &str = "two_accept_paths";
 pub const LANDING_PATH: &str = "landing_path_paths";
 
 fn names(boundary: &[&str], file: &str) -> bool {
@@ -28,13 +27,8 @@ fn listed_in<'a>(document: &'a toml_edit::DocumentMut, key: &str) -> Option<Vec<
     Some(list.iter().filter_map(toml_edit::Value::as_str).collect())
 }
 
-/// The files of `files` that cross the boundary a harness/defaults.toml `document` lists, any of its three lists, such as `harness::document(DEFAULTS)` or the one main holds, `None` when it lists no trust_boundary_paths, which no caller may read as a change that crosses nothing.
+/// The files of `files` that cross the boundary a harness/defaults.toml `document` lists, its trust_boundary_paths and landing_path_paths, such as `harness::document(DEFAULTS)` or the one main holds, `None` when it lists no trust_boundary_paths, which no caller may read as a change that crosses nothing.
 pub fn crossing<'a>(document: &toml_edit::DocumentMut, files: &'a [String]) -> Option<Vec<&'a str>> {
-    let boundary: Vec<&str> = listed_in(document, KEY)?.into_iter().chain([TWO_ACCEPTS, LANDING_PATH].into_iter().flat_map(|key| listed_in(document, key).unwrap_or_default())).collect();
+    let boundary: Vec<&str> = listed_in(document, KEY)?.into_iter().chain(listed_in(document, LANDING_PATH).unwrap_or_default()).collect();
     Some(crossing_in(&boundary, files))
-}
-
-/// The files of `files` in `two_accept_paths` of a harness/defaults.toml `document`, whose change needs two review accepts whatever its trailers say, `None` when it lists none.
-pub fn needing_two<'a>(document: &toml_edit::DocumentMut, files: &'a [String]) -> Option<Vec<&'a str>> {
-    Some(crossing_in(&listed_in(document, TWO_ACCEPTS)?, files))
 }

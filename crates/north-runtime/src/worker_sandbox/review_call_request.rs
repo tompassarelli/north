@@ -154,7 +154,7 @@ fn context(mirror: &Path, (base, fork, head): (&str, &str, &str)) -> Result<Stri
     let history = git(mirror, &history)?;
     let rules = git(mirror, &["show", &format!("{base}:AGENTS.md")])?;
     let lists = git(mirror, &["show", &format!("{base}:{DEFAULTS}")])?;
-    let lists: String = lists.split("\n[").filter(|table| ["trust_boundary_paths]", "two_accept_paths]", "landing_path_paths]"].iter().any(|name| table.starts_with(name))).map(|table| format!("[{table}\n")).collect();
+    let lists: String = lists.split("\n[").filter(|table| ["trust_boundary_paths]", "landing_path_paths]"].iter().any(|name| table.starts_with(name))).map(|table| format!("[{table}\n")).collect();
     Ok(format!("# Rules at main {base}\n{rules}\n# Trust lists at main {base}\n{lists}\n# Recent history of the touched files on main\n{history}"))
 }
 
