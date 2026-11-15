@@ -271,7 +271,7 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
         "north: stale-dirty ~/code/north/worktrees/wip: surface to north-parent",
         "north: owned ~/code/north/worktrees/own: surface to north-parent (north#5 north#6)",
         "north: owned ~/code/north/worktrees/held: surface to north-parent",
-        "would alert scratch-parent: 26 owned unlanded lanes",
+        "would alert scratch-parent: 26 lanes hold unique work",
     ] {
         assert!(dry.contains(expected), "{expected}\n{dry}");
     }
@@ -309,7 +309,7 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     );
     let alerts = rig.read("alerts");
     assert_eq!(alerts.lines().count(), 1, "{alerts}");
-    assert!(alerts.starts_with("normal|scratch-parent: 26 owned unlanded lanes"), "{alerts}");
+    assert!(alerts.starts_with("normal|scratch-parent: 26 lanes hold unique work"), "{alerts}");
 
     let later = String::from_utf8(Command::new("date").args(["-u", "-d", &format!("{} + 8 days", &fixture.now[..10]), "+%F"]).output().unwrap().stdout).unwrap();
     let week_on = fixture.now.replace(&fixture.now[..10], later.trim());
