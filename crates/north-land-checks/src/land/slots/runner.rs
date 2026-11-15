@@ -234,7 +234,7 @@ async fn selected(root: &Path, arguments: &Arguments, (environment, config): (&E
     Ok(Chosen { commands, scope, it, ahead })
 }
 
-/// Runs a check set, placing it again while a build host's slot line refuses it at once: the next placement leaves out each refusing host and ranks the others on their expected wait, holds once every host has refused, and never outlasts one line deadline from the first placement, so the after-landing run and the landing checks share the pre-queue checks' bound.
+/// Runs a check set, placing it again while a build host's slot line refuses it at once: the next placement leaves out each refusing host and ranks the others on their expected wait, holds once every host has refused, and keeps waiting for a slot: a line window of one line deadline starts over each time it is spent (north#1508), so the after-landing run and the landing checks wait as the pre-queue checks do.
 async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
     if arguments.leased {
         return run_set_on(root, arguments, config, environment, cancel, commands, &[]).await.0;
@@ -246,10 +246,7 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
         if status != SLOTS_BUSY_STATUS {
             return status;
         }
-        if let Err(reason) = lines.place_again(&host).await {
-            warn(&format!("safe-push: {reason}"));
-            return status;
-        }
+        lines.place_again(&host, status).await;
     }
 }
 

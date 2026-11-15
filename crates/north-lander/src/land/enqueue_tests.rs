@@ -578,14 +578,19 @@ fn static_gates_judge_the_lane_before_its_checks_take_a_build_host_slot_and_a_pr
     assert!(marks.join("stopped").exists(), "the stopped land check was not signalled");
 }
 
+fn slot_source_stops_the_wait(_root: &Path, _base: &str, _head: &str, _north: &str, stop: &Stop) -> Result<(), QueueRefusal> {
+    stop.stop();
+    Err(QueueRefusal::Unjudged(STOPPED.to_owned()))
+}
+
 #[test]
-fn no_verdict_never_queues_a_hand_in_whose_checks_exited_96_and_a_hand_in_already_on_main_is_refused_before_the_queue() {
+fn a_hand_in_whose_checks_wait_for_a_slot_is_never_queued_unjudged_and_a_hand_in_already_on_main_is_refused_before_the_queue() {
     a_hand_in_whose_head_is_already_on_main_is_refused_before_the_queue_naming_its_uncommitted_paths_while_a_lane_behind_main_with_its_own_commit_still_queues();
-    let lane = Lane::new();
-    fs::write(lane.repo.join(".safe-push"), "[land]\n\tcheck = ** :: exit 96\n").unwrap();
+    let mut lane = Lane::new();
+    lane.queue_checks = slot_source_stops_the_wait;
     lane.commit("add a land check every build host's slot line refuses", &[]);
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).err().unwrap_or_default();
-    assert!(refused.contains("slot line") && refused.contains("exit 96"), "on 2026-11-15 two hand-ins whose checks never ran were queued as passed alone and landed unverified: {refused:?}");
+    assert!(refused.contains(STOPPED), "on 2026-11-15 two hand-ins whose checks never ran were queued as passed alone and landed unverified: {refused:?}");
     let tickets = fs::read_dir(lane.dir.path().join("state/north/land-queue")).into_iter().flatten().flat_map(|entry| fs::read_dir(entry.unwrap().path()).into_iter().flatten()).filter(|entry| entry.as_ref().is_ok_and(|entry| entry.path().extension().is_some_and(|extension| extension == "json"))).count();
     assert_eq!(tickets, 0, "a hand-in whose checks reached no verdict was queued");
 }

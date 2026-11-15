@@ -1,6 +1,7 @@
 use north_base::foundation::shim::write_script;
 
 use super::super::arguments::{Environment, off_host};
+use super::super::line_refusals::Refusals;
 use super::{Placed, chosen, placed, runner_host};
 
 #[tokio::test]
@@ -15,7 +16,7 @@ async fn checks_before_queueing_go_to_an_idle_build_host_when_this_laptop_has_th
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_check_before_queueing_gives_up_only_when_no_build_host_answers_and_runs_here_only_when_none_is_configured() {
+async fn a_hand_in_past_every_slot_deadline_is_retried() {
     let directory = tempfile::tempdir().unwrap();
     let silent = directory.path().join("silent");
     write_script(&silent, "echo 'north capacity offload: no host has room: gex45: unreachable or unreadable' >&2\nexit 1\n");
@@ -29,6 +30,12 @@ async fn a_check_before_queueing_gives_up_only_when_no_build_host_answers_and_ru
     assert_eq!(runner_host(answers.to_str().unwrap(), &replay, None, &[]).await.as_deref(), Some("gex45"), "on 2026-11-12 a promotion replay with no runner configured was placed on the lander's host, and its test listing ran cargo there before any host was chosen");
     assert_eq!(runner_host(silent.to_str().unwrap(), &replay, Some("build-host"), &[]).await, None, "an off-host replay with no build host answering reaches no verdict rather than building on the lander's host");
     assert_eq!(runner_host(silent.to_str().unwrap(), &Environment::local("north".to_owned()), None, &[]).await.as_deref(), Some(""), "a set that is not off-host and names no runner runs where it is");
+    let mut lines = Refusals::within(0);
+    assert!(tokio::time::timeout(std::time::Duration::from_secs(59), lines.place_again("", 96)).await.is_err(), "this host's own line refusing holds before the checks ask again, rather than spinning");
+    lines.place_again("alpha", 96).await;
+    lines.place_again("beta", 96).await;
+    lines.place_again("alpha", 96).await;
+    assert!(lines.avoiding(&[]).is_empty(), "a spent line window starts over, and every host that refused is tried again after the hold, so a hand-in past every slot deadline is retried rather than refused (north#1508)");
 }
 
 #[tokio::test(start_paused = true)]
