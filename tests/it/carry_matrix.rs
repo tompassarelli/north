@@ -1,10 +1,12 @@
 use crate::capacity_host::{Host, SCOPE_SYSTEMCTL, scope_systemd_run};
+use north_base::foundation::offload::ROOT_ENV;
 use north_core::foundation::shim;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use sha1::{Digest, Sha1};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const TOOLS: [&str; 47] = [
     "sh", "bash", "env", "git", "printenv", "realpath", "readlink", "dirname", "basename", "sha256sum", "cksum", "cut", "mkdir", "find", "touch", "id", "cat", "xargs", "ln", "rm", "bwrap", "timeout", "setsid", "flock", "du", "df", "awk",
@@ -224,6 +226,11 @@ impl Matrix {
         command.args(if script == "land-shell" { ["--dev", "--"] } else { ["run", "--"] }).args(probe).output().unwrap()
     }
 
+    fn queue(&self) -> PathBuf {
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+        self.host.path(&format!("offload-{}", RUNS.fetch_add(1, Ordering::Relaxed)))
+    }
+
     fn run(&self, entry: &str, probe: &[&str]) -> Output {
         match entry {
             "gate shim" if probe[0] == "cargo" => self.command(self.home.join(".local/bin/cargo")).args(&probe[1..]).output().unwrap(),
@@ -232,7 +239,7 @@ impl Matrix {
             "capacity exec --dev-shell" => self.north(&["capacity", "exec", "--dev-shell", self.project.to_str().unwrap(), "--"], probe),
             "offload run" => {
                 let line = probe.iter().map(|word| format!("'{}'", word.replace('\'', "'\\''"))).collect::<Vec<_>>().join(" ");
-                self.command(lander_runtime(&self.home).join("north")).args(["capacity", "offload", "run", "--host", "gex45", "--base", &self.base, "--head", &self.head, "--timeout", "30", "--", &line]).env("SAFE_PUSH_LANDING", "1").output().unwrap()
+                self.command(lander_runtime(&self.home).join("north")).args(["capacity", "offload", "run", "--host", "gex45", "--base", &self.base, "--head", &self.head, "--timeout", "30", "--", &line]).env("SAFE_PUSH_LANDING", "1").env(ROOT_ENV, self.queue()).output().unwrap()
             }
             "land-shell --dev" => self.sandboxed("land-shell", probe),
             "depbox run" => self.sandboxed("depbox", probe),
