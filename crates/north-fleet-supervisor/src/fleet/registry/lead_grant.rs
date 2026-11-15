@@ -79,7 +79,9 @@ impl Fleet {
     fn join_rewritten(&self, lead: &mut Lead, words: &[String]) {
         let Some(task) = words.iter().position(|word| word == "--task").and_then(|at| words.get(at + 1)) else { return };
         let wanted = rewritten::issue(task);
-        if lead.record.tasks().any(|held| rewritten::issue(held) == wanted) || own_project(lead, task).is_err() {
+        let owner = |reference: &str| reference.split_once('#').and_then(|(repository, _)| repository.rsplit_once('/')).map(|(owner, _)| owner.to_lowercase());
+        let foreign = owner(task).is_some_and(|named| !lead.record.tasks().any(|held| owner(held).as_deref() == Some(named.as_str())));
+        if foreign || lead.record.tasks().any(|held| rewritten::issue(held) == wanted) || own_project(lead, task).is_err() {
             return;
         }
         if !rewritten::successors(&self.rewrites.rewrites(), lead.record.tasks()).contains(&wanted) {
@@ -163,7 +165,9 @@ fn launch(lead: &Lead, words: &[String]) -> Result<(String, Vec<String>), String
         }
         let value = flag_value(lead, word, words.get(at + 1).map(String::as_str))?;
         named.push((word, value));
-        if !matches!(word, "--provider" | "--cwd") {
+        if word == "--task" {
+            granted.extend([word.to_owned(), own_task(lead, value)?]);
+        } else if !matches!(word, "--provider" | "--cwd") {
             granted.extend([word.to_owned(), value.to_owned()]);
         }
         at += 2;
@@ -193,22 +197,34 @@ fn flag_value<'a>(lead: &Lead, word: &str, value: Option<&'a str>) -> Result<&'a
         "--effort" => (!EFFORTS.contains(&value)).then(|| format!("fleet launch --effort {value} is not one of {}", EFFORTS.join(", "))),
         "--idle-exit" => (!value.bytes().all(|byte| byte.is_ascii_digit())).then(|| format!("fleet launch --idle-exit {value} is not a number of minutes")),
         "--name" => (!session_name(value)).then(|| format!("fleet launch --name {value} is not a session name")),
-        "--task" => own_task(lead, value).err(),
         "--cwd" => own_checkout(lead, value).err(),
         _ => None,
     };
     refusal.map_or(Ok(value), Err)
 }
 
-/// Refuses a `--task` that is no issue of the lead's own project or that neither its record nor its parent's holds, owner prefix aside.
-fn own_task(lead: &Lead, value: &str) -> Result<(), String> {
+/// The reference the child of `lead` holds for the `--task` `value`: the one the lead's record or its parent's holds or the coordinator assigned it, written as held, so the child's record reaches no repository the lead's does not; refused for another project's issue, one none of them holds, or one naming another owner than the held reference.
+fn own_task(lead: &Lead, value: &str) -> Result<String, String> {
     own_project(lead, value)?;
-    let issue = |task: &str| task.rsplit('/').next().unwrap_or(task).to_owned();
     let held: Vec<&str> = lead.record.tasks().chain(lead.parent_tasks.iter().chain(&lead.assigned).map(String::as_str)).collect();
-    if !held.iter().any(|held| issue(held) == issue(value)) {
-        return Err(format!("fleet launch --task {value} is not granted to {}: a lead launches workers only for an issue its own record or its parent's holds or the coordinator assigned it ({})", lead.record.name, held.join(", ")));
+    held.iter().find(|held| same_issue(held, value)).map(|held| (*held).to_owned()).ok_or_else(|| {
+        format!("fleet launch --task {value} is not granted to {}: a lead launches workers only for an issue its own record or its parent's holds or the coordinator assigned it, under the same owner ({})", lead.record.name, held.join(", "))
+    })
+}
+
+/// Whether `named` names the issue `held` does: the same repository name and number, and the same owner when both name one.
+fn same_issue(held: &str, named: &str) -> bool {
+    let parts = |reference: &str| {
+        let (repository, number) = reference.split_once('#')?;
+        let (owner, name) = repository.rsplit_once('/').map_or((None, repository), |(owner, name)| (Some(owner.to_lowercase()), name));
+        Some((owner, name.to_lowercase(), number.to_owned()))
+    };
+    match (parts(held), parts(named)) {
+        (Some((held_owner, held_name, held_number)), Some((named_owner, named_name, named_number))) => {
+            held_name == named_name && held_number == named_number && (held_owner.is_none() || named_owner.is_none() || held_owner == named_owner)
+        }
+        _ => false,
     }
-    Ok(())
 }
 
 /// Refuses a task that is not `[OWNER/]REPO#N` in the lead's own project, the directory under `code/` its main checkout sits in: placement takes a launch's repository from its task first, and the repository picks the login and the surface, so a lead names no other project's issue.

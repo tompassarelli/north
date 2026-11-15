@@ -372,9 +372,9 @@ mod tests {
         tick.deliver_row(&launch).unwrap();
         assert!(fleet.record("n870-child").is_err(), "the lead's forget of its own child never ran");
         assert!(fleet.record("n870-lead").unwrap().tasks().any(|task| task == "north#872"));
-        assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: launch --provider claude --role worker --parent n870-lead --name n870-new --task north#870 --cwd {main_text} brief"));
+        assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: launch --provider claude --role worker --parent n870-lead --name n870-new --task tompassarelli/north#870 --cwd {main_text} brief"));
         tick.deliver_row(&asking(&launch, "own-cwd", &format!("--name n870-new --task north#870 --cwd {main_text} --no-wait brief"))).unwrap();
-        assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: launch --provider claude --role worker --parent n870-lead --name n870-new --task north#870 --no-wait --cwd {main_text} brief"));
+        assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: launch --provider claude --role worker --parent n870-lead --name n870-new --task tompassarelli/north#870 --no-wait --cwd {main_text} brief"));
         tick.deliver_row(&revive).unwrap();
         assert_eq!(started().unwrap(), format!("n870-lead in {main_text}: revive n870-stopped --effort high"));
 
