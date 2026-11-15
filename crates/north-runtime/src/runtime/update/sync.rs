@@ -13,6 +13,7 @@ use std::time::Duration;
 const STEP_LIMIT: Duration = Duration::from_secs(300);
 const LOG_TAIL: usize = 8;
 const AGENTS_SYNC: &str = "agents sync";
+const LEASE: &str = "lease";
 
 pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
     point_current(layout, link, false)
@@ -25,6 +26,9 @@ pub(super) fn swap_back(layout: &Layout, link: &Path) -> std::io::Result<()> {
 
 fn point_current(layout: &Layout, link: &Path, rollback: bool) -> std::io::Result<()> {
     let moved = fs::read_link(layout.current()).ok().as_deref() != Some(link);
+    if let Some(sha) = layout::linked_sha(link) {
+        fs::OpenOptions::new().create(true).append(true).open(layout.runtime(sha).join(LEASE))?;
+    }
     relink(&layout.current(), link)?;
     if moved {
         live::note_swap(layout, link, rollback);

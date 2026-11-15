@@ -16,12 +16,23 @@ fn ticks_past(directory: &std::path::Path, mark: &std::path::Path) {
 fn republishing_onto_the_live_runtime_keeps_the_time_it_went_live() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_path_buf() };
+    fs::create_dir_all(layout.runtime(&"d".repeat(40))).unwrap();
     let link = layout::link(&"d".repeat(40));
     swap(&layout, &link).unwrap();
     let live_at = fs::symlink_metadata(layout.current()).unwrap().modified().unwrap();
     ticks_past(state.path(), &layout.current());
     swap(&layout, &link).unwrap();
     assert_eq!(fs::symlink_metadata(layout.current()).unwrap().modified().unwrap(), live_at);
+}
+
+#[test]
+fn swapping_a_runtime_in_leaves_its_lease_file_so_a_read_only_lander_can_lease_it() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let sha = "e".repeat(40);
+    fs::create_dir_all(layout.runtime(&sha)).unwrap();
+    swap(&layout, &layout::link(&sha)).unwrap();
+    assert!(layout.runtime(&sha).join("lease").is_file(), "the swap left the runtime without the lease file head-north opens read-only");
 }
 
 #[test]
