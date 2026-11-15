@@ -84,7 +84,7 @@ fn the_hotspot_ranking_is_the_same_whatever_baseline_file_a_host_holds() {
     let repo = Repo::new();
     let quiet = "pub fn f(x: bool) -> u8 {\n    if x { 1 } else { 0 }\n}\n";
     let busy = "pub fn g(x: bool, y: bool) -> u8 {\n    if x {\n        if y { 1 } else { 2 }\n    } else {\n        if y { 3 } else { 4 }\n    }\n}\n";
-    repo.commit(&[("structure.toml", "[thresholds]\nhotspot_top = 1\nfunction_complexity = 100\n".to_owned()), ("src/a.rs", quiet.to_owned()), ("src/b.rs", busy.to_owned())]);
+    repo.commit(&[("structure.toml", "[thresholds]\nhotspot_top = 1\nfunction_complexity = 4\n".to_owned()), ("src/a.rs", quiet.to_owned()), ("src/b.rs", busy.to_owned())]);
     let base = repo.commit(&[("src/a.rs", format!("{quiet}\n")), ("src/b.rs", format!("{busy}\n"))]);
     let head = repo.commit(&[("src/a.rs", "pub fn f(x: bool, y: bool) -> u8 {\n    if x { 1 } else if y { 2 } else { 0 }\n}\n".to_owned())]);
     let verdict = |baseline: &str| {
@@ -97,7 +97,7 @@ fn the_hotspot_ranking_is_the_same_whatever_baseline_file_a_host_holds() {
     let without_b = verdict(r#"{"files":{}}"#);
     let with_b = verdict(r#"{"files":{"src/b.rs":{"complexity":9}}}"#);
     assert_eq!(without_b, with_b);
-    assert!(without_b.is_empty(), "{without_b:?}");
+    assert!(without_b.is_empty(), "the lane touches only src/a.rs, so the over-limit function main holds in src/b.rs draws no violation: {without_b:?}");
 }
 
 #[test]
