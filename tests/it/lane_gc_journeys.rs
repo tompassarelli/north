@@ -267,8 +267,8 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     for branch in ["gone", "equiv", "wip"] {
         rig.git(&fixture.main, &["config", &format!("branch.{branch}.remote"), "origin"]);
     }
-    rig.git(&fixture.main, &["config", "branch.sup.remote", "origin"]);
-    rig.git(&fixture.main, &["config", "branch.sup.merge", "refs/heads/main"]);
+    rig.git(&fixture.main, &["config", "branch.own.remote", "origin"]);
+    rig.git(&fixture.main, &["config", "branch.own.merge", "refs/heads/main"]);
 
     let dry = fixture.run(&["--dry-run"]);
     for expected in [
@@ -289,6 +289,7 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     let out = fixture.run(&[]);
     assert!(fixture.gone("equiv") && fixture.gone("sup") && fixture.kept_intact(), "{out}");
     assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.gone.remote"]), "a section whose branch no longer exists is pruned: {out}");
+    assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.own.merge"]) && !rig.git_ok(&fixture.main, &["config", "--get", "branch.own.remote"]), "a kept lane drops the origin/main upstream lanes no longer write: {out}");
     assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.equiv.remote"]), "a section whose branch this run deleted is pruned: {out}");
     assert!(rig.git_ok(&fixture.main, &["config", "--get", "branch.wip.remote"]), "a kept branch keeps its config: {out}");
     assert_eq!(rig.github_calls(), 2, "one search per run: {}", rig.read("gh-calls"));
