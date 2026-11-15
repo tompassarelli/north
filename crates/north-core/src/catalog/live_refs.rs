@@ -275,7 +275,7 @@ struct Options {
 }
 
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
-    let options: Options = crate::arguments::parse(arguments).map_err(|message| NorthError::Usage(format!("{message}\n{USAGE}")))?;
+    let options: Options = north_base::foundation::arguments::parse(arguments).map_err(|message| NorthError::Usage(format!("{message}\n{USAGE}")))?;
     if options.help {
         println!("{USAGE}");
         return Ok(());

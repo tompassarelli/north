@@ -15,6 +15,7 @@ north-github-mirror = { path = "../north-github-mirror" }
 north-calibration = { path = "../north-calibration" }
 north-dispatch = { path = "../north-dispatch" }
 north-providers = { path = "../north-providers" }
+clap.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true

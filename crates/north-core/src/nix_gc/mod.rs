@@ -180,7 +180,7 @@ struct Options {
 }
 
 fn parse(arguments: &[String]) -> Result<Options, String> {
-    crate::arguments::parse_allowing_inline_values(arguments)
+    north_base::foundation::arguments::parse_allowing_inline_values(arguments)
 }
 
 pub fn run(arguments: &[String], env: &Env, host: &dyn Host) -> u8 {

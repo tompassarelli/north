@@ -57,7 +57,7 @@ struct Options {
 }
 
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
-    let options: Options = crate::arguments::parse(arguments).map_err(NorthError::Usage)?;
+    let options: Options = north_base::foundation::arguments::parse(arguments).map_err(NorthError::Usage)?;
     let remote = options.remote;
     let max_age = options.max_age.as_deref().map_or(Ok(DEFAULT_MAX_AGE_MS), parse_duration_ms)?;
     let hosts: Vec<String> = options.hosts.as_deref().unwrap_or_default().split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect();

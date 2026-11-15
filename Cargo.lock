@@ -1547,6 +1547,7 @@ dependencies = [
 name = "north-foundation"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "nix 0.31.3",
  "regex",
  "rustix 0.38.44",
@@ -1705,6 +1706,7 @@ dependencies = [
 name = "north-issue-boxes"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "north-base",
  "north-calibration",
  "north-dispatch",

@@ -65,7 +65,7 @@ struct Options {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let Ok(Options { dry_run }) = north_core::arguments::parse(arguments) else {
+    let Ok(Options { dry_run }) = north_base::foundation::arguments::parse(arguments) else {
         eprintln!("{}", adopt::USAGE);
         return 64;
     };

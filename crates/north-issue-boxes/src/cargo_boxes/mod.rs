@@ -4,6 +4,9 @@ mod workspace;
 
 use std::path::PathBuf;
 
+use clap::Parser;
+use north_base::foundation::arguments::parse as parse_arguments;
+
 use north_base::error::{NorthError, NorthResult};
 use north_base::platform::github;
 use north_base::platform::rolling_issue::{Gh, Tracker};
@@ -78,25 +81,19 @@ pub fn rewrite_body(body: &str, workspace: &Workspace) -> Rewrite {
     rewrite
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
 struct Options {
+    #[arg(long)]
     dry_run: bool,
+    #[arg(long, allow_hyphen_values = true, default_value = "tompassarelli/north")]
     repo: String,
+    #[arg(long, allow_hyphen_values = true, default_value = ".")]
     tree: PathBuf,
 }
 
 fn options(arguments: &[String]) -> NorthResult<Options> {
-    let usage = || NorthError::Usage("north task rewrite-cargo [--dry-run] [--repo OWNER/REPO] [--tree DIR]".into());
-    let mut found = Options { dry_run: false, repo: "tompassarelli/north".to_owned(), tree: PathBuf::from(".") };
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--dry-run" => found.dry_run = true,
-            "--repo" => found.repo = words.next().ok_or_else(usage)?.clone(),
-            "--tree" => found.tree = PathBuf::from(words.next().ok_or_else(usage)?),
-            _ => return Err(usage()),
-        }
-    }
-    Ok(found)
+    parse_arguments(arguments).map_err(|_| NorthError::Usage("north task rewrite-cargo [--dry-run] [--repo OWNER/REPO] [--tree DIR]".into()))
 }
 
 fn body_of(issue: &serde_json::Value) -> &str {
@@ -145,3 +142,6 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod usage_tests;

@@ -5,7 +5,7 @@ pub fn parse<T: Parser>(arguments: &[String]) -> Result<T, String> {
     parse_with(arguments, false)
 }
 
-pub(crate) fn parse_allowing_inline_values<T: Parser>(arguments: &[String]) -> Result<T, String> {
+pub fn parse_allowing_inline_values<T: Parser>(arguments: &[String]) -> Result<T, String> {
     parse_with(arguments, true)
 }
 

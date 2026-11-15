@@ -435,7 +435,7 @@ pub fn config_check(arguments: &[String]) -> NorthResult<u8> {
         }
         _ => return Err(usage()),
     };
-    let options: GuideOptions = crate::arguments::parse(rest).map_err(|_| usage())?;
+    let options: GuideOptions = north_base::foundation::arguments::parse(rest).map_err(|_| usage())?;
     if options.help {
         println!("{CONFIG_CHECK_USAGE}");
         return Ok(0);

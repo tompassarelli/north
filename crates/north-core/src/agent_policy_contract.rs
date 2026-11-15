@@ -62,7 +62,7 @@ struct Options {
 }
 
 fn parse(arguments: &[String]) -> Result<Options, String> {
-    crate::arguments::parse(arguments)
+    north_base::foundation::arguments::parse(arguments)
 }
 
 struct Locations {

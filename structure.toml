@@ -813,7 +813,7 @@ may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.landing",
 name = "catalog"
 paths = ["crates/north-core/src/catalog/**", "crates/north-core/src/agent_catalog.rs", "crates/north-core/src/agent_policy_contract.rs", "crates/north-core/src/agent_policy_contract/**", "crates/north-core/src/agent_config_check/**"]
 responsibility = "Agent catalog, activation generations, projection port and policy checks; agent_config_check reads south agents/ policy files from the checkout, not the fetched snapshot, because it gates publishing that checkout."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks", "platform.store", "arguments"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks", "platform.store"]
 
 [[module]]
 name = "coordinator"
@@ -944,7 +944,7 @@ may_use = ["foundation", "crate-roots", "lifecycle", "build_system"]
 name = "nix_upkeep"
 paths = ["crates/north-core/src/nix_gc/**", "crates/north-core/src/doctor_nix/**"]
 responsibility = "Nix store upkeep: the gc roots for what the hosts still run, and the doctor's checks of the Nix footguns a host would hit."
-may_use = ["foundation", "crate-roots", "lifecycle", "platform.git", "arguments"]
+may_use = ["foundation", "crate-roots", "lifecycle", "platform.git"]
 
 [[module]]
 name = "learn"
@@ -969,7 +969,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle", "runtime_records", "unblocks", "arguments"]
+may_use = ["strategy_types", "buck", "build_system", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "lander-doctor", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model", "dispatch_pause_lifecycle", "runtime_records", "unblocks"]
 
 [[module]]
 name = "verify"
@@ -1399,11 +1399,6 @@ reason = "14 islands on main (2026-11-15), over the bound of 10; allowed until i
 [[domains.allow]]
 crate = "north-land-scans"
 reason = "11 islands on main (2026-11-15), over the bound of 10: the privacy judge reads only north-base, so it joins no other scan; allowed until the scans split by what they read, under north#1487"
-[[module]]
-name = "arguments"
-paths = ["crates/north-core/src/arguments.rs"]
-responsibility = "Parse a verb's arguments with clap's derive and translate its errors into north's usage messages, so every converted verb reports usage errors the same way."
-may_use = []
 [[module]]
 name = "runtime_records"
 paths = ["crates/north-runtime-records/src/**"]

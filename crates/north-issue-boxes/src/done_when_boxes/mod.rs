@@ -6,6 +6,8 @@ use std::time::Duration;
 use north_base::platform::north_binary::north_binary;
 use tempfile::TempDir;
 use toml_edit::Item;
+use clap::Parser;
+use north_base::foundation::arguments::parse as parse_arguments;
 
 use north_base::error::{NorthError, NorthResult};
 use north_base::foundation::check_lane;
@@ -342,23 +344,43 @@ pub fn sandboxed(arguments: &[String]) -> Sandboxed {
     }
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Words {
+    #[arg(long)]
+    done_when: bool,
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long)]
+    confined: bool,
+    #[arg(long, allow_hyphen_values = true)]
+    body_file: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    repo: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    main: Option<PathBuf>,
+    #[arg(long = "box", allow_hyphen_values = true)]
+    only: Option<String>,
+    #[arg(allow_hyphen_values = true, value_parser = reference)]
+    issues: Vec<String>,
+}
+
+fn reference(word: &str) -> Result<String, String> {
+    word.contains('#').then(|| word.to_owned()).ok_or_else(|| format!("{word} is not REPO#N"))
+}
+
 fn options(arguments: &[String]) -> NorthResult<Options> {
     let usage = || NorthError::Usage(USAGE.into());
-    let mut found = Options::default();
-    let mut words = arguments.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--done-when" => {}
-            "--dry-run" => found.dry_run = true,
-            "--confined" => found.confined = true,
-            "--body-file" => found.body_file = Some(words.next().ok_or_else(usage)?.clone()),
-            "--repo" => found.repo = Some(words.next().ok_or_else(usage)?.clone()),
-            "--main" => found.main = Some(PathBuf::from(words.next().ok_or_else(usage)?)),
-            "--box" => found.only = Some(words.next().ok_or_else(usage)?.clone()),
-            reference if reference.contains('#') => found.issue = Some(reference.to_owned()),
-            _ => return Err(usage()),
-        }
-    }
+    let words: Words = parse_arguments(arguments).map_err(|_| usage())?;
+    let found = Options {
+        dry_run: words.dry_run,
+        body_file: words.body_file,
+        issue: words.issues.last().cloned(),
+        repo: words.repo,
+        main: words.main,
+        only: words.only,
+        confined: words.confined,
+    };
     if [&found.body_file, &found.issue, &found.repo].iter().filter(|source| source.is_some()).count() != 1 {
         return Err(usage());
     }
@@ -441,3 +463,6 @@ pub fn run(ledger: &Ledger, arguments: &[String], domain: &dyn Fn(&[String]) -> 
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod usage_tests;

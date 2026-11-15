@@ -11,7 +11,7 @@ struct Options {
 }
 
 pub(super) fn run(arguments: &[String]) -> u8 {
-    let Ok(Options { json }) = north_core::arguments::parse(arguments) else {
+    let Ok(Options { json }) = north_base::foundation::arguments::parse(arguments) else {
         eprintln!("{USAGE}");
         return 2;
     };
