@@ -27,11 +27,11 @@ fn a_kept_socket_answers_a_confined_command_with_no_more_than_the_workers_reach(
             let context = Context::from_env("north broker github-token");
             let roots = removable(&context);
             assert!(matches!(confine(Some(&roots), &readable(&context, Reader::of(true)), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
-            let error = Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture"]).env(CONFINED, "1").exec();
+            let error = Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture", "--test-threads=1"]).env(CONFINED, "1").exec();
             panic!("the confined child did not start over as one confined process: {error}");
         }
         let client = Client::at(Path::new(&socket));
-        println!("lander\t{}\nagent\t{}", asked(&client, "lander"), asked(&client, "agent"));
+        eprintln!("lander\t{}\nagent\t{}", asked(&client, "lander"), asked(&client, "agent"));
         return;
     }
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
@@ -44,10 +44,10 @@ fn a_kept_socket_answers_a_confined_command_with_no_more_than_the_workers_reach(
     let listener = UnixListener::bind(&socket).unwrap();
     let broker = Arc::new(Broker::new(Policy::for_user(rustix::process::getuid().as_raw()), Source::Directory(keys)));
     std::thread::spawn(move || broker.serve(&listener, Surface::Open));
-    let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &home).env(SOCKET, &socket).current_dir(&home).output().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture", "--test-threads=1"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &home).env(SOCKET, &socket).current_dir(&home).output().unwrap();
     let (stdout, stderr) = (String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success() && stdout.contains("running 1 test"), "the confined child did not run: {stdout}{stderr}");
-    let answer = |app: &str| stdout.lines().find_map(|line| line.strip_prefix(&format!("{app}\t"))).unwrap_or_default().to_owned();
-    assert!(answer("lander").contains(REFUSED), "the credential broker answered a confined command's lander token ask with more than a refusal: {stdout}");
-    assert!(!answer("agent").is_empty() && !answer("agent").contains("NoNewPrivs"), "a confined command's own agent token ask was refused for its confinement: {stdout}");
+    let answer = |app: &str| stderr.lines().find_map(|line| line.strip_prefix(&format!("{app}\t"))).unwrap_or_default().to_owned();
+    assert!(answer("lander").contains(REFUSED), "the credential broker answered a confined command's lander token ask with more than a refusal: {stderr}");
+    assert!(!answer("agent").is_empty() && !answer("agent").contains("NoNewPrivs"), "a confined command's own agent token ask was refused for its confinement: {stderr}");
 }
