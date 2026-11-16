@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::json::{Obj, field, text};
+use super::json::text;
 use super::policy::{default_number, default_strings};
 use super::request::{Request, is_run};
 
@@ -87,24 +87,6 @@ pub fn admission_order(queue: &[Value], open: bool) -> Vec<Value> {
     let mut ordered: Vec<&Value> = queue.iter().collect();
     ordered.sort_by(|left, right| rank(left).cmp(&rank(right)).then_with(|| ticket_place(queue, left, open).cmp(&ticket_place(queue, right, open))));
     ordered.into_iter().cloned().collect()
-}
-
-/// Records an admitted priority run, placed or not, with its owner and wait in capacity.db, so every use of the lane is visible.
-pub fn record_use(owner: &str, request: &Request, admitted: &Obj, command: &[String]) {
-    let Some(priority) = request.priority else { return };
-    let view = admitted.value();
-    let row = super::database::PriorityUse {
-        lease: text(&view, "lease").unwrap_or_default(),
-        owner,
-        class: &request.name,
-        priority,
-        placed: view.get("priorityPlaced").and_then(Value::as_bool).unwrap_or(false),
-        queued_seconds: field(&view, "queuedSeconds").unwrap_or(0.0),
-        command: &Value::from(super::shape::recorded_command(command)).to_string(),
-    };
-    if let Err(error) = super::database::capacity_database().and_then(|db| super::database::insert_priority_use(&db, &row)) {
-        eprintln!("machine-capacity: capacity database failed: {error}");
-    }
 }
 
 #[cfg(test)]

@@ -52,13 +52,13 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | tier_choice | crates/north-threads/src/threads/runs | crates/north-calibration/src/threads/calibration/verbs.rs incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
-| capacity_runs cores, memory, signature | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate_capacity | read | |
-| capacity_runs.wallSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
-| capacity_runs io, diskBusyShare | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate output | read | |
-| capacity_runs.exitCode | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
-| capacity_runs.command, cpuSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
+| usage log cores, memory, cwd | crates/north-capacity-host/src/capacity/host/run/outcome.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate_capacity through crates/north-capacity-host/src/capacity/host/usage_log.rs history | read | |
+| usage log wallSeconds | crates/north-capacity-host/src/capacity/host/run/outcome.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
+| usage log io, diskBusyShare | crates/north-capacity-host/src/capacity/host/run/outcome.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate output | read | |
+| usage log exitCode | crates/north-capacity-host/src/capacity/host/run/outcome.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
+| usage log command, censored | crates/north-capacity-host/src/capacity/host/run/outcome.rs usage_entry | crates/north-capacity-host/src/capacity/host/usage_log.rs history signs a run by its command; crates/north-capacity-host/src/capacity/host/sizing.rs censored_floor raises a censored command's memory charge | read | |
 | job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-timers/src/job_watch/mod.rs | read | |
-| machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/database.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
+| machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/usage_log.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-pace/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
 | spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | src/cli/views/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
@@ -77,14 +77,14 @@ The definitions of the activity columns, attempt chains, rework and unjudged run
 
 ## File signals
 
-State files the loops above write, relative to `~/.local/state`. `north health` compares each file's mtime with its reader stamp (a file the reader rewrites after consuming it) and fails when the file is more than 7 days newer. `unverifiable` means the reader leaves no stamp; `north health` lists those rows rather than guessing, and the reader's owner adds a stamp to make one checkable. Each reader below touches its stamp through `platform::reader_stamp::touch` (crates/north-base/src/platform/reader_stamp.rs, 2026-11-05): the spawn gate (guard/spawn_capacity/usage.rs), `north fleet report` (ops/report/mod.rs), capacity sizing (capacity/host/database.rs recent_usage) and the usage reset reader (usage/web.rs). The writer and cadence columns feed the silent-signal detector of `north ledger flow detect`: a cadence such as `5m`, `1h` or `6h` is how often the writer should write, `event` means it writes only when something happens and is never judged silent, and the owner is the issue its box is filed on.
+State files the loops above write, relative to `~/.local/state`. `north health` compares each file's mtime with its reader stamp (a file the reader rewrites after consuming it) and fails when the file is more than 7 days newer. `unverifiable` means the reader leaves no stamp; `north health` lists those rows rather than guessing, and the reader's owner adds a stamp to make one checkable. Each reader below touches its stamp through `platform::reader_stamp::touch` (crates/north-base/src/platform/reader_stamp.rs, 2026-11-05): the spawn gate (guard/spawn_capacity/usage.rs), `north fleet report` (ops/report/mod.rs), capacity sizing (capacity/host/usage_log.rs recent_usage and history) and the usage reset reader (usage/web.rs). The writer and cadence columns feed the silent-signal detector of `north ledger flow detect`: a cadence such as `5m`, `1h` or `6h` is how often the writer should write, `event` means it writes only when something happens and is never judged silent, and the owner is the issue its box is filed on.
 
 | signal file | reader stamp | writer | cadence | owner |
 |---|---|---|---|---|
 | `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` | crates/north-pace/src/usage/gate.rs | 5m | north#35 |
 | `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-guard/src/guard/spawn_capacity/logs.rs | event | north#35 |
 | `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-flow/src/agents/goal/score.rs | event | north#35 |
-| `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-capacity-host/src/capacity/host/database.rs | event | north#35 |
+| `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-capacity-host/src/capacity/host/usage_log.rs | event | north#35 |
 | `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-timers/src/usage_web_read | 6h | north#35 |
 
 ## Recorded readings

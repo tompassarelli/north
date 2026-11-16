@@ -66,7 +66,6 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
             Admitted::Here(admitted) => admitted,
             Admitted::Offloaded(code) => return code,
         };
-        super::super::admissions::record(owner, request, &admitted);
         print_to(&admitted, true);
         if let Some(message) = refusal(&admitted) {
             fail(&message, 75);
@@ -74,7 +73,6 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
         if admitted.get("decision").and_then(Value::as_str) != Some("RESERVED") {
             return 75;
         }
-        super::super::priority::record_use(owner, request, &admitted, command);
         u8::try_from(run_admitted(root, request, owner, timeout_seconds, command, &admitted, &mut terminations).await & 0xff).unwrap_or(1)
     });
     runtime.shutdown_background();

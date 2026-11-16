@@ -31,8 +31,8 @@ pub struct Request {
     pub yielding: bool,
     pub canary: bool,
     pub priority: Option<&'static str>,
-    pub forecast: Option<Value>,
-    pub memory_from_model: bool,
+    /// Whether measured runs set the memory charge, so the scope holds at least that charge.
+    pub memory_measured: bool,
     pub memory_declared: bool,
     pub subject: Option<Vec<String>>,
     pub lander: bool,

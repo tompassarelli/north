@@ -10,16 +10,9 @@ use super::lease_lifecycle::Phase;
 use super::local_machine::{fail, runtime_root};
 use json::{Obj, field, num};
 
-mod actions_pull;
-mod admissions;
-pub use admissions::ledger_rows as admission_ledger_rows;
 mod args;
-mod database;
-pub use database::{QUEUED_BOUND_SECONDS, Queued, capacity_database_readonly, queued_admissions, queued_behind_capacity};
 mod decision;
 mod estimate;
-mod learned;
-mod fleet_pull;
 mod gpu;
 mod handover;
 mod offer_lifecycle;
@@ -36,10 +29,6 @@ pub(super) use machine::host_cores;
 #[cfg(test)]
 mod landing_tests;
 mod measure;
-mod offload_cost;
-mod model;
-mod calibration;
-pub use calibration::{calibration_command, model_command};
 pub(super) mod policy;
 pub use policy::maximum_seconds;
 mod priority;
@@ -57,11 +46,10 @@ pub mod urgency;
 mod status;
 mod systemd;
 mod unleased_native;
+mod usage_log;
 
-const USAGE: &str = "usage: offload-cost [--last N]|admit-job [--landing]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
+const USAGE: &str = "usage: admit-job [--landing]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 
-pub use actions_pull::run as actions_pull;
-pub use fleet_pull::run as pull;
 
 /// The cores a land check asks of a check host and its scope may use: `land_offload_cpus`.
 pub fn land_check_cpus() -> f64 {
@@ -81,7 +69,7 @@ pub fn cpu_limit() -> f64 {
 
 /// The MiB one offloaded job peaks at on this host: the 90th percentile of the newest measured lander runs' peaks once `heavy_peak_charge_runs` of them are recorded, else `dispatch_heavy_memory_mib`.
 pub fn job_peak_mib() -> f64 {
-    let runs = database::recent_usage(5000, |entry| matches!(entry["owner"].as_str(), Some("land-check" | "land-offload")) && entry["class"].as_str() == Some("heavy") && entry["wallSeconds"].as_f64().is_some_and(|wall| wall > 0.0));
+    let runs = usage_log::recent_usage(5000, |entry| matches!(entry["owner"].as_str(), Some("land-check" | "land-offload")) && entry["class"].as_str() == Some("heavy") && entry["wallSeconds"].as_f64().is_some_and(|wall| wall > 0.0));
     let mut peaks: Vec<f64> = runs.iter().filter_map(|run| run["peakMemoryMiB"].as_f64()).collect();
     if (peaks.len() as f64) < policy::default_number("heavy_peak_charge_runs") {
         return crate::capacity::admission::dispatch_request_mib(crate::capacity::admission::Class::Heavy);
@@ -336,7 +324,6 @@ fn reserve(root: &Path, argv: &[String], host: &Host) -> u8 {
     let timeout_seconds = args::positive_integer(options.required("--timeout-seconds"), "--timeout-seconds", Some(policy::maximum_seconds("agent")));
     let create = request::Create { kind: "agent", owner, timeout_seconds: Some(timeout_seconds) };
     let result = decision::decision(root, &request, Some(&create), None, host);
-    admissions::record(&create.owner, &request, &result);
     print_to(&result, false);
     if result.get("decision").and_then(Value::as_str) == Some("RESERVED") { 0 } else { 75 }
 }
@@ -424,7 +411,6 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
     } else {
         sizing::size_from_usage(command, owner, cores)
     };
-    sizing::attach_forecast(&mut request, owner, command);
     if request.estimate.is_none() {
         request.estimate = Some(sizing::estimate_command(command, &request.name, Some(owner), cores));
     }
@@ -524,7 +510,6 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
     match operation {
         "estimate" => return estimate(argv),
         "fixture" => return fixture(argv, host),
-        "offload-cost" => return offload_cost::print(argv),
         "admit-job" => return admit_job(argv),
         _ => {}
     }

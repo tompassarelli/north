@@ -1086,7 +1086,7 @@ value = 2
 allowed = { min = 1, max = 1000 }
 unit = "running leases per host admitted with --priority tom-ask; past them a priority ticket keeps its arrival place"
 source = "prior: two front-of-line leases leave a 20-thread host's queue moving while work Tom waits on goes first; on the 20-thread build host on 2026-11-01 60 queue-jumping runs in 80 minutes held heavy leases back for over an hour (north#460)"
-settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against priority uses in capacity.db; worker runs are the nearest existing count until priority waits are counted" }
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against priority uses; worker runs are the nearest existing count until priority waits are counted" }
 fallback = "none: the cap is always read"
 consumers = ["crates/north-capacity-host/src/capacity/host/priority.rs"]
 

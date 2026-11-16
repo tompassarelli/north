@@ -49,7 +49,6 @@ pub(super) fn rows(options: &Options, ids: &Ids) -> Option<Rows> {
         eprintln!("north ledger worker: deepseek rows unread: {}", error.user_message());
         unread = true;
     }
-    capacity_rows(&ids.capacity, &mut rows);
     Some(Rows { rows, unread, missed })
 }
 
@@ -68,15 +67,6 @@ fn deepseek_rows(shared: &Shared, rows: &mut Vec<u8>) -> crate::error::NorthResu
         writeln!(rows, "{row}")?;
     }
     Ok(())
-}
-
-/// This host's capacity admissions the ledger lacks: those at or after its newest recorded one, the ledger ignoring a repeat.
-fn capacity_rows(seen: &str, rows: &mut Vec<u8>) {
-    let host = crate::platform::host::name();
-    let since = seen.lines().filter_map(|line| line.split_once('\t')).find(|(name, _)| *name == host).map(|(_, at)| at);
-    for row in crate::capacity::host::admission_ledger_rows(&host, since) {
-        rows.extend_from_slice(format!("{row}\n").as_bytes());
-    }
 }
 
 fn settled_ids(listed: &str) -> HashMap<String, Option<String>> {

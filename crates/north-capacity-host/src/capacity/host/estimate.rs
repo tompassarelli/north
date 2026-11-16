@@ -35,7 +35,6 @@ pub struct CapacityRun {
     pub disk_busy_share: Option<f64>,
     pub wall_seconds: Option<f64>,
     pub exit_code: Option<f64>,
-    pub host: Option<String>,
 }
 
 fn basename(word: &str) -> &str {
@@ -220,25 +219,6 @@ fn assemble(signature: &TaskSignature, level: &str, estimate: &Estimate) -> Valu
         "ioWriteBytes": distribution("io-write-bytes"), "diskBusyShare": distribution("disk-busy"),
         "diskBusyBasis": DISK_BASIS, "ioSampleCount": count("io-runs"), "duration": duration(estimate),
     })
-}
-
-/// The newest runs of this signature once enough measured it: the estimate each finished lease tells the graph.
-pub fn learned_estimate(signature: &TaskSignature, history: &[CapacityRun]) -> Option<Estimate> {
-    let mut valid: Vec<&CapacityRun> = history.iter().filter(|run| same_exact(signature, run) && run.p90_cores.is_some_and(|cores| cores.is_finite() && cores >= 0.0)).collect();
-    valid.sort_by(|left, right| left.at.cmp(&right.at));
-    let runs = &valid[valid.len().saturating_sub(sizing_runs())..];
-    (runs.len() >= learned_minimum_runs()).then(|| summarize(runs, &wall(signature, history)))
-}
-
-/// The estimate the graph holds for the signature, shaped as `estimate_capacity` returns it.
-pub fn learned_json(signature: &TaskSignature, estimate: &Estimate) -> Value {
-    assemble(signature, "exact", estimate)
-}
-
-/// The signature the graph names its estimate by: a hash of what makes two runs the same command.
-pub fn signature_key(signature: &TaskSignature) -> String {
-    let words = [signature.family.as_str(), signature.repo.as_deref().unwrap_or(""), signature.package.as_deref().unwrap_or(""), signature.class.as_str()];
-    north_base::platform::decision_log::sha256_hex(words.join("\u{1f}").as_bytes())[..16].to_owned()
 }
 
 /// What a run of this signature is expected to use: its closest recorded runs, else its class's declaration.

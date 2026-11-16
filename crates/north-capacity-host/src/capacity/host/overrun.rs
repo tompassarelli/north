@@ -36,12 +36,11 @@ pub(super) struct Overrun {
 }
 
 impl Usual {
-    /// The usual wall time from the admission forecast, else the declared deadline, else nothing to measure against.
-    pub(super) fn of(forecast: Option<&Value>, timeout_seconds: Option<u64>) -> Option<Self> {
-        let runs = forecast.and_then(|forecast| forecast.get("runs")).and_then(Value::as_u64).unwrap_or(0);
-        let known = forecast.and_then(|forecast| text(forecast, "basis")).is_some_and(|basis| basis != "unknown");
-        let seconds = forecast.and_then(|forecast| forecast.get("wallSeconds")).and_then(Value::as_f64).filter(|seconds| seconds.is_finite() && *seconds > 0.0);
-        match seconds.filter(|_| known && runs as f64 >= default_mib("lease_overrun_minimum_runs")) {
+    /// The usual wall time from the admission estimate's duration, else the declared deadline, else nothing to measure against.
+    pub(super) fn of(duration: Option<&Value>, timeout_seconds: Option<u64>) -> Option<Self> {
+        let runs = duration.and_then(|duration| duration.get("sampleCount")).and_then(Value::as_u64).unwrap_or(0);
+        let seconds = duration.and_then(|duration| duration.get("p75Seconds")).and_then(Value::as_f64).filter(|seconds| seconds.is_finite() && *seconds > 0.0);
+        match seconds.filter(|_| runs as f64 >= default_mib("lease_overrun_minimum_runs")) {
             Some(seconds) => Some(Usual::Measured { seconds, runs }),
             None => timeout_seconds.filter(|deadline| *deadline > 0).map(|deadline| Usual::Thin { runs, deadline }),
         }

@@ -177,14 +177,12 @@ fn infra_panel(screen: &Screen) -> Panel {
     }
     let report = report::Report::of(Timestamp::from_unix_seconds(screen.now).iso(), resources.clone(), unread.clone());
     let machines = resources.iter().filter(|resource| resource.is_machine()).count();
-    let idle = resources.iter().filter(|resource| resource.idle()).count();
-    panel.headline = format!("{machines} machines, {}/month, {idle} idle", report.total_line());
-    let mut rows = vec![vec!["resource".to_owned(), "kind".to_owned(), "per month".to_owned(), "status".to_owned(), "load".to_owned()]];
+    panel.headline = format!("{machines} machines, {}/month", report.total_line());
+    let mut rows = vec![vec!["resource".to_owned(), "kind".to_owned(), "per month".to_owned(), "status".to_owned()]];
     rows.extend(resources.iter().take(DETAIL_ROWS * 2).map(|resource| {
-        let load = resource.usage.map_or_else(|| "-".to_owned(), |usage| if usage.jobs == 0 { "idle".to_owned() } else { format!("{} jobs", usage.jobs) });
-        vec![resource.name.clone(), resource.kind.clone(), resource.price.map_or_else(|| "-".to_owned(), Price::line), resource.status.clone(), load]
+        vec![resource.name.clone(), resource.kind.clone(), resource.price.map_or_else(|| "-".to_owned(), Price::line), resource.status.clone()]
     }));
-    panel.lines.extend(grid(&rows, &[Align::Left, Align::Left, Align::Right, Align::Left, Align::Left]));
+    panel.lines.extend(grid(&rows, &[Align::Left, Align::Left, Align::Right, Align::Left]));
     panel
 }
 

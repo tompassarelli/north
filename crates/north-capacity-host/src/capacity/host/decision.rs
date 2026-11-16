@@ -206,7 +206,7 @@ struct Context {
 fn scope(request: &Request, granted: &super::request::Granted) -> Value {
     let Some(declared) = granted.declared else { return granted.charged.json() };
     let mut scope = declared.json();
-    if request.memory_from_model {
+    if request.memory_measured {
         scope["memoryMiB"] = num(declared.memory_mib.max(granted.charged.memory_mib));
     }
     scope

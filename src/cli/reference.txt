@@ -228,7 +228,6 @@ Commands:
   capacity host renew ...                       Renew a capacity lease
   capacity host release ...                     Release a capacity lease
   capacity host session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]  Hold a capacity lease for an interactive session (see the machine-capacity skill)
-  capacity host offload-cost [--last N]         Print what offloaded builds cost
   capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
   capacity watchdog sample [--once] [--interval SECONDS]  Every 30 s append host load, pressure and top processes to samples.jsonl, log unleased overload and step each sample
   capacity watchdog report [--minutes N]...  Summarize the last N minutes of watchdog samples and incidents with flags
@@ -391,10 +390,6 @@ Commands:
   capacity disk                                 Measure each registered store on this host's root disk against harness/disk-ledger.toml and print the bytes no store explains
   capacity disk-share SHARE                     Print this host's disk_budget_gib share in GiB for one store, nothing when unset
   capacity reap-orphans                         Stop the scope of every run lease whose wrapper process is gone, freeing its slot
-  capacity pull [--host NAME]                   Copy each other host's capacity_runs rows into this machine's capacity.db under a host column
-  capacity actions-pull                         Record each started job of the Actions runs as an actions:LABEL row and print the p50 queue per runner label
-  capacity model [KEY]                          Print the per-host resource model levels for a command key
-  capacity calibration [--since 24h]            Print predicted against actual wall time and memory per key and host, flagging drift
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
   finish --brief-trailers SESSION               Keep the brief's Item, Box and Check lines read from standard input for the session's commit messages
   finish --judge-message SESSION                Judge a commit message read from standard input for the session

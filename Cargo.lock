@@ -1221,11 +1221,9 @@ name = "north-capacity-host"
 version = "0.1.0"
 dependencies = [
  "north-base",
- "north-calibration",
  "north-capacity",
  "north-fleet-store",
  "north-foundation",
- "north-graph",
  "north-graph-loops",
  "north-runtime-follow",
  "north-threads",

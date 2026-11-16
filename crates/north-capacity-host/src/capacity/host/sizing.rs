@@ -1,10 +1,8 @@
 use serde_json::{Value, json};
 
-use super::database::{capacity_database, capacity_history, failure_status, lander_runs, recent_usage, record_lander_run};
-use super::estimate::{CapacityQuery, CapacityRun, estimate_capacity, task_signature};
-use super::fail;
+use super::usage_log::{CENSOR_RAISE, history, lander_runs, recent_usage, record_lander_run};
+use super::estimate::{CapacityQuery, estimate_capacity, task_signature};
 use super::json::{field, num, round2, text};
-use super::model::{Forecast, Prediction, Subject, current_cache_state, forecast};
 use crate::capacity::local_machine::host_name;
 use north_foundation::foundation::clock::Timestamp;
 use super::policy::{ChargedRun, Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
@@ -17,20 +15,20 @@ fn cwd() -> Option<String> {
     std::env::current_dir().ok().map(|cwd| cwd.to_string_lossy().into_owned())
 }
 
-/// The expected use of the command from the capacity database's closest runs.
+/// The expected use of the command from the usage log's closest runs.
 pub fn estimate_command(command: &[String], kind: &str, owner: Option<&str>, cores: f64) -> Value {
     let signature = task_signature(command, cwd().as_deref(), kind, true);
-    if let Some(learned) = super::learned::read(&signature) {
-        return learned;
-    }
-    let history = capacity_database().and_then(|db| capacity_history(&db)).unwrap_or_else(|error| fail(&format!("capacity database: {error}"), failure_status(&error)));
-    let history = own_host(history, &host_name());
     let query = CapacityQuery { owner: owner.map(str::to_owned), shape: Some(command_shape(command)) };
-    estimate_capacity(&signature, &history, cores, &query)
+    estimate_capacity(&signature, &history(), cores, &query)
 }
 
 fn p90(estimate: &Value, key: &str) -> f64 {
     estimate.pointer(&format!("/{key}/p90")).and_then(Value::as_f64).unwrap_or(f64::NAN)
+}
+
+/// The least memory a run of these may be charged: past a run that stalled at its memory cap, that cap raised by `CENSOR_RAISE`.
+fn censored_floor(runs: &[Value]) -> f64 {
+    runs.iter().filter(|run| run.get("censored").and_then(Value::as_bool) == Some(true)).filter_map(|run| field(run, "reservedMemoryMiB")).filter(|cap| cap.is_finite()).map(|cap| cap * CENSOR_RAISE).fold(0.0, f64::max)
 }
 
 /// An undeclared run's class and size from what runs of its shape measured.
@@ -41,7 +39,7 @@ pub fn size_from_usage(command: &[String], owner: &str, cores: f64) -> Request {
     let shares: Vec<f64> = gpu_runs.iter().map(|run| field(run, "gpuSeconds").unwrap_or(0.0) / field(run, "wallSeconds").unwrap_or(f64::NAN)).collect();
     let gpu_share = if shares.len() >= 3 { percentile(&shares, 0.5) } else { 0.0 };
     let (cores_p90, memory_p90) = (p90(&estimate, "cores"), p90(&estimate, "peakMemoryMiB"));
-    let resources = Resources { cpus: cores_p90.ceil().max(1.0), memory_mib: (memory_p90 * memory_margin()).ceil().max(1.0) };
+    let resources = Resources { cpus: cores_p90.ceil().max(1.0), memory_mib: (memory_p90 * memory_margin()).max(censored_floor(&gpu_runs)).ceil().max(1.0) };
     let native = text(&estimate, "class") == Some("native");
     let duration = &estimate["duration"];
     let sizing = json!({
@@ -49,17 +47,12 @@ pub fn size_from_usage(command: &[String], owner: &str, cores: f64) -> Request {
         "p90Cores": num(cores_p90), "p90MemoryMiB": num(memory_p90), "p75Seconds": duration["p75Seconds"], "durationRuns": duration["sampleCount"], "durationBasis": duration["basis"],
     });
     let name = if native { "native".to_owned() } else { sized_class(gpu_share, resources.cpus, memory_p90).to_owned() };
-    let forecast = forecast_of(owner, command);
-    let memory_from_model = forecast.prediction.as_ref().is_some_and(Prediction::sizes_memory);
-    let resources = Resources { memory_mib: model_memory(&name, forecast.prediction.as_ref(), f64::INFINITY).map_or(resources.memory_mib, |memory| memory.ceil().max(1.0)), ..resources };
     Request {
         name,
         resources: Some(resources),
         new_clients: u32::from(native),
         sizing: Some(sizing),
         estimate: Some(estimate),
-        forecast: Some(forecast.json(resources.memory_mib)),
-        memory_from_model,
         ..Request::default()
     }
 }
@@ -85,17 +78,15 @@ pub fn charge_from_usage(mut request: Request, owner: &str, command: &[String], 
         Some(cpus) if request.name == "heavy" && !class_wide => Resources { cpus, ..charged },
         _ => charged,
     };
-    let forecast = forecast_of(owner, command);
-    let memory_mib = model_memory(&request.name, forecast.prediction.as_ref(), declared.memory_mib).unwrap_or(charged.memory_mib);
-    request.memory_from_model = forecast.prediction.as_ref().is_some_and(Prediction::sizes_memory);
+    let floor = censored_floor(&runs);
+    let memory_mib = if matches!(request.name.as_str(), "tom" | "critical") { charged.memory_mib.max(floor.min(declared.memory_mib)) } else { charged.memory_mib.max(floor) };
     request.resources = Some(Resources { cpus: round2(charged.cpus), memory_mib: memory_mib.ceil() });
-    request.memory_declared &= !request.memory_from_model && runs.len() < learned_minimum_runs();
+    request.memory_measured = runs.len() >= learned_minimum_runs() || floor > 0.0;
+    request.memory_declared &= !request.memory_measured;
     request.declared = Some(declared);
     request.evidence = Some(json!({
         "key": if class_wide { format!("{} class", request.name) } else { format!("{prefix} {shape}") }, "runs": runs.len(),
-        "model": forecast.prediction.as_ref().map(|prediction| json!({ "basis": prediction.basis, "runs": prediction.row.runs, "p90AnonMiB": num(prediction.row.memory.p90), "floorMiB": super::json::opt(prediction.row.floor_mib) })),
     }));
-    request.forecast = Some(forecast.json(memory_mib.ceil()));
     request
 }
 
@@ -138,24 +129,4 @@ fn day_runs(rows: &str, since: &str, host: &str, keep: impl Fn(&Value) -> bool) 
             passed: field(&row, "exitCode") == Some(0.0),
         })
         .collect()
-}
-
-fn forecast_of(owner: &str, command: &[String]) -> Forecast {
-    let db = capacity_database().ok();
-    forecast(db.as_ref(), Subject::of(owner, command, host_name(), current_cache_state()))
-}
-
-pub(super) fn model_memory(class: &str, prediction: Option<&Prediction>, declared_mib: f64) -> Option<f64> {
-    let memory = prediction.filter(|prediction| prediction.sizes_memory())?.memory_mib(memory_margin());
-    Some(if matches!(class, "tom" | "critical") { memory.min(declared_mib) } else { memory })
-}
-
-pub fn attach_forecast(request: &mut Request, owner: &str, command: &[String]) {
-    if request.forecast.is_none() {
-        request.forecast = Some(forecast_of(owner, command).json(request.resources().memory_mib));
-    }
-}
-
-pub(super) fn own_host(history: Vec<CapacityRun>, host: &str) -> Vec<CapacityRun> {
-    history.into_iter().filter(|run| run.host.as_deref().is_none_or(|recorded| recorded == host)).collect()
 }

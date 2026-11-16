@@ -1,11 +1,10 @@
-//! What the fleet tick's resume pass reads, each from the record its owner writes: the lander's queued lanes, the capacity
-//! host's runs admitted after a queue and the ledger's settled waits.
+//! What the fleet tick's resume pass reads, each from the record its owner writes: the lander's queued lanes and the
+//! ledger's settled waits.
 use std::collections::BTreeMap;
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::capacity::host::{capacity_database_readonly, queued_admissions};
-use crate::fleet::resume::{Admission, Held, Settlement};
+use crate::fleet::resume::{Held, Settlement};
 use crate::foundation::clock::Timestamp;
 use crate::land_ticket::lanes_by_session;
 use crate::platform::{land_queue, records_mirror};
@@ -18,17 +17,9 @@ pub(super) fn read(now_secs: i64) -> Held {
     let since = now_secs - WITHIN_SECS;
     Held {
         lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(),
-        admissions: capacity_database_readonly().map(|db| admissions(&db, since)).unwrap_or_default(),
+        admissions: BTreeMap::new(),
         settlements: client::ledger_path().ok().and_then(|path| Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).ok()).map(|db| settlements(&db, since)).unwrap_or_default(),
     }
-}
-
-pub(super) fn admissions(db: &Connection, since: i64) -> BTreeMap<String, Vec<Admission>> {
-    let ms = |seconds: i64| u64::try_from(seconds.saturating_mul(1000)).unwrap_or_default();
-    queued_admissions(db, since)
-        .into_iter()
-        .map(|(session, runs)| (session, runs.into_iter().map(|run| Admission { queued_ms: ms(run.at).saturating_sub((run.seconds * 1000.0) as u64), admitted_ms: ms(run.at) }).collect()))
-        .collect()
 }
 
 pub(super) fn settlements(db: &Connection, since: i64) -> BTreeMap<String, Vec<Settlement>> {

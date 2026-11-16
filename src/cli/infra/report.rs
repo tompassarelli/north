@@ -48,16 +48,6 @@ impl Price {
     }
 }
 
-/// What the capacity ledger says a machine served in the window: the fleet sessions and build jobs it ran, and the
-/// share of a core each of its cores carried. `None` until the ledger is read, so an unread ledger never marks a busy
-/// machine idle.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
-pub struct Usage {
-    pub sessions: usize,
-    pub jobs: usize,
-    pub load_per_core: Option<f64>,
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct Resource {
     pub provider: String,
@@ -66,11 +56,9 @@ pub struct Resource {
     pub location: Option<String>,
     pub status: String,
     pub price: Option<Price>,
-    /// The machine's CPU count, from south's manifest, which turns the ledger's CPU seconds into load per core.
+    /// The machine's CPU count, from south's manifest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cores: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
 }
 
 impl Resource {
@@ -83,18 +71,11 @@ impl Resource {
             status: String::new(),
             price: None,
             cores: None,
-            usage: None,
         }
     }
 
     pub fn is_machine(&self) -> bool {
         matches!(self.kind.as_str(), "machine" | "server")
-    }
-
-    /// True when the capacity ledger served this machine no job in the window, so a paid box that has done nothing
-    /// shows as idle rather than as a cost with no sign of use.
-    pub fn idle(&self) -> bool {
-        self.usage.is_some_and(|usage| usage.jobs == 0)
     }
 
     pub fn at(mut self, location: Option<String>) -> Self {
@@ -165,7 +146,7 @@ impl Report {
     pub fn text(&self) -> String {
         let mut lines = vec![
             format!(
-                "Live paid resources at {} (cloud APIs through the broker, south's infra manifest on disk, work from the capacity ledger over 24 h)",
+                "Live paid resources at {} (cloud APIs through the broker, south's infra manifest on disk)",
                 self.at
             ),
             String::new(),
@@ -177,16 +158,12 @@ impl Report {
             "location",
             "status",
             "per month",
-            "load/core",
-            "sessions",
-            "jobs",
         ]
         .map(str::to_owned);
-        let mut rows: Vec<[String; 9]> = self
+        let mut rows: Vec<[String; 6]> = self
             .resources
             .iter()
             .map(|resource| {
-                let (load, sessions, jobs) = workload_cells(resource);
                 [
                     resource.provider.clone(),
                     resource.name.clone(),
@@ -198,9 +175,6 @@ impl Report {
                         resource.status.clone()
                     },
                     resource.price.map_or_else(|| "-".to_owned(), Price::line),
-                    load,
-                    sessions,
-                    jobs,
                 ]
             })
             .collect();
@@ -232,50 +206,6 @@ pub fn totals(resources: &[Resource]) -> Vec<Total> {
     }
     found.sort_by_key(|total| total.currency);
     found
-}
-
-/// The load, sessions and jobs columns: `idle` when the ledger served the machine no job, `-` for a service or an
-/// unread ledger, and the figure otherwise.
-fn workload_cells(resource: &Resource) -> (String, String, String) {
-    if !resource.is_machine() {
-        return ("-".to_owned(), "-".to_owned(), "-".to_owned());
-    }
-    let Some(usage) = resource.usage else {
-        return ("-".to_owned(), "-".to_owned(), "-".to_owned());
-    };
-    if resource.idle() {
-        return ("idle".to_owned(), "0".to_owned(), "0".to_owned());
-    }
-    (
-        usage
-            .load_per_core
-            .map_or_else(|| "-".to_owned(), |load| format!("{load:.2}")),
-        usage.sessions.to_string(),
-        usage.jobs.to_string(),
-    )
-}
-
-/// Fills each machine's workload from the ledger window, priced against the cores the manifest names: CPU seconds over
-/// the window and those cores is the share of a core it carried. No ledger leaves every machine unread, not idle.
-pub fn workloads(
-    resources: &mut [Resource],
-    ledger: Option<&std::collections::BTreeMap<String, crate::cli::infra::capacity::Record>>,
-) {
-    let Some(ledger) = ledger else { return };
-    for resource in resources
-        .iter_mut()
-        .filter(|resource| resource.is_machine())
-    {
-        let record = ledger.get(&resource.name).copied().unwrap_or_default();
-        let load_per_core = resource.cores.filter(|cores| *cores > 0.0).map(|cores| {
-            record.cpu_seconds / (crate::cli::infra::capacity::WINDOW_SECONDS as f64 * cores)
-        });
-        resource.usage = Some(Usage {
-            sessions: record.sessions,
-            jobs: record.jobs,
-            load_per_core,
-        });
-    }
 }
 
 /// Live provider rows first, then the manifest's paid machines and services whose name no live source already holds, so
@@ -324,8 +254,8 @@ pub fn merge(live: Vec<Resource>, billing: &Billing) -> Vec<Resource> {
     resources
 }
 
-fn grid(rows: &[[String; 9]]) -> Vec<String> {
-    let widths: Vec<usize> = (0..9)
+fn grid(rows: &[[String; 6]]) -> Vec<String> {
+    let widths: Vec<usize> = (0..6)
         .map(|column| {
             rows.iter()
                 .map(|row| row[column].chars().count())
@@ -333,7 +263,7 @@ fn grid(rows: &[[String; 9]]) -> Vec<String> {
                 .unwrap_or(0)
         })
         .collect();
-    let right = [5, 6, 7, 8];
+    let right = [5];
     rows.iter()
         .map(|row| {
             row.iter()

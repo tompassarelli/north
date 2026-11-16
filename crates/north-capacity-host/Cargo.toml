@@ -15,7 +15,6 @@ north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
 north-graph-loops = { path = "../north-graph-loops" }
 north-fleet-store = { path = "../north-fleet-store" }
-north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 regex.workspace = true
 rusqlite.workspace = true
@@ -26,7 +25,6 @@ tempfile.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
 north-foundation = { path = "../north-foundation" }
-north-graph = { path = "../north-graph" }
 
 
 

@@ -50,9 +50,6 @@ pub(super) struct Options {
 struct Ids {
     recorded: String,
     settled: String,
-    /// Each host's newest recorded capacity admission, `HOST<TAB>AT` per line.
-    #[serde(default)]
-    capacity: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -153,8 +150,7 @@ fn record(options: &Options) -> u8 {
         return 2;
     }
     let (Some(recorded), Some(settled)) = (run_ids(&["run-ids"]), run_ids(&["run-ids", "--settled", "--ended"])) else { return 1 };
-    let Some(capacity) = run_ids(&["run-ids", "--capacity"]) else { return 1 };
-    let ids = Ids { recorded, settled, capacity };
+    let ids = Ids { recorded, settled };
     let Some(rows::Rows { mut rows, unread, missed }) = rows::rows(options, &ids) else { return 1 };
     let whole_fleet = options.session.is_empty();
     if whole_fleet && recalibrate::owns_ledger() {

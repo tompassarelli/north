@@ -109,14 +109,12 @@ sites = [
   "crates/north-capacity-host/src/capacity/host/sizing.rs",
   "crates/north-capacity-host/src/capacity/host/policy.rs",
   "crates/north-capacity-host/src/capacity/host/mod.rs",
-  "crates/north-capacity-host/src/capacity/host/learned.rs",
   "crates/north-capacity/src/capacity/admission.rs",
 ]
 signal = "measured cores, memory and wall per command signature of finished leases"
 updated_by = "north capacity run"
 cadence_hours = 24
-store = "graph"
-writer = "capacity"
+record = "agents/machine-capacity-usage.jsonl"
 
 constants = [
   "crates/north-capacity-host/src/capacity/host/policy.rs::GPU_BUSY_LIMIT_PERCENT",
@@ -408,13 +406,7 @@ defaults = [
 [plumbing]
 constants = [
   "crates/north-capacity/src/capacity/gate.rs::TOOLCHAIN_MISSING",
-  "crates/north-capacity-host/src/capacity/host/actions_pull.rs::FIRST_PULL_DAYS",
   "crates/north-capacity-host/src/capacity/host/args.rs::MAX_SAFE_INTEGER",
-  "crates/north-capacity-host/src/capacity/host/calibration.rs::COVERAGE_TARGET",
-  "crates/north-capacity-host/src/capacity/host/calibration.rs::DRIFT_ERROR",
-  "crates/north-capacity-host/src/capacity/host/database.rs::LOCK_WAIT_SECONDS",
-  "crates/north-capacity-host/src/capacity/host/database.rs::RETRY_PAUSE",
-  "crates/north-capacity-host/src/capacity/host/database.rs::TEMPORARY_FAILURE",
   "crates/north-capacity-host/src/capacity/host/decision.rs::NATIVE_GPU_SAMPLES",
   "crates/north-capacity-host/src/capacity/host/machine.rs::GPU_SAMPLE",
   "crates/north-capacity-host/src/capacity/host/measure.rs::GPU_EVERY_SAMPLES",
@@ -422,14 +414,9 @@ constants = [
   "crates/north-capacity-host/src/capacity/host/measure.rs::MIB",
   "crates/north-capacity-host/src/capacity/host/measure.rs::PEAK_WINDOW_MILLISECONDS",
   "crates/north-capacity-host/src/capacity/host/measure.rs::SAMPLE",
-  "crates/north-capacity-host/src/capacity/host/model.rs::CENSOR_AT_HIGH",
-  "crates/north-capacity-host/src/capacity/host/model.rs::CENSOR_RAISE",
-  "crates/north-capacity-host/src/capacity/host/model.rs::CENSOR_STALL_USEC",
-  "crates/north-capacity-host/src/capacity/host/model.rs::DRIFT_MEMORY_WIDEN",
-  "crates/north-capacity-host/src/capacity/host/model.rs::MODEL_MINIMUM_RUNS",
-  "crates/north-capacity-host/src/capacity/host/model.rs::SIZING_RUNS",
-  "crates/north-capacity-host/src/capacity/host/model.rs::WINDOW",
-  "crates/north-capacity-host/src/capacity/host/offload_cost.rs::DEFAULT_LAST",
+  "crates/north-capacity-host/src/capacity/host/usage_log.rs::CENSOR_AT_HIGH",
+  "crates/north-capacity-host/src/capacity/host/usage_log.rs::CENSOR_RAISE",
+  "crates/north-capacity-host/src/capacity/host/usage_log.rs::CENSOR_STALL_USEC",
   "crates/north-capacity-host/src/capacity/host/request.rs::FRESH_USAGE_MILLISECONDS",
   "crates/north-capacity-host/src/capacity/host/run.rs::BEHIND_POLL_MILLISECONDS",
   "crates/north-capacity-host/src/capacity/host/run.rs::OFFLOAD_DEFAULT_TIMEOUT_SECONDS",

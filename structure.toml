@@ -305,7 +305,7 @@ name = "north-capacity-host"
 layer = 4
 family = "capacity"
 paths = ["crates/north-capacity-host/src/**"]
-may_use = ["north-capacity", "north-fleet", "north-calibration", "north-graph-loops", "north-runtime-follow"]
+may_use = ["north-capacity", "north-fleet", "north-graph-loops", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-capacity"
