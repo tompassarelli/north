@@ -5,7 +5,7 @@ use super::effort::Effort;
 pub const SMALL_FIRST: &str = "small-first";
 pub const AFTER: &str = "after:";
 const FAMILIES: [&str; 3] = ["haiku", "sonnet", "opus"];
-pub const NOTE: &str = "\n\nTwo-rung route: you run on the first rung of a two-rung route. When your finish call's check fails, or a check the repository runs before queueing refuses the lane it committed, do not retry: end your turn at once with `Not done:` and `Stop: reasoning`, and when you cannot finish, still make the finish call with the box's check; either way the box starts once on the second rung with your diff and the check's output.";
+pub const NOTE: &str = "\n\nTwo-rung route: you run on the first rung of a two-rung route. When your finish call's check fails, or a check refuses your lane before queueing, the refusal names its reason: fix it in your lane and run the finish call or hand in again. A pending review is not a refusal to fix: wait for its verdict, then hand in. Stop only when the same refusal returns after your fix, or the fix is outside your box; then end your turn with `Not done:`, `Stop: reasoning` and which of the two it was. When you cannot finish, still make the finish call with the box's check.";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rung {

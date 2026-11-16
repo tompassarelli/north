@@ -1,6 +1,6 @@
 //! Two-rung routes (north#1233): a launch given `--route RUNG,RUNG` starts its box on the first rung, a model family
 //! and an optional effort, behind its acceptance check; `small-first` names `haiku,opus`. When that attempt's turn
-//! ends after a finish call whose acceptance check failed, as the finish record `north finish` writes says, the box starts once more on the second rung, from the project's main checkout so in a lane of its own, with the attempt's report and, quoted as data, the output and diff its lane
+//! ends after a finish call whose acceptance check failed, as the finish record `north finish` writes says, and it reported that it cannot fix the cause or was refused the same way twice (north#1632), the first session ends and the box starts once more on the second rung, from the project's main checkout so in a lane of its own, with the attempt's report and, quoted as data, the output and diff its lane
 //! kept, which only fill the brief and never decide whether the second rung starts. The second launch routes `after:NAME:RUNG`, which no turn end
 //! escalates, so a box never starts a third time by itself; with no main checkout to start from, it is refused, not
 //! started in the first rung's directory.
@@ -19,6 +19,7 @@ const REFUSED: &str = "route-refused";
 const ATTEMPT: &str = "north-attempt.json";
 const MARK: &str = "--north-route--";
 const KEPT_CHARS: usize = 30_000;
+const STUCK: &str = "Stop: reasoning";
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct Attempt {
@@ -99,7 +100,7 @@ fn failed_finish(record: &SessionRecord, verdicts: &Path) -> Option<Finished> {
 
 pub fn escalate(book: &dyn ReceiptBook, courier: &dyn Courier, record: &SessionRecord, completed: Option<&str>, verdicts: &Path, now_ms: u64) {
     let (Some(reply), Some(brief), Some(Route::First(_, second))) = (completed, record.first_attempt.as_deref(), record.route.as_deref().and_then(Route::parse)) else { return };
-    let Some(finished) = failed_finish(record, verdicts) else { return };
+    let Some(finished) = failed_finish(record, verdicts).filter(|finished| stuck(reply, finished)) else { return };
     let tell = |text: String| record.parent.iter().for_each(|parent| courier.notify(parent, format!("[from {}] route: {text}", record.name), Delivery::Queued));
     let Some(main) = main_checkout(record) else {
         if claimed(book, record, REFUSED, now_ms) {
@@ -113,6 +114,10 @@ pub fn escalate(book: &dyn ReceiptBook, courier: &dyn Courier, record: &SessionR
     let attempt = kept(record, &main);
     courier.launch(launch_words(record, brief, &second, reply, (&finished, attempt.as_ref()), &main));
     tell(format!("its acceptance check failed in the land check runner, so {}-r2 starts the box once on {}", record.name, second.word()));
+}
+
+fn stuck(reply: &str, finished: &Finished) -> bool {
+    reply.lines().any(|line| line.contains(STUCK)) || finished.refused.iter().enumerate().any(|(index, refusal)| finished.refused[..index].contains(refusal))
 }
 
 fn claimed(book: &dyn ReceiptBook, record: &SessionRecord, key: &str, now_ms: u64) -> bool {

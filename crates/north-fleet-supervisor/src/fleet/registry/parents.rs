@@ -5,11 +5,12 @@ use std::time::Duration;
 use north_base::lifecycle::{self, Effect};
 use north_runtime_follow::Follow;
 
-use north_foundation::error::NorthResult;
+use north_foundation::error::{NorthError, NorthResult};
 
 use super::super::gates::GateRequest;
 use super::super::host::{Host, alive};
 use super::super::model::{Delivery, Role, SessionRecord, Status};
+use super::super::store::ControlVerb;
 use super::super::receipts::{Aftermath, Courier, HostDeath, deliver_death, still_watched};
 use super::super::records::write_record;
 use super::super::runtime::{Runtime, binary, new_uuid, now_ms};
@@ -24,6 +25,8 @@ const WATCHDOG_POLL: Duration = Duration::from_secs(1);
 const WATCHDOG: &str = "fleet-watchdog";
 /// How long one watchdog start may take before another process takes it over.
 const WATCHDOG_START: Duration = Duration::from_secs(60);
+/// How long a second rung waits for its first rung's session to end after the stop (north#1632).
+const FIRST_END_SECONDS: u64 = 300;
 
 impl Fleet {
     pub fn guard(&self, name: &str) -> NorthResult<()> {
@@ -151,12 +154,40 @@ impl Courier for Fleet {
     }
 
     fn launch(&self, words: Vec<String>) {
-        let unit = format!("route-second-{}", unit_word(words.iter().skip_while(|word| *word != "--name").nth(1).map_or("launch", String::as_str)));
-        let arguments: Vec<&str> = ["fleet", "launch"].into_iter().chain(words.iter().map(String::as_str)).collect();
-        if let Err(error) = detach(&unit, &arguments) {
-            eprintln!("north fleet: the route's second attempt did not start: {}", error.user_message());
-        }
+        let fleet = self.clone();
+        std::thread::spawn(move || {
+            if let Some(first) = after_name(&words) && let Err(error) = end_first(&fleet, &first) {
+                eprintln!("north fleet: the route's second attempt did not start: {}", error.user_message());
+                return;
+            }
+            let unit = format!("route-second-{}", unit_word(words.iter().skip_while(|word| *word != "--name").nth(1).map_or("launch", String::as_str)));
+            let arguments: Vec<&str> = ["fleet", "launch"].into_iter().chain(words.iter().map(String::as_str)).collect();
+            if let Err(error) = detach(&unit, &arguments) {
+                eprintln!("north fleet: the route's second attempt did not start: {}", error.user_message());
+            }
+        });
     }
+}
+
+/// The first rung's session a `--route after:NAME:RUNG` launch names.
+fn after_name(words: &[String]) -> Option<String> {
+    let route = words.iter().skip_while(|word| *word != "--route").nth(1)?;
+    Some(route.strip_prefix("after:")?.split_once(':')?.0.to_owned())
+}
+
+/// Ends the first rung's session before the second rung claims its box, since one box never runs in two live sessions (north#1632).
+fn end_first(fleet: &Fleet, first: &str) -> NorthResult<()> {
+    if fleet.session(first).is_err() {
+        return Ok(());
+    }
+    fleet.control(ControlVerb::Stop, first)?;
+    for _ in 0..FIRST_END_SECONDS {
+        if !fleet.session(first).ok().and_then(|record| record.host_pid).is_some_and(alive) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Err(NorthError::Refused(format!("{first} is still alive after its stop, so the second rung waits for it to end")))
 }
 
 struct Inline<'a>(&'a Fleet);

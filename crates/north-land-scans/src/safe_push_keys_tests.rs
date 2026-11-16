@@ -52,7 +52,7 @@ fn a_lane_that_changes_a_safe_push_key_lands_only_with_a_review_accept_that_a_co
     assert!(check(&repo, &base, &removed, &accepts, &[]).is_err(), "a reviewer named in the message grants nothing");
 
     record("author-x");
-    let author = Finished { session: "author-x".to_owned(), command: String::new(), head: removed.clone(), passed: true, at: 1 };
+    let author = Finished { session: "author-x".to_owned(), command: String::new(), head: removed.clone(), passed: true, at: 1, refused: Vec::new() };
     assert!(check(&repo, &base, &removed, &accepts, std::slice::from_ref(&author)).is_err(), "the lane's author is not its reviewer");
 
     record("reviewer-a");

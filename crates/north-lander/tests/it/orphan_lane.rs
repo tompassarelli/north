@@ -75,8 +75,8 @@ fn orphan_lane_of_a_retired_session_lands_with_no_session() {
     fs::write(decoy.join(".git"), format!("gitdir: {}\n", planted.join(".git").display())).unwrap();
 
     let records = FinishRecords(world.path().join("state/north/verdict-cache/finished"));
-    records.record(&Finished { session: "retired-1".to_owned(), command: "true".to_owned(), head, passed: true, at: 1 }).unwrap();
-    records.record(&Finished { session: "planted-1".to_owned(), command: "true".to_owned(), head: planted_head, passed: true, at: 2 }).unwrap();
+    records.record(&Finished { session: "retired-1".to_owned(), command: "true".to_owned(), head, passed: true, at: 1, refused: Vec::new() }).unwrap();
+    records.record(&Finished { session: "planted-1".to_owned(), command: "true".to_owned(), head: planted_head, passed: true, at: 2, refused: Vec::new() }).unwrap();
     let inputs = Inputs { code: world.path().to_path_buf(), state: world.path().join("state"), host: HOST.to_owned(), records, jail: Vec::new() };
 
     assert!(adopt::orphans(&inputs, &Retired(true)).is_empty(), "a lane whose session is live was adopted");

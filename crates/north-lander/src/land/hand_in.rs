@@ -244,7 +244,7 @@ fn rebase_onto_destination(lane: &Lane, facts: Option<&Facts>) -> Option<String>
 fn record_finished(check: &str, head: Option<&str>, passed: bool) {
     let Some(session) = kept::own_session() else { return };
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    let finished = Finished { session, command: check.trim().to_owned(), head: head.unwrap_or_default().to_owned(), passed, at };
+    let finished = Finished { session, command: check.trim().to_owned(), head: head.unwrap_or_default().to_owned(), passed, at, refused: Vec::new() };
     if let Err(error) = FinishRecords::here().record(&finished) {
         eprintln!("finish: the finish record was not written: {error}");
     }

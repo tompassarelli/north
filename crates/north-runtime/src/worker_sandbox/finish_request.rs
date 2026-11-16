@@ -167,7 +167,7 @@ impl Granted {
             return Err(format!("the lane {} is not, after the run, the tree of {}, so no finish record is written for {}", self.directory.display(), self.head, self.session));
         }
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        let finished = Finished { session: self.session.clone(), command: self.command.trim().to_owned(), head: self.head.clone(), passed: code == 0, at };
+        let finished = Finished { session: self.session.clone(), command: self.command.trim().to_owned(), head: self.head.clone(), passed: code == 0, at, refused: Vec::new() };
         FinishRecords::of(environment, home).record(&finished).map_err(|error| format!("the finish record of {}: {error}", self.session))
     }
 

@@ -5,21 +5,29 @@ use crate::land::candidate::{git, output};
 use crate::land::lane_gates::{self, Lane};
 use crate::land::scans::git::merge_base;
 use crate::land::slots::runner::QueueRefusal;
-use north_base::platform::finish_record::{FinishRecords, Finished};
+use north_base::platform::finish_record::FinishRecords;
 use north_diff_gates::dep_gate::Registry;
 use north_landing::landing::{merge_set, stale_revert};
 
 /// A lane the repository's checks before queueing judged and failed turns its session's passing finish record for
 /// that tree failed, so a route's first rung moves to its second on the repository's own checks and not only on the
 /// check its finish call named; a refusal that reached no verdict leaves the record as it is (north#1233). A missing review accept is no refusal: the
-/// ticket waits for it in the landing queue and the record stays passing (north#1632).
+/// ticket waits for it in the landing queue and the record stays passing (north#1632). Each failed refusal's first line joins the record's `refused` list, where a repeat marks the lane stuck.
 pub(super) fn refused_finish(session: Option<&str>, root: &Path, head: &str, refusal: QueueRefusal) -> String {
     let tree = |commit: &str| git(root, &["rev-parse", "--verify", "--quiet", &format!("{commit}^{{tree}}")]).ok();
     let records = FinishRecords::here();
     let own = std::env::var(north_base::platform::session_scope::SESSION).ok();
-    let vouched = session.or(own.as_deref()).filter(|_| matches!(refusal, QueueRefusal::Failed(_))).and_then(|session| records.read(session)).filter(|finished| finished.passed && tree(&finished.head).is_some_and(|checked| Some(checked) == tree(head)));
-    if let Some(finished) = vouched
-        && let Err(error) = records.record(&Finished { passed: false, ..finished })
+    let session_record = session.or(own.as_deref()).filter(|_| matches!(refusal, QueueRefusal::Failed(_))).and_then(|session| records.read(session));
+    let first_line = refusal.text().lines().next().unwrap_or_default().to_owned();
+    let failed = session_record.map(|mut finished| {
+        if tree(&finished.head).is_some_and(|checked| Some(checked) == tree(head)) {
+            finished.passed = false;
+        }
+        finished.refused.push(first_line);
+        finished
+    });
+    if let Some(finished) = failed
+        && let Err(error) = records.record(&finished)
     {
         eprintln!("safe-push: the finish record was not turned failed: {error}");
     }

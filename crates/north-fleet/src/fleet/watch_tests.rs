@@ -270,7 +270,7 @@ fn escalations_of(finished: Option<bool>, lane_record: bool, route: Option<&str>
     }
     let verdicts = root.path().join("verdicts");
     if let Some(passed) = finished {
-        let record = north_base::platform::finish_record::Finished { session: "worker".into(), command: "cargo test -p north-fleet".into(), head: "abc".into(), passed, at: now_ms() / 1000 };
+        let record = north_base::platform::finish_record::Finished { session: "worker".into(), command: "cargo test -p north-fleet".into(), head: "abc".into(), passed, at: now_ms() / 1000, refused: Vec::new() };
         north_base::platform::finish_record::FinishRecords(verdicts.clone()).record(&record).unwrap();
     }
     let brief = format!("Item: north#1 (dates parse)\nGoal: parse dates{}", crate::fleet::route::NOTE);

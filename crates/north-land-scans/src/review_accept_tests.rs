@@ -127,7 +127,7 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_on_one_review_accept_from_eit
     let reworded = git_in(&repo, &["rev-parse", "HEAD"]);
     assert_eq!(check(&repo, &base, &reworded, &accepts, &[]), Ok(()), "the accepts follow the patch, not the commit");
 
-    let author = Finished { session: "author-x".to_owned(), command: String::new(), head: inside.clone(), passed: true, at: 1 };
+    let author = Finished { session: "author-x".to_owned(), command: String::new(), head: inside.clone(), passed: true, at: 1, refused: Vec::new() };
     let few = Accepts(root.path().join("few"));
     accept(&few, &repo, &base, &inside, "author-x");
     assert_eq!(check(&repo, &base, &inside, &few, &[]), Ok(()), "without a record of who wrote the lane, its author's accept counts");

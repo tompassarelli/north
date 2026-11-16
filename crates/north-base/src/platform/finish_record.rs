@@ -21,6 +21,8 @@ pub struct Finished {
     pub head: String,
     pub passed: bool,
     pub at: u64,
+    #[serde(default)]
+    pub refused: Vec<String>,
 }
 
 pub struct FinishRecords(pub PathBuf);
