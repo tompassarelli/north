@@ -5,7 +5,7 @@ use std::time::Duration;
 use north_foundation::error::{NorthError, NorthResult};
 use north_base::platform::process::try_run_command_within;
 
-pub const SSH_WAIT: Duration = Duration::from_secs(20);
+pub use north_warm_spares::ssh::{SSH_WAIT, quote};
 
 pub fn over_ssh_via(ssh: &Path, host: &str, words: &[&str], input: Option<&[u8]>, wait: Duration) -> NorthResult<Vec<u8>> {
     let command = format!("north {}", words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
@@ -17,8 +17,4 @@ pub fn over_ssh_via(ssh: &Path, host: &str, words: &[&str], input: Option<&[u8]>
         Ok(None) => Err(NorthError::Usage(format!("ssh {host} {command}: no answer within {}s", wait.as_secs()))),
         Err(error) => Err(NorthError::Usage(format!("ssh {host} {command}: could not start {}: {error}", ssh.display()))),
     }
-}
-
-pub fn quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
 }

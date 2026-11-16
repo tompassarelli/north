@@ -1013,3 +1013,17 @@ min_n = 0
 after = ["2026-11-16", "2026-12-14"]
 review = "2026-12-16"
 owner = "tompassarelli/north#1648"
+
+[[experiment]]
+id = "north-warm-spares"
+change = "the warm spares and the host types they read (machine, host spec, held-unit launch script, spool names) leave north-fleet for the new bucket 1 crate north-warm-spares, which north-fleet-store and north-fleet re-export, so the proven core holds the spares without the fleet (north#1650)"
+landed = "9767f221cc"
+crates = ["north-warm-spares"]
+metric = "none"
+measure = "git log on origin/main over the 28 days after this move: commits that fold north-warm-spares back into north-fleet or move one of its modules elsewhere; keep the crate when there are none, and record the count on north#1650"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-16", "2026-12-14"]
+review = "2026-12-16"
+owner = "tompassarelli/north#1650"

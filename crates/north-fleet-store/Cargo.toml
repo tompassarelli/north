@@ -13,6 +13,7 @@ doctest = false
 north-base = { path = "../north-base" }
 north-strategy-types = { path = "../north-strategy-types" }
 north-publish = { path = "../north-publish" }
+north-warm-spares = { path = "../north-warm-spares" }
 north-resume = { path = "../north-resume" }
 regex.workspace = true
 rusqlite.workspace = true

@@ -6,27 +6,12 @@ use serde_json::Value;
 use north_foundation::error::{NorthError, NorthResult};
 
 pub use north_fleet_store::runtime::{BINDING_ENV, Binding, COORDINATOR, ROLE_ENV, SESSION_ENV, SPOOLED_ENV, binary, binding, now_ms};
+pub use north_warm_spares::host::{HostSpec, Seen, new_uuid};
+pub use north_warm_spares::names::{ACTOR_ENV, CAPACITY_NEED_ENV};
 use super::gates::Question;
 use super::model::{Account, Effort, LaunchRequest, Machine, ProviderName, Quota, Transcript};
 use super::roster::Roster;
 use super::turns::TurnSignal;
-
-/// What a profile file holds where a session would run, as a launch check sees it: its text, nothing there, or a machine that did not answer, which the launch itself reports.
-#[derive(Clone)]
-pub enum Seen {
-    Text(String),
-    Absent,
-    Unreachable,
-}
-
-pub struct HostSpec {
-    pub key: String,
-    pub shared: bool,
-    pub argv: Vec<String>,
-    pub env: Vec<(String, OsString)>,
-    pub env_remove: Vec<String>,
-    pub cwd: PathBuf,
-}
 
 /// How to start a provider CLI as one account: argv words that read its credential, the environment
 /// to set and the inherited variables to drop.
@@ -174,11 +159,6 @@ pub trait Runtime: Send + Sync {
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
 /// The longest `timeout` a session may ask for: the hand-in wait and room to print its verdict, for a lead or the coordinator that runs `safe-push --to main --wait` in the foreground; a worker never waits on its own landing and the worker-wait guard keeps it out of foreground waits.
 pub const HAND_IN_CAP_SECS: u64 = north_base::land_ticket::HAND_IN_WAIT.as_secs() + 300;
-pub const ACTOR_ENV: &str = "THREADS_ACTOR";
-pub const CAPACITY_NEED_ENV: &str = "AGENT_CAPACITY_NEED";
-pub fn new_uuid() -> NorthResult<String> {
-    Ok(std::fs::read_to_string("/proc/sys/kernel/random/uuid")?.trim().to_owned())
-}
 
 pub fn summarize(text: &str, limit: usize) -> String {
     let line = text.trim();

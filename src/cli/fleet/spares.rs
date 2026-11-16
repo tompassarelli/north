@@ -3,7 +3,7 @@ use super::router::open_fleet;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::SESSION_ENV;
-use crate::fleet::spares;
+use north_warm_spares::spares;
 
 pub fn fill(arguments: &[String]) -> u8 {
     let filled = match arguments {

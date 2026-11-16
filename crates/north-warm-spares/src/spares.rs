@@ -16,15 +16,13 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
-use north_foundation::error::{NorthError, NorthResult};
 use north_base::platform::process::try_run_command_within;
+use north_foundation::error::{NorthError, NorthResult};
 
-use super::link::quote;
-use super::model::{LaunchRequest, Machine, Role};
-use super::remote::{self, Running};
-use super::runtime::{ACTOR_ENV, BINDING_ENV, CAPACITY_NEED_ENV, HostSpec, SESSION_ENV, Seen, new_uuid};
-use super::store::{SESSIONS_DIR, SPOOL_DIR};
-use super::ssh::SSH_WAIT;
+use crate::host::{HostSpec, Running, Seen, Starting, UNREGISTERED, held_dir, launch_script, new_uuid, staged_on};
+use crate::machine::Machine;
+use crate::names::{ACTOR_ENV, BINDING_ENV, CAPACITY_NEED_ENV, SESSION_ENV, SESSIONS_DIR, SPOOL_DIR};
+use crate::ssh::{SSH_WAIT, quote};
 
 pub const PER_KIND: usize = 3;
 pub const PER_HOST: usize = 6;
@@ -121,19 +119,14 @@ pub fn current_runtime() -> Option<PathBuf> {
     std::fs::canonicalize(Path::new(&home).join(".local/state/north/current")).ok()
 }
 
-/// The launch a fill starts spares like `worker` from, under the spare's `name`: `worker` without its task, box, brief, prompt file, parent, placement or capacity need, so a spare holds nothing of the worker it was modelled on and fits a fresh launch of that account, model, effort, compaction window and directory.
-pub fn template(worker: LaunchRequest, name: String) -> LaunchRequest {
-    LaunchRequest { name, compact_window: worker.window(), prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, placement: None, capacity_need: None, role: Some(Role::Worker), resume: None, ..worker }
-}
-
 /// The spare's spec: `spec` staged in the place's login home, with the binding variable naming the file a take seals in its held directory.
 pub fn spare_spec(spec: HostSpec, place: &Place, spare: &str) -> HostSpec {
-    let mut spec = remote::staged_on(spec, place.machine, place.home);
-    spec.env.push((BINDING_ENV.into(), remote::held_dir(&place.far_home(), &unit(spare)).join("bound/binding").into()));
+    let mut spec = staged_on(spec, place.machine, place.home);
+    spec.env.push((BINDING_ENV.into(), held_dir(&place.far_home(), &unit(spare)).join("bound/binding").into()));
     spec
 }
 
-/// Takes a spare of `fingerprint` for the session `name` launching in `cwd` and writes `binding` before returning it, or None when none fits, the shell test `still` (see [`super::remote::still_seen`]) fails there or the host does not answer, and the launch starts its client as before. For a launch into a lane, the spare's lane takes the lane's branch, and [`remove_left_lane`] removes the lane once the launch's first prompt is built from it; a spare whose lane does not fit stays in the pool. Every git the take runs reads its repository from the project's main checkout, never from a lane's `.git`, which a confined worker may write. Run twice for one name, it returns the spare the first run took.
+/// Takes a spare of `fingerprint` for the session `name` launching in `cwd` and writes `binding` before returning it, or None when none fits, the shell test `still` (built from the answers a fill read) fails there or the host does not answer, and the launch starts its client as before. For a launch into a lane, the spare's lane takes the lane's branch, and [`remove_left_lane`] removes the lane once the launch's first prompt is built from it; a spare whose lane does not fit stays in the pool. Every git the take runs reads its repository from the project's main checkout, never from a lane's `.git`, which a confined worker may write. Run twice for one name, it returns the spare the first run took.
 pub fn take(place: &Place, fingerprint: &str, name: &str, cwd: &Path, binding: &str, still: &str) -> Option<Taken> {
     let staged = |path: &Path| place.machine.session_path(path, place.home).to_string_lossy().into_owned();
     let (lane, common) = lane_root(cwd).map_or_else(Default::default, |main| (staged(cwd), staged(&main.join(".git"))));
@@ -171,7 +164,7 @@ exit 1"#,
         quote(&place.far_home().join(north_base::platform::session_host_files::HELD).to_string_lossy()),
         quote(&lane),
         quote(&common),
-        remote::UNREGISTERED.as_secs(),
+        UNREGISTERED.as_secs(),
         GIT = PINNED_GIT,
         STILL = still
     );
@@ -296,7 +289,7 @@ done"#,
 pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spare: &str, conversation: &str) -> NorthResult<()> {
     let held = place.far_home().join(north_base::platform::session_host_files::HELD);
     let unit = unit(spare);
-    let dir = remote::held_dir(&place.far_home(), &unit).to_string_lossy().into_owned();
+    let dir = held_dir(&place.far_home(), &unit).to_string_lossy().into_owned();
     let pool = pool(&place.far_home());
     let entry = format!("{pool}/{kind}-{fingerprint}-{spare}");
     let spool = format!("{}/{spare}", spools(&place.far_home()));
@@ -314,7 +307,7 @@ pub fn start(place: &Place, spec: &HostSpec, kind: &str, fingerprint: &str, spar
         spool = quote(&spool)
     );
     let nonce = new_uuid()?;
-    let launch = remote::launch_script(spec, &held, &remote::Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation: Some(conversation) }, IDLE, &[format!("ExecStopPost=/bin/sh {dir}/retire")]);
+    let launch = launch_script(spec, &held, &Starting { unit: &unit, dir: &dir, nonce: &nonce, conversation: Some(conversation) }, IDLE, &[format!("ExecStopPost=/bin/sh {dir}/retire")]);
     let script = format!(
         "{drop}\n{make_lane}umask 077; ident=$(stat -c {IDENTITY} {cwd}) && mkdir -p {q_dir} {q_pool} && chmod 700 {q_pool} && printf %s {} > {q_dir}/retire && {{ {launch}; }} && printf '%s\\n' {}\" $ident \"{cwd} > {q_pool}/.new-{spare} && mv {q_pool}/.new-{spare} {entry_q} && {{ [ \"$(stat -c {IDENTITY} {cwd})\" = \"$ident\" ] || drop {entry_q} {unit_q} {spare} 'its directory was removed while it started'; }}",
         quote(&retire),

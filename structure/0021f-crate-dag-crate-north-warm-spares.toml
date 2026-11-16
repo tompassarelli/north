@@ -1,0 +1,11 @@
+[[crate_dag.crate]]
+name = "north-warm-spares"
+layer = 1
+paths = ["crates/north-warm-spares/src/**"]
+may_use = ["north-base", "north-ssh-spare"]
+
+[[module]]
+name = "north_warm_spares"
+paths = ["crates/north-warm-spares/src/**"]
+responsibility = "The warm spares of a build host: client units started before any task and taken by a launch whose spec matches, with the machine, host spec and held-unit launch script that a launch there shares with them."
+may_use = ["crate-roots", "foundation", "platform", "platform.process"]

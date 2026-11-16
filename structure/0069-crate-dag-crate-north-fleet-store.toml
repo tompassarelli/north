@@ -2,5 +2,5 @@
 name = "north-fleet-store"
 layer = 2
 paths = ["crates/north-fleet-store/src/**"]
-may_use = ["north-base", "north-strategy-types", "north-publish"]
+may_use = ["north-base", "north-strategy-types", "north-publish", "north-warm-spares"]
 

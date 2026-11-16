@@ -17,6 +17,7 @@ north-fleet = { path = "../north-fleet" }
 north-graph-loops = { path = "../north-graph-loops" }
 north-resume = { path = "../north-resume" }
 north-session-host = { path = "../north-session-host" }
+north-warm-spares = { path = "../north-warm-spares" }
 regex.workspace = true
 rustix.workspace = true
 serde.workspace = true

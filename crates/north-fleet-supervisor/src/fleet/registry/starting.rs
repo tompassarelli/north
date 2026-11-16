@@ -15,7 +15,7 @@ use crate::fleet::prompt::{PromptInputs, prompt_sha, render};
 use crate::fleet::records::{CLAIMS_RELEASED, PLACED, write_record};
 use crate::fleet::remote::{self, HeldOn, HooksCheck};
 use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, now_ms};
-use crate::fleet::spares::Taken;
+use north_warm_spares::spares::Taken;
 use crate::fleet::transcript::{session_stream_path, stream_len};
 use crate::fleet::unaccepted::Unaccepted;
 

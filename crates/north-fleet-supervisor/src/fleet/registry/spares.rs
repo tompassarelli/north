@@ -8,7 +8,7 @@ use crate::fleet::model::{Account, Effort, LaunchRequest, Machine, Predicted, Ro
 use crate::fleet::hops;
 use crate::fleet::remote::{self, LaunchReads, ProfileReads};
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid};
-use crate::fleet::spares::{self, Place, Taken};
+use north_warm_spares::spares::{self, Place, Taken};
 use crate::fleet::store::Claim;
 
 use super::{Fleet, efforts, reserve};
@@ -94,7 +94,7 @@ impl Fleet {
     fn fill_for(&self, request: &LaunchRequest, effort: Option<Effort>, make_room: bool) -> NorthResult<String> {
         let machine = request.machine.clone().filter(|_| request.role() == Role::Worker).ok_or_else(|| NorthError::Usage(format!("{} is not a worker on a build host, so no spare serves launches like it", request.name)))?;
         let runtime = self.runtimes.get(&request.provider)?;
-        let template = spares::template(request.clone(), spares::spare_name()?);
+        let template = request.clone().spare_template(spares::spare_name()?);
         let account = self.account(&template)?;
         if let Some(line) = reserve::refusal(&reserve::declared(&self.policy), &account, Role::Worker, template.parent.as_deref(), None) {
             return Err(NorthError::Refused(line));

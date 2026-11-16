@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use north_foundation::foundation::clock::Timestamp;
 
 pub use north_base::platform::session_scope::{COORDINATOR_ROLE as COORDINATOR, ROLE_ENV};
-pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
+pub use north_warm_spares::names::{BINDING_ENV, SESSION_ENV};
 pub const SPOOLED_ENV: &str = "NORTH_FLEET_SPOOLED";
 
 pub fn binary(name: &str) -> PathBuf {
@@ -19,9 +19,6 @@ pub fn binary(name: &str) -> PathBuf {
 pub fn now_ms() -> u64 {
     u64::try_from(Timestamp::now().unix_millis()).unwrap_or(0)
 }
-
-/// The variable naming a spare worker's binding file, whose session name, actor and capacity need the worker-sandbox prefix applies once a launch takes the spare.
-pub const BINDING_ENV: &str = "NORTH_FLEET_BINDING";
 
 /// Where this process stands as a spare worker: started as no spare, a spare no launch has taken yet, or one a launch has taken and bound.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

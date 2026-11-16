@@ -238,6 +238,11 @@ impl LaunchRequest {
         self.compact_window.or_else(|| super::compaction::window(&self.prompt)).or_else(|| self.named_brief().and_then(|brief| super::compaction::window(&brief)))
     }
 
+    /// The launch a fill starts spares like `self` from, under the spare's `name`: `self` without its task, box, brief, prompt file, parent, placement or capacity need, so a spare holds nothing of the worker it was modelled on and fits a fresh launch of that account, model, effort, compaction window and directory.
+    pub fn spare_template(self, name: String) -> Self {
+        Self { name, compact_window: self.window(), prompt: String::new(), system_prompt: None, parent: None, task_ref: None, claim_box: None, placement: None, capacity_need: None, role: Some(Role::Worker), resume: None, ..self }
+    }
+
     /// The `Budget:` line's E, in the prompt or else in the brief it points at.
     pub fn budget(&self) -> Option<super::budget::Stated> {
         super::budget::stated(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::budget::stated(&brief)))

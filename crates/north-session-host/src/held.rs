@@ -1,5 +1,4 @@
-//! The user service a session another host placed on this machine runs as: the script that holds
-//! its CLI, the one that prunes what gone services left, the unit's name, and the work below its
+//! The user service a session another host placed on this machine runs as: the script that retires it, the unit's name, and the work below its
 //! CLI, read over ssh since the placing host's procfs holds only the link.
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -8,30 +7,6 @@ use std::time::Duration;
 
 use north_base::platform::process::try_run_command_within;
 use sha2::{Digest, Sha256};
-
-/// `sh -c HOLD DIR UNIT DETACHED_SECS CLI...`: the service's main process. It feeds the CLI the
-/// input file through a FIFO, records the CLI's status and stops the service once no link has been
-/// attached for DETACHED_SECS, or for the seconds DIR/limit holds once a launch has written it.
-pub const HOLD: &str = r#"d=$0 u=$1 limit=$2; shift 2
-mkfifo "$d/feed" || exit 70
-{ "$@" < "$d/feed" >> "$d/out" 2>> "$d/err"; echo $? > "$d/status"; } &
-cli=$!
-{ seen=$(date +%s); while sleep 60; do
-  if read -r p b < "$d/attach" && [ "$(cut -d' ' -f22 "/proc/$p/stat")" = "$b" ]; then seen=$(date +%s)
-  elif [ $(($(date +%s) - seen)) -ge "$(cat "$d/limit" 2>/dev/null || echo "$limit")" ]; then systemctl --user stop "$u"; fi
-done; } 2>/dev/null &
-watch=$!
-tail -c +1 -f --pid="$cli" "$d/in" > "$d/feed"
-wait "$cli"; code=$?
-kill "$watch" 2>/dev/null
-exit "$code""#;
-
-/// `sh -c PRUNE HELD UNIT`: removes held directories untouched for three days whose service is gone, other than UNIT's, which a launch beside it is making.
-pub const PRUNE: &str = r#"for h in "$0"/*.service; do
-  [ "${h##*/}" != "$1" ] && [ -d "$h" ] && [ -z "$(find "$h" -maxdepth 1 -mmin -4320 -print -quit)" ] && ! systemctl --user -q is-active "${h##*/}" &&
-    { [ ! -d "$h/bound" ] || { chmod 700 "$h/bound" && rm -f "$h/bound/binding" && rmdir "$h/bound"; }; } &&
-    rm -f "$h/in" "$h/out" "$h/err" "$h/status" "$h/attach" "$h/feed" "$h/nonce" "$h/limit" "$h/retire" "$h/conversation" && rmdir "$h"
-done"#;
 
 pub const RETIRE: &str = r#"systemctl --user stop "$1" 2>/dev/null
 [ -d "$0" ] || exit 0

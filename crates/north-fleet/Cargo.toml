@@ -16,6 +16,7 @@ north-fleet-store = { path = "../north-fleet-store" }
 north-pace = { path = "../north-pace" }
 north-session-host = { path = "../north-session-host" }
 north-ssh-spare = { path = "../north-ssh-spare" }
+north-warm-spares = { path = "../north-warm-spares" }
 north-resume = { path = "../north-resume" }
 regex.workspace = true
 rusqlite.workspace = true
@@ -31,6 +32,9 @@ north-foundation = { path = "../north-foundation" }
 
 [features]
 test-support = []
+
+[dev-dependencies]
+north-warm-spares = { path = "../north-warm-spares", features = ["test-support"] }
 
 [lints]
 workspace = true

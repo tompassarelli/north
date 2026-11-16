@@ -53,7 +53,6 @@ use north_fleet_store::ssh;
 pub mod board;
 pub mod rungs;
 pub mod route;
-pub mod spares;
 pub mod claim_releases;
 pub mod landing_stall;
 pub mod launch_lane;

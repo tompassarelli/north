@@ -1,0 +1,28 @@
+[package]
+name = "north-warm-spares"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[features]
+test-support = []
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-foundation = { path = "../north-foundation" }
+north-ssh-spare = { path = "../north-ssh-spare" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

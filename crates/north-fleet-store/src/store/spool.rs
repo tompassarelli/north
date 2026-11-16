@@ -9,8 +9,7 @@ use north_foundation::error::{NorthError, NorthResult};
 
 use super::FleetRow;
 
-pub const SPOOL_DIR: &str = "spool";
-pub const SESSIONS_DIR: &str = "sessions";
+pub use north_warm_spares::names::{SESSIONS_DIR, SPOOL_DIR};
 const ROW: &str = "json";
 const REJECTED: &str = "rejected";
 
