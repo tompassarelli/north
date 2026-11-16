@@ -43,6 +43,7 @@ pub use fleets::workers as fleet_workers;
 mod freeze;
 mod grounds;
 mod host_needs;
+mod host_report;
 mod home;
 mod hotspots;
 mod issues;
@@ -273,8 +274,9 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let stopped = execute(&survey, &outcome, dry_run);
-    if !dry_run && let Err(why) = round::Round::of(&outcome, &stopped, placement::now()).save() {
-        eprintln!("north fleet dispatch: round not recorded: {why}");
+    let round = round::Round::of(&outcome, &stopped, placement::now());
+    if !dry_run {
+        record_round(&survey, &round);
     }
     print_lines(leads::stop_all(&outcome.tree.stops, dry_run, |lead| effects::stop_lead(&survey, lead)));
     print_lines(drafting::pass(&survey, &outcome, &mut pools, None, dry_run));
@@ -298,6 +300,15 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         cpu::page(&survey, &disk, now);
     }
     exit(told, reported, watched)
+}
+
+fn record_round(survey: &Survey, round: &round::Round) {
+    if let Err(why) = round.save() {
+        eprintln!("north fleet dispatch: round not recorded: {why}");
+    }
+    if let Err(why) = host_report::write(survey, round, round.at) {
+        eprintln!("north fleet dispatch: host record not written: {why}");
+    }
 }
 
 fn print_plan(survey: &Survey, outcome: &Outcome) {

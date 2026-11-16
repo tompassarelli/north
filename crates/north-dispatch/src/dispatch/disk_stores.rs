@@ -1,8 +1,11 @@
 //! What the harness keeps on this dispatch host's root disk, each store sized by a walk bounded in time so the read finishes, and the disk keep the harness already has for its own stores, run here because this host imports no lease reaper.
+use super::record;
 use north_base::platform::disk_ledger::{self, Ledger};
 use north_base::platform::process::run_within;
 use north_fleet_supervisor::fleet::records::{ARCHIVE, PLACED, read_phased};
 use north_fleet_supervisor::fleet::session_lifecycle::{Phase, Phases};
+use north_pacing::pacing::placement;
+use serde::{Deserialize, Serialize};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -11,12 +14,30 @@ const WALK: Duration = Duration::from_secs(60);
 const KEEP: Duration = Duration::from_secs(900);
 const CACHES: [&str; 7] = ["north_cache", "mutant_cargo", "mutant_sweeps", "build_offload", "land_offload", "sccache", "cargo_target"];
 const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+const KEPT_KEEP: &str = "last-keep.json";
 
 #[derive(Default)]
 struct Size {
     bytes: u64,
     entries: u64,
     stopped: bool,
+}
+
+/// One store's size, named without the path it was sized at.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct Sized {
+    pub name: String,
+    pub gib: f64,
+    pub entries: u64,
+    pub stopped: bool,
+}
+
+/// The last disk keep this host ran: when, its outcome and how much it freed.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Keep {
+    pub at: f64,
+    pub ran: String,
+    pub freed_gib: Option<f64>,
 }
 
 fn walk(path: &Path, deadline: Instant, device: Option<u64>, size: &mut Size) {
@@ -47,11 +68,6 @@ fn sized(paths: &[PathBuf]) -> Size {
     size
 }
 
-fn line(name: &str, size: &Size, at: &str) -> (u64, String) {
-    let stopped = if size.stopped { format!(", walk stopped at {} s so at least this", WALK.as_secs()) } else { String::new() };
-    (size.bytes, format!("{:>8.2} GiB in {} entries  {name} ({at}{stopped})", size.bytes as f64 / GIB, size.entries))
-}
-
 fn children(directory: &Path, keep: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
     std::fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| keep(path)).collect()
 }
@@ -70,8 +86,8 @@ fn sessions(fleet: &Path) -> Vec<(String, Vec<PathBuf>)> {
     [("live", live), ("parked", parked), ("ended", ended), ("adopted or unphased", unread)].into_iter().map(|(class, paths)| (class.to_owned(), paths)).collect()
 }
 
-/// The harness's stores on this host, largest first: the runtimes, the fleet's archive, its session directories by state with their counts, its placed mirrors, the land-queue logs, the graph and ledger databases, the harness cache stores and the provider profile transcripts.
-pub(super) fn read(home: &Path) -> Vec<String> {
+/// The harness's stores on this host, largest first, each with the path it was sized at: the runtimes, the fleet's archive, its session directories by state with their counts, its placed mirrors, the land-queue logs, the graph and ledger databases, the harness cache stores and the provider profile transcripts.
+pub fn sizes(home: &Path) -> Vec<(Sized, String)> {
     let state = home.join(".local/state/north");
     let fleet = state.join("fleet");
     let ledger = Ledger::shipped();
@@ -92,12 +108,40 @@ pub(super) fn read(home: &Path) -> Vec<String> {
             stores.push((format!("cache {name}"), entry.resolve(home), home.join(&entry.path).display().to_string()));
         }
     }
-    let mut rows: Vec<(u64, String)> = std::thread::scope(|scope| {
-        let handles: Vec<_> = stores.iter().map(|(name, paths, at)| scope.spawn(move || line(name, &sized(paths), at))).collect();
+    let mut rows: Vec<(u64, Sized, String)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = stores
+            .into_iter()
+            .map(|(name, paths, at)| {
+                scope.spawn(move || {
+                    let size = sized(&paths);
+                    (size.bytes, Sized { name, gib: size.bytes as f64 / GIB, entries: size.entries, stopped: size.stopped }, at)
+                })
+            })
+            .collect();
         handles.into_iter().filter_map(|handle| handle.join().ok()).collect()
     });
     rows.sort_by_key(|row| std::cmp::Reverse(row.0));
-    rows.into_iter().map(|(_, text)| text).collect()
+    rows.into_iter().map(|(_, size, at)| (size, at)).collect()
+}
+
+pub(super) fn read(home: &Path) -> Vec<String> {
+    sizes(home)
+        .into_iter()
+        .map(|(size, at)| {
+            let stopped = if size.stopped { format!(", walk stopped at {} s so at least this", WALK.as_secs()) } else { String::new() };
+            format!("{:>8.2} GiB in {} entries  {} ({at}{stopped})", size.gib, size.entries, size.name)
+        })
+        .collect()
+}
+
+/// The last disk keep this host ran, as `keep` saved it.
+pub fn last_keep() -> Option<Keep> {
+    serde_json::from_str(&std::fs::read_to_string(record::directory().join(KEPT_KEEP)).ok()?).ok()
+}
+
+fn save_keep(keep: &Keep) -> Result<(), String> {
+    let directory = record::directory();
+    std::fs::create_dir_all(&directory).and_then(|()| std::fs::write(directory.join(KEPT_KEEP), serde_json::to_vec(keep).unwrap_or_default())).map_err(|error| format!("{}: {error}", directory.join(KEPT_KEEP).display()))
 }
 
 /// Runs `north capacity disk keep` here within `KEEP` (runtimes past the newest ten that no link, process or lease needs, land-queue logs over seven days, then the cache stores of the disk ledger), and says what it freed and each thing it removed.
@@ -106,15 +150,18 @@ pub(super) fn keep(home: &Path) -> Vec<String> {
     let north = north_base::platform::north_binary::north_binary();
     let output = run_within(&north.to_string_lossy(), &["capacity", "disk", "keep"], KEEP);
     let after = disk_ledger::used_bytes(home);
-    let freed = match (before, after) {
-        (Some(before), Some(after)) => format!("{:.2} GiB", before.saturating_sub(after) as f64 / GIB),
-        _ => "an unread amount".to_owned(),
+    let freed_gib = match (before, after) {
+        (Some(before), Some(after)) => Some(before.saturating_sub(after) as f64 / GIB),
+        _ => None,
     };
+    let freed = freed_gib.map_or_else(|| "an unread amount".to_owned(), |gib| format!("{gib:.2} GiB"));
     let ran = match &output {
         Some(output) if output.status.success() => "ran".to_owned(),
         Some(output) => format!("failed ({})", output.status),
         None => format!("did not finish within {} s", KEEP.as_secs()),
     };
+    let keep = Keep { at: placement::now(), ran, freed_gib };
+    let saved = save_keep(&keep).err().map(|why| format!("keep: the keep's record not saved: {why}"));
     let removed = output.map(|output| String::from_utf8_lossy(&output.stderr).lines().map(|line| format!("keep: {}", line.trim())).collect::<Vec<_>>()).unwrap_or_default();
-    std::iter::once(format!("keep: the harness's disk keep {ran} and freed {freed}")).chain(removed).collect()
+    std::iter::once(format!("keep: the harness's disk keep {} and freed {freed}", keep.ran)).chain(saved).chain(removed).collect()
 }

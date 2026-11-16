@@ -106,6 +106,11 @@ impl Saturation {
         self.disk_bound_gib.unwrap_or_else(|| Line::eviction().floor_gib(self.disk_total_gib))
     }
 
+    /// Whether the root disk closes the host to a new session: under the build floor, or under its disk bound.
+    pub fn disk_closed(&self) -> bool {
+        self.disk_free_gib < default(DISK_FLOOR) || self.disk_free_gib < self.disk_bound()
+    }
+
     /// Cold builds the root disk takes above its bound, which a worker's first build writes into its lane.
     fn disk_room(&self) -> i64 {
         (((self.disk_free_gib - self.disk_bound()) / default(COLD_BUILD)).floor() as i64).max(0)
