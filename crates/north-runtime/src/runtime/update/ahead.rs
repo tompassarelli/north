@@ -167,7 +167,7 @@ fn pulled(artifact: &Path, stamp: &str, commit: &str, runtime: &Path, fetch: imp
     pulled.then_some(()).ok_or_else(|| format!("{} now holds another build of {}", host.trim(), layout::short(commit)))
 }
 
-/// `north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR]`: prints the path of the north built ahead for `tree` that this host can run, first pulling it from the build host its artifact names when that host alone holds it, so a landing step that needs the merged tree's north runs on a lander with no build grid (north#1433). With `commit`, a tree nobody asked for ahead, such as the candidate a lane was just cherry-picked into, is built from it on a build host first (north#1570).
+/// `north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR]`: prints the path of the north built ahead for `tree` that this host can run, first pulling it from the build host its artifact names when that host alone holds it, so a landing step that needs the merged tree's north runs on a lander with no build grid (north#1433). With `commit`, a tree nobody asked for ahead, such as the candidate a lane was just cherry-picked into, is built from it on a build host first (north#1570). With no build host answering it exits `NO_BUILD_HOST` and builds nothing, the one case `bin/head-north` compiles north here (north#1650).
 fn fetched_north(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
     let (mut tree, mut commit, mut checkout) = (None, None, PathBuf::from("."));
     let mut words = flags.iter();
@@ -188,6 +188,7 @@ fn fetched_north(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
         && ready(layout, tree).is_none()
         && let Some(commit) = commit
     {
+        build_host::answered(land_offload::build_host_rooms()).map_err(|why| failed(north_foundation::foundation::exit::NO_BUILD_HOST, format!("no build host can build tree {}: {why}", layout::short(tree))))?;
         built_now(layout, tree, &commit, &checkout)?;
     }
     if !north.is_file() {
