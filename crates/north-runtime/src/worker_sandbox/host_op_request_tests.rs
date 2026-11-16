@@ -7,14 +7,6 @@ const SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent.slic
 
 type Ran = (Option<String>, String, Vec<String>);
 
-struct NoIssue;
-
-impl north_unblocks::Issues for NoIssue {
-    fn owned_open(&self, issue: &north_unblocks::IssueName) -> Result<(), String> {
-        Err(format!("{} is not open", issue.label()))
-    }
-}
-
 #[derive(Default)]
 struct Recorded {
     ran: RefCell<Vec<Ran>>,
@@ -53,10 +45,8 @@ fn a_confined_lead_refreshes_a_listed_host_copy_and_a_path_outside_the_list_is_r
     std::fs::create_dir_all(lead.home.join(&copy.from)).unwrap();
     let reach = Recorded::default();
     let peer = Peer::from(Some(SCOPE));
-    let ledger = Ledger(scratch.path().join("unblocks.jsonl"));
-    let admission = north_unblocks::Admission { ledger: &ledger, issues: &NoIssue, now: 0 };
 
-    let told = serve(ask(&["host-op", "sync", "eval-a"]).unwrap(), &peer, &lead, &listed, &reach, &admission).unwrap();
+    let told = serve(ask(&["host-op", "sync", "eval-a"]).unwrap(), &peer, &lead, &listed, &reach).unwrap();
     assert!(told.starts_with("eval-a refreshed on cpx62"), "{told}");
     {
         let ran = reach.ran.borrow();
@@ -69,12 +59,12 @@ fn a_confined_lead_refreshes_a_listed_host_copy_and_a_path_outside_the_list_is_r
         assert!(ask(words).is_err(), "{words:?}");
     }
     for words in [&["host-op", "sync", "home"][..], &["host-op", "restart", "cpx62", "sshd.service"], &["host-op", "state", "cpx62", "eval-a-x.service"]] {
-        assert!(serve(ask(words).unwrap(), &peer, &lead, &listed, &reach, &admission).is_err(), "{words:?}");
+        assert!(serve(ask(words).unwrap(), &peer, &lead, &listed, &reach).is_err(), "{words:?}");
     }
     assert_eq!(reach.ran.borrow().len(), 1, "a request outside the allow-list ran something");
 
     let worker = host(&scratch.path().canonicalize().unwrap(), "worker");
-    assert!(serve(ask(&["host-op", "sync", "eval-a"]).unwrap(), &peer, &worker, &listed, &reach, &admission).unwrap_err().contains("lead session"));
+    assert!(serve(ask(&["host-op", "sync", "eval-a"]).unwrap(), &peer, &worker, &listed, &reach).unwrap_err().contains("lead session"));
     assert_eq!(reach.ran.borrow().len(), 1, "a worker's request ran something");
 }
 
@@ -101,9 +91,7 @@ impl Reach for Brokers {
 fn the_broker_units_state_names_each_handed_over_broker_with_the_runtime_it_runs() {
     let scratch = tempfile::tempdir().unwrap();
     let lead = host(&scratch.path().canonicalize().unwrap(), "lead");
-    let ledger = Ledger(scratch.path().join("unblocks.jsonl"));
-    let admission = north_unblocks::Admission { ledger: &ledger, issues: &NoIssue, now: 0 };
-    let told = serve(ask(&["host-op", "state", "cpx62b", "north-worker-outside.service"]).unwrap(), &Peer::from(Some(SCOPE)), &lead, &Listed::harness(), &Brokers, &admission).unwrap();
+    let told = serve(ask(&["host-op", "state", "cpx62b", "north-worker-outside.service"]).unwrap(), &Peer::from(Some(SCOPE)), &lead, &Listed::harness(), &Brokers).unwrap();
     assert!(told.contains("broker north-worker-outside-895305.service pid 3546268 runs /home/tom/.local/state/north/runtimes/acf49643/north"), "{told}");
     assert!(!told.contains("north-pace"), "{told}");
 }

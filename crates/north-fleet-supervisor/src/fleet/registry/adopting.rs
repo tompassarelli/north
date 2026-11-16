@@ -297,4 +297,20 @@ mod tests {
         assert!(follower.poll().unwrap());
         assert_eq!(follower.transcript().entries.last().map(|entry| entry.text.as_str()), Some("and the reply after"));
     }
+
+    #[test]
+    fn only_the_window_holding_an_adoption_refreshes_it_and_a_restarted_window_takes_the_free_name() {
+        let home = tempfile::tempdir().unwrap();
+        let runtime = Arc::new(Windows { live: Mutex::new(vec![("coordinator-conversation".to_owned(), std::process::id())]) });
+        let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+        fleet.adopt(COORDINATOR, "coordinator-conversation", home.path().into()).unwrap();
+        assert!(fleet.refresh_adoption(COORDINATOR, "another-conversation", home.path().into()).is_err(), "another conversation refreshed the coordinator's adoption");
+        fleet.refresh_adoption(COORDINATOR, "coordinator-conversation", home.path().into()).unwrap();
+        let mut restarted = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+        *runtime.live.lock().unwrap() = vec![("coordinator-restarted".to_owned(), restarted.id())];
+        let taken = fleet.adopt_if_free(COORDINATOR, "coordinator-restarted", home.path().into());
+        restarted.kill().unwrap();
+        restarted.wait().unwrap();
+        assert_eq!(taken.unwrap().and_then(|record| record.conversation).as_deref(), Some("coordinator-restarted"), "a restarted window did not take the name its window left");
+    }
 }

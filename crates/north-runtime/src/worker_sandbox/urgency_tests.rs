@@ -48,10 +48,10 @@ impl Fixture {
         for (name, unit, urgent, role) in [("coordinated", URGENT_SCOPE, true, "lead"), ("worker", NORMAL_SCOPE, false, "worker")] {
             std::fs::create_dir_all(fleet.join(name)).unwrap();
             std::fs::write(session_host_files::scope_path(&fleet.join(name)), format!("{unit}\n")).unwrap();
-            std::fs::write(north_fleet_supervisor::fleet::records::record_file(&fleet.join(name)), serde_json::json!({ "name": name, "urgent": urgent, "role": role }).to_string()).unwrap();
+            std::fs::write(fleet.join(name).join("session.json"), serde_json::json!({ "name": name, "urgent": urgent, "role": role }).to_string()).unwrap();
         }
         std::fs::write(home.join(session_host_files::HELD).join(HELD_UNIT).join(session_host_files::BOUND_CONVERSATION), PLACED).unwrap();
-        std::fs::write(north_fleet_supervisor::fleet::records::record_file(&fleet.join(session_host_files::PLACED).join(PLACED)), serde_json::json!({ "name": "placed", "urgent": true, "parent": "coordinated" }).to_string()).unwrap();
+        std::fs::write(fleet.join(session_host_files::PLACED).join(PLACED).join("session.json"), serde_json::json!({ "name": "placed", "urgent": true, "parent": "coordinated" }).to_string()).unwrap();
         for program in ["ssh", "git"] {
             write_executable(&bin.join(program), "#!/bin/sh\nexit 0\n");
         }

@@ -256,45 +256,6 @@ fn a_worker_opens_a_lane_commits_and_quits_a_cherry_pick_when_the_shared_refs_ar
 }
 
 #[test]
-fn a_worker_send_to_a_session_on_its_host_or_another_exits_0_with_no_error_and_leaves_the_row_for_the_fleet_tick_north_1219() {
-    let worker = Worker::new();
-    let fleet = worker.fleet();
-    let session = fleet.join("lead");
-    std::fs::create_dir_all(&session).unwrap();
-    let record = serde_json::json!({"name": "lead", "provider": "claude", "account": "a", "cwd": worker.root(), "model": null, "created_ms": 1, "host_pid": null, "conversation": null, "host_dir": session, "role": "worker", "stopped": false});
-    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
-    let row = serde_json::json!([{"name": "far", "host": "far-control-host", "status": "live", "created": "2026-11-12T00:00:00Z", "updated": "2026-11-12T00:00:00Z"}]);
-    std::fs::write(fleet.join(".fleet-sessions.json"), row.to_string()).unwrap();
-    worker.sends_to(&fleet, "lead");
-    worker.sends_to(&fleet, "far");
-}
-
-#[test]
-fn a_confined_seat_shows_another_sessions_transcript_and_sends_it_a_row_with_the_ledger_a_schema_behind_north_1485() {
-    let worker = Worker::new();
-    let fleet = worker.fleet();
-    let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
-    let listed = Command::new(north).args(["fleet", "list"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", worker.root()).env("XDG_RUNTIME_DIR", worker.runtime.path()).output().unwrap();
-    assert!(listed.status.success(), "the fleet outside the sandbox did not list: {}", String::from_utf8_lossy(&listed.stderr));
-    let ledger = rusqlite::Connection::open(worker.root().join(".local/state/north/ledger.db")).unwrap();
-    let version: i64 = ledger.query_row("pragma user_version", [], |row| row.get(0)).unwrap();
-    ledger.pragma_update(None, "user_version", version - 1).unwrap();
-    drop(ledger);
-    let session = fleet.join("child");
-    std::fs::create_dir_all(session.join("g1")).unwrap();
-    let record = serde_json::json!({"name": "child", "provider": "claude", "account": "a", "cwd": worker.root(), "model": null, "created_ms": 1, "host_pid": null, "conversation": "c-child", "host_dir": session, "role": "worker", "stopped": false});
-    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
-    let frame = serde_json::json!({"type": "assistant", "session_id": "c-child", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": "child-reply"}]}});
-    std::fs::write(session.join("g1/stream.jsonl"), format!("{frame}\n")).unwrap();
-    let (stdout, stderr) = worker.run(&format!("{north} fleet show child --json; echo show=$?; {north} fleet send child ready to land; echo send=$?"));
-    assert!(stdout.contains("show=0") && stdout.contains("child-reply"), "a confined seat could not read another session's transcript: {stdout}{stderr}");
-    assert!(!session.join("g1/session-streams").exists(), "a confined seat wrote another session's stream index: {stderr}");
-    assert!(stdout.contains("send=0"), "a confined worker's send failed: {stdout}{stderr}");
-    let spooled = north_fleet_supervisor::fleet::store::Spool::at(&fleet).pending().unwrap();
-    assert!(spooled.iter().any(|row| row.to == "child" && row.text == "ready to land"), "the send left no row for the fleet tick: {spooled:?} {stderr}");
-}
-
-#[test]
 fn a_worker_command_finds_no_runtime_socket_north_does_not_name_even_one_made_after_it_started_south_86() {
     use std::io::{BufRead, Write};
     let scratch = tempfile::Builder::new().prefix("s86").tempdir_in("/tmp").unwrap();
@@ -479,44 +440,6 @@ fn a_sandboxed_hand_in_for_another_projects_lane_is_refused_and_leaves_no_index_
     assert!(!output.status.success() && stderr.contains("north lane new"), "the hand-in for another lane was not refused with the road that lands it: {stderr}");
 }
 
-const SPOOLING_CHILD: &str = "NORTH_956_SPOOLING_CHILD";
-
-#[test]
-fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
-    if let Some(id) = std::env::var_os(SPOOLING_CHILD) {
-        use north_fleet_supervisor::fleet::gates::GateRequest;
-        use north_fleet_supervisor::fleet::sender::Sender;
-        use north_fleet_supervisor::fleet::store::{FleetRow, RowKind, Spool};
-        let request = GateRequest { verification: false, issue: None, box_text: None, session: "far-1".into(), question: "which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 60_000, ask_once: None };
-        let row = FleetRow { id: id.to_string_lossy().into_owned(), kind: RowKind::Gate, to: "far-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "which?".into(), sender: Sender::Session("far-1".into()), gate: Some(Box::new(request)), answer: None, job: None, origin: None, spooled_by: None };
-        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-        Spool::of(&home.join(".local/state/north/fleet"), "far-1").unwrap().put(&row).expect("a sandboxed worker opens a gate in its own fleet spool location");
-        let queued = north_threads::threads::client::spool_ingest(b"{\"type\":\"done-check\"}\n").expect("a sandboxed worker queues a box check");
-        assert!(queued, "the check was not queued for the ledger host");
-        return;
-    }
-    let home = Home::new();
-    let state = home.path().join(".local/state/north");
-    std::fs::remove_file(&state).unwrap();
-    std::fs::rename(home.path().join("code/north-data"), &state).unwrap();
-    std::fs::create_dir_all(home.path().join(".config/threads")).unwrap();
-    std::fs::write(home.path().join(".config/threads/remote"), "ledger-host\n").unwrap();
-    let test = std::env::current_exe().unwrap();
-    let child = |id: &str| format!("{SPOOLING_CHILD}={id} {} --exact worker_sandbox::a_sandboxed_worker_opens_a_gate_and_records_a_box_check --nocapture", test.display());
-    let warmup = Command::new("bash").args(["-c", &child("1793000000000-955")]).env("HOME", home.path()).env_remove("THREADS_DB").output().unwrap();
-    assert!(warmup.status.success(), "the unconfined run that creates the ledger database failed: {}", String::from_utf8_lossy(&warmup.stderr));
-    let resident = rusqlite::Connection::open(state.join("ledger.db")).unwrap();
-    resident.query_row("pragma journal_mode=wal", [], |_| Ok(())).unwrap();
-    let command = child("1793000000000-956");
-    let output = Command::new(crate::support::bin_exe!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--worker", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "far-1").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
-    let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(output.status.success(), "{report}");
-    let names = |directory: &str| -> Vec<String> { std::fs::read_dir(home.path().join(directory)).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect() };
-    assert!(names(".local/state/north/fleet/spool/sessions/far-1").contains(&"1793000000000-956.json".to_owned()), "{report}");
-    let threads = names(".local/state/threads/spool");
-    assert!(threads.iter().filter(|name| name.ends_with(".jsonl")).count() == 2, "{threads:?}: {report}");
-}
-
 struct Broker(std::process::Child);
 
 impl Drop for Broker {
@@ -551,25 +474,6 @@ impl Worker {
         let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
         let output = Command::new(north).args(["--worker-sandbox", "--worker", command]).env_clear().env("CLAUDECODE", "1").env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_FLEET_SESSION", "w-sender").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", self.runtime.path()).current_dir(self.home.lane()).output().unwrap();
         (String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
-    }
-
-    fn fleet(&self) -> PathBuf {
-        let fleet = self.root().join(".local/state/north/fleet");
-        for made in [".start-locks", "spool"] {
-            std::fs::create_dir_all(fleet.join(made)).unwrap();
-        }
-        fleet
-    }
-
-    fn sends_to(&self, fleet: &Path, recipient: &str) {
-        let north = crate::support::bin_exe!("CARGO_BIN_EXE_north");
-        let listed = Command::new(north).args(["fleet", "list"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", self.root()).env("XDG_RUNTIME_DIR", self.runtime.path()).output().unwrap();
-        assert!(listed.status.success(), "the fleet outside the sandbox did not list: {}", String::from_utf8_lossy(&listed.stderr));
-        let (stdout, stderr) = self.run(&format!("{north} fleet send {recipient} ready to land; echo exit=$?"));
-        assert!(stdout.contains("exit=0"), "a worker's send failed: {stdout}{stderr}");
-        assert!(!stderr.to_lowercase().contains("denied") && !stderr.to_lowercase().contains("fail") && !stderr.contains("not withdrawn"), "a worker's send printed an error: {stderr}");
-        let spooled = north_fleet_supervisor::fleet::store::Spool::at(fleet).pending().unwrap();
-        assert!(spooled.iter().any(|row| row.to == recipient && row.text == "ready to land"), "the send left no row for the fleet tick: {spooled:?} {stderr}");
     }
 
     fn refuses(&self, relative: &str) {

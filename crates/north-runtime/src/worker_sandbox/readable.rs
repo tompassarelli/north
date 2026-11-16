@@ -5,6 +5,9 @@ use super::except::{Entries, beneath_except, identity};
 
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
 const PUSHED_GITHUB: [&str; 4] = ["gh-write-token", "gh-write-token.d", "gh-write-token.repos", "github-installation-token.yaml"];
+const LOGIN_FILES: [&str; 2] = [".credentials.json", "auth.json"];
+const OPENCODE_KEY: &str = "accounts/opencode/go.key";
+const CODEX_HOMES: [&str; 2] = ["NORTH_CODEX_CONVERSATION_HOME", "NORTH_CODEX_POOLED_HOME"];
 
 /// Whose command reads: any agent session's, or a confined worker's, which also may not read what another host trusts, since the coordinator and the leads reach other hosts on purpose.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -32,7 +35,6 @@ pub(super) fn unreadable(context: &Context, reader: Reader) -> Vec<PathBuf> {
         paths.push(state.join("claude-tokens"));
         paths.extend(PUSHED_GITHUB.map(|name| state.join(name)));
         paths.push(context.home.join(".claude/.credentials.json"));
-        paths.extend(std::fs::read_dir(state.join("profiles")).into_iter().flatten().flatten().map(|entry| entry.path().join(".credentials.json")));
         paths.extend(rostered_logins(context, &state));
         paths.extend(operator_listed(context));
     }
@@ -59,13 +61,25 @@ fn operator_listed(context: &Context) -> Vec<PathBuf> {
     listed.filter_map(toml_edit::Value::as_str).map(|path| path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| context.home.join(rest))).collect()
 }
 
-/// The login files of every account the roster declares, wherever it puts them: a client profile's credentials and token files and each other provider's stored login (north#1485).
+/// The login files of every model account this host keeps, wherever the policy puts them, read from the policy and the state directory alone (north#1485): the credentials of each Claude profile and API home the policy declares for this host and of each home under the state directory's profiles and OpenAI accounts and the pooled Codex home, each declared token file, and the paid opencode key.
 fn rostered_logins(context: &Context, state: &Path) -> Vec<PathBuf> {
-    use north_fleet_supervisor::fleet::runtime::Runtime;
-    use north_providers::providers::{claude::fleet::Claude, codex::fleet::Codex};
     let policy = north_base::platform::orchestration::path_in(&context.home, None, None);
-    let accounts = Claude.roster(state, &context.home, &policy).accounts.into_iter().chain(Codex.roster(state, &context.home, &policy).accounts);
-    let mut paths: Vec<PathBuf> = accounts.flat_map(|account| [account.home.join(".credentials.json"), account.home.join("auth.json")].into_iter().chain(account.token_file)).collect();
-    paths.push(north_providers::providers::opencode::key_file(state));
+    let document: toml_edit::DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let here = north_base::platform::host::name();
+    let claude = document.get("accounts").and_then(|accounts| accounts.get("claude"));
+    let declared = |table: &str, key: &str| -> Vec<PathBuf> {
+        let labels = claude.and_then(|claude| claude.get(table)).and_then(toml_edit::Item::as_table_like);
+        labels.into_iter().flat_map(|labels| labels.iter()).filter_map(|(_, hosts)| hosts.get(here.as_str())?.get(key)?.as_str().map(|path| path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| context.home.join(rest)))).collect()
+    };
+    let entries = |directory: PathBuf| std::fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| entry.path()).collect::<Vec<_>>();
+    let homes = declared("profiles", "path").into_iter().chain(declared("api_keys", "path")).chain(entries(state.join("profiles"))).chain(entries(state.join("accounts/openai"))).chain([codex_pooled_home(&context.home)]);
+    let mut paths: Vec<PathBuf> = homes.flat_map(|login| LOGIN_FILES.map(|file| login.join(file))).collect();
+    paths.extend(declared("profiles", "token_file"));
+    paths.push(state.join(OPENCODE_KEY));
     paths
+}
+
+/// The pooled Codex home: the one `NORTH_CODEX_CONVERSATION_HOME` or `NORTH_CODEX_POOLED_HOME` names, else the one under `home`'s north state.
+fn codex_pooled_home(home: &Path) -> PathBuf {
+    CODEX_HOMES.iter().filter_map(std::env::var_os).find(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/north/codex-pooled"), PathBuf::from)
 }

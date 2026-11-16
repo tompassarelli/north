@@ -347,4 +347,26 @@ mod tests {
         assert_eq!(checkable("scoreboard-lead"), lead_assignment::Checkable::Issues(vec!["tompassarelli/north#35".into(), "tompassarelli/north#1540".into()]));
         assert_eq!(checkable("coordinator"), lead_assignment::Checkable::Any);
     }
+
+    #[test]
+    fn a_launched_childs_record_is_at_most_its_launchers() {
+        use crate::fleet::fakes::{Paper, Stream};
+        use crate::fleet::runtimes::Runtimes;
+        let home = tempfile::tempdir().unwrap();
+        let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![std::sync::Arc::new(Stream)]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+        let main = home.path().join("code/north/main");
+        std::fs::create_dir_all(&main).unwrap();
+        let lead = fleet.session_dir("scoreboard-lead").unwrap();
+        std::fs::create_dir_all(&lead).unwrap();
+        let record = serde_json::json!({"name": "scoreboard-lead", "provider": "claude", "account": "a", "cwd": main, "model": null, "created_ms": 1, "host_pid": null, "conversation": "scoreboard-lead", "host_dir": lead, "stream_offset": 0, "role": "lead", "task_ref": "tompassarelli/north#35"});
+        std::fs::write(lead.join("session.json"), record.to_string()).unwrap();
+        let launch = |task: &str| fleet.granted_launch("scoreboard-lead", &["--name", "sb-child", "--task", task, "brief"].map(str::to_owned));
+        let task_of = |arguments: &[String]| arguments.windows(2).find(|pair| pair[0] == "--task").map(|pair| pair[1].clone());
+
+        let foreign = launch("someone-else/north#35");
+        let bare = launch("north#35").unwrap();
+
+        assert!(foreign.as_ref().is_err_and(|why| why.contains("--task someone-else/north#35 is not granted")), "a lead holding tompassarelli/north#35 gave its child another owner's north#35, whose issue its comments and ticks would reach: {foreign:?}");
+        assert_eq!(task_of(&bare.arguments).as_deref(), Some("tompassarelli/north#35"), "the child holds the lead's own reference: {:?}", bare.arguments);
+    }
 }

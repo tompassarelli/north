@@ -4,7 +4,6 @@ use north_base::platform::session_scope::REMOVAL_ROOTS;
 use north_base::platform::{git_credential, session_scope};
 use north_foundation::foundation::{carry, offload};
 use north_base::verdict_cache;
-use north_providers::providers::{opencode, pi};
 
 use super::peer::Peer;
 use super::lane_grant;
@@ -18,6 +17,8 @@ const INJECTED_NAMES: [&str; 31] = [
 const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY", "GIT_CONFIG"];
 const TRUSTED_FILES: [&str; 5] = [verdict_cache::DIR_ENV, "AGENTS_ORCHESTRATION", "AGENTS_OPERATOR_DIR", "SAFE_PUSH_SOUTH", "SAFE_PUSH_DENYLIST"];
 const NORTH_PINS: [&str; 3] = ["NORTH_LAND_NORTH", "NORTH_BIN", "AGENT_CAPACITY_NORTH"];
+/// The paid key an opencode session (`NORTH_OPENCODE_KEY`) and a pi session (`OPENCODE_API_KEY`) carry, by the names north-providers gives them.
+pub(super) const PAID_KEYS: [&str; 2] = ["NORTH_OPENCODE_KEY", "OPENCODE_API_KEY"];
 const LANDING_CHOICES: [&str; 12] = ["PATH", NORTH_PINS[0], NORTH_PINS[1], NORTH_PINS[2], "SAFE_PUSH_CODE_HEALTH", "SAFE_PUSH_LAND_OFFLOAD", "SAFE_PUSH_LAND_OFFLOAD_HOST", "SAFE_PUSH_LAND_RUNNER", "SAFE_PUSH_LAND_CAPACITY", offload::LOCAL_ENV, offload::OFF_HOST_ENV, offload::LANDER_SLOT_ENV];
 const BUILD_NAMES: [&str; 18] = ["CARGO", "RUSTC", "RUSTDOC", "RUSTFLAGS", "RUSTDOCFLAGS", "CC", "CXX", "AR", "LD", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "CPATH", "LIBRARY_PATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH"];
 const BUILD_PREFIXES: [&str; 17] = ["CARGO_", "RUSTC_", "RUSTUP_", "SCCACHE_", "CMAKE_", "NEXTEST_", "CLIPPY_", "CC_", "CXX_", "AR_", "CFLAGS_", "CXXFLAGS_", "LDFLAGS_", "HOST_", "TARGET_", "PKG_CONFIG", "NIX_"];
@@ -27,7 +28,7 @@ fn builds(name: &str) -> bool {
 }
 
 fn unsafe_name(name: &str) -> bool {
-    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name == lane_grant::PROVED_ENV || name == carry::CHECK_START || name == carry::CHECK_CARRY || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name) || [opencode::KEY_ENV, pi::KEY_ENV].contains(&name)
+    name == MARK || name == SOCKETS_HIDDEN || name == CONFINED || name == HOSTS_HIDDEN || name == REMOVAL_ROOTS || name == SESSION_SCOPE || name == lane_grant::PROVED_ENV || name == carry::CHECK_START || name == carry::CHECK_CARRY || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || TRUSTED_FILES.contains(&name) || PAID_KEYS.contains(&name)
 }
 
 /// The programs a brokered safe-push runs, `None` for every other request: the `PATH` in `own`, the broker's environment, behind `home`'s gh shims, `north`, the broker's own build, as every north it starts, and the compiler, wrapper, flags, cache and test runner `own` sets, since the programs its checks before queueing run, the north whose `verdict hit` decides which of them run, how they build and where they run decide the verdict a ticket carries.

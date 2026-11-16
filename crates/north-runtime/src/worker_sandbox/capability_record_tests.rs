@@ -45,7 +45,7 @@ impl Fixture {
             std::fs::create_dir_all(fleet.join(name)).unwrap();
             std::fs::write(session_host_files::scope_path(&fleet.join(name)), format!("{unit}\n")).unwrap();
             if let Some(record) = record {
-                std::fs::write(north_fleet_supervisor::fleet::records::record_file(&fleet.join(name)), record.to_string()).unwrap();
+                std::fs::write(fleet.join(name).join("session.json"), record.to_string()).unwrap();
             }
         }
         for program in ["ssh", "git"] {

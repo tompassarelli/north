@@ -221,7 +221,7 @@ fn a_claude_workers_safe_push_runs_outside_with_its_own_environment_and_reads_on
     std::fs::create_dir_all(&held).unwrap();
     std::fs::create_dir_all(&placed).unwrap();
     std::fs::write(held.join(north_base::platform::session_host_files::BOUND_CONVERSATION), "c0ffee-n1094").unwrap();
-    std::fs::write(north_fleet_supervisor::fleet::records::record_file(&placed), serde_json::json!({ "name": "n1094-x", "provider": "claude" }).to_string()).unwrap();
+    std::fs::write(placed.join("session.json"), serde_json::json!({ "name": "n1094-x", "provider": "claude" }).to_string()).unwrap();
     let own = vec![("HOME".to_owned(), fixture.host.home.display().to_string()), ("NORTH_FLEET_SESSION".to_owned(), "n1094-x".to_owned()), ("NORTH_WORKER_SANDBOXED".to_owned(), "1".to_owned())];
     let landed = fixture.ask_with(worker, &["safe-push", "--to", "main"], &fixture.lane, own.clone());
     assert_eq!(landed.code, 0, "{}", landed.stderr);
@@ -267,7 +267,7 @@ fn a_lane_path_a_retired_placed_session_used_is_not_its_live_owner_north_1352() 
     std::fs::create_dir_all(&held).unwrap();
     std::fs::create_dir_all(&placed).unwrap();
     std::fs::write(held.join(BOUND_CONVERSATION), "c0ffee-old-1352").unwrap();
-    std::fs::write(north_fleet_supervisor::fleet::records::record_file(&placed), serde_json::json!({ "name": "evalb-old", "cwd": lane, "status": null, "ended": null }).to_string()).unwrap();
+    std::fs::write(placed.join("session.json"), serde_json::json!({ "name": "evalb-old", "cwd": lane, "status": null, "ended": null }).to_string()).unwrap();
     let record = serde_json::from_slice::<serde_json::Value>(&std::fs::read(live.join("session.json")).unwrap()).unwrap();
     let checkout = super::super::request_checkout::Checkout { top: lane.canonicalize().unwrap(), git_dir: PathBuf::new(), common: PathBuf::new() };
     let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-session-live-1352.scope\n";
@@ -330,33 +330,29 @@ fn a_reused_window_pid_is_not_the_adopted_window_and_a_held_service_inside_one_r
 }
 
 #[test]
-fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
-    use north_fleet_supervisor::fleet::fakes::{Paper, Windows};
-    use north_fleet_supervisor::fleet::registry::Fleet;
-    use north_fleet_supervisor::fleet::runtimes::Runtimes;
+fn an_adopted_window_is_its_session_only_while_the_record_names_that_process_with_its_start_time() {
     let home = tempfile::tempdir().unwrap();
     let window = Owner::current();
-    let runtime = std::sync::Arc::new(Windows { live: std::sync::Mutex::new(vec![("coordinator-conversation".to_owned(), window.pid)]) });
-    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![runtime.clone()]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
-    let directory = fleet.session_dir("coordinator").unwrap();
-    fleet.adopt("coordinator", "coordinator-conversation", home.path().into()).unwrap();
-    let record = north_fleet_supervisor::fleet::records::record_file(&directory);
-    let mut recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
-    recorded.as_object_mut().unwrap().remove("window");
-    std::fs::write(&record, recorded.to_string()).unwrap();
+    let directory = home.path().join("fleet/coordinator");
+    std::fs::create_dir_all(&directory).unwrap();
+    let adopt = |window: Option<&Owner>| {
+        let mut record = serde_json::json!({ "name": "coordinator", "provider": "claude", "conversation": "coordinator-conversation", "cwd": home.path(), "adopted_ms": 1 });
+        if let Some(window) = window {
+            record["window"] = serde_json::to_value(window).unwrap();
+        }
+        std::fs::write(directory.join("session.json"), record.to_string()).unwrap();
+    };
     let host = Host { fleet: directory.parent().unwrap().to_owned(), home: home.path().into(), code: Vec::new(), environment: Vec::new(), cgroups: home.path().join("cgroup") };
     let peer = Peer::with_pids(Some(APP_CGROUP), &[SHELL, window.pid]);
+    adopt(None);
     assert_eq!(super::own_session(&peer, &host, "absent").unwrap_err(), "absent", "a window recorded without its start time passed for the adopted window");
-    assert!(fleet.refresh_adoption("coordinator", "another-conversation", home.path().into()).is_err(), "another conversation refreshed the coordinator's adoption");
-    assert_eq!(super::own_session(&peer, &host, "absent").unwrap_err(), "absent");
-    fleet.refresh_adoption("coordinator", "coordinator-conversation", home.path().into()).unwrap();
+    adopt(Some(&window));
     let (found, resolved) = super::own_session(&peer, &host, "absent").unwrap();
     assert_eq!((found, resolved["name"].as_str()), (directory.clone(), Some("coordinator")));
     let mut restarted = Command::new("sleep").arg("60").spawn().unwrap();
-    *runtime.live.lock().unwrap() = vec![("coordinator-restarted".to_owned(), restarted.id())];
     let moved = Peer::with_pids(Some(APP_CGROUP), &[SHELL, restarted.id()]);
     assert_eq!(super::own_session(&moved, &host, "absent").unwrap_err(), "absent", "a restarted window passed before it re-adopted");
-    fleet.adopt_if_free("coordinator", "coordinator-restarted", home.path().into()).unwrap().unwrap();
+    adopt(Owner::of(restarted.id()).as_ref());
     let (found, resolved) = super::own_session(&moved, &host, "absent").unwrap();
     restarted.kill().unwrap();
     restarted.wait().unwrap();
@@ -364,7 +360,7 @@ fn an_adopted_window_recorded_without_a_start_time_refreshes_its_own_name() {
 }
 
 #[test]
-fn a_lane_grant_covers_a_second_project_lane_and_a_handed_over_lane_but_not_an_unbound_one() {
+fn a_lane_grant_covers_a_second_project_lane_made_after_launch_but_not_an_unbound_one() {
     let fixture = Fixture::new();
     let main = fixture.host.home.join("code/north/main");
     let directory = fixture.host.fleet.join(NAME);
@@ -377,10 +373,6 @@ fn a_lane_grant_covers_a_second_project_lane_and_a_handed_over_lane_but_not_an_u
     let later = u64::MAX / 2000;
     assert!(admitted(&fixture.other, later).is_err_and(|refused| refused.contains("no record binds")), "a second project's lane made before the session launched, handed to nobody, was admitted");
     assert_eq!(admitted(&fixture.other, 1), Ok(()), "a lane of a second project, made with north lane new after launch, was refused");
-    let former = fixture.host.fleet.join("former-owner");
-    std::fs::create_dir_all(&former).unwrap();
-    std::fs::write(former.join(north_fleet_supervisor::fleet::session_lifecycle::LANES_HANDED), serde_json::json!({ "to": NAME, "lanes": [fixture.other] }).to_string()).unwrap();
-    assert_eq!(admitted(&fixture.other, later), Ok(()), "a lane handed over by fleet forget --to was refused");
 }
 
 #[test]
@@ -393,29 +385,6 @@ fn the_broker_and_the_lane_grant_read_a_session_record_through_one_reader() {
     let granted = super::caller_lane(&peer, &fixture.host);
     assert!(granted.is_err(), "a record naming no session granted the broker's hand-off the lane {granted:?}, every lane of its project");
     assert_eq!(granted, super::session(&peer, &fixture.host).map(|session| session.lane));
-}
-
-#[test]
-fn a_launched_childs_record_is_at_most_its_launchers() {
-    use north_fleet_supervisor::fleet::fakes::{Paper, Stream};
-    use north_fleet_supervisor::fleet::registry::Fleet;
-    use north_fleet_supervisor::fleet::runtimes::Runtimes;
-    let home = tempfile::tempdir().unwrap();
-    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![std::sync::Arc::new(Stream)]), std::sync::Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
-    let main = home.path().join("code/north/main");
-    std::fs::create_dir_all(&main).unwrap();
-    let lead = fleet.session_dir("scoreboard-lead").unwrap();
-    std::fs::create_dir_all(&lead).unwrap();
-    let record = serde_json::json!({"name": "scoreboard-lead", "provider": "claude", "account": "a", "cwd": main, "model": null, "created_ms": 1, "host_pid": null, "conversation": "scoreboard-lead", "host_dir": lead, "stream_offset": 0, "role": "lead", "task_ref": "tompassarelli/north#35"});
-    std::fs::write(lead.join("session.json"), record.to_string()).unwrap();
-    let launch = |task: &str| fleet.granted_launch("scoreboard-lead", &["--name", "sb-child", "--task", task, "brief"].map(str::to_owned));
-    let task_of = |arguments: &[String]| arguments.windows(2).find(|pair| pair[0] == "--task").map(|pair| pair[1].clone());
-
-    let foreign = launch("someone-else/north#35");
-    let bare = launch("north#35").unwrap();
-
-    assert!(foreign.as_ref().is_err_and(|why| why.contains("--task someone-else/north#35 is not granted")), "a lead holding tompassarelli/north#35 gave its child another owner's north#35, whose issue its comments and ticks would reach: {foreign:?}");
-    assert_eq!(task_of(&bare.arguments).as_deref(), Some("tompassarelli/north#35"), "the child holds the lead's own reference: {:?}", bare.arguments);
 }
 
 #[test]

@@ -8,13 +8,18 @@ use serde_json::Value;
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
 use super::{BUILT, FLAG, PROGRAM, WORKER};
-use north_fleet_supervisor::fleet::model::Role;
 
 const NO_SESSION: &str = "";
 
-/// The role a session record names, or the one the fleet reads from a record that names none (`Role::unnamed`: a worker's for a record with a parent or a task, the coordinator seat's by its name, else a lead's), since the field is optional and older records omit it.
+/// The role a session record names, or the one the fleet reads from a record that names none: a worker's for a record with a parent or a task, the coordinator seat's by its name, else a lead's, since the field is optional and older records omit it.
 pub(super) fn recorded_role(record: &Value) -> String {
-    record["role"].as_str().map_or_else(|| Role::unnamed(!record["parent"].is_null() || !record["task_ref"].is_null(), record["name"].as_str().unwrap_or_default()).label().to_owned(), str::to_owned)
+    let coordinated = !record["parent"].is_null() || !record["task_ref"].is_null();
+    let unnamed = match (coordinated, record["name"].as_str() == Some(session_scope::COORDINATOR_ROLE)) {
+        (true, _) => "worker",
+        (false, true) => session_scope::COORDINATOR_ROLE,
+        (false, false) => "lead",
+    };
+    record["role"].as_str().unwrap_or(unnamed).to_owned()
 }
 
 /// Whether the caller `peer` on `host` belongs to a fleet session whose record confines it: every session but the coordinator seat (`session_scope::confined_role`). A caller in a session's unit whose record cannot be read is confined, and a caller in no session's unit or window is the operator's own process.

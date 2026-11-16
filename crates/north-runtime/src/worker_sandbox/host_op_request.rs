@@ -1,4 +1,4 @@
-//! The host operations a confined lead or the coordinator runs through the outside broker, whose domain reaches no other host over ssh and no user manager (north#1485). The request is the words `host-op state HOST UNIT`, `host-op disk HOST`, `host-op restart HOST UNIT [--issue REPO#N]` or `host-op sync COPY` and nothing else of the caller's: no command, path, environment or login. A disk read runs `df` on the filesystem holding the operator's home and `du` one level deep, each under a time limit, on the fixed roots `DISK_ROOTS` names, so the caller's only word is HOST. UNIT is one the harness default `host_op_units` lists, COPY a name the harness default `host_copies` lists with its host, its source under the broker's home and its target under the operator's home on that host, and HOST one this host reaches over ssh as its operator, or this host itself. The broker answers only a fleet session whose own scope the caller runs in and whose record names the role `lead` or the coordinator's. A restart is kept in the unblock ledger with its unit, host and the failed state it was in, and the second restart of that class within a day is refused unless `--issue` names an open issue with an owner that fixes its cause (north#1577).
+//! The host operations a confined lead or the coordinator runs through the outside broker, whose domain reaches no other host over ssh and no user manager (north#1485). The request is the words `host-op state HOST UNIT`, `host-op disk HOST`, `host-op restart HOST UNIT` or `host-op sync COPY` and nothing else of the caller's: no command, path, environment or login. A disk read runs `df` on the filesystem holding the operator's home and `du` one level deep, each under a time limit, on the fixed roots `DISK_ROOTS` names, so the caller's only word is HOST. UNIT is one the harness default `host_op_units` lists, COPY a name the harness default `host_copies` lists with its host, its source under the broker's home and its target under the operator's home on that host, and HOST one this host reaches over ssh as its operator, or this host itself. The broker answers only a fleet session whose own scope the caller runs in and whose record names the role `lead` or the coordinator's.
 
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
@@ -6,7 +6,6 @@ use std::process::Command;
 
 use north_base::platform::disk_read::{ROOTS as DISK_ROOTS, SECONDS as DISK_SECONDS, largest_first};
 use north_base::platform::harness::{DEFAULTS, document};
-use north_unblocks::{Admission, Kind, Ledger};
 
 use super::lane_grant::{self, Host};
 use super::peer::Peer;
@@ -15,7 +14,7 @@ pub(super) const VERB: &str = "host-op";
 const UNITS: &str = "host_op_units";
 const COPIES: &str = "host_copies";
 const ASKERS: [&str; 2] = ["lead", "coordinator"];
-const SHAPE: &str = "host-op state HOST UNIT | host-op disk HOST | host-op restart HOST UNIT [--issue REPO#N] | host-op sync COPY, with a UNIT the harness default host_op_units lists and a COPY the harness default host_copies names";
+const SHAPE: &str = "host-op state HOST UNIT | host-op disk HOST | host-op restart HOST UNIT | host-op sync COPY, with a UNIT the harness default host_op_units lists and a COPY the harness default host_copies names";
 
 /// A copy the broker refreshes: its name, the host it lives on, the directory it is copied from under the broker's home, the directory it is copied to under the operator's home there, and the entries left out.
 #[derive(Debug, PartialEq, Eq)]
@@ -57,7 +56,7 @@ impl Listed {
 pub(super) enum Ask {
     State { host: String, unit: String },
     Disk { host: String },
-    Restart { host: String, unit: String, issue: Option<String> },
+    Restart { host: String, unit: String },
     Sync(String),
 }
 
@@ -73,8 +72,7 @@ impl Ask {
         let ask = match rest {
             ["state", host, unit] if named(host) && named(unit) => Some(Ask::State { host: (*host).to_owned(), unit: (*unit).to_owned() }),
             ["disk", host] if named(host) => Some(Ask::Disk { host: (*host).to_owned() }),
-            ["restart", host, unit] if named(host) && named(unit) => Some(Ask::Restart { host: (*host).to_owned(), unit: (*unit).to_owned(), issue: None }),
-            ["restart", host, unit, "--issue", issue] if named(host) && named(unit) && north_unblocks::IssueName::parse(issue).is_ok() => Some(Ask::Restart { host: (*host).to_owned(), unit: (*unit).to_owned(), issue: Some((*issue).to_owned()) }),
+            ["restart", host, unit] if named(host) && named(unit) => Some(Ask::Restart { host: (*host).to_owned(), unit: (*unit).to_owned() }),
             ["sync", copy] if named(copy) => Some(Ask::Sync((*copy).to_owned())),
             _ => None,
         };
@@ -166,18 +164,15 @@ fn broker_runtimes(destination: Option<&str>, reach: &dyn Reach) -> Result<Strin
 }
 
 /// Does what `ask` names for the session the caller `peer` runs in on `host`, touching only what `listed` holds, through `reach`; the lines saying what was read or done.
-pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, listed: &Listed, reach: &dyn Reach, admission: &Admission) -> Result<String, String> {
-    let asker = asking(peer, host)?;
+pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, listed: &Listed, reach: &dyn Reach) -> Result<String, String> {
+    asking(peer, host)?;
     let owned = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
     match ask {
         Ask::State { host: name, unit } => state(&name, listed_unit(&unit, listed)?, reach),
         Ask::Disk { host: name } => disk(&name, host, reach),
-        Ask::Restart { host: name, unit, issue } => {
+        Ask::Restart { host: name, unit } => {
             let unit = listed_unit(&unit, listed)?;
             let destination = reach.destination(&name)?;
-            let failed = reach.run(destination.as_deref(), "systemctl", &owned(&["--user", "show", "-p", "ActiveState", "-p", "Result", unit]))?;
-            let class = format!("{unit} on {name}: {}", failed.split_whitespace().collect::<Vec<_>>().join(" "));
-            admission.admit(Kind::HostRestart, &class, &asker, issue.as_deref())?;
             let own = destination.is_none() && unit.strip_suffix(".service") == Some(north_base::platform::session_scope::WORKER_BROKER_UNIT);
             let words: Vec<String> = ["--user", "restart"].into_iter().chain(own.then_some("--no-block")).chain([unit]).map(str::to_owned).collect();
             reach.run(destination.as_deref(), "systemctl", &words)?;
@@ -204,7 +199,7 @@ pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, listed: &Listed, reach: 
 
 /// Answers the host-op request `asked` from the caller `peer`, telling the client on its standard output what was done; a refusal is told to the client and returned for the broker's log.
 pub(super) fn answer(asked: Result<Ask, String>, streams: Vec<OwnedFd>, peer: &Peer, host: &Host) -> Result<u8, String> {
-    super::hold_request::tell(asked.and_then(|ask| serve(ask, peer, host, &Listed::harness(), &Ssh(host), &Admission { ledger: &Ledger::here(), issues: &north_unblocks::GitHub, now: north_foundation::foundation::clock::Timestamp::now().unix_seconds().try_into().unwrap_or_default() })), streams, "a host operation")
+    super::hold_request::tell(asked.and_then(|ask| serve(ask, peer, host, &Listed::harness(), &Ssh(host))), streams, "a host operation")
 }
 
 #[cfg(test)]
