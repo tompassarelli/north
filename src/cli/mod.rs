@@ -183,6 +183,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("box", |_, rest| Command::BoxPath(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
+    ("policy", |name, rest| Command::Switch([vec![name.to_owned()], rest].concat())),
 ];
 
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {

@@ -1,0 +1,1 @@
+  policy off | policy on                         Take north's hooks, skills, instructions and the git checks on your own commits and pushes away on this host, or put back exactly what policy off took; stops nothing. Runs as north-switch, without the runtime

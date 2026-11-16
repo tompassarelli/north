@@ -2,7 +2,10 @@
 # Live project runtime: selected outside the NixOS closure.
 set -euo pipefail
 
-if [[ ${1:-} == fleet && ( ${2:-} == off || ${2:-} == on ) ]] && switch="$(command -v north-switch)"; then
+if [[ ${1:-} == hook && -e ${XDG_STATE_HOME:-$HOME/.local/state}/north/policy-off/record ]]; then
+  exit 0
+fi
+if [[ ( ${1:-} == fleet || ${1:-} == policy ) && ( ${2:-} == off || ${2:-} == on ) ]] && switch="$(command -v north-switch)"; then
   exec "$switch" "$@"
 fi
 

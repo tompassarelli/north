@@ -1,5 +1,5 @@
 //! `north-switch`: north's off switches, a program of its own so they answer while north's runtime is missing or
-//! broken. Installed as `north` by the host configuration, it takes `north fleet off|on` itself and hands every
+//! broken. Installed as `north` by the host configuration, it takes `north fleet off|on` and `north policy off|on` itself, answers `north hook` with nothing while policy is off, and hands every
 //! other command to the runtime's `north`.
 
 use std::env;
@@ -8,21 +8,38 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const USAGE: &str = "usage: north fleet off [--force] | north fleet on";
+const USAGE: &str = "usage: north fleet off [--force] | north fleet on | north policy off | north policy on";
 
 fn main() -> ExitCode {
     let invoked = env::args_os().next().map(PathBuf::from).unwrap_or_default();
     let arguments: Vec<OsString> = env::args_os().skip(1).collect();
     let words: Vec<&str> = arguments.iter().map(|word| word.to_str().unwrap_or("")).collect();
     match words.as_slice() {
-        ["fleet", "off", flags @ ..] => match flags {
-            [] => north_switch::off(north_switch::Mode::Graceful),
-            ["--force"] => north_switch::off(north_switch::Mode::Force),
-            _ => usage(),
-        },
-        ["fleet", "on"] => north_switch::on(),
-        ["fleet", "on", ..] => usage(),
+        ["fleet", verb @ ("off" | "on"), rest @ ..] => fleet(verb, rest),
+        ["policy", verb @ ("off" | "on"), rest @ ..] => policy(verb, rest),
+        ["hook", ..] if north_switch::policy_is_off() => ExitCode::SUCCESS,
         _ if invoked.file_name().is_some_and(|name| name == "north") => runtime(&arguments),
+        _ => usage(),
+    }
+}
+
+fn fleet(verb: &str, rest: &[&str]) -> ExitCode {
+    match (verb, rest) {
+        ("off", []) => north_switch::off(north_switch::Mode::Graceful),
+        ("off", ["--force"]) => north_switch::off(north_switch::Mode::Force),
+        ("on", []) => north_switch::on(),
+        _ => usage(),
+    }
+}
+
+fn policy(verb: &str, rest: &[&str]) -> ExitCode {
+    if let Some(session) = north_switch::fleet_session() {
+        eprintln!("north policy: refused for fleet session {session}; the owner turns north's policy off and on from his own seat");
+        return ExitCode::from(77);
+    }
+    match (verb, rest) {
+        ("off", []) => north_switch::policy_off(),
+        ("on", []) => north_switch::policy_on(),
         _ => usage(),
     }
 }
