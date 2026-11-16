@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -6,8 +5,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use north_lander::land::queue::{self, Ticket};
-use north_lander::land::{link_hold, sheriff, watchdog};
-use north_landing::landing::red_check::Failure;
+use north_lander::land::{link_hold, watchdog};
 
 use super::heal;
 use super::scratch::{Lander, age, script, write};
@@ -27,7 +25,6 @@ pub const FAULTS: &[Fault] = &[
     Fault { key: "wedged-unit", name: "wedged lander unit", drill: wedged_unit },
     Fault { key: "stale-runtime", name: "check refused because its host lacks the runtime", drill: stale_runtime },
     Fault { key: "dead-slot", name: "dead offload slot", drill: dead_slot },
-    Fault { key: "flaky-red-main", name: "red main from a flaky test", drill: flaky_red_main },
 ];
 
 const REPLAYS_LANDED: &str = "#!/bin/sh\n[ \"$1 $2\" = \"land replay\" ] && echo 'replay: verdict landed'\nexit 0\n";
@@ -38,7 +35,6 @@ mkdir -p "$slot" && : > "$slot.lock" && head -c "$1" /dev/zero > "$slot/target"
 const LANDER: &str = r#"while :; do touch "$1"; sleep 20; done"#;
 const WEDGED: &str = r#"touch "$1" && echo started >> "$1.starts" && exec sleep 3600"#;
 const HOLDS_SLOT: &str = r#"exec 9>>"$1.lock" && flock 9 && exec 4>>"$1.busy" && flock -s 4 && echo held && exec sleep 3600"#;
-const FLAKY: &str = "#!/bin/sh\necho run >> \"$0.runs\"\n[ \"$(wc -l < \"$0.runs\")\" -gt 1 ]\n";
 
 fn checkout(lander: &Lander) -> PathBuf {
     lander.root.join("code/north/main")
@@ -162,22 +158,4 @@ fn dead_slot(lander: &mut Lander) -> Result<String, String> {
     age(&beside("holder"), SLOT_DEADLINE_SECS + 60)?;
     let place = lander.place(None);
     heal(lander, Bound::SlotHold, &|_| Facts { places: vec![facts::place_facts(place.clone())], ..Facts::default() })
-}
-
-fn flaky_red_main(lander: &mut Lander) -> Result<String, String> {
-    let check = lander.root.join("flaky-check");
-    script(&check, FLAKY)?;
-    let failure = Failure::Cargo("drill::a_test_that_fails_once_under_load".to_owned());
-    let run = || Command::new(&check).stdin(Stdio::null()).status().is_ok_and(|status| status.success());
-    if run() {
-        return Err("the flaky check passed on its first run, so main never went red".to_owned());
-    }
-    let failing: BTreeSet<Failure> = [failure.clone()].into();
-    let request = sheriff::Request { head: "tip".to_owned(), parent: "green".to_owned(), run: "drill".to_owned(), log: String::new(), failing: failing.clone(), tree: String::new(), live_fix: String::new(), walked_back: String::new() };
-    let lanes = [sheriff::Lane { commit: "tip".to_owned(), message: "an innocent lane (north#634)".to_owned() }];
-    let rerun = |_: &sheriff::Lane, _: sheriff::On| Some(sheriff::Probed { host: "drill".to_owned(), failures: if run() { BTreeSet::new() } else { failing.clone() } });
-    match sheriff::find(&request, "tip", sheriff::Landings { lanes: &lanes, earlier: &[] }, &BTreeSet::new(), None, rerun, rerun) {
-        sheriff::Finding::Fixed { .. } => Ok(format!("main went red on {}; the sheriff reran it at the tip, read it passing, and reverted nothing", failure.key())),
-        other => Err(format!("the sheriff read a test that fails once as {other:?}")),
-    }
 }

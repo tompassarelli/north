@@ -3,36 +3,31 @@ use std::time::{Duration, Instant};
 
 use super::after::{self, Recovered};
 use super::lander::Lander;
-use super::sheriff;
 use super::wake::Task;
 
 #[derive(Clone, Copy)]
 pub struct Chores {
-    pub patrol: fn(&Lander) -> Result<(), String>,
     pub recover: fn(&Lander, &Path) -> Result<Option<Recovered>, String>,
 }
 
 impl Default for Chores {
     fn default() -> Self {
-        Self { patrol: sheriff::patrol, recover: after::recover }
+        Self { recover: after::recover }
     }
 }
 
 enum Done {
-    Patrolled,
     Recovered(Option<Recovered>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    Sheriff,
     Recovery,
 }
 
 impl Kind {
     pub fn name(self) -> &'static str {
         match self {
-            Kind::Sheriff => "sheriff",
             Kind::Recovery => "recovery",
         }
     }
@@ -67,7 +62,6 @@ impl Jobs {
 
     pub fn start(&mut self, lander: &Lander) {
         let chores = lander.chores;
-        self.spawn(lander, Kind::Sheriff, move |lander| (chores.patrol)(lander).map(|()| Done::Patrolled));
         if let Some(claim) = after::claim(lander) {
             self.spawn(lander, Kind::Recovery, move |lander| (chores.recover)(lander, &claim).map(Done::Recovered));
         }
@@ -82,7 +76,7 @@ impl Jobs {
             self.ended.push((job.kind, Instant::now()));
             match job.run.join() {
                 Ok(Ok(Done::Recovered(Some(landing)))) if !landing.lanes.is_empty() => recovered.push(landing),
-                Ok(Ok(Done::Patrolled | Done::Recovered(_))) => {}
+                Ok(Ok(Done::Recovered(_))) => {}
                 Ok(Err(error)) => println!("north land: waiting: {}: {error}", job.kind.name()),
                 Err(_) => println!("north land: the {} thread panicked", job.kind.name()),
             }

@@ -1,5 +1,5 @@
 //! The lander's steps as decision-log lines: each candidate round, each judged candidate, each culprit
-//! wave and each sheriff bisection step, with the observations it was taken on.
+//! wave, with the observations it was taken on.
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -64,10 +64,6 @@ pub fn judge(judged: &Judged, judgement: &Judgement, batch: &str, decide_us: u64
 pub fn wave(wanted: usize, slots: Option<(usize, usize)>, width: usize) {
     let case = land::WaveCase { wanted: count(wanted), slots: slots.map(|(free, total)| (count(free), count(total))) };
     decision_log::record(Entry { kind: Kind::LandWave, at: decision_log::now(), follows: None, case: &case, decision: &land::WaveDecision { width: count(width) }, decide_us: 0 });
-}
-
-pub fn sheriff(case: &land::SheriffCase, step: &land::SheriffStep) {
-    decision_log::record(Entry { kind: Kind::LandSheriff, at: decision_log::now(), follows: None, case, decision: step, decide_us: 0 });
 }
 
 pub(super) fn recorded_judgement(judgement: &Judgement) -> land::Judgement {

@@ -26,7 +26,7 @@ use super::jobs::Jobs;
 use super::unjudged::Asks;
 use super::setting;
 use super::slots::select::Config;
-use super::sheriff;
+use super::revert;
 use super::telemetry::epoch;
 use super::wake::Task;
 use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
@@ -561,7 +561,7 @@ fn blame_once(lander: &Lander, batch: &Batch, culprits: &[usize], walked_back: O
 }
 
 fn unreproduced(lander: &Lander, batch: &Batch, outcome: &Outcome, again: &std::path::Path) {
-    let failing = sheriff::names(&outcome.failing.iter().cloned().collect::<Vec<_>>());
+    let failing = revert::names(&outcome.failing.iter().cloned().collect::<Vec<_>>());
     let at = epoch();
     record(lander, &[Span::new(&batch.head, "failure unreproduced at the tip".to_owned(), Category::Lander, at, at).with(PHASE, AFTER).with(FINDING, UNREPRODUCED).with("log", outcome.log.display().to_string()).with("rerun_log", again.display().to_string())]);
     let message = format!("north land: the post-land checks of {} failed ({failing}) and did not fail again when rerun once at the tip, so no lane is reverted and main stays unverified; logs {} and {}", short(&batch.head), outcome.log.display(), again.display());

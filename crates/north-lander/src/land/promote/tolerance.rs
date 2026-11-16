@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{LANDER_PATHS, Repository, Round, replay_twice};
 use crate::land::candidate::git;
-use crate::land::{enqueue, replay, sheriff};
+use crate::land::{enqueue, replay, revert};
 use north_landing::landing::red_check::Failure;
 
 pub(super) struct Held<'a> {
@@ -58,6 +58,6 @@ pub(super) fn only_fixes(checkout: &Path, held: &Path, target: &Path) -> bool {
     let (Some(held), Some(target)) = (name(held), name(target)) else { return false };
     let Ok(messages) = git(checkout, &["log", "--first-parent", "-z", "--format=%B", &format!("{held}..{target}")]) else { return false };
     let messages: Vec<&str> = messages.split('\0').map(str::trim).filter(|message| !message.is_empty()).collect();
-    !messages.is_empty() && messages.iter().all(|message| sheriff::is_revert(message) || message.lines().any(enqueue::is_main_red_marker))
+    !messages.is_empty() && messages.iter().all(|message| revert::is_revert(message) || message.lines().any(enqueue::is_main_red_marker))
 }
 

@@ -4,62 +4,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
-use north_foundation::foundation::check_log;
 use north_foundation::foundation::offload::{self, OWNER_ENV};
 use north_base::lifecycle::Store;
 
-use super::{ALARMED, CLEARED, Cancel, EPISODE, Checked, Landed, Run, check, deadline, failing, ledger_path, record, steps};
+use super::{ALARMED, CLEARED, EPISODE, Checked, Landed, Run, check, failing, ledger_path, record};
 use crate::landing::red_check::Failure;
-use north_base::platform::push_ledger;
 use crate::land::after::follow;
-use crate::land::candidate::git;
 use crate::land::checks::Verdict;
-use crate::land::lander::Lander;
 use crate::land::red_episode::Episode;
 use crate::land::after_landing_lifecycle::{self as lifecycle, Main, RedMain};
-use crate::land::setting;
-
-/// Reruns the failing steps on `tree` on `host`, the one host every probe of a sheriff case runs on.
-pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String], host: &str) -> Option<BTreeSet<Failure>> {
-    let origin = git(&lander.worktree, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let landed = Landed { repo: lander.worktree.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: tree.to_owned(), heads: Vec::new(), lanes: Vec::new(), tips: Vec::new(), ran: Vec::new() };
-    let mut runner = vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--fresh".to_owned(), "--dry".to_owned(), "1".to_owned()];
-    for step in failing {
-        runner.extend(["--command".to_owned(), step.clone()]);
-    }
-    let logs = lander.queue.join("logs");
-    let name = format!("sheriff-{}", &tree[..tree.len().min(12)]);
-    let run = Run {
-        runner,
-        worktree: lander.queue.join("sheriff-probe"),
-        log: logs.join(format!("{name}.log")),
-        outcome: logs.join(format!("{name}.outcome")),
-        ledger: PathBuf::new(),
-        store: north_base::lifecycle::Store::host_path().unwrap_or_default(),
-        offload_owner: offload::yielding_owner(&lander.offload_owner),
-        capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
-        deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, tree),
-        host: Some(host.to_owned()),
-        cancel: Cancel::default(),
-        adoptable: false,
-    };
-    let verdict = check(&landed, tree, &run).verdict;
-    rerun_result(&verdict, &run.outcome, &fs::read_to_string(&run.log).unwrap_or_default(), failing)
-}
-
-pub(super) fn rerun_result(verdict: &Verdict, outcome: &Path, log: &str, requested: &[String]) -> Option<BTreeSet<Failure>> {
-    let skipped = check_log::no_test_checks(log);
-    if let Some(step) = requested.iter().find(|step| skipped.contains(step)) {
-        println!("north land: sheriff: {step} selected no test on its tree, so passing it there proves nothing and it reaches no verdict");
-        return None;
-    }
-    let requested: BTreeSet<Failure> = requested.iter().map(|step| Failure::Step(step.clone())).collect();
-    match verdict {
-        Verdict::Green => Some(BTreeSet::new()),
-        Verdict::RedMain(_) => Some(steps(outcome)).filter(|failed| failed.is_subset(&requested)),
-        _ => None,
-    }
-}
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
     let started = Instant::now();
@@ -161,7 +114,7 @@ pub(super) fn red_message(landed: &Landed, run: &Run, detail: &str) -> String {
     let log = &run.log;
     let failing: Vec<String> = failing(log, &run.outcome).iter().map(|failure| failure.label().to_owned()).collect();
     let failing = if failing.is_empty() { detail.to_owned() } else { failing.join(", ") };
-    format!("north land: main is red in {} at {}: failing {failing}; suspect commit {} (landed lanes: {}); log: {}; the sheriff acts first, this message is for when it cannot", landed.repository, landed.head, landed.head, landed.lanes.join(", "), log.display())
+    format!("north land: main is red in {} at {}: failing {failing}; suspect commit {} (landed lanes: {}); log: {}; nothing reverts an earlier landing, so this message is for whoever fixes it", landed.repository, landed.head, landed.head, landed.lanes.join(", "), log.display())
 }
 
 pub(super) fn green_message(landed: &Landed) -> String {

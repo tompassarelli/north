@@ -100,7 +100,7 @@ const MACHINES: &[Machine] = &[
         kind: "AfterLandingRun",
         source: AFTER_LANDING,
         guard: &[],
-        code: &["crates/north-landing/src/landing/after_landing", "crates/north-landing/src/land/sheriff.rs"],
+        code: &["crates/north-landing/src/landing/after_landing"],
         sweep: None,
         explore: Some(|| {
             use north_landing::land::after_landing_lifecycle::{AfterLandingRun, Run};

@@ -7,7 +7,7 @@ use super::super::candidate::{self, git, output};
 use super::super::checks::Verdict;
 use super::super::lander::Lander;
 use super::super::post_land::Outcome;
-use super::super::sheriff;
+use super::super::revert;
 use super::{Batch, LandedLane, short};
 
 const WORKTREE: &str = "lander-revert";
@@ -15,7 +15,7 @@ const BUCK2_RED: &str = "Buck2 red";
 
 pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], walked_back: Option<&str>, detail: &str, outcome: &Outcome) -> bool {
     if culprits.is_empty() {
-        inherited(lander, &batch.head, walked_back, detail, outcome);
+        inherited(&batch.head, walked_back, detail, outcome);
         return false;
     }
     let (base, lanes) = (&batch.base, &batch.lanes);
@@ -72,15 +72,11 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
     }
 }
 
-fn inherited(lander: &Lander, head: &str, walked_back: Option<&str>, detail: &str, outcome: &Outcome) {
-    match sheriff::chase(lander, head, walked_back, &outcome.failing, &outcome.log) {
-        Ok(line) => println!("north land: sheriff: {line}"),
-        Err(error) => {
-            let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, and the sheriff could not be asked for the earlier one: {error}");
-            println!("{message}");
-            after::send("coordinator", &message);
-        }
-    }
+fn inherited(head: &str, walked_back: Option<&str>, detail: &str, outcome: &Outcome) {
+    let earlier = walked_back.map_or_else(String::new, |commit| format!("; walking back, {commit} is the first landing red where its parent passes"));
+    let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch{earlier}, so nothing is reverted; log: {}", outcome.log.display());
+    println!("{message}");
+    after::send("coordinator", &message);
 }
 
 fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome: &Outcome) -> Result<String, String> {
@@ -95,15 +91,15 @@ fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome
         git(&worktree, &["reset", "-q", "--hard", &main])?;
         return Err(format!("{range} no longer reverts cleanly onto main {}", short(&main)));
     }
-    sheriff::follow_removed_tests(&worktree);
+    revert::follow_removed_tests(&worktree);
     let branch = format!("revert-{}", short(&lane.tip));
     git(&worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = git(&worktree, &["log", "-1", "--format=%s", &lane.tip])?;
     let trailers: Vec<String> = commits.lines().map(|commit| format!("Reverts: {commit}")).collect();
     let message = format!("Revert {subject}\n\n{} landed and its post-land checks failed on {} ({detail}), so the lander reverts it through the landing queue.\n\n{}", lane.ticket.branch, short(&lane.tip), trailers.join("\n"));
     git(&worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
-    let head = sheriff::queue_revert(lander, &worktree, &branch)?;
-    let failing = if outcome.failing.is_empty() { detail.to_owned() } else { sheriff::names(&outcome.failing.iter().cloned().collect::<Vec<_>>()) };
+    let head = revert::queue_revert(lander, &worktree, &branch)?;
+    let failing = if outcome.failing.is_empty() { detail.to_owned() } else { revert::names(&outcome.failing.iter().cloned().collect::<Vec<_>>()) };
     let reverted = Reverted { branch: &lane.ticket.branch, commit: &lane.tip, revert: &branch, cause: owner::Cause::RedMain { red: &lane.tip, failing: &failing, log: &outcome.log } };
     println!("north land: {}", owner::tell(&owner::Cli, lane.ticket.session.as_deref(), &reverted));
     Ok(format!("revert of {} {head} queued as {branch}", lane.ticket.branch))

@@ -30,10 +30,9 @@ mod runner;
 mod settle;
 pub use resume::resume;
 pub use runner::{Record, abandon, adopt, adoptable, after_owner, reap_scratch};
-pub(crate) use execute::{Checked, failing, steps};
+pub(crate) use execute::{Checked, failing};
 use execute::{apart, check, judged, record};
 use probe::Probe;
-pub(crate) use settle::rerun;
 pub use settle::{covered, settle};
 use settle::{offload_rerun, settle_from};
 
@@ -418,7 +417,7 @@ const WALK_BACK_GATE: &str = "blame-walk-back";
 
 fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize>, Option<String>) {
     if red_before(&fs::read_to_string(ledger_path()).unwrap_or_default(), &landed.repository, &landed.base, failing) {
-        println!("north land: the base {} of {} was already red on the failed checks in its own after-landing run, so no landed lane is blamed and the sheriff answers it", landed.base, landed.head);
+        println!("north land: the base {} of {} was already red on the failed checks in its own after-landing run, so no landed lane is blamed", landed.base, landed.head);
         return (Vec::new(), None);
     }
     let lanes = landed.tips.len();
@@ -457,7 +456,7 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> (Vec<usize
 }
 
 /// Blames the first lane of `landed` red on the failed checks where its parent passes; a base red on them walks back
-/// over the landings before it to the earlier landing red where its parent passes, which the sheriff confirms before it reverts it.
+/// over the landings before it to the earlier landing red where its parent passes, which it names to the coordinator.
 pub(super) fn blamed(landed: &Landed, suspects: &blame::Suspects, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: impl Fn() -> Vec<String>, gates: &Path, failing: &BTreeSet<Failure>) -> (Option<usize>, Option<String>) {
     let blame = blame::culprit(landed.tips.len(), suspects, |counts| probed(landed, counts, check).into_iter().map(|probe| probe.verdict).collect());
     match blame {
@@ -477,7 +476,7 @@ fn walked_back(landed: &Landed, check: &(dyn Fn(&str) -> blame::Probe + Sync), e
     let tree = |at: usize| if at == 0 { landed.base.as_str() } else { earlier[at - 1].as_str() };
     let found = blame::walk_back(earlier.len(), |ats| checked(&ats.iter().map(|&at| tree(at)).collect::<Vec<_>>(), check).into_iter().map(|probe| probe.verdict).collect()).map(tree).map(str::to_owned);
     match &found {
-        Some(commit) => println!("north land: main was already red at {} on the failed checks; walking back, {commit} is the first landing red where its parent passes, and the sheriff confirms it before it reverts it", landed.base),
+        Some(commit) => println!("north land: main was already red at {} on the failed checks; walking back, {commit} is the first landing red where its parent passes; it is named and not reverted", landed.base),
         None => println!("north land: main was already red at {} on the failed checks, and walking back over {} earlier landings found none red where its parent passes", landed.base, earlier.len()),
     }
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());

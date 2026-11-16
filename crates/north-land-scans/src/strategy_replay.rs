@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use super::{Range, git};
 
-const DECIDES: [&str; 15] = [
+const DECIDES: [&str; 14] = [
     "crates/north-pacing/src/pacing/placement/",
     "crates/north-capacity/src/capacity/",
     "crates/north-landing/src/land/bisect.rs",
@@ -15,7 +15,6 @@ const DECIDES: [&str; 15] = [
     "crates/north-landing/src/land/candidate.rs",
     "crates/north-landing/src/land/culprit.rs",
     "crates/north-lander/src/land/serve.rs",
-    "crates/north-landing/src/land/sheriff.rs",
     "crates/north-landing/src/land/steps.rs",
     "crates/north-landing/src/land/judge_case.rs",
     "crates/north-strategy/",

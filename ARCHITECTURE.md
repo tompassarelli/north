@@ -104,7 +104,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 4 workspace | north-lanes | Worktree and pin lifecycle: new, reap, rescue, gc, layout checks. |
 | 4 landing | north-land-sandbox | The sandbox a land check runs in: fence, recorder, supervisor. |
 | 4 landing | north-land-checks | The check slots of a landing: select, run, cache. |
-| 4 landing | north-landing | The landing queue and the lander's state, the steps after a landing, and the sheriff. |
+| 4 landing | north-landing | The landing queue and the lander's state and the steps after a landing. |
 | 4 landing | north-lander | The lander service: enqueue, serve batches, promote, and the hand-in road. |
 | 4 landing | north-safe-push | The safe-push entry: request, gates, publication, restore. |
 | 4 capacity | north-capacity-host | Host leases, the dependency box, the watchdog and the PATH gate. |

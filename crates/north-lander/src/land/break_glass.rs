@@ -141,7 +141,7 @@ pub fn run(arguments: &[String]) -> u8 {
     });
     match outcome {
         Ok((ticket, tip)) => {
-            println!("north land: {} landed as {tip} by break-glass; its after-landing run and the sheriff's revert stay in force", ticket.branch);
+            println!("north land: {} landed as {tip} by break-glass; its after-landing run and its revert stay in force", ticket.branch);
             0
         }
         Err(error) => {

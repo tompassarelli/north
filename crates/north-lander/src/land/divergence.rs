@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::candidate::{self, git};
-use super::{after, replay, sheriff};
+use super::{after, replay, revert};
 
 pub const TRAILER: &str = "Replay-change:";
 const KINDS: [&str; 8] = ["landed", "failed", "conflict", "undecided", "deferred", "transient", "red-main", "error"];
@@ -270,16 +270,16 @@ fn revert(runtimes: &Runtimes, divergence: &Divergence, commit: &str, found: &st
     candidate::ensure(source, &worktree)?;
     git(&worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"])?;
     let tip = git(&worktree, &["rev-parse", "FETCH_HEAD^{commit}"])?;
-    if !sheriff::without(&worktree, &tip, commit)? {
+    if !revert::without(&worktree, &tip, commit)? {
         return Err(format!("{} no longer reverts cleanly onto {}", short(commit), short(&tip)));
     }
-    sheriff::follow_removed_tests(&worktree);
+    revert::follow_removed_tests(&worktree);
     let branch = format!("sheriff-revert-{}", short(commit));
     git(&worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = git(&worktree, &["log", "-1", "--format=%s", commit])?;
     let message = format!("Revert {subject}\n\nThe lander's promotion replay found {found}; nothing declared it with a {TRAILER} trailer, so the sheriff reverts it through the landing queue.\n\nReverts: {commit}\nSheriff-Reverts: {commit}\nReplay-divergence: {}", divergence.lanes);
     git(&worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
-    let head = sheriff::queue_revert_in(source, queue_dir, &worktree, &branch)?;
+    let head = revert::queue_revert_in(source, queue_dir, &worktree, &branch)?;
     let done = format!("revert {commit} {head} queued as {branch}");
     fs::create_dir_all(record.parent().unwrap_or(queue_dir)).map_err(|error| error.to_string())?;
     north_landing::atomic_write::write_atomic(&record, &format!("{done}\n")).map_err(|error| format!("cannot write {}: {error}", record.display()))?;

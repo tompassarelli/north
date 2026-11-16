@@ -13,7 +13,6 @@ Each fault gets a fresh directory with its own home, state, runtime directory, g
 - wedged lander unit: restarting a scratch user unit that is alive but has not written its rounds file for 20 minutes.
 - check refused because its host lacks the runtime: requeueing the ticket once, while a scratch lander unit serves the queue.
 - dead offload slot: ending the process group of a job that holds its slot's lock past the slot's deadline.
-- red main from a flaky test: the sheriff reruns the failing test at the tip, reads it passing and reverts nothing.
 
 ## What counts as healed
 
