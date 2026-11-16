@@ -125,3 +125,4 @@ Nothing here is needed to use north: these notes record why it is built the way 
 ## Not yet sorted
 
 - [The candidate-landing scenario (north#1233)](candidate-scenario.md): A box in the well-specified band can be answered before it is assigned: a candidate change is computed on the small model in idle time, kept as a lane, and a launch lands it after the box's checks pass again on current main (north#1240, folded into north#1233).
+- [The proven core: every part of north sorted into five buckets](proven-core.md): Phase 1 of north#1650 (agreed with the owner on 2026-11-16): each crate under `crates/`, each hook north registers, each skill under `harness/skills/`, each systemd unit and timer the hosts run for north, and each top-level `north` verb, sorted into one of five buckets with a call of keep, simplify or mothball and the recorded evidence behind it.
