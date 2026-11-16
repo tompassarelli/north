@@ -24,6 +24,8 @@ const LAST_CHARS: usize = 4_000;
 const LEASE_BATCH: usize = 16;
 pub const BUDGET: Duration = Duration::from_secs(5);
 const PROBE_SECS: u64 = 15;
+const ROTATION_MS: u64 = 60_000;
+const OPENINGS: [&str; 5] = ["Done", "Not done", "Split", "Blocked", "Waiting"];
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*Stop:").expect("stop line pattern"));
@@ -60,6 +62,8 @@ pub enum Unlanded {
 pub enum Work {
     Cli,
     Detached,
+    /// The machine holding the session answered that its held unit has exited or never existed.
+    Gone,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,6 +81,7 @@ pub struct Seen {
     pub live: Option<String>,
     pub background: bool,
     pub ended: bool,
+    pub gone: bool,
     pub lane_holds: bool,
     pub lane_ahead: bool,
 }
@@ -86,6 +91,7 @@ pub enum Verdict {
     Keep,
     Finished,
     Ended,
+    Gone,
     Stale,
 }
 
@@ -95,6 +101,7 @@ impl Verdict {
             Self::Keep => "kept".into(),
             Self::Finished => "its parent took its final report".into(),
             Self::Ended => "its host ended it at its idle exit as finished".into(),
+            Self::Gone => "parked with nothing registered to wake it, and its machine answered that its held unit has exited".into(),
             Self::Stale => format!("quiet over {}h with nothing left to wake it", stale.as_secs() / 3600),
         }
     }
@@ -108,7 +115,7 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
         return Verdict::Keep;
     }
     if seen.ended && !waiting(seen) {
-        return Verdict::Ended;
+        return if seen.gone { Verdict::Gone } else { Verdict::Ended };
     }
     if seen.status == Status::Exited {
         return if seen.quiet >= stale && !seen.background { Verdict::Stale } else { Verdict::Keep };
@@ -128,6 +135,11 @@ fn finishes(report: &str) -> bool {
 
 fn finished(seen: &Seen, report: &Report, stale: Duration) -> bool {
     report.taken && finishes(&report.text) && !(seen.lane_ahead && !opens(&report.text, "Split")) && report.unlanded.is_empty() && !(seen.background && (!opens(&report.text, "Done") || seen.quiet < stale))
+}
+
+fn opening(entries: &[Entry]) -> &'static str {
+    let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant);
+    last.and_then(|entry| entry.text.lines().find_map(|line| OPENINGS.into_iter().find(|word| opens(line, word)))).unwrap_or("none")
 }
 
 fn waiting(seen: &Seen) -> bool {
@@ -212,6 +224,10 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     let records = fleet.sessions().unwrap_or_default();
     let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Coordinator && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, quiet)| ended_by_host(record) || !record.ended() && matches!(status, Status::Idle | Status::Parked) || *status == Status::Exited && *quiet >= stale).collect();
     candidates.sort_by_key(|(_, _, quiet)| std::cmp::Reverse(*quiet));
+    if !candidates.is_empty() {
+        let turn = usize::try_from(now_ms / ROTATION_MS).unwrap_or_default().wrapping_mul(LEASE_BATCH) % candidates.len();
+        candidates.rotate_left(turn);
+    }
     let running = evidence.running(&candidates.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
     let gated = fleet.open_gate_sessions();
     let mut verdicts: BTreeMap<String, String> = BTreeMap::new();
@@ -219,19 +235,28 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     let mut unlanded: Digests = BTreeMap::new();
     for (done, batch) in candidates.chunks(LEASE_BATCH).enumerate() {
         if spent() >= budget {
-            reaped.deferred = candidates.len() - done * LEASE_BATCH;
+            reaped.deferred += candidates.len() - done * LEASE_BATCH;
             break;
         }
-        let mut due: Vec<(&SessionRecord, String, Option<String>, Option<Ahead>)> = Vec::new();
+        let mut judged_batch: Vec<(&SessionRecord, Status, Seen, Verdict, Vec<Entry>)> = Vec::new();
         for &(record, status, quiet) in batch {
-            let (ended, work) = (ended_by_host(record), running.get(&record.name).copied());
-            let live = if ended { fleet.live_hold(record, &records, &gated) } else { fleet.live_wait(record, &records, &gated, work == Some(Work::Detached)) };
+            let work = running.get(&record.name).copied();
+            let gone = status == Status::Parked && work == Some(Work::Gone);
+            let live = if ended_by_host(record) { fleet.live_hold(record, &records, &gated) } else { fleet.live_wait(record, &records, &gated, work == Some(Work::Detached)) };
             let entries = if live.is_some() { Vec::new() } else { fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default() };
             let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
             let lane_holds = lanes.get(&record.name).is_some_and(|held| owes_landing(held, ended_ms(record).unwrap_or(u64::MAX)));
-            let mut seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds, lane_ahead: false };
-            let mut judged = verdict(&seen, stale);
-            let probed = if judged == Verdict::Keep { None } else { evidence.lane(record) };
+            let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended: ended_by_host(record) || gone, gone, lane_holds, lane_ahead: false };
+            let judged = verdict(&seen, stale);
+            judged_batch.push((record, status, seen, judged, entries));
+        }
+        let probes: Vec<Option<Unlanded>> = std::thread::scope(|scope| {
+            let asked: Vec<_> = judged_batch.iter().map(|(record, _, _, judged, _)| (*judged != Verdict::Keep).then(|| scope.spawn(move || evidence.lane(record)))).collect();
+            asked.into_iter().map(|probe| probe.and_then(|probe| probe.join().ok().flatten())).collect()
+        });
+        let mut due: Vec<(&SessionRecord, String, Option<String>, Option<Ahead>)> = Vec::new();
+        for ((record, status, mut seen, mut judged, entries), probed) in judged_batch.into_iter().zip(probes) {
+            let quiet = seen.quiet;
             if let Some(Unlanded::Unread(path)) = &probed {
                 reaped.kept.push(Retired { name: record.name.clone(), why: format!("its lane {} did not answer within {PROBE_SECS} s", path.display()) });
                 if let Some(parent) = record.parent.as_deref() {
@@ -257,10 +282,14 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
                 continue;
             }
             let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| tail(&entry.text));
-            due.push((record, judged.why(stale), last, ahead));
+            due.push((record, format!("{}; its last report: {}", judged.why(stale), opening(&entries)), last, ahead));
         }
         let leases = fleet.job_leases(&due.iter().map(|(record, _, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()));
         for ((record, why, last, ahead), lease) in due.into_iter().zip(leases) {
+            if !reaped.retired.is_empty() && spent() >= budget {
+                reaped.deferred += 1;
+                continue;
+            }
             retire_unleased(fleet, (&mut reaped, &mut unlanded), apply, (record, why, last, ahead), lease);
         }
     }
@@ -381,7 +410,11 @@ impl Evidence for Here {
         }
         let ssh = &binary("ssh");
         for (work, named) in std::thread::scope(|scope| placed.into_iter().map(|(destination, named)| scope.spawn(move || (held::work(ssh, destination, &named.keys().cloned().collect::<Vec<_>>()), named))).collect::<Vec<_>>().into_iter().filter_map(|reading| reading.join().ok()).collect::<Vec<_>>()) {
-            running.extend(named.into_iter().filter(|(unit, _)| work.as_ref().is_none_or(|work| work.get(unit).is_some_and(|count| *count > 0))).map(|(_, name)| (name, Work::Cli)));
+            running.extend(named.into_iter().filter_map(|(unit, name)| match work.as_ref().map(|work| work.get(&unit)) {
+                Some(Some(held::Work::Gone)) => Some((name, Work::Gone)),
+                Some(Some(held::Work::Below(0))) => None,
+                _ => Some((name, Work::Cli)),
+            }));
         }
         if units.is_empty() {
             return running;

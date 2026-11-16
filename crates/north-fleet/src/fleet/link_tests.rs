@@ -119,10 +119,10 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     let (ssh, units) = (root.path().join("plain-ssh"), [north_session_host::held::unit("box one")]);
     north_foundation::foundation::shim::write_script(&ssh, &format!("while [ \"$1\" != -- ]; do shift; done\nPATH='{}':$PATH exec sh -c \"$2\"", root.path().join("shims").display()));
     let work = || north_session_host::held::work(&ssh, "tom@far", &units).unwrap()[&units[0]];
-    assert_eq!(work(), 0, "an idle CLI has no work below it");
+    assert_eq!(work(), north_session_host::held::Work::Below(0), "an idle CLI has no work below it");
     to_link.write_all(b"wait\n").await.unwrap();
     assert!(north_base::platform::wait::until_async(WAIT, || waiting.exists()).await, "the CLI never took the wait");
-    assert!(work() > 0, "the reaper sees the background wait the CLI runs on its machine (north#770)");
+    assert!(matches!(work(), north_session_host::held::Work::Below(below) if below > 0), "the reaper sees the background wait the CLI runs on its machine (north#770)");
     drop_transport(&root.path().join("shims"));
     to_link.write_all(b"two\n").await.unwrap();
 

@@ -49,25 +49,33 @@ pub fn unit(key: &str) -> String {
 }
 
 /// `sh -c WORK north-work UNIT...`: prints `COUNT UNIT` for each held unit, COUNT being its live
-/// processes at least three below its main process, which runs the CLI in a subshell.
+/// processes at least three below its main process, which runs the CLI in a subshell, or `gone UNIT`
+/// when systemd answers that the unit runs no main process; a unit systemd does not answer for is left out.
 const WORK: &str = r#"for u; do
-  m=$(systemctl --user show -p MainPID --value "$u" 2>/dev/null)
+  m=$(systemctl --user show -p MainPID --value "$u" 2>/dev/null) || continue
+  [ "${m:-0}" != 0 ] || { echo "gone $u"; continue; }
   ps -e -o pid= -o ppid= -o stat= | awk -v m="${m:-0}" -v u="$u" '$3 !~ /^Z/ { up[$1] = $2 } END { n = 0; for (p in up) { d = 0; q = p; while (q in up && q != m && d < 64) { q = up[q]; d++ } if (m > 0 && q == m && d >= 3) n++ } print n, u }'
 done"#;
 const WAIT: Duration = Duration::from_secs(8);
 
-/// How many processes run below the CLI of each held unit in `units` on the machine `destination`
-/// names, by unit; `None` when the machine does not answer for every unit, so unseen work is not
-/// taken for none.
-pub fn work(ssh: &Path, destination: &str, units: &[String]) -> Option<BTreeMap<String, usize>> {
+/// What the machine says of a held unit: its service has exited or never existed, or how many processes run below its CLI.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Work {
+    Gone,
+    Below(usize),
+}
+
+/// What runs in each held unit in `units` on the machine `destination` names, by unit; `None` when
+/// the machine does not answer for every unit, so unseen work is not taken for none or for gone.
+pub fn work(ssh: &Path, destination: &str, units: &[String]) -> Option<BTreeMap<String, Work>> {
     let quote = |word: &str| format!("'{}'", word.replace('\'', r"'\''"));
     let script = format!("sh -c {} north-work {}", quote(WORK), units.iter().map(|unit| quote(unit)).collect::<Vec<_>>().join(" "));
     let mut command = Command::new(ssh);
     command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "--", &script]);
     let output = try_run_command_within(command, None, WAIT).ok().flatten().filter(|output| output.status.success())?;
-    let counted: BTreeMap<String, usize> = String::from_utf8_lossy(&output.stdout)
+    let counted: BTreeMap<String, Work> = String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter_map(|line| line.split_once(' ').and_then(|(count, unit)| Some((unit.to_owned(), count.parse().ok()?))))
+        .filter_map(|line| line.split_once(' ').and_then(|(count, unit)| Some((unit.to_owned(), if count == "gone" { Work::Gone } else { Work::Below(count.parse().ok()?) }))))
         .filter(|(unit, _)| units.contains(unit))
         .collect();
     (counted.len() == units.len()).then_some(counted)
