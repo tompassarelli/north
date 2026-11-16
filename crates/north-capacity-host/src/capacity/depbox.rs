@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use north_base::platform::session_scope::REMOVAL_ROOTS;
@@ -333,7 +333,8 @@ impl Sandbox {
     fn copied_tree_target(&self) -> Option<PathBuf> {
         let chosen = PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").filter(|chosen| !chosen.is_empty())?);
         let below = resolved(&chosen).strip_prefix(self.top.join("target")).ok()?.to_path_buf();
-        (chosen.is_absolute() && !below.as_os_str().is_empty()).then(|| Path::new("target").join(below))
+        let named = below.components().all(|part| matches!(part, Component::Normal(_)));
+        (chosen.is_absolute() && named && !below.as_os_str().is_empty()).then(|| Path::new("target").join(below))
     }
 
     fn set_check(&mut self) {
