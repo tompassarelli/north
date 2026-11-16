@@ -2,7 +2,7 @@ use super::budget::budget;
 use super::check::check;
 use super::config::at_rev;
 use super::functions::ast_grep_available;
-use super::gate::{Violation, gate};
+use super::gate::{Violation, gate_from_fork};
 use super::report::{build, format, trend_row};
 use super::signal::{record_loop, review_done, signal};
 use super::snapshot::{Snapshot, git};
@@ -121,7 +121,7 @@ fn dispatch(arguments: &[String], io: &mut Io) -> Result<u8, String> {
                 let _ = writeln!(io.err, "code-health: ast-grep is not on PATH; gate skipped");
                 return Ok(0);
             }
-            let result = gate(&io.state, &repo, base, head, config)?;
+            let result = gate_from_fork(&io.state, &repo, base, head, config)?;
             if let Some(warning) = &result.warning {
                 let _ = writeln!(io.err, "{warning}");
             }
