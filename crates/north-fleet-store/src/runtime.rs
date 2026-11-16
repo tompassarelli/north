@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use north_foundation::foundation::clock::Timestamp;
 
 pub use north_base::platform::session_scope::{COORDINATOR_ROLE as COORDINATOR, ROLE_ENV};
-pub use north_warm_spares::names::{BINDING_ENV, SESSION_ENV};
+pub use north_warm_spares::names::{BINDING_ENV, Binding, SESSION_ENV, binding};
 pub const SPOOLED_ENV: &str = "NORTH_FLEET_SPOOLED";
 
 pub fn binary(name: &str) -> PathBuf {
@@ -20,19 +20,3 @@ pub fn now_ms() -> u64 {
     u64::try_from(Timestamp::now().unix_millis()).unwrap_or(0)
 }
 
-/// Where this process stands as a spare worker: started as no spare, a spare no launch has taken yet, or one a launch has taken and bound.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Binding {
-    None,
-    Awaited,
-    Written,
-}
-
-/// This process's [`Binding`], read from [`BINDING_ENV`] and the file it names.
-pub fn binding() -> Binding {
-    match std::env::var_os(BINDING_ENV).filter(|file| !file.is_empty()) {
-        None => Binding::None,
-        Some(file) if Path::new(&file).exists() => Binding::Written,
-        Some(_) => Binding::Awaited,
-    }
-}

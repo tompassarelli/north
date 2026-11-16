@@ -94,7 +94,7 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
   waits and flow alerts, and never to call `ScheduleWakeup`, `/loop` or `CronCreate` for fleet work, with a
   guard that refuses those calls in a Fleet lead session. Done when: a guard test refuses `ScheduleWakeup` with
   `NORTH_FLEET_SESSION` set, and a 7-day rescan with this page's method counts 0 lead timer wakes.
-  Guard half done 2026-11-04: `crates/north-guard/src/guard/lead_timer.rs` refuses both calls in a Fleet session that
+  Guard half done 2026-11-04: the lead-timer guard (removed in north#1650) refuses both calls in a Fleet session that
   has child records or a `lead` name segment; `/loop` reaches the hook only as those two calls. The skill sentence
   and the rescan remain.
 
@@ -103,7 +103,7 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
 An Agent subagent reads a `SendMessage` only at its next tool round, so a message to one inside a long build, test or
 wait sits until that call returns, while a fleet session takes native delivery within seconds (north#523, raised
 2026-11-03). The runtime gives no way to interrupt a subagent's tool call, so the sender is told instead:
-`crates/north-guard/src/guard/subagent_message.rs` adds that delay to the sender's context on every `SendMessage` whose
+the subagent-message guard (removed in north#1650) adds that delay to the sender's context on every `SendMessage` whose
 target is not a live fleet session record, and stays silent for fleet sessions.
 
 ## Feature record "Fleet tick", as written until 2026-11-13

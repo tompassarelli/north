@@ -10,6 +10,8 @@ const LIMIT_SECONDS: f64 = 30.0;
 const MAX_DEPTH: usize = 3;
 const PREFIXES: &[&str] = &["env", "exec", "time", "timeout", "nice", "ionice", "builtin", "nohup", "setsid", "stdbuf"];
 const SHELLS: &[&str] = &["bash", "sh", "zsh", "dash"];
+const ROUTING: &[&str] = &["fleet", "threads", "gate"];
+const GLUE: &[&str] = &["cd", "export", "echo", "printf", "date", "true", "head", "tail", "cut", "sort", "uniq", "wc", "tr", "column", "rg", "grep", "jq", "sed", "awk"];
 const SSH_QUERIES: &[&str] = &["-O", "-Q", "-V"];
 const SSH_VALUED: &[&str] = &["-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"];
 
@@ -76,7 +78,23 @@ fn remote_waits(args: &[String], depth: usize, status_verb: &dyn Fn(&[&str]) -> 
     if let Some(what) = waits(&remote, depth + 1, status_verb) {
         return Some(what);
     }
-    (!super::coordinator_reach::status_only(&remote, status_verb)).then_some("a remote command")
+    (!status_only(&remote, status_verb)).then_some("a remote command")
+}
+
+/// Whether every segment of `text` runs only the fleet, threads and gate verbs or a status verb, and glue between them.
+fn status_only(text: &str, status_verb: &dyn Fn(&[&str]) -> bool) -> bool {
+    let Some(tokens) = words(text) else { return false };
+    segments(&tokens).into_iter().all(|segment| {
+        let start = command_start(&segment, PREFIXES);
+        let Some((program, args)) = segment.get(start..).and_then(<[String]>::split_first) else { return true };
+        let program = basename(program);
+        let words: Vec<&str> = args.iter().map(String::as_str).filter(|word| !word.starts_with('-')).collect();
+        match program {
+            "north" => words.first().is_some_and(|verb| ROUTING.contains(verb)) || status_verb(&words),
+            "cd" | "export" => true,
+            _ => GLUE.contains(&program) && !args.iter().any(|arg| arg.starts_with(['/', '~', '.'])),
+        }
+    })
 }
 
 fn ssh_remote(args: &[String]) -> String {

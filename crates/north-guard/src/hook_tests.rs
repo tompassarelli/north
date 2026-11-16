@@ -35,13 +35,6 @@ fn provider_events_select_matching_guard_list() {
             "pre-agent",
         ),
         (
-            "PreToolUse",
-            vec!["ScheduleWakeup", "CronCreate"],
-            "pre-timer",
-            "pre-timer",
-        ),
-        ("PreToolUse", vec!["SendMessage"], "pre-message", "pre-message"),
-        (
             "PostToolUse",
             vec!["Bash", "functions.exec_command"],
             "post-tool",
@@ -122,10 +115,10 @@ fn provider_events_select_matching_guard_list() {
     assert_eq!(reached("Glob", json!({"pattern": "src/x*/y", "path": "/a"})), ["/a/src/"]);
     assert!(reached("Bash", json!({"command": "ls"})).is_empty());
     let (start, prompt) = (hook("session-start").guards(), hook("user-prompt-submit").guards());
-    assert!(spare_guards(start, "SessionStart", Binding::Awaited, || true).is_empty(), "a spare no launch has taken gives no session-start context, which would be the spare's");
-    assert_eq!(spare_guards(prompt, "UserPromptSubmit", Binding::Written, || true).len(), start.len() + prompt.len(), "a taken spare's first prompt gets the session-start context of the session it was bound to");
-    assert_eq!(spare_guards(prompt, "UserPromptSubmit", Binding::Written, || false).len(), prompt.len(), "and only its first");
-    assert_eq!(spare_guards(start, "SessionStart", Binding::None, || true).len(), start.len(), "a session started as no spare keeps its session-start context");
+    assert!(spare_guards(start, "SessionStart", north_warm_spares::names::Binding::Awaited, || true).is_empty(), "a spare no launch has taken gives no session-start context, which would be the spare's");
+    assert_eq!(spare_guards(prompt, "UserPromptSubmit", north_warm_spares::names::Binding::Written, || true).len(), start.len() + prompt.len(), "a taken spare's first prompt gets the session-start context of the session it was bound to");
+    assert_eq!(spare_guards(prompt, "UserPromptSubmit", north_warm_spares::names::Binding::Written, || false).len(), prompt.len(), "and only its first");
+    assert_eq!(spare_guards(start, "SessionStart", north_warm_spares::names::Binding::None, || true).len(), start.len(), "a session started as no spare keeps its session-start context");
 }
 
 fn deny(input: &HookInput) -> Verdict {
@@ -238,69 +231,6 @@ fn an_accepted_finish_call_ends_the_turn_and_a_refused_one_returns_to_the_model(
     let refused_as_result = json!({"tool_response": [{"type": "text", "text": "north worker-sandbox broker: refused: evalA-lg-settled-outcomes-r1 launched in /tmp/north-assessment/evals/work/lg5/p/worktrees/worker, which is in no project of this host\nfinish: ✗ the check `cargo test` did not start: refused; NOT committed, NOT queued; the attempt is kept in /l/.git/attempt"}]});
     assert_eq!(dispatch("PostToolUse", "mcp__north__finish", refused_as_result), None, "a refused finish Claude Code hands to PostToolUse ended the turn with nothing queued and no refusal reported");
     assert!(dispatch("PostToolUse", "mcp__north__hand-in", accepted).is_none_or(|output| output["continue"] != false), "only the finish call ends the turn");
-}
-
-#[test]
-fn a_session_launched_with_a_container_shell_starts_a_server_and_searches_a_tree_as_written_and_a_host_session_is_still_refused_or_rewritten() {
-    let fleet = tempfile::tempdir().unwrap();
-    for (session, container_shell) in [("task", true), ("host", false)] {
-        let launch = json!({"verification": true, "created_ms": 1, "name": session, "provider": "claude", "account": "a", "cwd": "/app", "prompt_mode": "north", "container_shell": container_shell});
-        let record = serde_json::from_value::<north_fleet_store::session::SessionRecord>(launch).unwrap();
-        std::fs::create_dir(fleet.path().join(session)).unwrap();
-        north_fleet_store::session_files::write_record(&fleet.path().join(session), &record).unwrap();
-    }
-    let app = fleet.path().join("app");
-    std::fs::create_dir_all(app.join("john")).unwrap();
-    let host_guards: Vec<Guard> = hook("pre-bash").guards().iter().filter(|guard| ["session-kill-guard", "modern-search-guard"].contains(&guard.0)).map(|guard| Guard("", guard.1, guard.2)).collect();
-    let guards = [host_guards, vec![guard("", crate::guard::sops_decrypt::evaluate)]].concat();
-    let judged = |session: &str, command: &str| {
-        let call = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": app, "tool_input": {"command": command}});
-        let mut stood_down = Vec::new();
-        let output = judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut stood_down, &mut Vec::new());
-        (output, stood_down)
-    };
-    for command in ["nohup setsid pypi-server run -p 8080 /srv/packages > /tmp/pypi.log 2>&1 &", "find john -iname '*7z*'"] {
-        let (output, stood_down) = judged("task", command);
-        assert_eq!((output, stood_down.len()), (None, 1), "a container session: {command}");
-        let (output, stood_down) = judged("host", command);
-        let decision = output.unwrap_or_default()["hookSpecificOutput"].clone();
-        assert!(decision["permissionDecision"] == "deny" || decision["updatedInput"]["command"].as_str().is_some_and(|run| run != command), "a host session: {command}: {decision}");
-        assert!(stood_down.is_empty(), "a host session: {command}");
-    }
-    let (output, stood_down) = judged("task", "sops --decrypt secrets.yaml");
-    assert_eq!((output.unwrap_or_default()["hookSpecificOutput"]["permissionDecision"].as_str(), stood_down.len()), (Some("deny"), 0), "a credential guard still judges a container session's command");
-    let (output, stood_down) = judged("task", "until [ -s /tmp/orig.txt ] && ! pgrep -f \"sqlite3 oewn\" >/dev/null; do sleep 5; done; wc -l /tmp/orig.txt");
-    let reason = output.unwrap_or_default()["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap_or_default().to_owned();
-    assert!(reason.contains("self-matching `pgrep -f sqlite3 oewn`"), "{reason}");
-    assert_eq!(stood_down.len(), 0, "a self-match is a fact about the call's own command line, so a container session meets it too");
-}
-
-#[test]
-fn a_file_tool_path_under_a_container_sessions_container_directory_reaches_the_sessions_own_directory_and_nothing_else_widens() {
-    let fleet = tempfile::tempdir().unwrap();
-    let own = fleet.path().join("ws/app");
-    std::fs::create_dir_all(&own).unwrap();
-    std::os::unix::fs::symlink("/etc", own.join("outside")).unwrap();
-    for (session, container_shell, container_dir) in [("task", true, Some("/app")), ("host", false, Some("/app")), ("undeclared", true, None)] {
-        let launch = json!({"verification": true, "created_ms": 1, "name": session, "provider": "claude", "account": "a", "cwd": own, "prompt_mode": "north", "container_shell": container_shell, "container_dir": container_dir});
-        let record = serde_json::from_value::<north_fleet_store::session::SessionRecord>(launch).unwrap();
-        std::fs::create_dir(fleet.path().join(session)).unwrap();
-        north_fleet_store::session_files::write_record(&fleet.path().join(session), &record).unwrap();
-    }
-    let guards = [guard("", |input| match input.tool_input["file_path"].as_str() {
-        Some(path) if path.starts_with("/app") => Verdict::Deny(format!("outside the lane: {path}")),
-        _ => Verdict::Allow,
-    })];
-    let judged = |session: &str, path: &str| {
-        let call = json!({"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": own, "tool_input": {"file_path": path, "content": "x"}});
-        judge(&HookInput::parse(call.to_string().as_bytes()).unwrap(), &guards, "PreToolUse", || container_shell::declared_in(fleet.path(), session), &mut Vec::new(), &mut Vec::new()).unwrap_or_default()["hookSpecificOutput"].clone()
-    };
-    let moved = judged("task", "/app/src/run.py");
-    assert_eq!((moved["permissionDecision"].as_str(), moved["updatedInput"]["file_path"].as_str(), moved["updatedInput"]["content"].as_str()), (Some("allow"), Some(own.join("src/run.py").to_str().unwrap()), Some("x")), "{moved}");
-    for (session, path) in [("host", "/app/run.py"), ("undeclared", "/app/run.py"), ("task", "/app/../etc/passwd"), ("task", "/app/outside/passwd"), ("task", "/application/run.py")] {
-        let decision = judged(session, path);
-        assert!(decision["permissionDecision"] == "deny" && decision["updatedInput"].is_null(), "{session} {path}: {decision}");
-    }
 }
 
 #[test]

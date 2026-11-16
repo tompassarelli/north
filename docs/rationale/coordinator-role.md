@@ -139,7 +139,7 @@ Enforced by: types. A new timer cannot send without naming itself, so it cannot 
   idle it parks like any session and the next message revives it.
 - Every place that infers the coordinator from an absence reads the field:
   `crates/north-providers/src/providers/claude/runs/mod.rs:147` and `crates/north-providers/src/providers/ledger_rows.rs:89`
-  (no parent and no children means coordinator), `crates/north-guard/src/guard/lead_timer.rs:36` (a name
+  (no parent and no children means coordinator), the lead-timer guard (removed in north#1650) (a name
   containing `lead`), `harness/hooks/prompt-grounding.sh:29` (absent from fleet records).
 
 Enforced by: code. Membership is set by the launcher, never remembered; the single-coordinator rule is a
@@ -282,7 +282,7 @@ the guard, the readout and P2's replay of section 1 share it.
   `north config agents off|on`, `north land abandon` and ticket removal, `north fleet stop|forget`.
 - Escape: `north coordinator incident REASON` grants a budget of 30 calls (`coordinator.incident_budget`) for an
   incident the coordinator must work itself, and writes a metric row with the reason, so the escape is
-  counted rather than a persistent switch-off. What shipped instead is `north fleet break-glass` (section 7),
+  counted rather than a persistent switch-off. What shipped instead was `north fleet break-glass` (section 7, removed in north#1650),
   which lifts only while the harness itself measures that no worker can start or that landing is stalled.
 
 **Recurring work becomes code**: the classifier reduces each counted call to a shape (the verb, or
@@ -296,11 +296,7 @@ No read count is kept. The read-streak limit (north#838, 2026-11-07) and the per
 coordinator's read-only calls are not refused for their number. `north config coordinator calls TRANSCRIPT` still prints
 the streaks of a transcript between hand-offs, without a limit.
 
-What still bounds the coordinator's reads is the reach guard below: reads of repository source and of other hosts have a budget of 0
-(north#1106, 2026-11-11, after the coordinator traced a launch inside the old budget of 8):
-`crates/north-guard/src/guard/coordinator_reach.rs` refuses from the coordinator, before the call runs, a remote command
-other than the fleet, threads, gate and status verbs, any trace, journal or process-table read on any host, and any
-read under a repository checkout but `git log --oneline`, naming the brief to write; only break-glass lifts it. The role guard also refuses builds and tests in any
+The coordinator reach guard (north#1106) was removed with break-glass in north#1650, so the coordinator's reads are not refused. The role guard still refuses builds and tests in any
 runner (cargo, bun, npm, make, go, pytest, nix build) and shell writes into a repository (redirect,
 tee, patch, git apply) from the coordinator.
 
@@ -308,7 +304,7 @@ All of this reads one table, `coordinator_role` in `harness/defaults.toml` (nort
 call, owned by the coordinator (launch, send, ask, stop, adopt, gate, issue-box, status, placement-look) or by
 a worker it briefs (source-read, remote-read, build, test, repository-edit).
 `crates/north-guard/src/guard/coordinator_table.rs` reads it into typed rows, refusing a missing, duplicated or
-unknown class, and `north config coordinator role` prints it. Section 7 gives `north fleet break-glass`.
+unknown class, and `north config coordinator role` prints it. Section 7 records the removed `north fleet break-glass`.
 
 Enforced by: hook for the streak, the landing denial and the exemptions; types for verb kinds;
 metric with an alarm for recurring work. "Predictable answer" stays text; the streak bounds what
@@ -465,7 +461,7 @@ push access to South and the Firn timers are host configuration.
    `crates/north-core/src/fleet/model.rs`, `src/cli/fleet/launch.rs`, `src/cli/fleet/lineage.rs`,
    `crates/north-core/src/fleet/registry/launching.rs`, `crates/north-providers/src/providers/claude/session_env.rs`,
    `crates/north-providers/src/providers/claude/runs/mod.rs`, `crates/north-providers/src/providers/ledger_rows.rs`,
-   `crates/north-guard/src/guard/lead_timer.rs`. Needs: the staffing-overlap lane, which edits the same
+   the lead-timer guard (removed in north#1650). Needs: the staffing-overlap lane, which edits the same
    launch files. Done when: `cargo test -p north-core fleet::` passes cases where `--role coordinator`
    records `Coordinator` and exports `NORTH_FLEET_ROLE=coordinator`, a task launch records `Worker`, a second live
    coordinator is refused without `--take-over`, and the ledger and lead timer read the field.
@@ -532,9 +528,8 @@ push access to South and the Firn timers are host configuration.
 11. **G2 the landing denial and the incident escape.** Shipped on the role guard, as G1 was, not in a
     new module. `crates/north-guard/src/guard/coordinator_role.rs` refuses from the first call
     `safe-push`, `git commit` and an edit tool's write under `~/code`, a lane worktree included, unless
-    the lane is one doc or config file; `north fleet break-glass` (section 7) is the escape in place of a
-    `north coordinator incident` verb, lifting the reach guard for at most 30 minutes while workers cannot start, or
-    while north's landing is stalled, and recording each grant with who and why; and the laptop's
+    the lane is one doc or config file; the escape `north fleet break-glass` (section 7, removed in north#1650) lifted the reach guard (removed in north#1650) in place of a
+    `north coordinator incident` verb; and the laptop's
     `north-cloud-reap` timer lands every cloud handback, so no launching session runs `north cloud land`.
     Done when: `cargo test -p north-guard coordinator_role` passes
     `the_coordinator_cannot_build_test_or_edit_a_repository` (an Edit, Write, MultiEdit and NotebookEdit
@@ -622,14 +617,14 @@ Rejected or changed:
 
 ## 7. Break glass
 
-The coordinator's reach guard exists so that an investigation goes to a worker. It cannot bind during an
+The coordinator's reach guard (removed in north#1650) existed so that an investigation goes to a worker. It could not bind during an
 incident, so `north fleet break-glass --issue REPO#N REASON...` lifts it for at most 30 minutes
 (`break_glass_minutes`), and only when the harness measures the incident itself: the last two launches
 failed, the launch probe exits non-zero, the laptop's capacity watchdog reports an active host-overload
 episode, or the coordinator host booted in the last 30 minutes. A coordinator that merely wants to investigate is refused. The grant
 is recorded with who, why and when, opens a box on the issue that tracks the cause, and is printed in
 Tom's next `north gate digest`, so the lift is never silent and never outlasts the incident.
-**Enforced by** `crates/north-guard/src/guard/break_glass.rs`.
+**Enforced by** the break-glass guard (removed in north#1650).
 
 ## 8. Closing confirmed reports by rule: dropped
 
@@ -656,7 +651,7 @@ whole or in part, each named for its guarantee and kept for the reason given her
   and `crates/north-guard/src/guard/coordinator_replay_tests.rs`, the budget and streak assertions of
   `crates/north-guard/src/guard/coordinator_role_tests.rs`, and the `pre-other` row of `provider_events_select_matching_guard_list`
   (G1). That row and the streak walk reproduced the bug `7a7f8722ec` fixed (a ListAgents call reset the streak, and WebFetch and
-  WebSearch reached no hook); the reach guard now bounds the coordinator's reads, and the H10 hold names the guards that remain.
+  WebSearch reached no hook); the H10 hold names the guards that remain.
 
 Every other test is already gone, so none is deleted here: the north#635 culls of 2026-11-06 took most of them and the
 north#1583 batches B1 to B7 of 2026-11-14 and 2026-11-15 took the rest, the last being the tune tick's step-limit test

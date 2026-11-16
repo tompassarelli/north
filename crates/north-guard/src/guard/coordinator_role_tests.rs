@@ -16,7 +16,6 @@ struct Fake {
     start: Option<(bool, bool)>,
     lane: Option<&'static [&'static str]>,
     content: Option<&'static str>,
-    glass: bool,
 }
 
 impl World for Fake {
@@ -43,9 +42,6 @@ impl World for Fake {
     }
     fn claude_start(&self) -> Option<ClaudeStart> {
         self.start.map(|(nested, print)| ClaudeStart { nested, print, conversation: None })
-    }
-    fn break_glass(&self) -> bool {
-        self.glass
     }
     fn status_verb(&self, words: &[&str]) -> bool {
         matches!(words, ["land", "status", ..] | ["glance", ..])
@@ -118,38 +114,6 @@ fn the_coordinator_cannot_build_test_or_edit_a_repository() {
 
 #[test]
 fn the_coordinator_has_no_diagnosis_budget_without_break_glass() {
-    let diagnosis = [
-        bash("ssh nexus 'cd ~/code/north/main && strace -f -e trace=openat north fleet launch --provider opencode x 2>&1 | tail'"),
-        bash("ssh nexus journalctl --user -u north-dispatch -n 50"),
-        bash("ssh gex45 uptime"),
-        bash("ssh -o BatchMode=yes cpx62b 'north fleet tree; ps aux'"),
-        bash("ssh nexus"),
-        bash("scp nexus:/tmp/launch.log /tmp/"),
-        bash("journalctl --user -u north-lander -n 40"),
-        bash("ps -eo pid,pcpu,args --sort=-pcpu | head"),
-        bash("date '+%I:%M %p'; ps aux | head"),
-        bash("top -bn1 | head -20"),
-        bash("strace -c true"),
-        bash("systemctl --user status north-dispatch"),
-        bash("cat /proc/123/cmdline"),
-        bash("rg -n deepseek ~/code/north/main/crates/north-providers"),
-        bash("rg -n deepseek"),
-        bash("sed -n 1,20p crates/north-guard/src/lib.rs"),
-        bash("cd /tmp && cat /home/tom/code/north/main/harness/defaults.toml"),
-        bash("git show HEAD~1"),
-        bash("git -C /home/tom/code/north/main log -p -3 origin/main"),
-        bash("bash -c 'grep -r opencode ~/code/north/main/src'"),
-        bash("echo $(cat ~/code/north/main/Cargo.toml)"),
-        tool("Read", json!({"file_path": "/home/tom/code/north/main/crates/north-guard/src/guard/coordinator_role.rs"})),
-        tool("Grep", json!({"pattern": "deepseek"})),
-        tool("Glob", json!({"pattern": "**/*.rs", "path": "/home/tom/code/north/main/crates"})),
-    ];
-    for input in &diagnosis {
-        let Verdict::Deny(reason) = decide(&coordinator(), input) else { panic!("the coordinator diagnosed outside break-glass: {:?}", input.tool_input) };
-        assert!(reason.contains("coordinator-reach-guard") && reason.contains("north work brief new") && reason.contains("`Item:`") && reason.contains("`Done when:`") && reason.contains("north fleet launch"), "{reason}");
-        assert_eq!(decide(&worker(), input), Verdict::Allow, "a worker may {:?}", input.tool_input);
-        assert_eq!(decide(&Fake { glass: true, ..coordinator() }, input), Verdict::Allow, "break-glass lifts {:?}", input.tool_input);
-    }
     let open = [
         bash("north fleet send n1106 'go'"),
         bash("north gate open --session x --question q --option a --option b --recommend 1 --ask-once cost --amount '$20 a month'"),

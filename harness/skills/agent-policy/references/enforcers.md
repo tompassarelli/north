@@ -42,7 +42,6 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | New structural debt in a repo with structure.toml is reported after the edit (advisory) | `north-hook` (code-health-edit) | Claude, Codex |
 | Unlanded lanes older than 24 h are surfaced at session start (advisory) | `north-hook` (unlanded-work) | Claude |
 | The coordinator never opens a blocking question box: AskUserQuestion from a coordinator-role session is denied with the gate-open path | `north-hook` (question-box) | Claude |
-| The coordinator's diagnosis calls outside break-glass are refused with the brief to write (`north config coordinator role` lists them) | `north-hook` (coordinator-reach-guard) | Claude, Codex |
 | Tom's window starts with his decision queue (open for-Tom gates and defaults applied since the last look) when it is non-empty (advisory) | `north-hook` (gate-digest, `north gate digest`) | Claude |
 | A gate without a default and deadline is refused unless it names the ask-once category of its recommended option (`--ask-once`) | `north gate open` (`GateRequest::validate`) | Claude, Codex |
 | Tom's last prompt asked a question, so the final reply's first line answers it: a yes or no, a number to a question that asks for one, or a name or fact from the question's words; absent that, the Stop hook refuses the reply, at most twice per turn | `north-hook` (unanswered-guard) | Claude |

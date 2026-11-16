@@ -1,6 +1,5 @@
 use crate::guard::host;
-use crate::guard::coordinator_reach;
-use north_fleet_store::runtime::{COORDINATOR, ROLE_ENV, SESSION_ENV};
+use north_base::platform::session_scope::{COORDINATOR_ROLE as COORDINATOR, ROLE_ENV, SESSION as SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use crate::hook_input::{HookInput, Verdict};
 use north_base::shell::{blank_quotes, strip_heredocs};
@@ -10,7 +9,6 @@ use north_shared_config::secrets_seal;
 use super::coordinator_lanes::{file_bytes, lane_changes};
 
 const UNIT: &str = "coordinator-role-guard";
-const REACH_UNIT: &str = "coordinator-reach-guard";
 const SUBAGENTS: [&str; 2] = ["Explore", "Plan"];
 const CARGO_BUILDS: [&str; 11] = ["build", "b", "test", "t", "clippy", "check", "c", "nextest", "run", "bench", "doc"];
 const SCRIPT_RUNNERS: [&str; 4] = ["bun", "npm", "pnpm", "yarn"];
@@ -47,7 +45,6 @@ pub trait World {
     fn claude_start(&self) -> Option<ClaudeStart>;
     fn lane_files(&self, cwd: &str) -> Option<Vec<String>>;
     fn lane_file_bytes(&self, cwd: &str, file: &str) -> Option<Vec<u8>>;
-    fn break_glass(&self) -> bool;
     fn status_verb(&self, words: &[&str]) -> bool;
 }
 
@@ -92,10 +89,6 @@ impl World for Live {
         file_bytes(cwd, file)
     }
 
-    fn break_glass(&self) -> bool {
-        crate::guard::break_glass::lifted_now()
-    }
-
     fn status_verb(&self, words: &[&str]) -> bool {
         host::status_verb(words)
     }
@@ -112,22 +105,7 @@ pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
     if let Some(action) = refusal(world, input) {
         return Verdict::Deny(message(&action));
     }
-    match reach(world, input) {
-        Some(what) if !world.break_glass() => Verdict::Deny(reach_message(&what)),
-        _ if world.break_glass() => Verdict::Allow,
-        _ => crate::guard::coordinator_background::evaluate(input, &|words: &[&str]| world.status_verb(words)),
-    }
-}
-
-fn reach(world: &impl World, input: &HookInput) -> Option<String> {
-    let home = world.var("HOME")?;
-    let status_verb = |words: &[&str]| world.status_verb(words);
-    let look = coordinator_reach::Look { home: &home, cwd: input.cwd().unwrap_or(&home), status_verb: &status_verb };
-    coordinator_reach::diagnosis(&look, input.tool_name(), &input.tool_input)
-}
-
-fn reach_message(what: &str) -> String {
-    format!("BLOCKED ({REACH_UNIT}): the coordinator diagnoses nothing outside break-glass (coordinator_role in harness/defaults.toml), so it does not {what}. Hand the cause to a worker: write the brief with `north work brief new --category debugging-unknown-cause --item REPO#N`, which prints the header lines a brief needs (`Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:`, `ETA:`, `Files:`), name in it what this call would have read, staff it with `north fleet launch --task REPO#N`, and judge the report. Launches, sends, gates, issue reads and edits, reports, the north status verbs, the coordinator's scratch and `git log --oneline origin/main` stay open; only `north fleet break-glass --reason TEXT` lifts this, while workers cannot launch (with `--issue REPO#N`) or north's landing is stalled (`north ledger flow --stall-alarm` reports it).")
+    crate::guard::coordinator_background::evaluate(input, &|words: &[&str]| world.status_verb(words))
 }
 
 pub fn is_coordinator(world: &impl World, input: &HookInput) -> bool {

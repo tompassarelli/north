@@ -1,4 +1,4 @@
-use north_fleet_store::claude_only::DEEPSEEK_PROVIDERS;
+const DEEPSEEK_PROVIDERS: [&str; 2] = ["opencode", "pi"];
 use crate::hook_input::{HookInput, Verdict};
 use north_base::shell::{blank_quotes, strip_heredocs};
 use regex::Regex;

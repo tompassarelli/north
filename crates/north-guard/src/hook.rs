@@ -1,26 +1,14 @@
 use serde_json::{Value, json};
 use std::io::{self, Read, Write};
-use crate::guard::container_shell;
 use crate::hook_input::{Evidence, HookInput, INPUT_LIMIT, Verdict};
-use north_fleet_store::runtime::Binding;
 
 pub type GuardFn = fn(&HookInput) -> Verdict;
 
 #[derive(Clone, Copy)]
-pub struct Guard(&'static str, GuardFn, Reach);
-
-/// What a guard protects, which decides whether it judges a shell command that runs in a task container (`north fleet launch --container-shell`).
-#[derive(Clone, Copy, PartialEq)]
-enum Reach {
-    /// This host's processes, files, desktop or build capacity, none of which a command in a task container touches.
-    Host,
-    /// What leaves the machine, credentials, or the session's own conduct, wherever its command runs.
-    Anywhere,
-}
-use Reach::{Anywhere, Host};
+pub struct Guard(&'static str, GuardFn);
 
 pub const fn guard(unit: &'static str, decide: GuardFn) -> Guard {
-    Guard(unit, decide, Anywhere)
+    Guard(unit, decide)
 }
 
 /// What selects a hook from the input a harness sends: an event, a tool a `PreToolUse` call names, or a word any `spawn_agent` tool ends with.
@@ -91,100 +79,96 @@ fn pre_bash(input: &HookInput) -> bool {
 }
 
 const PRE_BASH: &[Guard] = &[
-    Guard("", crate::guard::tripwire::check, Anywhere),
-    Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere),
-    Guard("corpus-scan-guard", crate::guard::corpus_scan::evaluate, Host),
-    Guard("resource-safe-search-guard", crate::guard::resource_safe_search::evaluate, Host),
-    Guard("modern-search-guard", crate::guard::modern_search::evaluate, Host),
-    Guard("north-hook", crate::guard::launch_critical::evaluate, Host),
-    Guard("north-hook", crate::guard::desktop_action::decide, Host),
-    Guard("north-hook", crate::guard::blind_stage::decide, Host),
-    Guard("north-hook", crate::guard::reviewer_cli::decide, Anywhere),
-    Guard("north-hook", crate::guard::git_stash::decide, Host),
-    Guard("north-hook", crate::guard::worktree_add::decide, Host),
-    Guard("north-hook", crate::guard::worktree_remove::evaluate, Host),
-    Guard("north-hook", crate::guard::masked_pipeline::decide, Anywhere),
-    Guard("north-hook", crate::guard::node_modules_write::decide, Host),
-    Guard("north-hook", crate::guard::native_evidence::evaluate, Host),
-    Guard("north-hook", crate::guard::issue_close::close, Anywhere),
-    Guard("north-hook", crate::guard::issue_shrink::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::sops_decrypt::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::public_text::evaluate, Anywhere),
-    Guard("poll-loop-guard", crate::guard::poll_loop::verdict, Anywhere),
-    Guard("poll-loop-guard", crate::guard::poll_loop_task_output::verdict, Anywhere),
-    Guard("heavy-command-guard", crate::guard::heavy_command::judge, Host),
-    Guard("", crate::guard::scratch_log::evaluate, Host),
-    Guard("session-kill-guard", crate::guard::session_kill::evaluate, Host),
-    Guard("session-kill-guard", crate::guard::session_kill::evaluate_self_match, Anywhere),
-    Guard("clipboard-guard", crate::guard::clipboard::evaluate, Host),
-    Guard("worker-wait-guard", crate::guard::worker_wait::evaluate, Anywhere),
-    Guard("native-launch-guard", crate::guard::native_launch::evaluate, Host),
-    Guard("native-item-guard", crate::guard::native_item::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::generated_policy::evaluate, Host),
-    Guard("north-hook", crate::guard::model_identity::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::nix_activity::evaluate, Host),
+    Guard("", crate::guard::tripwire::check),
+    Guard("north-hook", crate::guard::coordinator_role::evaluate),
+    Guard("corpus-scan-guard", crate::guard::corpus_scan::evaluate),
+    Guard("resource-safe-search-guard", crate::guard::resource_safe_search::evaluate),
+    Guard("modern-search-guard", crate::guard::modern_search::evaluate),
+    Guard("north-hook", crate::guard::launch_critical::evaluate),
+    Guard("north-hook", crate::guard::desktop_action::decide),
+    Guard("north-hook", crate::guard::blind_stage::decide),
+    Guard("north-hook", crate::guard::reviewer_cli::decide),
+    Guard("north-hook", crate::guard::git_stash::decide),
+    Guard("north-hook", crate::guard::worktree_add::decide),
+    Guard("north-hook", crate::guard::worktree_remove::evaluate),
+    Guard("north-hook", crate::guard::masked_pipeline::decide),
+    Guard("north-hook", crate::guard::node_modules_write::decide),
+    Guard("north-hook", crate::guard::native_evidence::evaluate),
+    Guard("north-hook", crate::guard::issue_close::close),
+    Guard("north-hook", crate::guard::issue_shrink::evaluate),
+    Guard("north-hook", crate::guard::sops_decrypt::evaluate),
+    Guard("north-hook", crate::guard::public_text::evaluate),
+    Guard("poll-loop-guard", crate::guard::poll_loop::verdict),
+    Guard("poll-loop-guard", crate::guard::poll_loop_task_output::verdict),
+    Guard("heavy-command-guard", crate::guard::heavy_command::judge),
+    Guard("", crate::guard::scratch_log::evaluate),
+    Guard("session-kill-guard", crate::guard::session_kill::evaluate),
+    Guard("session-kill-guard", crate::guard::session_kill::evaluate_self_match),
+    Guard("clipboard-guard", crate::guard::clipboard::evaluate),
+    Guard("worker-wait-guard", crate::guard::worker_wait::evaluate),
+    Guard("native-launch-guard", crate::guard::native_launch::evaluate),
+    Guard("native-item-guard", crate::guard::native_item::evaluate),
+    Guard("north-hook", crate::guard::generated_policy::evaluate),
+    Guard("north-hook", crate::guard::model_identity::evaluate),
+    Guard("north-hook", crate::guard::nix_activity::evaluate),
 ];
 
-const SAFETY: &[Guard] = &[Guard("", crate::guard::tripwire::check, Anywhere), Guard("north-hook", crate::guard::sops_decrypt::evaluate, Anywhere)];
+const SAFETY: &[Guard] = &[Guard("", crate::guard::tripwire::check), Guard("north-hook", crate::guard::sops_decrypt::evaluate)];
 
 const PRE_EDIT: &[Guard] = &[
-    Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::launch_critical::evaluate, Host),
-    Guard("north-hook", crate::guard::handoff_record::decide, Anywhere),
-    Guard("north-hook", crate::guard::generated_policy::evaluate, Host),
-    Guard("north-hook", crate::guard::model_identity::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::file_skill::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::node_modules_write::decide, Host),
-    Guard("north-hook", crate::guard::file_tool_reach::decide, Host),
-    Guard("north-hook", crate::guard::nix_activity::evaluate, Host),
+    Guard("north-hook", crate::guard::coordinator_role::evaluate),
+    Guard("north-hook", crate::guard::launch_critical::evaluate),
+    Guard("north-hook", crate::guard::handoff_record::decide),
+    Guard("north-hook", crate::guard::generated_policy::evaluate),
+    Guard("north-hook", crate::guard::model_identity::evaluate),
+    Guard("north-hook", crate::guard::file_skill::evaluate),
+    Guard("north-hook", crate::guard::node_modules_write::decide),
+    Guard("north-hook", crate::guard::file_tool_reach::decide),
+    Guard("north-hook", crate::guard::nix_activity::evaluate),
 ];
 
 const PRE_READ: &[Guard] = &[
-    Guard("", crate::guard::file_read_reach::decide, Host),
-    Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere),
+    Guard("", crate::guard::file_read_reach::decide),
+    Guard("north-hook", crate::guard::coordinator_role::evaluate),
 ];
 
 const PRE_AGENT: &[Guard] = &[
-    Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere),
-    Guard("", crate::guard::agent_cwd::evaluate, Anywhere),
+    Guard("north-hook", crate::guard::coordinator_role::evaluate),
+    Guard("", crate::guard::agent_cwd::evaluate),
 ];
 
-const PRE_TIMER: &[Guard] = &[Guard("north-hook", crate::guard::lead_timer::evaluate, Anywhere)];
 
-const PRE_MESSAGE: &[Guard] = &[Guard("", crate::guard::subagent_message::evaluate, Anywhere)];
 
-const PRE_ASK: &[Guard] = &[Guard("north-hook", crate::guard::question_box::evaluate, Anywhere)];
+const PRE_ASK: &[Guard] = &[Guard("north-hook", crate::guard::question_box::evaluate)];
 
-const NATIVE_SPAWN: &[Guard] = &[Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere)];
+const NATIVE_SPAWN: &[Guard] = &[Guard("north-hook", crate::guard::coordinator_role::evaluate)];
 
 const POST_TOOL: &[Guard] = &[
-    Guard("", crate::guard::accepted_finish::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::code_health_edit::evaluate, Anywhere),
+    Guard("", crate::guard::accepted_finish::evaluate),
+    Guard("north-hook", crate::guard::code_health_edit::evaluate),
 ];
 
-const PERMISSION_REQUEST: &[Guard] = &[Guard("", crate::guard::tripwire::check, Anywhere)];
+const PERMISSION_REQUEST: &[Guard] = &[Guard("", crate::guard::tripwire::check)];
 
 const STOP: &[Guard] = &[
-    Guard("north-hook", crate::guard::permission_offer::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::permission_offer::evaluate_handoff, Anywhere),
-    Guard("north-hook", crate::guard::recommend_acts::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::unanswered::evaluate, Anywhere),
+    Guard("north-hook", crate::guard::permission_offer::evaluate),
+    Guard("north-hook", crate::guard::permission_offer::evaluate_handoff),
+    Guard("north-hook", crate::guard::recommend_acts::evaluate),
+    Guard("north-hook", crate::guard::unanswered::evaluate),
 ];
 
-const RECOMMEND_ACTS: &[Guard] = &[Guard("north-hook", crate::guard::recommend_acts::evaluate, Anywhere)];
+const RECOMMEND_ACTS: &[Guard] = &[Guard("north-hook", crate::guard::recommend_acts::evaluate)];
 
-const SUBAGENT_STOP: &[Guard] = &[Guard("north-hook", crate::guard::subagent_teardown::evaluate, Anywhere)];
+const SUBAGENT_STOP: &[Guard] = &[Guard("north-hook", crate::guard::subagent_teardown::evaluate)];
 
 const SESSION_START: &[Guard] = &[
-    Guard("north-hook", crate::guard::unlanded_work::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::compact_state::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::coordinator_adopt::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::gate_digest::evaluate, Anywhere),
+    Guard("north-hook", crate::guard::unlanded_work::evaluate),
+    Guard("north-hook", crate::guard::gate_digest::evaluate),
 ];
 
-const USER_PROMPT_SUBMIT: &[Guard] = &[Guard("", crate::guard::quiet_phrase::evaluate, Anywhere)];
+const USER_PROMPT_SUBMIT: &[Guard] = &[Guard("", crate::guard::quiet_phrase::evaluate)];
 
-const CODEX_CONDUCT: &[Guard] = &[Guard("", crate::guard::codex_conduct::evaluate, Anywhere)];
+const CODEX_CONDUCT: &[Guard] = &[Guard("", crate::guard::codex_conduct::evaluate)];
 
 /// Every hook verb `north hook` names, which is the whole dispatch: a row's `answers` selects it from a harness's input, and its guards judge in order.
 const HOOKS: &[Hook] = &[
@@ -193,8 +177,6 @@ const HOOKS: &[Hook] = &[
     Hook { name: "pre-edit", event: "PreToolUse", guards: PRE_EDIT, answers: Answer::Tool { event: "PreToolUse", tools: &["Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"] } },
     Hook { name: "pre-read", event: "PreToolUse", guards: PRE_READ, answers: Answer::Never },
     Hook { name: "pre-agent", event: "PreToolUse", guards: PRE_AGENT, answers: Answer::Tool { event: "PreToolUse", tools: &["Agent", "spawn_agent"] } },
-    Hook { name: "pre-timer", event: "PreToolUse", guards: PRE_TIMER, answers: Answer::Tool { event: "PreToolUse", tools: &["ScheduleWakeup", "CronCreate"] } },
-    Hook { name: "pre-message", event: "PreToolUse", guards: PRE_MESSAGE, answers: Answer::Tool { event: "PreToolUse", tools: &[crate::guard::subagent_message::MESSAGE_TOOL] } },
     Hook { name: "pre-ask", event: "PreToolUse", guards: PRE_ASK, answers: Answer::Tool { event: "PreToolUse", tools: &[crate::guard::question_box::QUESTION_TOOL] } },
     Hook { name: "", event: "PreToolUse", guards: NATIVE_SPAWN, answers: Answer::Suffix("spawn_agent") },
     Hook { name: "post-tool", event: "PostToolUse", guards: POST_TOOL, answers: Answer::Event("PostToolUse") },
@@ -216,46 +198,25 @@ fn permission_decision(behavior: &str, message: Option<String>) -> Value {
 }
 
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
-    judge(input, guards, event, || None, &mut Vec::new(), &mut Vec::new())
+    judge(input, guards, event, &mut Vec::new())
 }
 
-/// [`evaluate`] for the session this hook runs in: when its launch declared a container shell, each verdict that stands down is written to the hooks' records.
-fn evaluate_here(input: &HookInput, guards: &[Guard], event: &str, evidence: &mut Vec<Evidence>) -> Option<Value> {
-    let mut stood_down = Vec::new();
-    let output = judge(input, guards, event, container_shell::declared, &mut stood_down, evidence);
-    container_shell::record(input, &stood_down);
-    output
-}
-
-/// The hook output `guards` give `input`. For a file tool call of a session `in_container` that names the container directory its own directory is mounted at, a path under it is first moved to the same place under the session's own directory. For a shell command of a session `in_container`, a [`Host`] guard's refusal or advice and any guard's rewrite do not apply, since the command touches nothing on this host and a rewrite names a tool only this host has; what each would have said goes to `stood_down`.
-fn judge(input: &HookInput, guards: &[Guard], event: &str, in_container: impl FnOnce() -> Option<container_shell::ContainerSession>, stood_down: &mut Vec<String>, evidence: &mut Vec<Evidence>) -> Option<Value> {
-    let in_container = std::cell::LazyCell::new(in_container);
+/// The hook output `guards` give `input`.
+fn judge(input: &HookInput, guards: &[Guard], event: &str, evidence: &mut Vec<Evidence>) -> Option<Value> {
     let mut judged = Judged::default();
-    judged.take(container_shell::moved_file_call(event, input, &in_container), input, event);
     let mut output = None;
     for guard in guards {
         if !guard.0.is_empty() && crate::guard::activation::authoring_guards_off(guard.0) {
             continue;
         }
         let verdict = (guard.1)(judged.rewritten.as_ref().unwrap_or(input));
-        if let Some(said) = host_bound(*guard, &verdict).filter(|_| input.is_shell() && in_container.is_some()) {
-            stood_down.push(said.to_owned());
-        } else if let Some(ended) = judged.take(verdict, input, event) {
+        if let Some(ended) = judged.take(verdict, input, event) {
             output = Some(ended);
             break;
         }
     }
     evidence.append(&mut judged.evidence);
     output.or_else(|| judged.output(event))
-}
-
-/// What `verdict` says when it holds only for a command on this host: any rewrite, and a [`Host`] guard's refusal or advice.
-fn host_bound(guard: Guard, verdict: &Verdict) -> Option<&str> {
-    match verdict {
-        Verdict::Rewrite(_, said) => Some(said.as_str()),
-        Verdict::Deny(said) | Verdict::Advise(said) if guard.2 == Host => Some(said.as_str()),
-        _ => None,
-    }
 }
 
 /// The verdicts taken so far for one hook input.
@@ -339,7 +300,7 @@ pub fn command_refusal(command: &str, cwd: &std::path::Path) -> (Option<String>,
     };
     let pre_bash = Hook::named("pre-bash").expect("the dispatch table names the pre-bash hook");
     let mut evidence = Vec::new();
-    let refusal = evaluate_here(&input, pre_bash.guards(), pre_bash.event(), &mut evidence).and_then(|output| {
+    let refusal = judge(&input, pre_bash.guards(), pre_bash.event(), &mut evidence).and_then(|output| {
         let decision = &output["hookSpecificOutput"];
         (decision["permissionDecision"].as_str() == Some("deny")).then(|| decision["permissionDecisionReason"].as_str().unwrap_or("north hook refused this command").to_owned())
     });
@@ -366,9 +327,9 @@ pub(crate) fn process(
         (event, _) => (guards, event),
     };
     let event = if event == "*" { provider(&input).unwrap_or("") } else { event };
-    let guards = spare_guards(guards, event, north_fleet_store::runtime::binding(), || first_prompt(&input));
+    let guards = spare_guards(guards, event, north_warm_spares::names::binding(), || first_prompt(&input));
     let mut evidence = Vec::new();
-    if let Some(output) = evaluate_here(&input, &guards, event, &mut evidence) {
+    if let Some(output) = judge(&input, &guards, event, &mut evidence) {
         writer.write_all(output.to_string().as_bytes())?;
         writer.write_all(b"\n")?;
     }
@@ -381,11 +342,11 @@ fn notice_invalid_input(bytes: &[u8], event: &str) {
     }
 }
 
-/// The guards `event` runs in a session standing at `binding` (north_fleet_store::runtime::binding): none at the start of a spare no launch has taken, whose context would be the spare's, and at a taken spare's `first` prompt the session-start guards before the prompt's own, so the context its start owes is produced for the session it was bound to.
-fn spare_guards(guards: &[Guard], event: &str, binding: Binding, first: impl FnOnce() -> bool) -> Vec<Guard> {
+/// The guards `event` runs in a session standing at `binding` (north_warm_spares::names::binding): none at the start of a spare no launch has taken, whose context would be the spare's, and at a taken spare's `first` prompt the session-start guards before the prompt's own, so the context its start owes is produced for the session it was bound to.
+fn spare_guards(guards: &[Guard], event: &str, binding: north_warm_spares::names::Binding, first: impl FnOnce() -> bool) -> Vec<Guard> {
     match (event, binding) {
-        ("SessionStart", Binding::Awaited) => Vec::new(),
-        ("UserPromptSubmit", Binding::Written) if first() => [guards_of("session-start"), guards].concat(),
+        ("SessionStart", north_warm_spares::names::Binding::Awaited) => Vec::new(),
+        ("UserPromptSubmit", north_warm_spares::names::Binding::Written) if first() => [guards_of("session-start"), guards].concat(),
         _ => guards.to_vec(),
     }
 }
@@ -397,7 +358,7 @@ fn first_prompt(input: &HookInput) -> bool {
     std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
-const USAGE: &str = "Usage: north hook [dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|subagent-stop|user-prompt-submit|language-guard|firn-system-policy|permission-request|codex-conduct]";
+const USAGE: &str = "Usage: north hook [dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|subagent-stop|user-prompt-submit|language-guard|firn-system-policy|permission-request|codex-conduct]";
 
 pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Result<Vec<Evidence>, String> {
     let hook = match arguments {

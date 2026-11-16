@@ -114,11 +114,6 @@ guard = "the_coordinator_has_no_diagnosis_budget_without_break_glass"
 state = "live"
 incidents = "north#1106"
 
-[[hold.also]]
-guard_kind = "test"
-guard = "break_glass_opens_on_incident"
-state = "live"
-
 [[hold]]
 id = "H11"
 what = "The laptop stays usable while its owner works"

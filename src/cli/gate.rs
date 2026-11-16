@@ -11,7 +11,6 @@ use crate::fleet::sender::Sender;
 use crate::dispatch::{IssueRef, OWNER, product_boxes};
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use crate::platform::attribution::{self, Cause};
-use north_guard::guard::break_glass;
 use super::gate_list::{list, list_aside};
 
 const USAGE: &str = "Usage: north gate open [--session NAME (default $NORTH_FLEET_SESSION)] --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d) | --ask-once CATEGORY [--amount TEXT]] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate withdraw ID --reason TEXT | north gate list [--json] | north gate list --aside [--json] | north gate digest [--peek]";
@@ -179,7 +178,6 @@ fn digest(fleet: &Fleet, mark: bool) -> NorthResult<()> {
     let since = seen.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| text.trim().parse().ok()).unwrap_or_else(|| now_ms().saturating_sub(FIRST_LOOK_MS));
     let now = now_ms();
     print!("{}", decision_queue::digest(&fleet.digest(since)?.gates, &fleet.gates_elsewhere()?, since, now));
-    print!("{}", break_glass::digest_section(&break_glass::recorded(), since, now));
     if let Some(path) = seen.filter(|_| mark) {
         let _ = path.parent().map(std::fs::create_dir_all);
         std::fs::write(&path, now.to_string()).map_err(|why| NorthError::State(format!("cannot record the digest look in {}: {why}", path.display())))?;

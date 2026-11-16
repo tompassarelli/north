@@ -35,10 +35,6 @@ impl World for Role {
         None
     }
 
-    fn break_glass(&self) -> bool {
-        false
-    }
-
     fn status_verb(&self, words: &[&str]) -> bool {
         matches!(words, ["land", "status", ..] | ["glance", ..])
     }
