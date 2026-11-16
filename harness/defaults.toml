@@ -2064,3 +2064,11 @@ unit = "copies the outside broker refreshes with rsync for a lead session or the
 source = "north#1485 (2026-11-14): a confined lead could not refresh cpx62's eval-a copy from south main once its ssh was hidden; the entry copies what evals/a/host-place in south copies there"
 fallback = "an empty or missing list refreshes no copy"
 consumers = ["crates/north-runtime/src/worker_sandbox/host_op_request.rs"]
+
+[graph_ingest_pause_secs]
+value = 600
+allowed = { min = 0, max = 86400 }
+unit = "seconds after one graph ingest started by a landing's follow ends before the next one begins; heads that land meanwhile are covered by the next one"
+source = "guess: a full ingest took 177 s at the median and 573 s at the 90th percentile on the lander's host on 2026-11-16, and at 28 landings an hour the ingest ran 72% of wall time and starved the status verbs there (north#1632); the share of wall time the follow spans show an ingest running over a day with 20 or more landings settles it"
+fallback = "none: the follow panics without it, since a guessed pause could leave the ingest running without pause"
+consumers = ["crates/north-landing/src/land/after/follow.rs"]

@@ -91,13 +91,14 @@ pub fn run(arguments: &[String]) -> u8 {
         timed("after-landing gates", Category::Ci, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head)]),
         timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), os(repo)]),
     ];
-    match ingest_gate::take(Path::new(git_dir), head) {
-        (Turn::Ingest { heads }, _held) => {
+    match ingest_gate::take(Path::new(git_dir), head, Duration::from_secs(north_base::platform::harness::default_number("graph_ingest_pause_secs") as u64)) {
+        (Turn::Ingest { heads }, held) => {
             spans.push(timed("graph ingest", Category::Follow, &[os("graph"), os("ingest")]));
             let commits: Vec<String> = heads.iter().map(|head| format!("crates@{head}")).collect();
             let mut arguments = vec![os("graph"), os("ingest")];
             arguments.extend(commits.iter().map(|commit| os(commit)));
             spans.push(timed("graph ingest crates", Category::Follow, &arguments));
+            held.into_iter().for_each(ingest_gate::Held::ended);
         }
         (Turn::Covered { by }, _) => println!("north land follow: graph ingest: {head} is covered by the ingest of {by}, which waits and reads main as it stands when it starts, and tells the crate facts of {head}"),
     }
