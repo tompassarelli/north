@@ -3,8 +3,6 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-use north_landing::land::scans::boxes;
-
 use super::cloud_handback;
 use crate::dispatch::CloudLaunch;
 use crate::fleet::runtime::SESSION_ENV;
@@ -55,6 +53,35 @@ pub(super) fn lane_name(session: &str) -> String {
     format!("cloud-{safe}")
 }
 
+fn is_trailer(line: &str) -> bool {
+    line.starts_with("Item:") || line.starts_with("Box:")
+}
+
+fn gather_trailers<'a>(messages: &[&'a str]) -> (Vec<String>, Vec<&'a str>) {
+    let mut trailers: Vec<&str> = Vec::new();
+    let mut item: Option<&str> = None;
+    let mut seen: Vec<(Option<&str>, &str)> = Vec::new();
+    let bodies = messages
+        .iter()
+        .map(|message| {
+            for line in message.lines().filter(|line| is_trailer(line)) {
+                let line = line.trim_end();
+                if line.starts_with("Item:") {
+                    if item != Some(line) {
+                        item = Some(line);
+                        trailers.push(line);
+                    }
+                } else if !seen.contains(&(item, line)) {
+                    seen.push((item, line));
+                    trailers.push(line);
+                }
+            }
+            message.lines().filter(|line| !is_trailer(line)).collect::<Vec<_>>().join("\n").trim().to_owned()
+        })
+        .collect();
+    (bodies, trailers)
+}
+
 pub(super) fn folded_message(log: &str) -> String {
     let kept = log
         .split('\0')
@@ -66,7 +93,7 @@ pub(super) fn folded_message(log: &str) -> String {
                 .join("\n")
         })
         .collect::<Vec<_>>();
-    let (bodies, trailers) = boxes::gather_trailers(&kept.iter().map(String::as_str).collect::<Vec<_>>());
+    let (bodies, trailers) = gather_trailers(&kept.iter().map(String::as_str).collect::<Vec<_>>());
     let mut paragraphs = bodies.into_iter().filter(|message| !message.is_empty()).collect::<Vec<_>>();
     if !trailers.is_empty() {
         paragraphs.push(trailers.join("\n"));
@@ -141,9 +168,6 @@ pub(super) fn land(events: &[Value], transcript: &Path, repo: &Path, state: &Pat
         .and_then(|_| run(&lane, "git", &["commit", "-q", "-F", &message_path.to_string_lossy()]));
     if let Err(error) = folded {
         return stop(format!("cannot fold the handback into one commit: {error}"), Some(&lane));
-    }
-    if let Err(error) = run(&lane, "north", &["land", "scan", "boxes", &range]) {
-        return stop(format!("the box scan refused a Box: trailer: {error}"), Some(&lane));
     }
     if let Err(error) = run(&lane, "north", &["land", "checks", "--base", &base, "--head", "HEAD", "--dry", "1"]) {
         return stop(format!("the lane's land checks failed: {error}"), Some(&lane));

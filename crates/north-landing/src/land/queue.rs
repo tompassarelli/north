@@ -108,8 +108,6 @@ pub struct HandIn {
     pub wakes_session: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub judge: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub check: Option<String>,
 }
 
 impl Ticket {

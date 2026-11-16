@@ -119,11 +119,10 @@ impl Landed<'_> {
     }
 }
 
-/// What the lander's host keeps of a landing's follow: the box ticks and issue-body drain, and the release follow-ups, each a GitHub call.
+/// What the lander's host keeps of a landing's follow: the release follow-ups, a GitHub call.
 fn records(landed: &Landed) -> Vec<Span> {
     let os = OsStr::new;
     vec![
-        landed.timed("after-landing records", Category::Ci, &[os("after-landing"), os("--only"), os("records"), os("--git-dir"), landed.git_dir.as_os_str(), os("--base"), os(landed.base), os("--head"), os(landed.head)]),
         landed.timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), landed.repo.as_os_str()]),
     ]
 }

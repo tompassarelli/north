@@ -3,13 +3,12 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::issue_body::Ledger;
 use north_base::platform::rolling_issue::{self, Tracker};
 
-const USAGE: &str = "usage: north after-landing [--only records|gates] --git-dir DIR --base BASE --head HEAD
+const USAGE: &str = "usage: north after-landing [--only gates] --git-dir DIR --base BASE --head HEAD
 
-Run each landed box's Done-when command, tick the landed boxes and drain the issue-body outbox (the records), then run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
-in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then file a child issue under the repository's open After-landing gate debt issue for each gate that failed on HEAD; a gate whose child is open already is not filed again. `--only records` or `--only gates` runs one part: the lander's follow keeps the records on the lander's host and runs the gates where `post_landing_host` places them.";
+Run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
+in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then file a child issue under the repository's open After-landing gate debt issue for each gate that failed on HEAD; a gate whose child is open already is not filed again. `--only gates`, which the lander's follow passes where `post_landing_host` places the run, names that same whole run.";
 
 const ADVISORY_FROM: &str = "north-after-landing-advisory-base";
 const TAIL_LINES: usize = 15;
@@ -61,7 +60,6 @@ struct Args {
     git_dir: PathBuf,
     base: String,
     head: String,
-    only: Option<String>,
 }
 
 fn parse(arguments: &[String]) -> Option<Args> {
@@ -74,13 +72,13 @@ fn parse(arguments: &[String]) -> Option<Args> {
     let [Some(git_dir), Some(base), Some(head), _, only] = found else {
         return None;
     };
-    if only.is_some_and(|only| only != "records" && only != "gates") {
+    if only.is_some_and(|only| only != "gates") {
         return None;
     }
-    Some(Args { git_dir: git_dir.into(), base: base.clone(), head: head.clone(), only: only.cloned() })
+    Some(Args { git_dir: git_dir.into(), base: base.clone(), head: head.clone() })
 }
 
-pub fn run(arguments: &[String], ledger: &dyn Ledger) -> u8 {
+pub fn run(arguments: &[String]) -> u8 {
     if let [flag] = arguments
         && (flag == "-h" || flag == "--help")
     {
@@ -91,14 +89,6 @@ pub fn run(arguments: &[String], ledger: &dyn Ledger) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
-    if args.only.as_deref() != Some("gates") {
-        for line in check_boxes(&args).into_iter().chain(tick_boxes(&args, ledger)) {
-            println!("after-landing: {line}");
-        }
-    }
-    if args.only.as_deref() == Some("records") {
-        return 0;
-    }
     match gate_and_file(&args) {
         Ok(line) => {
             println!("after-landing: {line}");
@@ -108,65 +98,6 @@ pub fn run(arguments: &[String], ledger: &dyn Ledger) -> u8 {
             eprintln!("after-landing: {error}");
             1
         }
-    }
-}
-
-/// Runs each landed `Box:` trailer's own Done-when command through `north task check --done-when`,
-/// which ticks a passing box with its Evidence stamp before the landing tick, which leaves such a box to it.
-fn check_boxes(args: &Args) -> Vec<String> {
-    let (main, north) = match (main_checkout(&args.git_dir), std::env::current_exe()) {
-        (Ok(main), Ok(north)) => (main, north),
-        (Err(error), _) => return vec![format!("no Done-when command run: {error}")],
-        (_, Err(error)) => return vec![format!("no Done-when command run: cannot find the north binary: {error}")],
-    };
-    let landed = match crate::land::after::tick::landed(&main, &args.base, &args.head) {
-        Ok(landed) => landed,
-        Err(error) => return vec![format!("no Done-when command run: {error}")],
-    };
-    landed
-        .iter()
-        .map(|landed| {
-            let issue = landed.issue.to_string();
-            match Command::new(&north).args(["task", "check", "--done-when", "--box", &landed.box_text, &issue]).current_dir(&main).output() {
-                Ok(output) => format!("Done-when check of {issue} box {:?}: {}{}", landed.box_text, String::from_utf8_lossy(&output.stdout).trim(), String::from_utf8_lossy(&output.stderr).trim()),
-                Err(error) => format!("Done-when check of {issue} box {:?}: cannot run {}: {error}", landed.box_text, north.display()),
-            }
-        })
-        .collect()
-}
-
-fn tick_boxes(args: &Args, ledger: &dyn Ledger) -> Vec<String> {
-    let main = match main_checkout(&args.git_dir) {
-        Ok(main) => main,
-        Err(error) => return vec![format!("no box ticked: {error}")],
-    };
-    let origin = match git(&main, &["remote", "get-url", "--push", "origin"]) {
-        Ok(origin) => origin.trim().to_owned(),
-        Err(error) => return vec![format!("no box ticked: {error}")],
-    };
-    let queue = crate::land::queue::directory(&crate::land::lander::state_home(), &origin);
-    let mut lines = crate::land::after::tick::queue(&queue, &main, &args.base, &args.head);
-    lines.extend(crate::land::after::tick::revert_queue(&queue, &main, &args.base, &args.head));
-    lines.push(drained(&crate::issue_body::directory(&queue), ledger));
-    lines
-}
-
-fn drained(outbox: &Path, ledger: &dyn Ledger) -> String {
-    let github = crate::issue_body::Gh::new(crate::issue_body::CALL_LIMIT);
-    match crate::issue_body::drain(outbox, &github, ledger, crate::issue_body::DRAIN_LIMIT) {
-        Ok(drained) => format!(
-            "issue bodies: {} written, {} already, {} refused, {} closed, {} waiting{}; {} recorded for the ledger{}{}",
-            drained.written,
-            drained.already,
-            drained.refused,
-            drained.closed,
-            drained.waiting,
-            drained.failure.map_or_else(String::new, |why| format!(" ({why})")),
-            drained.recorded,
-            if drained.unrecorded.is_empty() { String::new() } else { format!(" ({})", drained.unrecorded.join("; ")) },
-            drained.leaves.iter().map(|leaf| format!("; {leaf}")).collect::<String>()
-        ),
-        Err(error) => format!("issue bodies: cannot drain {}: {error}", outbox.display()),
     }
 }
 

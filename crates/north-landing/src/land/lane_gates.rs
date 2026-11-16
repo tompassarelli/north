@@ -4,9 +4,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::after::gates::{self, Landed};
-use super::scans::{boxes, git, incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
+use super::scans::{git, incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
 use super::slots::select::Config;
-use crate::issue_body::{Gh, CALL_LIMIT};
 use north_diff_gates::advisory_gate;
 use north_diff_gates::dep_gate::{self, Registry};
 
@@ -39,7 +38,6 @@ const GATES: &[(&str, Gate)] = &[
     ("dependency age", dependency_age),
     ("dependency advisory", dependency_advisory),
     ("guard suite", guard_suite),
-    ("box trailers", box_trailers),
 ];
 
 impl Lane<'_> {
@@ -104,13 +102,6 @@ fn dependency_advisory(lane: &Lane, out: &mut Vec<u8>) -> bool {
 
 fn guard_suite(lane: &Lane, out: &mut Vec<u8>) -> bool {
     super::slots::guard_suites::refuse(lane.worktree, lane.base, lane.head, out)
-}
-
-fn box_trailers(lane: &Lane, out: &mut Vec<u8>) -> bool {
-    if !git::text(lane.worktree, &["log", "--format=%B", &lane.range()]).is_some_and(|messages| messages.lines().any(|line| line.starts_with("Box:"))) {
-        return false;
-    }
-    boxes::scan(lane.worktree, lane.base, lane.head, &Gh::new(CALL_LIMIT), out) != 0
 }
 
 pub fn failed(lane: &Lane) -> Option<(Vec<&'static str>, Vec<u8>)> {
