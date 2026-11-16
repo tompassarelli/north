@@ -17,6 +17,7 @@ pub const PROBE: Duration = Duration::from_secs(30);
 const MIRROR_FRESH_S: f64 = 10.0 * 60.0;
 const WORKING: [&str; 2] = ["starting", "working"];
 const HOLDING: [&str; 3] = ["starting", "working", "idle"];
+const PARKED: &str = "parked";
 static SESSION_ITEMS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|makgora|w|wisp|north)-(\d+[a-z]?(?:-\d+[a-z]?)*)(?:-|$)").expect("session pattern"));
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,7 +61,12 @@ pub fn named_items(name: &str) -> Vec<IssueRef> {
 /// session's host is gone, but a launch beside it duplicates its work (north#1054).
 fn holds(session: &Value) -> bool {
     let status = session["status"].as_str().unwrap_or_default();
-    HOLDING.contains(&status) || status == "parked"
+    HOLDING.contains(&status) || parked(session)
+}
+
+/// Whether `session` is parked: its host is gone, so it holds no slot of any provider's cap (north#1054).
+pub fn parked(session: &Value) -> bool {
+    session["status"].as_str() == Some(PARKED)
 }
 
 /// The pace-control account a listed session spends, as pace-control names it.

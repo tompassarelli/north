@@ -114,9 +114,9 @@ fn with_retired(cfg: &DocumentMut, here: &str, laptop: Option<&str>, lists: &[(S
         .collect()
 }
 
-/// The provider's sessions that count against its slot cap: those running or resting, less the resting ones whose review job is queued, since that job forgets them, and those its limit stopped, which dispatch forgets.
+/// The provider's sessions that can call it now: those starting, working or idle, less the idle ones whose review job is queued, since that job forgets them. A parked session holds no host process and no slot (north#1054), so it counts for nothing, whether the Go limit or a wait parked it.
 pub fn counted(lists: &[(String, Value)], queued: &BTreeSet<String>) -> usize {
-    let parked: BTreeSet<&str> = lists.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter(|session| limit::parked(session)).filter_map(|session| session["name"].as_str()).collect();
+    let parked: BTreeSet<&str> = lists.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter(|session| limit::parked(session) || fleets::parked(session)).filter_map(|session| session["name"].as_str()).collect();
     lists
         .iter()
         .flat_map(|(_, listing)| fleets::running_sessions(listing))

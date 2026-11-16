@@ -159,14 +159,14 @@ fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_lan
 }
 
 #[test]
-fn a_resting_session_stops_counting_against_the_provider_cap_once_its_review_job_is_queued_and_one_the_go_limit_stopped_counts_not_at_all() {
+fn a_resting_session_stops_counting_against_the_provider_cap_once_its_review_job_is_queued_and_a_parked_one_counts_not_at_all() {
     let session = |name: &str, status: &str| json!({"name": name, "provider": "opencode", "status": status, "tasks": ["north#7"]});
     let limited = json!({"name": "limited", "provider": "opencode", "status": "idle", "tasks": ["north#7"], "waiting": ["usage:go@2026-11-14T03:00:00Z"]});
     let lists = vec![("cpx62".to_owned(), json!([session("busy", "working"), session("waiting", "idle"), session("queued", "idle"), session("queued-parked", "parked"), limited]))];
     let queued = BTreeSet::from(["queued".to_owned(), "queued-parked".to_owned()]);
 
-    assert_eq!(super::counted(&lists, &BTreeSet::new()), 4);
-    assert_eq!(super::counted(&lists, &queued), 2);
+    assert_eq!(super::counted(&lists, &BTreeSet::new()), 3, "busy, waiting and queued count; the parked and the Go-limited ones do not");
+    assert_eq!(super::counted(&lists, &queued), 2, "a queued review job forgets its idle session");
 }
 
 #[test]
