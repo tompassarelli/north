@@ -67,7 +67,7 @@ fn a_confined_command_cannot_connect_to_a_hidden_socket_of_each_kind() {
     let output = std::process::Command::new("unshare")
         .args(["--user", "--map-current-user", "--keep-caps", "--mount", "--"])
         .arg(std::env::current_exe().unwrap())
-        .args(["--exact", "worker_sandbox::tests::sockets::a_confined_command_cannot_connect_to_a_hidden_socket_of_each_kind", "--nocapture"])
+        .args(["--exact", "worker_sandbox::tests::sockets::a_confined_command_cannot_connect_to_a_hidden_socket_of_each_kind", "--nocapture", "--quiet"])
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap())
         .env("HOME", &home)
