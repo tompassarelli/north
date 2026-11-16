@@ -1,8 +1,5 @@
 use super::*;
-
-fn git_ok(root: &Path, args: &[&str]) -> String {
-    git(root, args).unwrap_or_else(|| panic!("git {args:?} failed"))
-}
+use north_foundation::test_inputs::git::git_in as git_ok;
 
 fn commit(root: &Path, path: &str, text: &str, message: &str) {
     std::fs::write(root.join(path), text).unwrap();

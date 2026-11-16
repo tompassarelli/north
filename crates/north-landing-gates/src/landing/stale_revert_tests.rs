@@ -1,11 +1,8 @@
 use super::*;
+use north_foundation::test_inputs::git::git_in as git_ok;
 
 const HOUR: i64 = 60 * 60;
 const START: i64 = 1_790_000_000;
-
-fn git_ok(root: &Path, args: &[&str]) -> String {
-    git(root, args).unwrap_or_else(|error| panic!("{error}")).trim().to_owned()
-}
 
 fn commit_staged(root: &Path, message: &str, at: i64) -> String {
     git_ok(root, &["add", "-A"]);
