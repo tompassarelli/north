@@ -22,8 +22,10 @@ const BATCH_SLICE: &str = "agent.slice/agent-batch.slice";
 const SEAT_SLICES: [&str; 2] = ["app.slice", "session.slice"];
 const GAME_SLICES: [&str; 2] = ["game.slice", "game-reserve.slice"];
 
-/// The seat stall, in avg10 basis points of CPU or disk pressure, past which Tom's seat counts as starved: placement takes no new session and agent.slice gets disk relief.
-pub const SEAT_STALL_LIMIT: f64 = 1000.0;
+/// How long a synced write of Tom's seat may take before the seat probe stops the fleet's laptop units and placement takes no new session there, from harness/defaults.toml's `seat_stall_trip_seconds`.
+pub fn seat_stall_trip() -> Duration {
+    Duration::from_secs_f64(super::defaults::default_mib("seat_stall_trip_seconds"))
+}
 
 pub struct Host {
     pub proc: PathBuf,
@@ -267,25 +269,15 @@ fn some_avg10_basis_points(path: &Path) -> Option<f64> {
     line.split_whitespace().find_map(|field| field.strip_prefix("avg10="))?.parse::<f64>().ok().map(|percent| percent * 100.0)
 }
 
-/// Tom's seat, read from its own slices only: a quota-throttled or disk-blocked agent raises the load average and agent.slice's own pressure but not these.
+/// Tom's seat's CPU pressure, read from its own slices only: a quota-throttled agent raises the load average and agent.slice's own pressure but not these.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatPressure {
     pub cpu: Option<f64>,
-    pub io: Option<f64>,
 }
 
 impl SeatPressure {
     pub fn read(cgroup: &Path) -> Self {
-        let worst = |file: &str| SEAT_SLICES.iter().filter_map(|slice| some_avg10_basis_points(&cgroup.join(slice).join(file))).reduce(f64::max);
-        Self { cpu: worst("cpu.pressure"), io: worst("io.pressure") }
-    }
-
-    pub fn stall(self) -> f64 {
-        self.cpu.unwrap_or(0.0).max(self.io.unwrap_or(0.0))
-    }
-
-    pub fn disk_starved(self) -> bool {
-        self.io.is_some_and(|io| io > SEAT_STALL_LIMIT)
+        Self { cpu: SEAT_SLICES.iter().filter_map(|slice| some_avg10_basis_points(&cgroup.join(slice).join("cpu.pressure"))).reduce(f64::max) }
     }
 }
 

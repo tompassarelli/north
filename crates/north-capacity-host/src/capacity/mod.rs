@@ -8,6 +8,7 @@ pub mod depbox_mode;
 pub mod gate;
 pub mod host;
 pub mod line;
+pub mod seat_stall;
 mod watchdog;
 pub use watchdog::USAGE as WATCHDOG_USAGE;
 mod gate_tests;

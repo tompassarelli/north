@@ -1,1 +1,3 @@
   capacity seat-idle-hint [--seconds N]         Set logind IdleHint from Wayland input idle, which ignores idle inhibitors
+  capacity seat-probe                            Time a synced write of the owner's filesystem every 2 s and stop the fleet's laptop units on a stall
+  capacity seat-stall --since DURATION|resume    List the seat's stalls over 1 s and what the breaker did, or start the units it stopped

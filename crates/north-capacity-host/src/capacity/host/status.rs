@@ -122,10 +122,10 @@ pub fn status(root: &Path, build_host: bool, host_gpu_slots: Option<u32>) -> Obj
     })
 }
 
-/// `QUEUED LOAD THREADS STALL` for placement: the tickets waiting in admission, the one-minute load average, the host's threads and the stall in avg10 basis points of Tom's seat, the worse of its CPU and disk pressure.
+/// `QUEUED LOAD THREADS STALL` for placement: the tickets waiting in admission, the one-minute load average, the host's threads and the longest synced write of Tom's seat in the last minute in milliseconds, from the seat probe's log.
 pub fn backlog(root: &Path) -> String {
     let load = std::fs::read_to_string("/proc/loadavg").ok().and_then(|text| text.split_whitespace().next().map(str::to_owned)).unwrap_or_else(|| "0".to_owned());
-    format!("{} {load} {} {}", read_queue(root).len(), read_signals().cores, crate::capacity::agent_load::SeatPressure::read(&super::machine::user_manager_cgroup()).stall())
+    format!("{} {load} {} {}", read_queue(root).len(), read_signals().cores, crate::capacity::seat_stall::recent_stall_ms())
 }
 
 fn heavy_settling_seconds(active: &[Value], now: f64) -> f64 {

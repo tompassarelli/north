@@ -100,16 +100,6 @@ pub fn tick_in(host: &Host, seat_idle: Option<bool>, power: Power, mut reserve: 
             Err(error) => eprintln!("north capacity mode: agent.slice CPUQuota {quota}%: {error}"),
         }
     }
-    let relieve_disk = seat.disk_starved();
-    if state.disk_relief != relieve_disk {
-        match game_reserve::set_agent_disk_relief(&reserve, relieve_disk) {
-            Ok(()) => {
-                lines.push(format!("capacity mode: agent.slice disk relief {} at seat disk pressure {:.1}%", if relieve_disk { "on" } else { "off" }, seat.io.unwrap_or(0.0) / 100.0));
-                state.disk_relief = relieve_disk;
-            }
-            Err(error) => eprintln!("north capacity mode: agent.slice disk relief: {error}"),
-        }
-    }
     if let Err(error) = write(dir, &state) {
         eprintln!("north capacity mode: {error}");
     }

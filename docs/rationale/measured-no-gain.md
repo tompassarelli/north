@@ -281,11 +281,9 @@ stays):
   memory, and the watchdog caps an offender's cores, read at
   `/home/tom/code/north/main/crates/north-capacity/src/capacity/admission/gaming.rs` and
   `/home/tom/code/north/main/crates/north-capacity-host/src/capacity/watchdog/detect.rs`.
-- `slice_weight_app_attended` (1000), `slice_weight_agent` (20), `slice_weight_session_unattended` (300),
-  `agent_slice_read_cap_mib` (200) and `agent_slice_write_cap_mib` (200): the slice weights and IO caps keep the compositor
-  and Tom's desktop ahead of agent bursts, read at
-  `/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/systemd.rs` and
-  `/home/tom/code/north/main/crates/north-capacity/src/capacity/game_reserve.rs`.
+- `slice_weight_app_attended` (1000), `slice_weight_agent` (20), `slice_weight_session_unattended` (300)
+  and `agent_slice_write_cap_mib` (200): the slice weights and the write cap keep the compositor and Tom's desktop ahead
+  of agent bursts, read at `/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/systemd.rs`.
 - `admit_psi_unattended_high` (40), `admit_psi_attended_low` (10), `admit_psi_game_low` (5), `admit_psi_game_high` (20) and
   `admit_memory_ramp_seconds` (60): the pressure bands refuse a heavy start before the seat feels it, read at
   `/home/tom/code/north/main/crates/north-capacity/src/capacity/pressure_target.rs` and

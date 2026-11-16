@@ -2015,15 +2015,6 @@ source = "north#1544, coordinator order 2026-11-15: the coordinator relayed ten 
 fallback = "a missing list sends no request and says so in the refusal"
 consumers = ["crates/north-landing/src/land/review_send.rs"]
 
-[agent_slice_read_cap_mib]
-value = 200
-allowed = { min = 20, max = 100000 }
-unit = "MiB per second of reads from the home filesystem that agent.slice keeps, as IOReadBandwidthMax, when the seat's disk relief ends; a bare reset would override the same cap agent.slice's unit config sets from boot"
-source = "guess: on 2026-11-14 at 11:02 PM control.slice read 646 MB/s and agent.slice 67 MB/s while app.slice sat at 79% full IO stall (north#1553)"
-settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose full IO pressure can be compared at this read cap against the same reads uncapped" }
-fallback = "none: relief ending restores this read cap"
-consumers = ["crates/north-capacity/src/capacity/game_reserve.rs"]
-
 [agent_slice_write_cap_mib]
 value = 200
 allowed = { min = 20, max = 100000 }
@@ -2072,3 +2063,19 @@ unit = "seconds after one graph ingest started by a landing's follow ends before
 source = "guess: a full ingest took 177 s at the median and 573 s at the 90th percentile on the lander's host on 2026-11-16, and at 28 landings an hour the ingest ran 72% of wall time and starved the status verbs there (north#1632); the share of wall time the follow spans show an ingest running over a day with 20 or more landings settles it"
 fallback = "none: the follow panics without it, since a guessed pause could leave the ingest running without pause"
 consumers = ["crates/north-landing/src/land/after/follow.rs"]
+
+[seat_stall_trip_seconds]
+value = 3
+allowed = { min = 1, max = 60 }
+unit = "seconds a synced write of the seat probe on the owner's filesystem may stay out before the breaker stops the fleet's laptop units, and the longest one in the last minute past which placement takes no new session on the laptop"
+source = "guess: on 2026-11-16 the owner's crash-watch loop, which syncs a line every 2 s, timed 83 stalls of 6 s or more in one hour and none of 4 s or more once the fleet's laptop units stopped (north#1553); the probe's stall log of a week settles it"
+fallback = "none: the probe and placement read it from the bundled defaults"
+consumers = ["crates/north-capacity/src/capacity/agent_load.rs"]
+
+[seat_stall_units]
+value = ["north-land@*", "north-land-rest.*", "north-land-adopt*", "north-runtime-follow.*", "fleet-tick.*", "agents-flow-stall.*", "pace-enforcement.*", "north-dispatch-mirror.*", "usage-sample.*", "north-watch.*", "laptop-auto.*", "laptop-runner.*", "firn-host-follow.*", "north-land-shadow.*", "harness-health.*", "north-github-mirror.*", "ssh-master-probe.*"]
+allowed = { min_len = 1 }
+unit = "systemd user unit patterns of the fleet's units on the laptop that the seat probe's breaker stops on a stall and `north capacity seat-stall resume` starts again: the landers, runtime follow, the fleet tick and the periodic fleet timers with their services; the credential broker, the ssh masters, the capacity watchdog and the sessions' own scopes stay out, and a slice holding a session is never frozen (decision of 2026-10-15)"
+source = "north#1553, coordinator's measurement of 2026-11-16: with these units stopped on the laptop, device writes fell from a mean of 1,287 a second to a median of 7 and no stall of 4 s or more followed"
+fallback = "an empty list keeps the probe from starting and says so"
+consumers = ["crates/north-capacity-host/src/capacity/seat_stall/mod.rs"]

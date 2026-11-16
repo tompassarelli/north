@@ -209,6 +209,8 @@ Commands:
   capacity admission < FACTS.json               Decide one machine-capacity admission
   capacity laptop-auto [--dry-run]              Stop agent game load while Tom's declared gaming hold is on, reap orphaned scopes
   capacity seat-idle-hint [--seconds N]         Set logind IdleHint from Wayland input idle, which ignores idle inhibitors
+  capacity seat-probe                            Time a synced write of the owner's filesystem every 2 s and stop the fleet's laptop units on a stall
+  capacity seat-stall --since DURATION|resume    List the seat's stalls over 1 s and what the breaker did, or start the units it stopped
   capacity mode status                          Show the laptop mode (away, desktop, play) and why
   capacity mode hold [--minutes N] [PHRASE]     Start or extend a playtest lease
   capacity mode release                         Release the playtest lease

@@ -4,7 +4,7 @@
 //! target (`pressure_target`). Placement skips a host with a backlog at launch so the pile does not deepen while another
 //! host idles, and alerts on a stalled fleet read the same signals through `Saturation::refusal`.
 use super::admission::{self, Class, default_mib as default};
-use super::agent_load::SEAT_STALL_LIMIT;
+use super::agent_load::seat_stall_trip;
 use north_base::platform::disk_line::Line;
 use north_base::platform::pushed_token::FRESH_SECONDS;
 
@@ -23,7 +23,7 @@ pub const QUEUED_LIMIT: u32 = 4;
 pub const PROBE: &str = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk / | tail -1; echo '#backlog'; \"$HOME/.local/state/north/current/tree/bin/north\" capacity host backlog 2>/dev/null; echo '#token'; t=\"$HOME/.local/state/north/gh-write-token\"; [ -f \"$t\" ] && echo $(($(date +%s) - $(stat -L -c %Y \"$t\"))); true";
 
 /// What waits on a host: jobs queued in admission, the one-minute load average against its threads, and the stall of
-/// Tom's seat (the worse of its CPU and disk pressure), which a host on an older runtime does not report.
+/// Tom's seat (its longest synced write in the last minute, in milliseconds, from the seat probe's log), which a host on an older runtime does not report.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Backlog {
     pub queued: u32,
@@ -44,7 +44,7 @@ impl Backlog {
     fn refusal(&self, host: &str) -> Option<String> {
         let queue = (self.queued >= QUEUED_LIMIT).then(|| format!("{} jobs queued in machine-capacity admission (limit {QUEUED_LIMIT})", self.queued));
         let load = match self.stall {
-            Some(stall) => (stall > SEAT_STALL_LIMIT).then(|| format!("its seat stalled {:.0}% of the time", stall / 100.0)),
+            Some(stall) => (stall >= seat_stall_trip().as_secs_f64() * 1000.0).then(|| format!("a synced write of its seat took {:.1} s within the last minute", stall / 1000.0)),
             None => (self.load > f64::from(self.threads)).then(|| format!("load {:.0} on {} threads", self.load, self.threads)),
         };
         let causes: Vec<String> = queue.into_iter().chain(load).collect();
