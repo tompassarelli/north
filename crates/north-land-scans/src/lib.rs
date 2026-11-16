@@ -4,7 +4,6 @@ mod added_dependencies;
 pub mod alarm_definitions;
 pub mod doc_links;
 mod doc_paths;
-pub mod docs_owners;
 pub mod ci_budget;
 pub mod dropped_commits;
 pub mod gate_shadow;
@@ -34,7 +33,6 @@ pub mod slug;
 pub mod shell_hook;
 pub mod strategy_purity;
 pub mod strategy_replay;
-mod stranded_boxes;
 pub mod stale_revert;
 pub mod test_admission;
 mod test_file;
@@ -49,7 +47,7 @@ pub mod withdrawal;
 
 use std::path::{Path, PathBuf};
 
-pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|incident-test|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan push-jobs BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD\n       north land scan private-file --range BASE..HEAD\n       north land scan boxes BASE..HEAD\n       north land scan docs-owners BASE..HEAD
+pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|incident-test|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan push-jobs BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD\n       north land scan private-file --range BASE..HEAD\n       north land scan boxes BASE..HEAD
        north land scan doc-links BASE..HEAD
        north land scan gate-shadow BASE..HEAD
        north land scan generated-registry BASE..HEAD
@@ -111,7 +109,6 @@ fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "run-time-data" => north_base::run_time_data::run(directory, range),
         "dep-gate" => dep_gate(directory, range),
         "doc-links" => doc_links::scan(directory, range, &mut out),
-        "docs-owners" => docs_owners::scan(directory, range, &north_github_mirror::store::Mirror::local(), &mut out),
         "generated-registry" => generated_registry::scan(directory, range, &mut out),
         "gate-shadow" => gate_shadow::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
         "holdlist-guards-resolve" => holdlist::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),

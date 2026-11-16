@@ -109,7 +109,7 @@ fn root_commit_scans_take_the_empty_tree_as_base() {
     let head = git_in(&repo, &["rev-parse", "HEAD"]);
 
     std::env::set_current_dir(&repo).unwrap();
-    for (scan, range) in [("dep-gate", format!("..{head}")), ("policy-sweep", head.clone()), ("docs-owners", head.clone()), ("doc-links", head)] {
+    for (scan, range) in [("dep-gate", format!("..{head}")), ("policy-sweep", head.clone()), ("doc-links", head)] {
         assert!(crate::gates::run::scan(&[scan, &range]).is_ok(), "{scan} refused the root commit's range {range}");
     }
 }
