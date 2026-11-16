@@ -96,8 +96,3 @@ export_file(
     name = "src/guard/fixtures/heavy_command.json",
     visibility = ["PUBLIC"],
 )
-
-export_file(
-    name = "src/guard/fixtures/proxy_load_trace_2026_11_11.json",
-    visibility = ["PUBLIC"],
-)
