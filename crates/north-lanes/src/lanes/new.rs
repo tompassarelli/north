@@ -93,6 +93,7 @@ pub fn create(lane: &Path, issue: &str, from: Option<&str>) -> Result<String, St
     let worktrees = lane.parent().filter(|parent| parent.file_name().is_some_and(|name| name == "worktrees")).ok_or("a lane lives directly under a project's worktrees/")?;
     let main = worktrees.parent().map(|container| container.join("main")).filter(|main| main.join(".git").exists()).ok_or("no main/.git beside worktrees/")?;
     let slug = lane.file_name().and_then(|name| name.to_str()).filter(|name| !name.starts_with('.') && !is_lander_tree(Path::new(name))).ok_or("the lane needs a plain directory name")?;
+    north_trusted_mirror::lane_name_ok(slug)?;
     if lane.exists() {
         return Err(format!("{} exists", lane.display()));
     }
@@ -121,3 +122,7 @@ fn marked(request: &Request, item: String) -> Result<String, String> {
     super::draft_mark::write(&request.lane, &super::draft_mark::Mark { name: name.clone(), item: item.clone(), base, check: check.clone(), ..Default::default() })?;
     Ok(item)
 }
+
+#[cfg(test)]
+#[path = "new_tests.rs"]
+mod tests;
