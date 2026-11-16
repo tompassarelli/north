@@ -171,7 +171,7 @@ impl Tool {
                 super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
             }
             Self::Direct(name) => ExitCode::from(runner(DIRECT, name).map_or(2, |run| run(arguments))),
-            Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
+            Self::Dispatch => ExitCode::from(super::fleet::dispatch(arguments)),
             Self::Fleet(name) => {
                 let run = runner(FLEET, name);
                 super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })

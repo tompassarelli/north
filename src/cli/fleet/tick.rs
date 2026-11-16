@@ -37,21 +37,18 @@ fn always_pulled(fleet: &Fleet) -> Vec<FarHost> {
 fn dispatch_pass(fleet: &Fleet) -> dispatch_tick::Pass {
     let cfg = config().ok();
     let paused = crate::dispatch::review_pause();
-    dispatch_tick::pass(fleet.host(), cfg.as_ref(), paused.as_deref(), &crate::dispatch::launch_directory(), now_ms() as f64 / 1000.0, || crate::pacing::placement::resident_clis(fleet.host(), ""), || crate::dispatch::run(&[], super::router::roster))
+    let now = now_ms() as f64 / 1000.0;
+    dispatch_tick::pass(fleet.host(), cfg.as_ref(), paused.as_deref(), &crate::dispatch::launch_directory(), now, || crate::pacing::placement::resident_clis(fleet.host(), ""), || dispatch_tick::begin(now))
 }
 
-fn dispatch_beside(fleet: &Fleet, began: Instant) -> (Result<dispatch_tick::Pass, String>, Option<Duration>) {
-    let fleet = fleet.clone();
-    match dispatch_tick::within(Budgets::TICK.worst().saturating_sub(began.elapsed()), move || metered(|| dispatch_pass(&fleet))) {
-        Ok((dispatched, cpu)) => (Ok(dispatched), Some(cpu)),
-        Err(deferred) => (Err(deferred), None),
-    }
+fn dispatch_beside(fleet: &Fleet) -> (dispatch_tick::Pass, Option<Duration>) {
+    let (dispatched, cpu) = metered(|| dispatch_pass(fleet));
+    (dispatched, Some(cpu))
 }
 
-fn dispatch_line(dispatched: &Result<dispatch_tick::Pass, String>) -> Option<String> {
+fn dispatch_line(dispatched: &dispatch_tick::Pass) -> Option<String> {
     match dispatched {
-        Ok(dispatch_tick::Pass::Ran(code)) if *code != 0 => Some(format!("dispatch exited {code}")),
-        Err(deferred) => Some(deferred.clone()),
+        dispatch_tick::Pass::Unstarted(why) => Some(format!("dispatch round not started: {why}")),
         _ => None,
     }
 }
@@ -74,7 +71,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         drain_queue(fleet, began)?.0.iter().for_each(|line| println!("{line}"));
         kept_fresh(fleet, &refreshing, began).0.iter().for_each(|line| println!("{line}"));
         println!("{}", ticked.timing());
-        if let Some(line) = dispatch_line(&dispatch_beside(fleet, began).0) {
+        if let Some(line) = dispatch_line(&dispatch_beside(fleet).0) {
             println!("{line}");
         }
         return Ok(());
@@ -124,7 +121,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let (refreshed, ended, refreshing_cpu) = kept_fresh(fleet, &refreshing, began);
     ticked.steps.push(Step { name: "shared_config", began: Duration::ZERO, took: ended - began, cpu: refreshing_cpu });
     let dispatching = Instant::now();
-    let (dispatched, dispatching_cpu) = dispatch_beside(fleet, began);
+    let (dispatched, dispatching_cpu) = dispatch_beside(fleet);
     ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed(), cpu: dispatching_cpu });
     ticked.wall = began.elapsed();
     ticked.cpu = spent.spent();

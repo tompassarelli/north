@@ -72,3 +72,11 @@ pub(super) use lineage::from_coordinator;
 pub(super) use view::Registry;
 #[cfg(test)]
 pub(super) use row::{admitted_exchange, admitted_put, entered};
+
+/// `north fleet dispatch`; inside the round unit the fleet tick starts, the round ends itself at its limit and records itself finished.
+pub(super) fn dispatch(arguments: &[String]) -> u8 {
+    match std::env::var(dispatch_tick::ROUND_ENV).ok().and_then(|began| began.parse::<f64>().ok()) {
+        Some(began) => dispatch_tick::round(began, &crate::dispatch::launch_directory(), || crate::pacing::placement::resident_clis(&crate::platform::host::name(), ""), || crate::dispatch::run(arguments, roster)),
+        None => crate::dispatch::run(arguments, roster),
+    }
+}

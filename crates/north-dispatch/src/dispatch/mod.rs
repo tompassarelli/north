@@ -55,6 +55,7 @@ mod pause;
 mod queued;
 pub mod measure;
 mod pack;
+pub mod phase;
 mod plan;
 mod record;
 mod report;
@@ -255,6 +256,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     if let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &north_base::platform::host::name())) {
         return home::run_there(&north_base::platform::host::name(), &host, &ssh, dry_run, &drafted);
     }
+    phase::enter("survey");
     let survey = match roster().map_err(|error| error.to_string()).and_then(|roster| survey::survey(&roster)) {
         Ok(survey) => survey,
         Err(why) => {
@@ -263,6 +265,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         }
     };
     report::print(&survey, dry_run);
+    phase::enter("decide");
     let (outcome, mut pools) = decide_leaving(&survey, &format!("north fleet dispatch on {}", survey.here));
     if !drafted.is_empty() {
         print_lines(drafting::pass(&survey, &outcome, &mut pools, Some(&drafted), dry_run));
@@ -274,18 +277,27 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         println!("needs a box: {}", boxless.iter().map(|issue| issue.reference().to_string()).collect::<Vec<_>>().join(", "));
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
+    phase::enter("launch");
     let stopped = execute(&survey, &outcome, dry_run);
     let round = round::Round::of(&outcome, &stopped, placement::now());
+    phase::enter("record");
     if !dry_run {
         record_round(&survey, &round);
     }
+    phase::enter("lead stops and drafting");
     print_lines(leads::stop_all(&outcome.tree.stops, dry_run, |lead| effects::stop_lead(&survey, lead)));
     print_lines(drafting::pass(&survey, &outcome, &mut pools, None, dry_run));
+    phase::enter("review queue");
     print_lines(deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run));
     print_lines(survey.deepseek.limit.release(&record::directory(), &mut |host, words| effects::north_on(&survey, host, words), dry_run));
+    alerts_and_disk(&survey, &outcome, &stopped, dry_run)
+}
+
+/// The round's freeze alert, its failure reports and its disk reading, and the exit code they make.
+fn alerts_and_disk(survey: &Survey, outcome: &Outcome, stopped: &[(IssueRef, String)], dry_run: bool) -> u8 {
     let now = placement::now();
     let stopped_why: Vec<String> = stopped.iter().map(|(_, why)| why.clone()).collect();
-    let frozen = freeze::frozen(&outcome, &stopped_why, &freeze::guards(&survey));
+    let frozen = freeze::frozen(outcome, &stopped_why, &freeze::guards(survey));
     let told = match &frozen {
         Some(basis) => effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, now),
         None => Ok(()),
@@ -293,12 +305,13 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     if let Err(why) = &told {
         eprintln!("north fleet dispatch: {why}");
     }
+    phase::enter("failure reports and disk");
     let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run, &survey.live);
-    let disk = disk::read(&survey, dry_run);
+    let disk = disk::read(survey, dry_run);
     let watched = freeze::watch(&survey.here, frozen, &disk, dry_run, now);
     print_lines(&disk);
     if !dry_run {
-        cpu::page(&survey, &disk, now);
+        cpu::page(survey, &disk, now);
     }
     exit(told, reported, watched)
 }

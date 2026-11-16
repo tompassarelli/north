@@ -19,11 +19,12 @@ fn the_fleet_tick_runs_dispatch_when_it_is_not_paused() {
     let tick = |host: &str, paused: Option<&str>, now: f64| {
         pass(host, Some(&cfg), paused, state.path(), now, || Some(3), || {
             runs.set(runs.get() + 1);
-            0
+            finished(state.path(), now, &|| Some(3));
+            Pass::Started
         })
     };
 
-    assert_eq!(tick("whiterabbit", None, 1_000.0), Pass::Ran(0));
+    assert_eq!(tick("whiterabbit", None, 1_000.0), Pass::Started);
     assert_eq!(runs.get(), 1, "the dispatch host's tick runs dispatch");
     assert_eq!(tick("whiterabbit", None, 1_060.0), Pass::Recent);
     assert_eq!(runs.get(), 1, "a tick within five minutes of a run starts no second one");
@@ -31,10 +32,12 @@ fn the_fleet_tick_runs_dispatch_when_it_is_not_paused() {
     assert_eq!(tick("whiterabbit", Some("account e is for landing"), 1_300.0), Pass::Paused("account e is for landing".into()));
     assert_eq!(runs.get(), 1, "neither a host that does not own dispatch nor a paused one runs it");
     let unset: DocumentMut = "[placement]\n".parse().unwrap();
-    assert!(matches!(pass("whiterabbit", Some(&unset), None, state.path(), 1_300.0, || Some(3), || 0), Pass::Elsewhere(_)), "a config naming no dispatch host runs dispatch nowhere");
-    assert_eq!(tick("whiterabbit", None, 1_300.0), Pass::Ran(0));
+    assert!(matches!(pass("whiterabbit", Some(&unset), None, state.path(), 1_300.0, || Some(3), || Pass::Started), Pass::Elsewhere(_)), "a config naming no dispatch host runs dispatch nowhere");
+    assert_eq!(tick("whiterabbit", None, 1_300.0), Pass::Started);
     assert_eq!(runs.get(), 2, "five minutes after a run the tick runs dispatch again");
     assert_eq!(tick("whiterabbit", None, 1_300.5), Pass::Recent);
+    assert_eq!(pass("whiterabbit", Some(&cfg), None, state.path(), 1_700.0, || Some(3), || Pass::Started), Pass::Started);
+    assert_eq!(tick("whiterabbit", None, 1_730.0), Pass::Started, "a round that never finished does not read as Recent");
 }
 
 #[test]
@@ -45,7 +48,10 @@ fn a_session_that_frees_a_slot_runs_dispatch_on_the_next_tick_not_the_next_five_
         let count = std::cell::Cell::new(3);
         let tick = |now: f64| {
             let resident = || Some(if sees_the_drop { count.get() } else { 3 });
-            matches!(pass("whiterabbit", Some(&cfg), None, state.path(), now, resident, || 0), Pass::Ran(_))
+            matches!(pass("whiterabbit", Some(&cfg), None, state.path(), now, resident, || {
+                finished(state.path(), now, &resident);
+                Pass::Started
+            }), Pass::Started)
         };
         assert!(tick(0.0));
         let mut now = 0.0;
