@@ -1,5 +1,5 @@
 //! `north fleet break-glass [--issue REPO#N] --reason REASON...`: lifts the coordinator's reach guard while north's landing
-//! is stalled, or its look budgets for at most 30 minutes while the harness itself measures an incident (workers cannot start, the laptop load alarm fires, or the coordinator host has just rebooted),
+//! is stalled, or for at most 30 minutes while the harness itself measures an incident (workers cannot start, the laptop load alarm fires, or the coordinator host has just rebooted),
 //! records who, why and when, and opens a box on the issue that tracks a launch stall.
 use crate::error::{NorthError, NorthResult};
 use crate::platform::host;
@@ -23,7 +23,7 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
     match break_glass::invoke(&Live::here().booted_at(host::booted_ms()), &reason, issue) {
         Ok(grant) => {
             match &grant.issue {
-                Some(issue) => println!("break glass: the coordinator's look budgets are lifted for {} minutes ({}); a box is open on {issue}", break_glass::minutes(), grant.evidence),
+                Some(issue) => println!("break glass: the coordinator's reach guard is lifted for {} minutes ({}); a box is open on {issue}", break_glass::minutes(), grant.evidence),
                 None => println!("break glass: the coordinator's reach guard is lifted until the landing stall clears ({}); `north ledger flow --stall-alarm` reports when it clears", grant.evidence),
             }
             Ok(())

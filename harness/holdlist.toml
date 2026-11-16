@@ -110,19 +110,9 @@ what = "The coordinator is never halted by its own guards and can always delegat
 metric = "coordinator turns ended by a guard"
 budget = "0"
 guard_kind = "test"
-guard = "a_coordinator_over_its_read_budget_is_refused_and_its_turn_continues"
-state = "live"
-incidents = "north#1106"
-
-[[hold.also]]
-guard_kind = "test"
-guard = "harness_required_loads_spend_no_coordinator_read_budget"
-state = "live"
-
-[[hold.also]]
-guard_kind = "test"
 guard = "the_coordinator_has_no_diagnosis_budget_without_break_glass"
 state = "live"
+incidents = "north#1106"
 
 [[hold.also]]
 guard_kind = "test"

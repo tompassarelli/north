@@ -19,7 +19,7 @@ const INCIDENT_MINUTES: u64 = 30;
 const WATCHDOG_STATE: &str = "overload.json";
 const LANDER_SILENT: Duration = Duration::from_secs(30 * 60);
 
-pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's look budgets for at most 30 minutes, only while the harness measures an incident: the last two launches failed, the launch probe exits non-zero, the laptop load alarm is firing, or the coordinator host rebooted in the last 30 minutes, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard while `north ledger flow --stall-alarm` reports a landing stall, until the stall clears)";
+pub const USAGE: &str = "Usage: north fleet break-glass [--issue REPO#N] [--reason] REASON... (with --issue: lifts the coordinator's reach guard for at most 30 minutes, only while the harness measures an incident: the last two launches failed, the launch probe exits non-zero, the laptop load alarm is firing, or the coordinator host rebooted in the last 30 minutes, REPO#N being the issue that tracks the cause; without it: lifts the coordinator's reach guard while `north ledger flow --stall-alarm` reports a landing stall, until the stall clears)";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Grant {
@@ -194,7 +194,7 @@ pub fn digest_section(grants: &[Grant], since_ms: u64, now_ms: u64) -> String {
     if used.is_empty() {
         return String::new();
     }
-    let mut text = format!("Break glass used since you last looked ({}): the coordinator's reach was lifted for a stall, its look budgets while workers could not start or its reach guard while the landing was stalled; each names what was measured and what tracks the cause.\n", used.len());
+    let mut text = format!("Break glass used since you last looked ({}): the coordinator's reach guard was lifted while workers could not start or while the landing was stalled; each names what was measured and what tracks the cause.\n", used.len());
     for grant in used {
         let (state, tracked) = match &grant.landing {
             Some(landing) => ("lifted until the landing stall clears".to_owned(), format!("the landing-is-stalled issue of {}", landing.repo)),

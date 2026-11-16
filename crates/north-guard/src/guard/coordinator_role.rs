@@ -1,22 +1,16 @@
-use crate::guard::host::{self, ReadStreak};
+use crate::guard::host;
 use crate::guard::coordinator_reach;
 use north_fleet_store::runtime::{COORDINATOR, ROLE_ENV, SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use crate::hook_input::{HookInput, Verdict};
 use north_base::shell::{blank_quotes, strip_heredocs};
 use serde_json::Value;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use north_shared_config::secrets_seal;
 use super::coordinator_lanes::{file_bytes, lane_changes};
 
 const UNIT: &str = "coordinator-role-guard";
 const REACH_UNIT: &str = "coordinator-reach-guard";
-const STREAK_UNIT: &str = "coordinator-read-streak";
-const STREAK_LIMIT: &str = "coordinator_read_streak";
-const BUDGET_UNIT: &str = "coordinator-look-budget";
-const LOOK_BUDGET: &str = "coordinator_look_budget";
-const TAIL_BYTES: u64 = 8 * 1024 * 1024;
 const SUBAGENTS: [&str; 2] = ["Explore", "Plan"];
 const CARGO_BUILDS: [&str; 11] = ["build", "b", "test", "t", "clippy", "check", "c", "nextest", "run", "bench", "doc"];
 const SCRIPT_RUNNERS: [&str; 4] = ["bun", "npm", "pnpm", "yarn"];
@@ -421,79 +415,4 @@ fn wrapped(words: &[&str]) -> bool {
     let Some(at) = words.iter().position(|word| !is_assignment(word)) else { return false };
     let head = basename(words[at]);
     WRAPPERS.contains(&head) && !(head == "north" && words.get(at + 1).is_some_and(|verb| ROUTING.contains(verb)))
-}
-
-pub fn evaluate_reads(input: &HookInput) -> Verdict {
-    reads_verdict(input)
-}
-
-pub fn advise_reads(input: &HookInput) -> Verdict {
-    match reads_verdict(input) {
-        Verdict::Deny(reason) => Verdict::Advise(reason),
-        verdict => verdict,
-    }
-}
-
-fn reads_verdict(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") || !is_coordinator(&Live, input) || crate::guard::break_glass::lifted_now() {
-        return Verdict::Allow;
-    }
-    let Some(transcript) = input.data["transcript_path"].as_str().and_then(transcript_tail) else { return Verdict::Allow };
-    let Ok(hook) = serde_json::from_slice::<serde_json::Value>(&input.raw) else { return Verdict::Allow };
-    host::read_streak(&transcript, &hook).map_or(Verdict::Allow, |streak| match budget_verdict(&streak, &budgets()) {
-        Verdict::Allow => streak_verdict(&streak, streak_limit()),
-        refused => refused,
-    })
-}
-
-pub struct Budgets {
-    pub looks: usize,
-}
-
-pub fn budgets() -> Budgets {
-    let number = |name| north_base::platform::harness::default_number(name) as usize;
-    Budgets { looks: number(LOOK_BUDGET) }
-}
-
-pub fn budget_verdict(streak: &ReadStreak, budgets: &Budgets) -> Verdict {
-    let message = streak.message;
-    if !message.looking || message.looks <= budgets.looks {
-        return Verdict::Allow;
-    }
-    let subject = if streak.subject.is_empty() { "this message" } else { streak.subject.as_str() };
-    let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
-    Verdict::Deny(format!(
-        "BLOCKED ({BUDGET_UNIT}): read-only calls are refused from here and your turn goes on: this message from Tom has had {} read-only calls on \"{subject}\", over the budget of {} ({LOOK_BUDGET} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The coordinator routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
-        message.looks,
-        budgets.looks,
-        read.join(", "),
-    ))
-}
-
-pub fn streak_limit() -> usize {
-    north_base::platform::harness::default_number(STREAK_LIMIT) as usize
-}
-
-pub fn streak_verdict(streak: &ReadStreak, limit: usize) -> Verdict {
-    if !streak.message.looking || streak.calls <= limit {
-        return Verdict::Allow;
-    }
-    let subject = if streak.subject.is_empty() { "this turn's question" } else { streak.subject.as_str() };
-    let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
-    Verdict::Deny(format!(
-        "BLOCKED ({STREAK_UNIT}): read-only calls are refused from here and your turn goes on: this coordinator turn made {} read-only calls on \"{subject}\" without a launch, a send or a gate, over the limit of {limit} ({STREAK_LIMIT} in harness/defaults.toml). Launches, sends, gates, `north work brief new`, skill loads and `north ... --help` stay open. The coordinator routes and judges, so this investigation is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
-        streak.calls,
-        read.join(", "),
-    ))
-}
-
-fn transcript_tail(path: &str) -> Option<String> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let start = file.metadata().ok()?.len().saturating_sub(TAIL_BYTES);
-    file.seek(SeekFrom::Start(start)).ok()?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-    let whole = if start == 0 { &text[..] } else { text.split_once('\n').map_or("", |(_, rest)| rest) };
-    Some(whole.to_owned())
 }

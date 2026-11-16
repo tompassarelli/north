@@ -1759,18 +1759,10 @@ source = "north#1537 (2026-11-15): a red hosted run trips only when its new case
 fallback = "none: read when a replay starts"
 consumers = ["crates/north-runtime/src/runtime/replay.rs"]
 
-[coordinator_read_streak]
-value = 15
-allowed = { min = 3, max = 200 }
-unit = "read-only tool calls (diagnosis, status checks, landing logs) a coordinator turn may make since its prompt or its last launch, send or gate before the PreToolUse hook refuses the next one and names the brief to write; the turn goes on"
-source = "measured: `north config coordinator calls` on the laptop coordinator's 2026-11-08 transcript (conversation 1f79cfb7) found 82 read-only streaks since a prompt, launch, send or gate, 2 of them over 15, the longest being the laptop-load turn, so 15 stops that turn and lets the other 80 run; between hand-offs that night ran 22 streaks, median 17, 90th percentile 51, longest 151; the coordinator's 2026-11-05 day (docs/rationale/coordinator-role.md section 1) ran 281 streaks, median 5 and 90th percentile 18, 42 reaching 15 (north#838)"
-fallback = "none"
-consumers = ["crates/north-guard/src/guard/coordinator_role.rs"]
-
 [break_glass_minutes]
 value = 30
 allowed = { min = 1, max = 30 }
-unit = "minutes one `north fleet break-glass` lifts the coordinator's look budget and its refusal of source, host, trace, journal and process-table reads, granted only while the harness measures an incident (the last two launches failed, the launch probe exits non-zero, the laptop load alarm is firing, or the coordinator host rebooted in the last 30 minutes); a landing-stall grant lifts the reach guard until the stall clears instead"
+unit = "minutes one `north fleet break-glass` lifts the coordinator's refusal of source, host, trace, journal and process-table reads, granted only while the harness measures an incident (the last two launches failed, the launch probe exits non-zero, the laptop load alarm is firing, or the coordinator host rebooted in the last 30 minutes); a landing-stall grant lifts the reach guard until the stall clears instead"
 source = "north#1106, 2026-11-11: Tom asked for a break-glass path beside the coordinator-role table, bounded to 30 minutes so a lifted budget cannot outlast the stall that justified it; north#1626, 2026-11-15: the 2:32-4:00 PM landing outage was refused because workers could still launch, so a laptop overload or a fresh reboot opened it too"
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/break_glass.rs"]
@@ -1785,7 +1777,7 @@ value = [
   { class = "gate", owner = "coordinator", what = "open, answer and relay gates: `north gate`" },
   { class = "issue-box", owner = "coordinator", what = "read an issue and add, tick or close its boxes: `gh issue view|edit|close`, `north task check`" },
   { class = "status", owner = "coordinator", what = "read reports and the status verbs: `north fleet tree|show|accounts`, `north land status`" },
-  { class = "placement-look", owner = "coordinator", what = "one bounded look to choose where work goes, inside the look budget" },
+  { class = "placement-look", owner = "coordinator", what = "one bounded look to choose where work goes" },
   { class = "source-read", owner = "worker", what = "read a file under a repository checkout to find a cause (rg, cat, sed, git show, git log -p); budget 0, refused before it runs, `git log --oneline` stays open" },
   { class = "remote-read", owner = "worker", what = "ssh past `north fleet|threads|gate` and the status verbs, or a trace, journal or process table on any host (strace, journalctl, ps, top); budget 0, refused before it runs" },
   { class = "build", owner = "worker", what = "build a repository: cargo, bun, nix, make" },
@@ -1797,14 +1789,6 @@ unit = "what the coordinator does itself (owner coordinator) and what it writes 
 source = "tom: the coordinator holds itself to an explicit, harness-enforced standard for what it does itself and what it hands to workers, after it traced four problems by hand in about 50 read-only calls over two messages before staffing anyone (north#1106, 2026-11-11)"
 fallback = "an unreadable table leaves the coordinator-role guard allowing the call, and `north config coordinator role` exits 1 naming the fault"
 consumers = ["crates/north-guard/src/guard/coordinator_table.rs"]
-
-[coordinator_look_budget]
-value = 25
-allowed = { min = 5, max = 500 }
-unit = "read-only tool calls (diagnosis, status checks, landing logs) a coordinator may make for one message from Tom before the PreToolUse hook refuses the next one and names the brief to write, the turn going on; Skill loads, reads of the profile's skills, `north work brief new` and `north ... --help` spend none; a launch, send or gate does not refill it, only Tom's next message does"
-source = "coordinator: on 2026-11-10 between 21:04 and 21:35 UTC the coordinator made about 50 read-only calls over two of Tom's messages and the streak limit stopped only the second, because an issue edit, a send and a launch each reset its count; the 2026-11-05 day's streaks ran median 5 and 90th percentile 18 (docs/rationale/coordinator-role.md section 1), so 25 for a whole message lets a normal one run and stops that trace within its first message (north#1106, 2026-11-11)"
-fallback = "none"
-consumers = ["crates/north-guard/src/guard/coordinator_role.rs"]
 
 [coordinator_chain]
 value = []

@@ -1,8 +1,6 @@
 #![cfg(test)]
 
-use super::host::{MessageReads, ReadStreak};
-use super::coordinator_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, streak_verdict};
-use super::coordinator_loads::harness_load;
+use super::coordinator_role::{ClaudeStart, Registered, World, decide};
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
@@ -73,50 +71,6 @@ fn bash(command: &str) -> HookInput {
 
 fn denied(world: &Fake, input: &HookInput) -> bool {
     matches!(decide(world, input), Verdict::Deny(reason) if reason.contains("north fleet launch"))
-}
-
-fn reads(looks: usize, looking: bool) -> ReadStreak {
-    ReadStreak { calls: 3, subject: "why is the laptop at load 87?".into(), shapes: vec![("ps".into(), 3)], message: MessageReads { looks, looking } }
-}
-
-const BUDGETS: Budgets = Budgets { looks: 25 };
-
-#[test]
-fn a_coordinator_over_its_read_budget_is_refused_and_its_turn_continues() {
-    let interleaved = reads(26, true);
-    assert_eq!(streak_verdict(&interleaved, 15), Verdict::Allow, "sends keep resetting the streak, so the streak limit alone never fires");
-    let Verdict::Deny(reason) = budget_verdict(&interleaved, &BUDGETS) else { panic!("the 26th look of one message went on") };
-    assert!(reason.contains("26 read-only calls") && reason.contains("coordinator_look_budget") && reason.contains("only Tom's next message does") && reason.contains("north work brief new") && reason.contains("north fleet launch"), "{reason}");
-    assert!(reason.contains("your turn goes on") && !reason.contains("STOPPED"), "{reason}");
-    assert_eq!(budget_verdict(&reads(25, true), &BUDGETS), Verdict::Allow, "the budget itself still runs");
-    assert_eq!(budget_verdict(&reads(26, false), &BUDGETS), Verdict::Allow, "the launch that hands the work off is not a look");
-    let Verdict::Deny(reason) = streak_verdict(&ReadStreak { calls: 16, ..reads(16, true) }, 15) else { panic!("the 16th read of a streak went on") };
-    assert!(reason.contains("your turn goes on") && reason.contains("north fleet launch"), "{reason}");
-    assert_eq!(streak_verdict(&ReadStreak { calls: 16, ..reads(16, false) }, 15), Verdict::Allow, "a launch over the streak is not refused");
-    let load = |tool: &str, text: &str| harness_load("/home/tom", Some("/home/tom/.local/state/north/profiles/claude-d"), tool, text);
-    for (tool, text) in [
-        ("Skill", ""),
-        ("ToolSearch", "select:Monitor"),
-        ("Read", "/home/tom/.local/state/north/profiles/claude-d/skills/workers/references/briefs.md"),
-        ("Read", "~/.claude/skills/workers/SKILL.md"),
-        ("Bash", "north work brief new --category bug-known-cause --item north#1106"),
-        ("Bash", "north fleet launch --help"),
-        ("Bash", "/home/tom/.local/bin/north threads queue --help"),
-    ] {
-        assert!(load(tool, text), "{tool} {text} is the harness's own load");
-    }
-    for (tool, text) in [
-        ("Read", "/home/tom/code/north/main/harness/skills/workers/SKILL.md"),
-        ("Read", "/home/tom/.local/state/north/profiles/claude-d/skills/../../../fleet/n1/report.md"),
-        ("Read", "/tmp/skills/x.md"),
-        ("Grep", "/home/tom/.claude/skills/x"),
-        ("Bash", "north fleet launch --help; ps aux"),
-        ("Bash", "north --help | rg -n code"),
-        ("Bash", "rg --help"),
-        ("Bash", "ps aux"),
-    ] {
-        assert!(!load(tool, text), "{tool} {text} is a look");
-    }
 }
 
 #[test]

@@ -8,18 +8,17 @@ mod streak;
 pub use calls::{Kind, VerbKinds, classify};
 pub use readout::{Readout, read, render, render_read_streaks, streaks};
 pub use shape::shape;
-pub use streak::{Call, Message, Streak, is_look, read_streaks};
+pub use streak::{Streak, read_streaks};
 
 const USAGE: &str = "usage: north config coordinator calls TRANSCRIPT | north config coordinator role";
-pub const READ_STREAK_LIMIT: &str = "coordinator_read_streak";
 
-pub fn run(arguments: &[String], verbs: &VerbKinds, read_limit: usize, role: fn(&[String]) -> u8) -> u8 {
+pub fn run(arguments: &[String], verbs: &VerbKinds, role: fn(&[String]) -> u8) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if verb == "role" => role(rest),
         Some((verb, [path])) if verb == "calls" => match std::fs::read_to_string(path) {
             Ok(text) => {
                 println!("{}", render(&read(&text, verbs)));
-                println!("{}", render_read_streaks(&read_streaks(&text, verbs, None, &|_, _| false), read_limit));
+                println!("{}", render_read_streaks(&read_streaks(&text, verbs)));
                 0
             }
             Err(error) => {

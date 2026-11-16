@@ -277,7 +277,7 @@ fn keep_disk() {
 fn config(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((noun, rest)) if noun == "context" => crate::context_audit::run(rest, agent_config_check::startup_tokens),
-        Some((noun, rest)) if noun == "coordinator" => crate::coordinator::run(rest, &super::verbs::VERB_KINDS, crate::guard::coordinator_role::streak_limit(), crate::guard::coordinator_table::run),
+        Some((noun, rest)) if noun == "coordinator" => crate::coordinator::run(rest, &super::verbs::VERB_KINDS, crate::guard::coordinator_table::run),
         _ => 2,
     }
 }

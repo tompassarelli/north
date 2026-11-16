@@ -2,4 +2,4 @@
   fleet wait RUN [NAME]                         Register a run (job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME) and park the session until it is over
   fleet waits                                   Revive each parked session whose run is over with the run's result
   fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry, api-spend) that a far host's tick calls over ssh
-  fleet break-glass [--issue REPO#N] --reason REASON...    Lift the coordinator's look budgets (with --issue) for at most 30 minutes while the last two launches failed or the launch probe exits non-zero, or its reach guard while north's landing is stalled (`north ledger flow --stall-alarm`)
+  fleet break-glass [--issue REPO#N] --reason REASON...    Lift the coordinator's reach guard for at most 30 minutes (with --issue) while the last two launches failed or the launch probe exits non-zero, or until north's landing stall clears (`north ledger flow --stall-alarm`)

@@ -7,25 +7,9 @@ pub type Pace = fn(&Value) -> Result<Value, String>;
 pub type PickTier = fn(&str) -> Result<Tier, String>;
 pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
-pub type FreeCall = fn(&str, &Value) -> bool;
-pub type ReadStreakOf = fn(&str, &Value, FreeCall) -> ReadStreak;
 pub type StatusVerb = fn(&[&str]) -> bool;
 pub type FileToolRefusal = fn(&[String], &Path) -> Option<String>;
 pub type FileReadRefusal = fn(&[String], &Path) -> Option<String>;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MessageReads {
-    pub looks: usize,
-    pub looking: bool,
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct ReadStreak {
-    pub calls: usize,
-    pub subject: String,
-    pub shapes: Vec<(String, usize)>,
-    pub message: MessageReads,
-}
 
 #[derive(Clone, Copy)]
 pub struct Host {
@@ -33,7 +17,6 @@ pub struct Host {
     pub picked_tier: PickTier,
     pub recorded_decisions: RecordedDecisions,
     pub account_home: AccountHome,
-    pub read_streak: ReadStreakOf,
     pub status_verb: StatusVerb,
     pub file_tool_refusal: FileToolRefusal,
     pub file_read_refusal: FileReadRefusal,
@@ -63,10 +46,6 @@ pub fn recorded_decisions(paragraph: &str, now: f64) -> Vec<String> {
 
 pub fn account_home(provider: &str, label: &str) -> Option<PathBuf> {
     installed().ok().and_then(|host| (host.account_home)(provider, label))
-}
-
-pub fn read_streak(transcript: &str, hook: &Value) -> Option<ReadStreak> {
-    installed().ok().map(|host| (host.read_streak)(transcript, hook, crate::guard::coordinator_loads::spends_no_look))
 }
 
 pub fn status_verb(words: &[&str]) -> bool {

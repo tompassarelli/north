@@ -85,11 +85,10 @@ pub fn render(readout: &Readout) -> String {
     lines.join("\n")
 }
 
-pub fn render_read_streaks(streaks: &[super::Streak], limit: usize) -> String {
+pub fn render_read_streaks(streaks: &[super::Streak]) -> String {
     let mut ranked: Vec<&super::Streak> = streaks.iter().filter(|streak| streak.calls() > 0).collect();
     ranked.sort_by_key(|streak| std::cmp::Reverse(streak.calls()));
-    let over = ranked.iter().filter(|streak| streak.calls() > limit).count();
-    let mut lines = vec![format!("read-only streaks since a prompt, launch, send or gate: {}, {over} over {} ({limit})", ranked.len(), super::READ_STREAK_LIMIT)];
+    let mut lines = vec![format!("read-only streaks since a prompt, launch, send or gate: {}", ranked.len())];
     lines.extend(ranked.iter().take(5).map(|streak| {
         let shapes: Vec<String> = streak.top_shapes(3).into_iter().map(|(shape, calls)| format!("{shape} x{calls}")).collect();
         format!("- {} calls on \"{}\": {}", streak.calls(), streak.subject, shapes.join(", "))

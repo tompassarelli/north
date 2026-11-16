@@ -41,7 +41,6 @@ fn provider_events_select_matching_guard_list() {
             "pre-timer",
         ),
         ("PreToolUse", vec!["SendMessage"], "pre-message", "pre-message"),
-        ("PreToolUse", vec!["WebFetch", "WebSearch"], "pre-other", "pre-other"),
         (
             "PostToolUse",
             vec!["Bash", "functions.exec_command"],

@@ -291,23 +291,12 @@ counted shape the coordinator ran 20 or more times in a day. Delegating verbs ar
 `north fleet launch` never files one. In the measured day the rule names `north fleet show` (75), the
 land queue directory (101), `merge-base --is-ancestor` (47) and the lander's journal (57).
 
-What shipped first (north#838, 2026-11-07): on 2026-11-08 the coordinator worked a laptop-load question,
-cost tables and attribution through long read-only turns while launches waited. The hook
-`crates/north-guard/src/guard/coordinator_role.rs` now reads the tail of the coordinator's transcript after each
-call and counts the turn's read-only calls (diagnosis, status checks, landing logs, through the same
-classifier) since its prompt or its last launch, send, gate or brief; Tom's next message starts a new
-streak, and subagent calls never count. Past `coordinator_read_streak` it refuses the next
-read-only call before it runs and the turn goes on (a guard that ended the turn stopped the coordinator
-mid-directive on 2026-11-11, so no coordinator guard ends a turn); it tells the coordinator, in one message, the subject (the prompt's first line), what
-the calls read and the brief to write instead. Other work calls, such as bookkeeping, neither count
-nor reset. `north config coordinator calls TRANSCRIPT` prints the same streaks per turn, which is how the
-limit is replayed against a transcript.
+No read count is kept. The read-streak limit (north#838, 2026-11-07) and the per-message look budget (north#1106,
+2026-11-11) were removed on 2026-11-16 (north#1632), at the owner's objection to capping the coordinator's reads. The
+coordinator's read-only calls are not refused for their number. `north config coordinator calls TRANSCRIPT` still prints
+the streaks of a transcript between hand-offs, without a limit.
 
-The streak resets on a send, so a coordinator that interleaves one every few reads never trips it
-(north#1106, 2026-11-11: about 50 reads over two messages, the guard fired once). The same hook also
-counts looks per message from Tom, which a launch, send or gate does not refill: past
-`coordinator_look_budget` it refuses the next look. Skill loads, reads of the profile's skills, `north work brief new` and
-`north ... --help` are the harness's own loads and spend none of it. Reads of repository source and of other hosts have a budget of 0
+What still bounds the coordinator's reads is the reach guard below: reads of repository source and of other hosts have a budget of 0
 (north#1106, 2026-11-11, after the coordinator traced a launch inside the old budget of 8):
 `crates/north-guard/src/guard/coordinator_reach.rs` refuses from the coordinator, before the call runs, a remote command
 other than the fleet, threads, gate and status verbs, any trace, journal or process-table read on any host, and any
@@ -544,7 +533,7 @@ push access to South and the Firn timers are host configuration.
     new module. `crates/north-guard/src/guard/coordinator_role.rs` refuses from the first call
     `safe-push`, `git commit` and an edit tool's write under `~/code`, a lane worktree included, unless
     the lane is one doc or config file; `north fleet break-glass` (section 7) is the escape in place of a
-    `north coordinator incident` verb, lifting the look budgets for at most 30 minutes, or the reach guard
+    `north coordinator incident` verb, lifting the reach guard for at most 30 minutes while workers cannot start, or
     while north's landing is stalled, and recording each grant with who and why; and the laptop's
     `north-cloud-reap` timer lands every cloud handback, so no launching session runs `north cloud land`.
     Done when: `cargo test -p north-guard coordinator_role` passes
@@ -633,11 +622,11 @@ Rejected or changed:
 
 ## 7. Break glass
 
-The coordinator's look budgets exist so that an investigation goes to a worker. They cannot bind during an
-incident, so `north fleet break-glass --issue REPO#N REASON...` lifts them for at most 30 minutes
+The coordinator's reach guard exists so that an investigation goes to a worker. It cannot bind during an
+incident, so `north fleet break-glass --issue REPO#N REASON...` lifts it for at most 30 minutes
 (`break_glass_minutes`), and only when the harness measures the incident itself: the last two launches
 failed, the launch probe exits non-zero, the laptop's capacity watchdog reports an active host-overload
-episode, or the coordinator host booted in the last 30 minutes. A coordinator that merely wants to read more is refused. The grant
+episode, or the coordinator host booted in the last 30 minutes. A coordinator that merely wants to investigate is refused. The grant
 is recorded with who, why and when, opens a box on the issue that tracks the cause, and is printed in
 Tom's next `north gate digest`, so the lift is never silent and never outlasts the incident.
 **Enforced by** `crates/north-guard/src/guard/break_glass.rs`.
@@ -663,13 +652,11 @@ whole or in part, each named for its guarantee and kept for the reason given her
 - The lane-worktree Edit, Write, MultiEdit and NotebookEdit cases of
   `the_coordinator_cannot_build_test_or_edit_a_repository` in `crates/north-guard/src/guard/coordinator_role_tests.rs`
   (G2): with `edit_under_code` returning `None`, every coordinator role test passed before them (`5d1fbf905f`).
-- The streak walk in `the_recorded_load_trace_is_counted_as_its_fixture_says` (`src/cli/hook_verb_tests.rs`) and the
-  `pre-other` row of `provider_events_select_matching_guard_list` (`crates/north-guard/src/hook_tests.rs`) (G1)
-  reproduce the bug `7a7f8722ec` fixed: once its read streak was refused, the coordinator kept reading through Read, Grep
-  and Glob, WebFetch and WebSearch reached no hook, and a ListAgents call reset the streak. The `ToolSearch` row the same
-  commit added to `a_coordinator_over_its_read_budget_is_refused_and_its_turn_continues` is the only test holding
-  ToolSearch among the harness loads of `crates/north-guard/src/guard/coordinator_loads.rs`, so a coordinator that loads
-  Monitor spends no look on it.
+- Removed with the read counts (north#1632, 2026-11-16): the streak walk and the look-budget walk in `src/cli/hook_verb_tests.rs`
+  and `crates/north-guard/src/guard/coordinator_replay_tests.rs`, the budget and streak assertions of
+  `crates/north-guard/src/guard/coordinator_role_tests.rs`, and the `pre-other` row of `provider_events_select_matching_guard_list`
+  (G1). That row and the streak walk reproduced the bug `7a7f8722ec` fixed (a ListAgents call reset the streak, and WebFetch and
+  WebSearch reached no hook); the reach guard now bounds the coordinator's reads, and the H10 hold names the guards that remain.
 
 Every other test is already gone, so none is deleted here: the north#635 culls of 2026-11-06 took most of them and the
 north#1583 batches B1 to B7 of 2026-11-14 and 2026-11-15 took the rest, the last being the tune tick's step-limit test

@@ -35,7 +35,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             {
                 return ExitCode::SUCCESS;
             }
-            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home, read_streak, status_verb, file_tool_refusal: north_runtime::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_runtime::worker_sandbox::unreadable_by_file_tool });
+            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home, status_verb, file_tool_refusal: north_runtime::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_runtime::worker_sandbox::unreadable_by_file_tool });
             let started = std::time::Instant::now();
             let mut request = Vec::new();
             let _ = std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut request);
@@ -88,16 +88,3 @@ pub(super) fn grounded_session(conversation: &str) -> bool {
 fn status_verb(words: &[&str]) -> bool {
     super::verbs::VERB_KINDS.kind(words) == Some(crate::coordinator::Kind::Status)
 }
-
-fn read_streak(transcript: &str, hook: &serde_json::Value, free: guard::host::FreeCall) -> guard::host::ReadStreak {
-    let text = |key: &str| hook.get(key).and_then(serde_json::Value::as_str).unwrap_or_default();
-    let input = hook.get("tool_input").unwrap_or(&serde_json::Value::Null);
-    let call = crate::coordinator::Call { id: text("tool_use_id"), tool: text("tool_name"), input };
-    let streak = crate::coordinator::read_streaks(transcript, &super::verbs::VERB_KINDS, Some(call), &free).pop().unwrap_or_default();
-    let message = guard::host::MessageReads { looks: streak.message.looks, looking: crate::coordinator::is_look(text("tool_name"), input, &super::verbs::VERB_KINDS) && !free(text("tool_name"), input) };
-    guard::host::ReadStreak { calls: streak.calls(), shapes: streak.top_shapes(3), subject: streak.subject, message }
-}
-
-#[cfg(test)]
-#[path = "hook_verb_tests.rs"]
-mod tests;
