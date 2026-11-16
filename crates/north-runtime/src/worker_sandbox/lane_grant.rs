@@ -288,7 +288,7 @@ pub(super) fn same_issue(named: &str, task: &str) -> bool {
     named_number == task_number && own_repository
 }
 
-/// The environment a granted command runs with: the broker's `own`, without the sandbox's markers, its git configuration or its `PATH`, then a `PATH` that finds the gh shim first, the session's name for the shim to call GitHub as the Agent App under, and git's credential helper with hooks and fsmonitor off. Refused when `home` holds no gh shim, since gh would then answer as the operator's own login.
+/// The environment a granted command runs with: the broker's `own`, without the sandbox's markers, its git configuration or its `PATH`, then a `PATH` that finds the gh shim first, the session's name for the shim to call GitHub as the Agent App under, and git's credential helper pinned to the lane's own repository, with hooks and fsmonitor off. Refused when `home` holds no gh shim, since gh would then answer as the operator's own login.
 pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (String, String)>, home: &Path) -> Result<Vec<(String, String)>, String> {
     let mut path = None;
     let mut kept: Vec<(String, String)> = Vec::new();
@@ -303,8 +303,17 @@ pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (Stri
     kept.push(("PATH".to_owned(), shimmed_path(home, path.as_deref().unwrap_or_default())?));
     kept.push((SESSION_ENV.to_owned(), session.name.clone()));
     kept.push((PROVED_ENV.to_owned(), "1".to_owned()));
-    kept.extend(git_credential::session_env_with(&GIT_HARDENING));
+    let own = repository(&session.lane)?;
+    kept.extend(git_credential::session_env_with(&GIT_HARDENING).into_iter().map(|(name, value)| if value == git_credential::HELPER { (name, format!("{value} {} {own}", git_credential::LANE)) } else { (name, value) }));
     Ok(kept)
+}
+
+/// The `OWNER/REPO` on GitHub that the lane `lane` pushes to, read from its `origin`, so its push is answered only with that repository's token (north#1397).
+pub(super) fn repository(lane: &Path) -> Result<String, String> {
+    let url = std::process::Command::new("git").arg("-C").arg(lane).args(["remote", "get-url", "origin"]).env_remove("GIT_DIR").output().map_err(|error| format!("git remote in {}: {error}", lane.display()))?;
+    let url = String::from_utf8_lossy(&url.stdout);
+    let path = url.trim().strip_prefix("https://github.com/").or_else(|| url.trim().strip_prefix("git@github.com:")).unwrap_or_default();
+    git_credential::repository(path).map(|name| format!("{}/{name}", path.split('/').next().unwrap_or_default())).ok_or_else(|| format!("{} pushes to no GitHub repository its origin names", lane.display()))
 }
 
 /// `path`'s absolute entries behind `home`'s gh shim directories; refused when `home` holds no gh shim, since gh would then answer as the operator's own login.

@@ -10,7 +10,8 @@ const USAGE: &str = "usage: north ops github push-token --host HOST...
 
 Mint the North Fleet App installation token the broker holds with at least 45 minutes left, list the repositories the app covers,
 and copy both over ssh to ~/.local/state/north/gh-write-token and gh-write-token.repos on each HOST (mode 0600), where git and gh
-read them for 55 minutes. It also writes ~/.local/state/north/github-installation-token.yaml (token, expires_at, the repositories and
+read them for 55 minutes. Beside them it writes one token per repository, limited to that repository, to
+~/.local/state/north/gh-write-token.d/NAME, which a push to NAME there is answered with instead of the host-wide token. It also writes ~/.local/state/north/github-installation-token.yaml (token, expires_at, the repositories and
 the permissions the broker grants it) beside them, for the broker to read as its scoped token. A host whose copy fails is tried again every 10 seconds, with a freshly asked token, until it succeeds or
 27 minutes have passed since the start (the next scheduled run follows at 30); hosts already copied are not copied again. One line
 on stderr per failed attempt names the host and the reason. Exits 1 when a host still has no fresh token.";
@@ -31,6 +32,14 @@ IFS= read -r installation
 IFS= read -r expires
 IFS= read -r permissions
 IFS= read -r scope
+IFS= read -r count
+mkdir -p \"$dir/gh-write-token.d\"
+while [ \"$count\" -gt 0 ]; do
+IFS=' ' read -r name value
+printf %s \"$value\" > \"$dir/gh-write-token.d/$name.tmp\"
+mv \"$dir/gh-write-token.d/$name.tmp\" \"$dir/gh-write-token.d/$name\"
+count=$((count - 1))
+done
 printf %s \"$token\" > \"$dir/gh-write-token.tmp\"
 cat > \"$dir/gh-write-token.repos.tmp\"
 if [ -n \"$installation\" ]; then
@@ -92,6 +101,12 @@ struct Control {
 }
 
 impl Control {
+    /// One token per repository the app covers, each limited to that repository alone, as `NAME TOKEN` lines: a build host answers a session's lane push with the one for the repository it pushes to, never the host-wide token (north#1397).
+    fn lane_tokens(&self) -> Result<Vec<String>, String> {
+        let names = self.repositories.lines().filter_map(|full| full.rsplit('/').next()).filter(|name| !name.starts_with('.') && name.chars().all(|letter| letter.is_ascii_alphanumeric() || "._-".contains(letter)));
+        names.map(|name| Client::discover().github_token(AGENT_APP, &[name.to_owned()], &Default::default(), VALID_FOR).map(|granted| format!("{name} {}\n", granted.token)).map_err(|why| format!("no token for {name} from the broker: {why}"))).collect()
+    }
+
     fn scoped(&self) -> Result<[String; 4], String> {
         let names: Vec<String> = self.repositories.lines().filter_map(|full| full.rsplit('/').next()).map(str::to_owned).collect();
         let granted = Client::discover().github_token(AGENT_APP, &names, &agent_permissions(), VALID_FOR).map_err(|why| format!("no agent-set token from the broker: {why}"))?;
@@ -108,7 +123,8 @@ impl Hosts for Control {
             eprintln!("host-gh-token: {host} keeps its previous scoped token this round: {why}");
             Default::default()
         });
-        let payload = format!("{raw}\n{token}\n{expires}\n{levels}\n{scope}\n{}\n", self.repositories);
+        let lanes = self.lane_tokens()?;
+        let payload = format!("{raw}\n{token}\n{expires}\n{levels}\n{scope}\n{}\n{}{}\n", lanes.len(), lanes.concat(), self.repositories);
         retried(host, Rerun::Anywhere, |link| install(host, &payload, link))
     }
 

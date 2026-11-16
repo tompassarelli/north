@@ -416,3 +416,31 @@ fn a_launched_childs_record_is_at_most_its_launchers() {
     assert!(foreign.as_ref().is_err_and(|why| why.contains("--task someone-else/north#35 is not granted")), "a lead holding tompassarelli/north#35 gave its child another owner's north#35, whose issue its comments and ticks would reach: {foreign:?}");
     assert_eq!(task_of(&bare.arguments).as_deref(), Some("tompassarelli/north#35"), "the child holds the lead's own reference: {:?}", bare.arguments);
 }
+
+#[test]
+fn the_token_sent_for_a_sessions_lane_push_is_scoped_to_its_repository() {
+    use north_base::platform::{git_credential, github_app};
+    let scratch = tempfile::Builder::new().prefix("north-1397-lane-push").tempdir().unwrap();
+    let (home, lane) = (scratch.path().join("home"), scratch.path().join("code/north/worktrees/w"));
+    let state = home.join(".local/state/north");
+    std::fs::create_dir_all(state.join("gh-write-token.d")).unwrap();
+    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+    std::fs::create_dir_all(&lane).unwrap();
+    std::fs::write(home.join(".local/bin/gh"), format!("#!/bin/sh\n# {}\n", gh_shim::MARKER)).unwrap();
+    std::fs::write(state.join("gh-write-token"), "ghs_host_wide").unwrap();
+    std::fs::write(state.join("gh-write-token.d/north"), "ghs_north_only").unwrap();
+    std::fs::write(state.join("gh-write-token.d/south"), "ghs_south_only").unwrap();
+    git(&lane, &["init", "-q"]);
+    git(&lane, &["remote", "add", "origin", "https://github.com/tompassarelli/north.git"]);
+    let session = super::Session { name: "w".to_owned(), task: "tompassarelli/north#1397".to_owned(), lane };
+    let env = super::environment(&session, [("PATH".to_owned(), "/usr/bin".to_owned())], &home).unwrap();
+    let helper = &env.iter().find(|(name, value)| name.starts_with("GIT_CONFIG_VALUE_") && value.starts_with(git_credential::HELPER) && value != git_credential::HELPER).expect("the lane push names its own helper").1;
+    let mut asked: Vec<String> = helper.strip_prefix(git_credential::HELPER).unwrap().split_whitespace().map(str::to_owned).collect();
+    asked.push("get".to_owned());
+    let now = north_foundation::foundation::clock::Timestamp::now().unix_seconds();
+    let push = |repository: &str| git_credential::answer(&asked, format!("protocol=https\nhost=github.com\npath=tompassarelli/{repository}.git\n\n").as_bytes(), |path| github_app::agent_token_in(Some(&home), now, git_credential::repository(path), None).map(|(token, _)| token));
+    assert_eq!(push("north").unwrap().unwrap(), "username=x-access-token\npassword=ghs_north_only\n", "a session's lane push gets its own repository's token, never the host-wide one");
+    assert!(push("south").is_err(), "a session's lane push gets no token for another repository");
+    std::fs::remove_file(state.join("gh-write-token.d/north")).unwrap();
+    assert!(push("north").is_err(), "with no token pushed for its repository, the host-wide token is never the fallback");
+}

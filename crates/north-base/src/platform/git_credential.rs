@@ -12,11 +12,12 @@ rulesets, which only the admin role and that App's v* release path bypass, bind 
 A host the laptop pushes that token to (gex45 and ccx33 hold no App key) answers with the pushed
 token while it is fresh; a host that cannot mint answers with the same App's token the session
 was launched with in GH_TOKEN and names it on stderr. Other hosts, store and erase get no
-answer. Fleet sessions set it through GIT_CONFIG_COUNT, so Tom's own git and gh login stay unchanged. A confined worker command's git asks `north git-credential confined`, which reads no credential in its domain (north#1397).";
+answer. Fleet sessions set it through GIT_CONFIG_COUNT, so Tom's own git and gh login stay unchanged. A confined worker command's git asks `north git-credential confined`, which reads no credential in its domain, and a lane-only session's brokered lane push asks `north git-credential lane OWNER/REPO`, which answers only for its own repository (north#1397).";
 
 const SCOPE: &str = "credential.https://github.com.helper";
 pub const HELPER: &str = "!north git-credential";
 pub const CONFINED: &str = "confined";
+pub const LANE: &str = "lane";
 const PATH_SCOPE: &str = "credential.https://github.com.useHttpPath";
 
 pub fn session_env() -> Vec<(String, String)> {
@@ -56,22 +57,20 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-fn repository(path: &str) -> Option<&str> {
-    let (owner, name) = path.trim_matches('/').split_once('/')?;
-    let name = name.strip_suffix(".git").unwrap_or(name);
+pub fn repository(path: &str) -> Option<&str> {
+    let (owner, name) = path.trim_matches('/').trim_end_matches(".git").split_once('/')?;
     (!owner.is_empty() && !name.is_empty() && !name.contains('/')).then_some(name)
 }
 
 pub fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str) -> Result<String, String>) -> Result<Option<String>, String> {
-    let confined = matches!(arguments, [mode, _] if mode == CONFINED);
-    match &arguments[usize::from(confined)..] {
-        [action] if action == "get" => {}
-        [action] if action == "store" || action == "erase" => return Ok(None),
+    let (confined, pinned) = match arguments {
+        [.., action] if action == "store" || action == "erase" => return Ok(None),
+        [mode, get] if mode == CONFINED && get == "get" => (true, None),
+        [mode, own, get] if mode == LANE && get == "get" => (false, Some(own.as_str())),
+        [get] if get == "get" => (false, None),
         _ => return Err(USAGE.to_owned()),
-    }
-    let mut protocol = None;
-    let mut host = None;
-    let mut path = String::new();
+    };
+    let (mut protocol, mut host, mut path) = (None, None, String::new());
     for line in input.lines() {
         let line = line.map_err(|error| format!("cannot read the request: {error}"))?;
         if line.is_empty() {
@@ -87,7 +86,7 @@ pub fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str
     if protocol.as_deref() != Some("https") || host.as_deref() != Some("github.com") {
         return Ok(None);
     }
-    let token = if confined { Err("a confined worker command's https git reads no GitHub credential in its domain; `north lane sync CHECKOUT` fetches a main checkout, whose refs its lanes share, and `safe-push` pushes a lane, both outside the domain".to_owned()) } else { token(&path) }?;
+    let token = if confined { Err("a confined worker command's https git reads no GitHub credential in its domain; `north lane sync CHECKOUT` fetches a main checkout, whose refs its lanes share, and `safe-push` pushes a lane, both outside the domain".to_owned()) } else if let Some(own) = pinned.filter(|own| !path.trim_matches('/').trim_end_matches(".git").eq_ignore_ascii_case(own)) { Err(format!("a session's lane push asks only for its own repository {own}, not {path}")) } else { token(&path) }?;
     Ok(Some(format!("username=x-access-token\npassword={token}\n")))
 }
 

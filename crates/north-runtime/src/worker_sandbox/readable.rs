@@ -4,7 +4,7 @@ use super::Context;
 use super::except::{Entries, beneath_except, identity};
 
 const SECRETS: [&str; 2] = ["/run/secrets", "/run/secrets.d"];
-const PUSHED_GITHUB: [&str; 3] = ["gh-write-token", "gh-write-token.repos", "github-installation-token.yaml"];
+const PUSHED_GITHUB: [&str; 4] = ["gh-write-token", "gh-write-token.d", "gh-write-token.repos", "github-installation-token.yaml"];
 
 /// Whose command reads: any agent session's, or a confined worker's, which also may not read what another host trusts, since the coordinator and the leads reach other hosts on purpose.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
