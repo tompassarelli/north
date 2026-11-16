@@ -16,6 +16,7 @@ fn job(
         record_path: path.to_owned(),
         user: user.to_owned(),
         class: class.map(str::to_owned),
+        scratch: None,
         notify: notify.map(str::to_owned),
         name: name.to_owned(),
         command: argv(command),

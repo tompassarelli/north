@@ -318,7 +318,7 @@ Commands:
   hook prompt-grounding                         Run the prompt grounding hook
   hook stats [--since 7d|48h]                   Print hook statistics
   alarm stats [--since 7d|48h]                  Print each alarm source's alerts and false share
-  job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...  Run a scheduled job and record its result
+  job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] [--notify] NAME -- CMD...  Run a scheduled job and record its result
   land adopt [--dry-run]                        Land each finished lane (its last finish call passed on its tree, nothing uncommitted) whose session has ended: rebase it onto main and safe-push it, or file why not on its issue; each head once
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land fails-first-runs RUNS NAME...            Build this tree's tests with the build system this host runs, then run the named tests RUNS times and print a verdict per name

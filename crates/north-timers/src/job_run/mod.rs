@@ -1,4 +1,4 @@
-//! `north job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...`: records a scheduled job's
+//! `north job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] [--notify] NAME -- CMD...`: records a scheduled job's
 //! start and finish in NorthThreads' job_runs (name, host, started, finished, rc), runs CMD and
 //! exits with its code. Recording never changes the job's result: the start record runs beside
 //! CMD and stops when CMD ends, and the finish record, which writes the whole row, spools when the
@@ -6,6 +6,7 @@
 //!   --path DIRS  prepended to PATH for the records only (ssh, timeout); north's own directory is appended
 //!   --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger
 //!   --class CLASS  run CMD as a moderate, heavy or gpu capacity lease held to its leased CPUs; a Rust compile is leased without it
+//!   --scratch ROOT  give CMD the fresh directory ROOT/NAME as its TMPDIR, emptied first of what a killed run of NAME left, and remove it when CMD ends
 //!   --notify     detach CMD into its own session and log, return at once, and spool JOB-START, a JOB-BEAT every
 //!                60 s and JOB-EXIT to the fleet session $NORTH_FLEET_SESSION, so an agent can end its turn and
 //!                wake on the result; it runs in its own systemd user scope when there is one, so the caller's
@@ -13,17 +14,20 @@
 //!                session waits on the job
 mod detach;
 mod records;
+mod scratch;
 
 use std::env;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 
 use self::records::{Recorder, Spooler};
+use self::scratch::Scratch;
 use clap::Parser;
 use north_capacity_host::capacity::{dev_shell, gate};
 use north_foundation::foundation::clock::Timestamp;
 
-const HELP: &str = "usage: north job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...\nrecord a scheduled job's start and finish in NorthThreads' job_runs (name, host, started, finished, rc), run CMD and exit with its code.\n  --path DIRS  prepended to PATH for the records only (ssh, timeout)\n  --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger\n  --class CLASS  run CMD through capacity admission as a moderate, heavy or gpu lease held to its leased CPUs (a Rust compile is admitted without it)\n  --notify     detach CMD into its own session and log, return at once, and spool JOB-START, a JOB-BEAT every 60 s and JOB-EXIT to the fleet session $NORTH_FLEET_SESSION";
-const USAGE: &str = "usage: north job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...";
+const HELP: &str = "usage: north job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] [--notify] NAME -- CMD...\nrecord a scheduled job's start and finish in NorthThreads' job_runs (name, host, started, finished, rc), run CMD and exit with its code.\n  --path DIRS  prepended to PATH for the records only (ssh, timeout)\n  --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger\n  --class CLASS  run CMD through capacity admission as a moderate, heavy or gpu lease held to its leased CPUs (a Rust compile is admitted without it)\n  --scratch ROOT  give CMD the fresh directory ROOT/NAME as its TMPDIR and remove it when CMD ends\n  --notify     detach CMD into its own session and log, return at once, and spool JOB-START, a JOB-BEAT every 60 s and JOB-EXIT to the fleet session $NORTH_FLEET_SESSION";
+const USAGE: &str = "usage: north job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] [--notify] NAME -- CMD...";
 const FLEET_SESSION: &str = "NORTH_FLEET_SESSION";
 const ADMITTED_CLASSES: [&str; 3] = ["moderate", "heavy", "gpu"];
 const LEASE_SECONDS: &str = "3600";
@@ -36,6 +40,7 @@ pub(crate) struct Job {
     record_path: String,
     user: String,
     class: Option<String>,
+    scratch: Option<PathBuf>,
     notify: Option<String>,
     name: String,
     command: Vec<String>,
@@ -56,6 +61,8 @@ struct Words {
     user: Option<String>,
     #[arg(long, allow_hyphen_values = true)]
     class: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    scratch: Option<PathBuf>,
     #[arg(long)]
     notify: bool,
     #[arg(short = 'h', long)]
@@ -83,6 +90,7 @@ pub(crate) fn parse(arguments: &[String], session: Option<&str>) -> Result<Parse
             record_path: words.path.unwrap_or_default(),
             user: words.user.unwrap_or_default(),
             class: words.class,
+            scratch: words.scratch,
             notify,
             name: name.clone(),
             command: command.to_vec(),
@@ -112,10 +120,15 @@ pub(crate) fn launch_words(north: &str, job: &Job) -> Vec<String> {
     words
 }
 
-fn run_command(job: &Job) -> i32 {
+fn run_command(job: &Job, scratch: Option<&Path>) -> i32 {
     let words = launch_words(&records::north(), job);
     let Some((program, arguments)) = words.split_first() else { return i32::from(NOT_FOUND) };
-    match Command::new(program).args(arguments).env_remove(detach::LOG).stdin(Stdio::inherit()).status() {
+    let mut command = Command::new(program);
+    command.args(arguments).env_remove(detach::LOG).stdin(Stdio::inherit());
+    if let Some(scratch) = scratch {
+        command.env("TMPDIR", scratch);
+    }
+    match command.status() {
         Ok(status) => exit_code(status),
         Err(error) => {
             eprintln!("job-run: {program}: {error}");
@@ -162,7 +175,9 @@ fn serve(job: &Job) -> i32 {
     });
     let started = stamp();
     let mut starting = recorder.start(&started);
-    let code = run_command(job);
+    let scratch = job.scratch.as_deref().and_then(|root| Scratch::fresh(root, &job.name).inspect_err(|why| eprintln!("{why}; the job keeps the TMPDIR it was given")).ok());
+    let code = run_command(job, scratch.as_ref().map(Scratch::path));
+    drop(scratch);
     if let Some(starting) = starting.take() {
         starting.stop();
     }
