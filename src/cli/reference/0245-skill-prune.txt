@@ -1,1 +1,0 @@
-  skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines

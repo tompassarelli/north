@@ -31,7 +31,7 @@ paths = [
     "crates/north-base/src/platform/private_text.rs",
     "crates/north-land-scans/src/disclosure_judge/",
     "crates/north-land-scans/src/disclosure_judge.rs",
-    "crates/north-timers/src/judge_model.rs",
+    "src/cli/oneshot/judge_model.rs",
 ]
 tests = [
     "north-land-scans outgoing::",
@@ -39,7 +39,7 @@ tests = [
     "north-safe-push publication::outgoing::",
     "north-base platform::private_text::",
     "north-land-scans disclosure_judge::",
-    "north-timers judge_model::",
+    "north cli::oneshot::judge_model::",
 ]
 it = []
 

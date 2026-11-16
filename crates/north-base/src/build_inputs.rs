@@ -7,11 +7,10 @@ const EMBEDDED: &[&str] = &[
     "docs/readme/comparison.toml",
     "harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json",
 ];
-pub const RUN_TIME_DATA: [&str; 19] = [
+pub const RUN_TIME_DATA: [&str; 17] = [
     "harness/disk-ledger.toml",
     "harness/defaults.toml",
     "harness/model-catalog.toml",
-    "harness/loops.toml",
     "harness/routing-cells.toml",
     "harness/nix/cards.toml",
     "harness/code-health/review-brief.md",
@@ -23,7 +22,6 @@ pub const RUN_TIME_DATA: [&str; 19] = [
     "harness/claude/agents/worker-xhigh.md",
     "harness/file-skills.toml",
     "north-data/private-checks.toml",
-    "north-data/expectations.toml",
     "harness/merge-sets.toml",
     "harness/policy-owners.toml",
     "docs/feedback-loop.md",

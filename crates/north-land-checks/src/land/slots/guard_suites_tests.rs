@@ -22,7 +22,7 @@ fn a_lane_touching_a_guarded_path_runs_its_guard_suite() {
     for term in ["(package(north-land-scans)&test(/^disclosure_judge::/))", "(package(north-base)&test(/^platform::private_text::/))", "(package(north-landing-gates)&test(/^landing::denylist/))", "(binary_id(north-ops)&(test(=ops::report::tests::reads)))"] {
         assert!(arguments.contains(term), "a disclosure-judge lane runs {term}: {arguments}");
     }
-    assert!(selection.packages().is_superset(&["north-timers", "north-base", "north-landing-gates", "north-land-scans", "north-safe-push"].map(str::to_owned).into()), "the suite's packages are built");
+    assert!(selection.packages().is_superset(&["north", "north-base", "north-landing-gates", "north-land-scans", "north-safe-push"].map(str::to_owned).into()), "the suite's packages are built");
     let sandbox = Selection::Modules { modules: BTreeSet::new(), units: Default::default(), floor: Floor::default() }.with_floor(suites.floor(&["crates/north-land-sandbox/src/lib.rs".to_owned()]));
     assert!(sandbox.runs_module("worker_sandbox") && sandbox.packages().contains("north-land-sandbox"), "the crate fallback keeps the floor too: {}", sandbox.summary());
     let landing = suites.floor(&["crates/north-landing/src/land/post_land/execute.rs".to_owned()]);

@@ -55,11 +55,6 @@ path = "crates/north-base/src/platform/land_notice.rs"
 reason = "the verdict is a line parsed from the lander's report text, an external format"
 
 [[implicit_state.allow]]
-shape = "status-string"
-path = "crates/north-tune/src/loops/red_main.rs"
-reason = "the run status and conclusion are fields of the GitHub workflow-runs response, an external format with no north lifecycle behind it"
-
-[[implicit_state.allow]]
 shape = "phase-suffix"
 path = "crates/north-threads/src/threads/runs/hook_rules.rs"
 reason = "the dotted names are guard rule ids in a classification table, labels for refusal text and never a lifecycle phase"
@@ -68,11 +63,6 @@ reason = "the dotted names are guard rule ids in a classification table, labels 
 shape = "status-string"
 path = "crates/north-land-scans/src/withdrawal.rs"
 reason = "the verdict is the text a queue record stores for a decided ticket; the withdrawn-by prefix is read once per refusal from that stored record and never held as state (north#722)"
-
-[[implicit_state.allow]]
-shape = "status-string"
-path = "crates/north-flow/src/tempo/mod.rs"
-reason = "the verdict is the text column of a queue record, counted once per reading for the failed-interaction tally and never held as state (north#722)"
 
 [[implicit_state.allow]]
 shape = "status-string"
@@ -385,12 +375,6 @@ paths = ["crates/north-pacing/src/**"]
 may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-shared-config", "north-ssh-spare", "north-threads", "north-capacity-host"]
 
 [[crate_dag.crate]]
-name = "north-tune"
-layer = 6
-paths = ["crates/north-tune/src/**"]
-may_use = ["north-dispatch", "north-graph-loops"]
-
-[[crate_dag.crate]]
 name = "north-runtime"
 layer = 5
 paths = ["crates/north-runtime/src/**"]
@@ -401,12 +385,6 @@ name = "north-convo"
 layer = 6
 paths = ["crates/north-convo/src/**"]
 may_use = ["north-base", "north-fleet", "north-threads"]
-
-[[crate_dag.crate]]
-name = "north-expectations"
-layer = 6
-paths = ["crates/north-expectations/src/**"]
-may_use = ["north-dispatch", "north-capacity-host"]
 
 [[crate_dag.crate]]
 name = "north-pace"
@@ -478,18 +456,6 @@ name = "north-core"
 layer = 6
 paths = ["crates/north-core/src/**"]
 may_use = ["north-claude-stream", "north-fleet-supervisor", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads", "north-registries", "north-build-system"]
-
-[[crate_dag.crate]]
-name = "north-flow"
-layer = 6
-paths = ["crates/north-flow/src/**"]
-may_use = ["north-base", "north-capacity-host", "north-code-health", "north-dispatch", "north-fleet", "north-graph-loops", "north-pace", "north-providers", "north-threads", "north-health"]
-
-[[crate_dag.crate]]
-name = "north-health"
-paths = ["crates/north-health/src/**"]
-layer = 6
-may_use = ["north-base", "north-pace", "north-calibration", "north-threads"]
 
 [review]
 commits = 600
@@ -876,7 +842,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-remote-serve/src/lib.rs", "crates/north-credentials/src/lib.rs", "crates/north-issue-boxes/src/lib.rs", "crates/north-timers/src/lib.rs", "crates/north-github-broker/src/lib.rs", "crates/north-github-broker/src/gh_broker/**", "crates/north-ci/src/lib.rs", "crates/north-ci/src/ci_watch/**", "crates/north-ci/src/private_check/**", "crates/north-reclaim/src/lib.rs", "crates/north-reclaim/src/reclaim/**", "crates/north-reclaim/src/retention/**", "crates/north-capacity/src/run_bounded/**", "crates/north-capacity-host/src/nexus_ram/**", "crates/north-timers/src/job_run/**", "crates/north-timers/src/judge_model.rs", "crates/north-timers/src/timers/decision_log_retain/**", "crates/north-expectations/src/**", "crates/north-offload/src/lib.rs", "crates/north-runtime/src/agent_contain/**", "crates/north-offload/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-offload/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-timers/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-runtime/src/vendor_runtime/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-offload/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/incident_mine/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/defaults_measure/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**", "crates/north-issue-boxes/src/issue_convert/**", "crates/north-issue-boxes/src/issue_child.rs", "crates/north-issue-boxes/src/done_when_boxes/**", "crates/north-issue-boxes/src/observation_boxes/**", "crates/north-issue-boxes/src/cargo_boxes/**", "crates/north-credentials/src/credentials/**", "crates/north-remote-serve/src/remote_serve/**"]
+paths = ["crates/north-remote-serve/src/lib.rs", "crates/north-credentials/src/lib.rs", "crates/north-github-broker/src/lib.rs", "crates/north-github-broker/src/gh_broker/**", "crates/north-ci/src/lib.rs", "crates/north-ci/src/ci_watch/**", "crates/north-ci/src/private_check/**", "crates/north-reclaim/src/lib.rs", "crates/north-reclaim/src/reclaim/**", "crates/north-reclaim/src/retention/**", "crates/north-capacity/src/run_bounded/**", "crates/north-capacity-host/src/nexus_ram/**", "crates/north-offload/src/lib.rs", "crates/north-runtime/src/agent_contain/**", "crates/north-offload/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-offload/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-runtime/src/vendor_runtime/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-offload/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/incident_mine/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-runtime/src/worker_sandbox/**", "crates/north-credentials/src/credentials/**", "crates/north-remote-serve/src/remote_serve/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
 may_use = ["check_offload", "landing", "code_health", "strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "runtime_records", "registries", "build_system", "platform.store", "platform.git", "unblocks", "coordinator_roles", "graph", "disk_bound"]
 
@@ -932,7 +898,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["north_warm_spares", "strategy_types", "buck", "build_system", "nix_upkeep", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "dispatch_pause_lifecycle", "runtime_records", "unblocks", "build_inputs"]
+may_use = ["north_warm_spares", "strategy_types", "buck", "build_system", "nix_upkeep", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "platform.harness", "platform.host", "platform.store", "coverage", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "dispatch_pause_lifecycle", "runtime_records", "unblocks", "build_inputs"]
 
 [[module]]
 name = "verify"
@@ -1269,11 +1235,6 @@ responsibility = "The north docs command: each generated index and the per-unit 
 may_use = ["crate-roots", "registries"]
 
 [[crate_dag.crate]]
-name = "north-timers"
-layer = 6
-paths = ["crates/north-timers/src/**"]
-may_use = ["north-base", "north-capacity", "north-capacity-host", "north-dispatch", "north-providers"]
-[[crate_dag.crate]]
 name = "north-github-broker"
 layer = 1
 paths = ["crates/north-github-broker/src/**"]
@@ -1285,11 +1246,6 @@ layer = 6
 paths = ["crates/north-credentials/src/**"]
 may_use = ["north-base"]
 
-[[crate_dag.crate]]
-name = "north-issue-boxes"
-layer = 6
-paths = ["crates/north-issue-boxes/src/**"]
-may_use = ["north-base", "north-calibration", "north-dispatch", "north-github-mirror", "north-providers"]
 [[crate_dag.crate]]
 name = "north-reclaim"
 layer = 6

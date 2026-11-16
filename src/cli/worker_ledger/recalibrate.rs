@@ -1,17 +1,13 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::time::Duration;
 
 use toml_edit::DocumentMut;
 
 use crate::foundation::clock::Timestamp;
-use north_tune::defaults_measure;
 
 static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table(crate::platform::harness::DEFAULTS));
 const GOAL_KINDS: [&str; 2] = ["goal_eta", "goal_actual"];
-const DAY: i64 = 86_400;
-const MONDAY: i64 = 4;
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
@@ -23,10 +19,6 @@ pub(super) fn owns_ledger() -> bool {
 
 fn explicit_ledger() -> Option<OsString> {
     std::env::var_os("THREADS_DB").filter(|path| !path.is_empty())
-}
-
-fn ledger_path() -> PathBuf {
-    crate::usage::ledger_path(&home(), explicit_ledger())
 }
 
 fn calibration_rows() -> Result<Vec<(i64, String)>, String> {
@@ -52,35 +44,6 @@ fn calibration_due(rows: &[(i64, String)], now: i64) -> bool {
     newest(rows, |kind| kind != "prior").is_none_or(|at| now - at > calibrate_after_seconds())
 }
 
-fn priors_due(rows: &[(i64, String)], now: i64) -> bool {
-    let days = now.div_euclid(DAY);
-    let week = (days - (days - MONDAY).rem_euclid(7)) * DAY;
-    newest(rows, |kind| kind == "prior").is_none_or(|at| at < week)
-}
-
-fn codex_root() -> PathBuf {
-    std::env::var_os("CODEX_CONFIG_DIR").map_or_else(|| home().join("code/north-data/codex-pooled"), PathBuf::from)
-}
-
-fn prior_specs(printed: &str, needs: &[(String, i64)]) -> Vec<String> {
-    let mut specs = Vec::new();
-    for line in printed.lines() {
-        let mut words = line.split_whitespace();
-        let (Some(state), Some(name), Some(count)) = (words.next(), words.next(), words.next()) else { continue };
-        let Some((_, need)) = needs.iter().find(|(known, _)| known == name) else { continue };
-        let Some(count) = count.strip_prefix("n=") else { continue };
-        if !matches!(state, "SETTLED" | "MEASURABLE-NOT-MEASURED" | "WAIT") {
-            continue;
-        }
-        let value = words.find_map(|word| word.strip_prefix("value=")).filter(|value| !value.is_empty());
-        let count = count.split('/').next().unwrap_or("");
-        specs.push(format!("{name}:{count}:{need}{}", value.map(|value| format!(":{value}")).unwrap_or_default()));
-    }
-    specs
-}
-
-const MEASURE_LIMIT: Duration = Duration::from_secs(600);
-
 fn exit_code(status: std::io::Result<std::process::ExitStatus>) -> i32 {
     status.ok().and_then(|status| status.code()).unwrap_or(1)
 }
@@ -96,36 +59,6 @@ fn calibrate() {
     eprintln!("recalibrate: threads calibrate --write rc={code}");
 }
 
-fn priors() {
-    let command = super::north().map(|mut north| {
-        north.args(["defaults-measure", "--priors"]).arg(ledger_path());
-        north
-    });
-    let measured = command.map_err(|error| format!("cannot find the running north: {error}")).and_then(|command| {
-        crate::platform::process::run_command_within(command, None, MEASURE_LIMIT).ok_or_else(|| format!("defaults-measure --priors did not finish within {} s", MEASURE_LIMIT.as_secs()))
-    });
-    let (mut code, mut note, mut specs) = (1, String::new(), Vec::new());
-    match &measured {
-        Ok(done) => {
-            code = done.status.code().unwrap_or(1);
-            let stderr = String::from_utf8_lossy(&done.stderr).trim().to_owned();
-            note = stderr.chars().rev().take(300).collect::<Vec<_>>().into_iter().rev().collect();
-            if done.status.success() {
-                specs = prior_specs(&String::from_utf8_lossy(&done.stdout), &defaults_measure::prior_needs());
-            }
-        }
-        Err(why) => note.clone_from(why),
-    }
-    if !specs.is_empty() {
-        code = match super::north() {
-            Ok(mut north) => exit_code(north.args(["threads", "record-priors"]).args(&specs).status()),
-            Err(_) => 1,
-        };
-    }
-    let shown = if specs.is_empty() { note } else { specs.join(" ") };
-    eprintln!("recalibrate: priors {shown} rc={code}");
-}
-
 pub(super) fn run() {
     let rows = match calibration_rows() {
         Ok(rows) => rows,
@@ -137,8 +70,5 @@ pub(super) fn run() {
     let now = Timestamp::now().unix_seconds();
     if owns_ledger() && calibration_due(&rows, now) {
         calibrate();
-    }
-    if codex_root().is_dir() && priors_due(&rows, now) {
-        priors();
     }
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use north_base::platform::rolling_issue::{Gh, Tracker, settle};
+use north_base::platform::rolling_issue::{Gh, settle};
 
 const FAILING_RUNS: u32 = 2;
 
@@ -39,7 +39,7 @@ fn streak(state_path: &Path, invocation: &str, passed: bool) -> Result<u32, Stri
     Ok(state.streak)
 }
 
-pub(super) fn record(tracker: &mut dyn Tracker, state_path: &Path, host: &str, invocation: &str, failures: &[String]) -> Result<(), String> {
+pub(super) fn record(tracker: &mut Gh, state_path: &Path, host: &str, invocation: &str, failures: &[String]) -> Result<(), String> {
     let streak = streak(state_path, invocation, failures.is_empty())?;
     let body = (streak >= FAILING_RUNS).then(|| body(host, failures));
     settle(tracker, &title(host), body.as_deref(), &format!("`north check harness --local` passed on {host}; it closed this issue."))

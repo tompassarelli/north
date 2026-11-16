@@ -1,1 +1,0 @@
-  ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the coordinator on DECAYED

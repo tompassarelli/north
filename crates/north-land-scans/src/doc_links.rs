@@ -44,9 +44,7 @@ impl Revision<'_> {
     fn show(&self, path: &str) -> Option<String> {
         git::text(self.directory, &["show", &format!("{}:{path}", self.revision)])
     }
-}
 
-impl cites::Tree for Revision<'_> {
     fn exists(&self, path: &str) -> bool {
         self.tree.contains(path)
     }
@@ -72,10 +70,7 @@ fn pointing_at_nothing(revision: &Revision, documents: &BTreeMap<String, String>
         })
         .collect();
     if let Some(doc) = documents.get(cites::FEEDBACK_LOOP) {
-        found.extend(cites::dead_readers(doc, revision).into_iter().map(|fault| (cites::FEEDBACK_LOOP.to_owned(), format!("cites {fault}"))));
-    }
-    if let Some(registry) = revision.show(cites::LOOPS) {
-        found.extend(cites::dead_loop_sites(&registry, revision).into_iter().map(|fault| (cites::LOOPS.to_owned(), format!("cites {fault}"))));
+        found.extend(cites::dead_readers(doc, &cites::Tree { exists: &|path| revision.exists(path), text: &|path| revision.text(path) }).into_iter().map(|fault| (cites::FEEDBACK_LOOP.to_owned(), format!("cites {fault}"))));
     }
     found
 }

@@ -11,9 +11,6 @@ Commands:
   infra [--json]                                 List each live paid resource with its monthly price and a total
   home move [--dry-run] PLAN.tsv                 Apply a move plan at the top of home outside the worker sandbox: one rename per row, logged to moves.tsv, never copying or deleting
   check calls [--tree DIR] [--live DIR]         Read every north call on this host (unit Exec lines and the scripts they run, hooks, ssh hops in the --tree source) against this runtime, exit 1 naming each unparsable one; runtime update runs it from the incoming runtime before each swap
-  check experiments [--root DIR]                Check that every review rule and footgun card has an experiment registry entry
-  check experiments judge [--root DIR] [--today YYYY-MM-DD] [--file]  Judge the declared experiments due for review
-  check experiments defer ISSUE BOX --check CMD --by DATE  Defer a box to a dated check in the experiment registry
   check concerns [--root DIR] [PROJECT...]      Check each project's declared concerns
   check issue-boxes [REPO#N...] [--repo REPO]   Check issue acceptance boxes
   check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
@@ -36,7 +33,7 @@ Commands:
   graph ground distill status                      Show the distill state
   graph ground distill capture                     Capture a correction for the next distill run
   graph ground score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]  Score grounding retrieval against an eval set
-  work [--since DURATION] [--json]              Show the fleet's work: sessions, gates, landings, stalls, report, lane flow and the harness-loss classes of the window with the issue that owns each
+  work [--since DURATION] [--json]              Show the fleet's work: sessions, gates, landings, stalls, report and the harness-loss classes of the window with the issue that owns each
   work own CLASS --issue REPO#N                 Record REPO#N, an open issue with an owner, as the owner of the harness-loss class CLASS, which lets the coordinator's turn end while CLASS repeats
   work list                                     List the open work items
   work search TEXT                              Search work items
@@ -56,11 +53,6 @@ Commands:
   config agents check-hook-paths --claude FILE --codex FILE --provider-hooks DIR  Check that every registered hook path resolves
   config agents check-owners ...                Check that every registered owner exists
   config agents live-refs [--dropped-by-catalog]  List live references to managed skills and hooks
-  config agents busy                            Exit 0 while an agent session is working
-  config agents plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]  Run the agent plan: score, place, credit or quote launches
-  config agents routines list [--crons FILE|-]  List the operator routines
-  config agents routines show NAME [--crons FILE|-]  Show one operator routine
-  config agents routines pointer NAME [--crons FILE|-]  Print the pointer to one operator routine
   config check guides [--refresh] [--guides DIR]  List the vendored agent-policy guides and fail when one is over 90 days old; --refresh re-fetches them at their upstream head
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
@@ -162,11 +154,7 @@ Commands:
   fleet-issue [ARGS...]                         Run north fleet list, gh issue ARGS (list when none is named) and north fleet list again in one call
   fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready boxes of every unpaused project in orchestration.toml (its dispatch_repos, else repos) on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
   coordinator [--interactive] | coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
-  tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
-  ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the coordinator on DECAYED
-  ops check [--dry-run | --synthetic]           Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
-  defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   config context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
   config operator paths [--class CLASS]         One line per path north reads from the operator repository, as PATH<TAB>CLASS in the inventory's order; class is schema, generic method, private value or secret
   config operator check [DIR] [--only NAME,...] [--distinct-from OWNER]  Read the operator repository's schema-class files against their typed keys; each finding prints as FILE: KEY: reason and the command exits 1; with --distinct-from a string a template DIR holds at an identifying key (id, name, email, repo, path, host, source and the like) that equals the owner repository OWNER's string at that key is also a finding naming the file and key, never the value; DIR defaults to the resolved operator root, NAME is costs, claude-accounts, credentials or infra
@@ -179,8 +167,7 @@ Commands:
   ledger runs [--json]                          Fleet turn records
   fleet orders list                             List Tom's standing orders, rendered into every fleet launch and revive
   fleet orders add TEXT...                      Add a standing order
-  task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R) | rewrite-cargo [--dry-run] [--repo R] [--tree DIR]]   Record a verdict north observed itself, tick issue boxes whose Observe: command exits 0, or rewrite the cargo commands in open issue boxes onto Buck2
-  ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main, first commit->main and hand-in->main p50 and p90, refused alone, queued now, from the records mirror off the lander host; --record writes the last hour and day to the ledger (hourly timer)
+  task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
   gate [open --session S --question Q --option O... --recommend N [--default N --default-after D | --ask-once CATEGORY [--amount TEXT]] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | withdraw ID --reason TEXT | list [--json] | digest [--peek]]  Open, answer or withdraw a decision gate (a gate with no --default names its ask-once category with --ask-once); withdraw closes a gate opened in error with its reason, for its asking session or the coordinator; digest prints the for-Tom gates still open and the defaults applied since the last look
   fleet digest [--since DURATION]  Retired view: the digest prints as `north work --since DURATION`
   fleet held [--since DURATION]    Print the messages held back from waking their recipient, page-flood folds included (default the last 10m)
@@ -230,10 +217,6 @@ Commands:
   fleet laptop observe SAMPLE                   Record an idle and battery sample from the laptop
   laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
   agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
-  ops watch                                       Run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
-  job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers
-  outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the coordinator inbox, mark our own notifications read
-  outside-watch status                          Show the last run and its log line
   lane reclaim [--dry-run] [--idle-hours H]  Remove Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
   retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Mak'gora evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
   lane layout                                   List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
@@ -244,7 +227,6 @@ Commands:
   docs readme import-large [--root DIR] FILE...  Add the rows of fetched large-cell result files (`results-PREFIX*.jsonl.large-rows`) to docs/readme/comparison.toml, keeping only the six registered large runs
   docs help-index [--check] [--root DIR]        Regenerate src/cli/help.txt from the one-file-per-command tree under src/cli/help/, or with --check fail when it is stale
   lane gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Delete landed lanes and origin branches, bundle every lane no live session, claim or peer host holds to ~/archive/lanes with its uncommitted changes once idle 24 h before reaping it, keep the rest and list them by issue (hourly and daily timers)
-  ops strategy log retain  Compress the decision log's closed hours with zstd and delete its days past 14, on the host that decided (hourly timer)
   pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
   lane reap [--all] [--dry-run]                    Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it
   lane rescue [path] [--dry-run] [--rewritten]     Move a dirty main checkout's changes into a new rescue lane and clean main; move a clean main's unpushed commits to a keep/ branch and reset it to origin/main; with --rewritten, move a clean main onto a rewritten origin/main holding the same tree
@@ -255,26 +237,15 @@ Commands:
   lane new --issue REPO#N [--from REF] [--draft NAME --check CMD] LANE  Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config; --draft marks it as a box's draft lane, whose finish call records the draft and queues nothing
   lane exec [--lane CHECKOUT] [--] PROGRAM [ARGS...]  Run a lane's own build output (target/, node_modules/) outside depbox, which an agent's worker sandbox refuses by path, when the lane's lock files equal origin/main's, else inside depbox
   lane land-draft LANE --item REPO#N --box TEXT  Land a passing draft when its box is launched: rebase it onto current main, run its check again, stamp the Item and Box trailers and safe-push it; prints landed SHA
-  usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)
   runtime update                                Promote origin/main as this host's north runtime with its own tree
-  supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)
-  incident-retro [--dry-run]                    Mine the last 7 days with incident-mine, sample every fifth candidate and launch one Haiku session that appends the kept rows to south agents/incidents.jsonl and files each recurring mode with no enforcer as a rules.toml [[candidate]] (weekly timer)
-  watch-review [--dry-run]                      Launch one fleet recheck session per held [[recheck]] entry of south agents/watch.toml whose date has come, tell the coordinator when a launch fails or is held (daily timer); a followed source due for review is the followed-source detector's box, not a launch
-  codex-runtime-gcroots                         Root the Nix store dependencies of every installed Codex runtime
-  skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines
-  cross-project-scan [--print-bundle]           Daily cross-project overlap scan posted to the coordinator
-  eta-calibration                               Post the last 7 days of stated ETA against measured active minutes, per category and tier, to north#255 (weekly timer)
-  git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
   github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch and the CI watch read the copy instead of GitHub (timer every two minutes)
   github-mirror serve | pull DEST                Write a consistent copy of this host's GitHub mirror to stdout (serve, a remote-serve verb), or replace this host's mirror whole with the copy DEST serves over ssh (pull), so a host with no GitHub reader of its own reads the ledger host's mirror
   ops github budget                              Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log
   ops github push-token --host HOST...           Copy the short-lived push token to each HOST, trying a failed host again every 10 s until it has a fresh token or 27 min have passed
-  runtime agents [VERSION]                      Update the North, Claude, Agy, Pi and OpenCode runtimes
   runtime agy [VERSION]                         Install a checksum-verified Agy runtime and select it
   runtime claude [VERSION]                      Install a checksum-verified Claude runtime, probe it and select it
   runtime pi [VERSION]                       Install a checksum-verified Pi runtime from the newest stable earendil-works/pi release and select it
   runtime opencode [VERSION]                 Install a checksum-verified OpenCode runtime from the newest stable anomalyco/opencode release and select it
-  capacity nexus [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
   ops credentials check [--json] | renew [--dry-run] | import-cookies SITE [--from CHROME_PROFILE]  List every credential the fleet uses with its kind (machine or human-session), expiry and renewal path and exit 1 on any human-session, expired or undeclared one; renew runs machine renewals before expiry, batches what needs Tom into one notice 30 days ahead and writes the loop record (daily timer); import-cookies copies a declared site's sign-in from Tom's Chrome profile into the automation-chrome profile on the same machine and refuses an undeclared site
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant
   runtime accept FULL-SHA  Record the calling fleet session's accept of the patch of a commit named by its full sha (40 hex digits) over its merge-base with origin/main, which a lane that changes a trust_boundary_paths file needs from one reviewer session before it lands; the session is the one the caller's cgroup scope names and only one launched with --role reviewer accepts, and the accept is read on the host that settles the fleet
@@ -286,7 +257,6 @@ Commands:
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex|corpus]  Search past agent transcripts and the Tom corpus; corpus appends typed messages to it
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
-  ledger flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run] | slow-tests --test KEY [--max SECONDS] [--runs N]  Alarms and detectors; one test's newest land check times; the lane view is `north work` and the usage line is `north accounts`
   broker serve [--user]                          Run the credential broker that holds the app credentials and cloud tokens
   broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]...  Print a scoped one-hour GitHub App installation token
   broker inspect [--json]                          Print the repositories and permissions the broker granted the token on stdin
@@ -305,7 +275,6 @@ Commands:
   land mutant-runs                              Build each tree's tests with the build system this host runs, then run the named tests in each and record pass or fail per test in its .mutant-results (names and trees from MUTANT_TESTS and MUTANT_TREES)
   land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
   land missed --since DATE [--repo DIR]               List each failing full run on main since DATE (GitHub Actions Cargo runs and the coverage record) and the failed tests the change graph's after-landing selection for its landing range left out
-  loops check [--role ledger|lander|here]       Check the declared control loops and their scores
   fleet pace place ...                          Place a launch on a machine and account
   fleet pace sample                             Sample account usage
   fleet pace gate PROVIDER                      Gate a launch on a provider's usage
@@ -328,7 +297,6 @@ Commands:
   spare-fill NAME                               Keep spare workers on the build host of the worker NAME for the next launch like it, retiring those whose policy text, settings or runtime changed
   spare-retire HOST DIR                         Retire every spare on build host HOST whose directory is DIR or under it, printing one line for each (name, age, why) and exiting 0 when there is none; spares elsewhere stay
   lane seed [DIR]                               Seed a lane's cargo target from the shared one
-  tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
   fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`
   help                                          Show the operator and agent commands
   docs reference-index [--check] [--root DIR]    Regenerate src/cli/reference.txt from the one-file-per-command tree under src/cli/reference/, or with --check fail when it is stale
@@ -342,8 +310,6 @@ Commands:
   buck host-cases --prune                      Drop each host case of build/host-cases.list and the manifests whose test function the tree no longer has, printing each file rewritten
   holds list [--here] [--json]                  Every stop set by hand on each host (dispatch pause, issue holds, laptop drain switch, stable-pin hold, a lock a unit holds): who set it, why, since when and what lifts it, red once it outlives its lift by 10 minutes or names none
   box path REPO#N [--box K]                     Each state one box passed through from its claim to the runtime holding its landing (claimed, launching, working, handing-in, queued, checking, landed, reported, delivered, verified, promoted), with its start, the time spent in it and its source record; a state no record holds prints as unrecorded with its gap
-  issue convert [OWNER/]REPO#N --dry-run [--manifest FILE]  Write a manifest with one row per unticked checkbox of the issue (leaf, third-level issue, prose, gate or held by a live claim, with its title, type, labels and body), creating nothing; exits 1 when the rows do not add up to the open boxes or a row has no title, a title over 80 characters or equal to an open issue's, a leaf without a runnable Done when or declared class, or a deny-listed word
-  issue convert [OWNER/]REPO --closed-boxes     List every unticked checkbox on a closed issue of the repository with the open issue that holds the same text, or `no copy`; it edits nothing
   land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]  Print each landing's wall time split by category from the span traces, the same split summed with p50 and p90, and the longest leaf spans, then each hand-in refused before its ticket with the seconds from hand-in to the refusal
   land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket to the front of the urgent tickets (the latest mark goes first) and print the place the lander gives it
   land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason

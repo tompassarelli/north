@@ -34,7 +34,7 @@ The crates under [crates/](crates/), by the layer each sits in; a crate depends 
 - **4 landing**, checks a handed-in change and lands it on main, or refuses it with the reason: [north-land-checks](crates/north-land-checks/), [north-land-sandbox](crates/north-land-sandbox/), [north-lander](crates/north-lander/), [north-landing](crates/north-landing/), [north-safe-push](crates/north-safe-push/)
 - **4 capacity**, leases machine room to builds and sessions: [north-capacity-host](crates/north-capacity-host/)
 - **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/)
-- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-convo](crates/north-convo/), [north-core](crates/north-core/), [north-credentials](crates/north-credentials/), [north-docs](crates/north-docs/), [north-expectations](crates/north-expectations/), [north-flow](crates/north-flow/), [north-graph-ingest](crates/north-graph-ingest/), [north-health](crates/north-health/), [north-issue-boxes](crates/north-issue-boxes/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/), [north-timers](crates/north-timers/), [north-tune](crates/north-tune/)
+- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-convo](crates/north-convo/), [north-core](crates/north-core/), [north-credentials](crates/north-credentials/), [north-docs](crates/north-docs/), [north-graph-ingest](crates/north-graph-ingest/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/)
 <!-- end layout -->
 
 ## The layers
@@ -110,17 +110,11 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 5 orchestration | north-dispatch | The dispatch decision: which box runs next, on which tier, with which brief. |
 | 5 orchestration | north-runtime | Runtime update: the canary, the order and the pin of the build each host runs. The worker sandbox, the offload and the timers move out (L18 to L22, docs/rationale/architecture-layers.md); agent containment and the laptop runner have no planned owner yet. |
 | 5 orchestration | north-offload | Running a land check, a session's build and the compiler cache on another host: which host has room, the slot a run holds and the script that ships and starts it. |
-| 6 operations | north-timers | The timers and the watches they start, and the model call of the disclosure judge, which is a land scan. |
-| 6 operations | north-tune | Tuned values and the learning-loop checks. |
-| 6 operations | north-flow | The flow report and the satellites that read it: agents, detectors, experiments, tempo and tool mining. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
 | 6 operations | north-ci | The CI north runs and watches: private checks posted as commit statuses. |
-| 6 operations | north-issue-boxes | An issue's checkboxes as work: converted into child issues, and ticked when their check passes. |
 | 6 operations | north-credentials | Every credential the fleet uses, with its kind, expiry and renewal path, and the renewals themselves. |
 | 6 operations | north-remote-serve | The command a trusted ssh peer runs on this host: its plan, guards, audit and log. |
-| 6 operations | north-expectations | Declared expectations judged on a timer, each alerting once per breach and once per clear. |
 | 6 operations | north-reclaim | Disk room on the fleet's hosts: what may be deleted or archived, under which budget, and when. |
-| 6 operations | north-health | Health facts: failed starts, flows, issues, loops, red main, rework. |
 | 6 operations | north-convo | Search and audit of agent transcripts, with replays of the policy over them. |
 | 6 operations | north-graph-ingest | Load what north already records into the fact graph. |
 | 6 operations | north-core | Grounding, the crate-split tool, build time, Nix upkeep and the contract probe and coordinator calls move out before the crate is removed (docs/rationale/architecture-layers.md). |

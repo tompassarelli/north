@@ -3,7 +3,7 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_base::platform::rolling_issue::{self, Tracker};
+use north_base::platform::rolling_issue;
 
 const USAGE: &str = "usage: north after-landing [--only gates] --git-dir DIR --base BASE --head HEAD
 

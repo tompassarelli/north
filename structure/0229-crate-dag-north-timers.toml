@@ -1,5 +1,0 @@
-[[crate_dag.crate]]
-name = "north-timers"
-layer = 6
-paths = ["crates/north-timers/src/**"]
-may_use = ["north-base", "north-capacity", "north-capacity-host", "north-dispatch", "north-providers"]

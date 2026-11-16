@@ -1,7 +1,7 @@
 use north_base::platform::{issue_scope, process};
 pub use north_foundation::foundation::check_log::{Failure, failures, log_text};
 use north_foundation::foundation::exit::{NO_VERDICT, RED_MAIN};
-use north_base::platform::rolling_issue::{self, Tracker, settle};
+use north_base::platform::rolling_issue::{self, Gh, settle};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -184,7 +184,7 @@ fn repository() -> Option<String> {
 
 pub const ISSUE_TITLE: &str = "main is red";
 
-pub fn record_red(tracker: &mut dyn Tracker) -> Result<Option<u64>, String> {
+pub fn record_red(tracker: &mut Gh) -> Result<Option<u64>, String> {
     let base = tracker.open(ISSUE_TITLE)?.map_or_else(|| issue_scope::MAIN_RED_BODY.to_owned(), |issue| issue.body);
     settle(tracker, ISSUE_TITLE, Some(&base), "")?;
     Ok(tracker.open(ISSUE_TITLE)?.map(|issue| issue.number))

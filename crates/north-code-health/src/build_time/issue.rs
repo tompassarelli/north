@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::ledger::{Row, Verdict};
-use north_base::platform::rolling_issue::Tracker;
+use north_base::platform::rolling_issue::Gh;
 
 pub(super) const REPO: &str = "tompassarelli/north";
 
@@ -27,7 +27,7 @@ pub(super) fn split_notice(row: &Row<'_>, leaf: &str) -> Option<SplitNotice> {
     Some(SplitNotice { key, line, open })
 }
 
-pub(super) fn file(tracker: &mut dyn Tracker, notices: &[SplitNotice]) -> Result<(), String> {
+pub(super) fn file(tracker: &mut Gh, notices: &[SplitNotice]) -> Result<(), String> {
     for notice in notices {
         if notice.open {
             tracker.create(&notice.key, &notice.line)?;

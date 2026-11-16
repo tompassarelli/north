@@ -1,2 +1,2 @@
 capacity
-Leases, modes and watchdog; bounded, nexus and dev-shell runs
+Leases, modes and watchdog; bounded and dev-shell runs

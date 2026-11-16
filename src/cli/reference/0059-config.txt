@@ -1,1 +1,0 @@
-  config agents routines show NAME [--crons FILE|-]  Show one operator routine

@@ -128,7 +128,7 @@ fn latest_reading<'a>(readings: &'a [Value], account: &str, name: &str) -> Optio
         .max_by_key(|row| row["ts"].as_str().unwrap_or_default())
 }
 
-/// The account rows from the cached readings alone, with the machine detail (every reading, the placement order, runs and yield) when `detail` asks for it.
+/// The account rows from the cached readings alone, with the machine detail (every reading, the placement order, and runs) when `detail` asks for it.
 pub fn read(at: Timestamp, detail: bool) -> Result<Accounts, String> {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let db = crate::usage::open_ledger(&home, None, &|| {})?;
@@ -175,13 +175,11 @@ fn detailed(db: &rusqlite::Connection, at: Timestamp, roster: &crate::fleet::ros
     let readings = crate::usage::json_readings(db, at)?;
     let plan = crate::pacing::placement::case::plan(roster)?;
     let runs = crate::ledger::runs_inside("24h").map_err(|error| error.user_message())?;
-    let yield_line = crate::flow::usage_line();
     Ok(json!({
         "at": at.iso(),
         "usage": readings,
         "plan": plan.iter().map(|(line, reason)| json!({"line": line, "reason": reason})).collect::<Vec<_>>(),
         "api_credit": credit.iter().map(|org| json!({"account": format!("api:{}", org.name), "left_usd": org.left, "estimate_usd": org.estimated, "exhausted": org.exhausted, "figure": org.figure()})).collect::<Vec<_>>(),
         "runs_24h": runs.iter().map(|run| json!({"account": run.account, "model": run.model, "effort": run.effort, "outcome": run.outcome, "usd": run.usd})).collect::<Vec<_>>(),
-        "usage_yield": yield_line,
     }))
 }

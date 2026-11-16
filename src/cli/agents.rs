@@ -1,57 +1,26 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use crate::agent_catalog::{self, sync_gate};
 use crate::error::{NorthError, NorthResult};
-use crate::agents::{self, Verb, plan};
 use crate::fleet::runtimes::Runtimes;
-use crate::runtime_access::RuntimeAccess;
 use crate::pacing;
-use crate::platform::harness;
 use crate::providers::claude::{self, fleet::Claude};
 
+use super::oneshot::RuntimeAccess;
 use super::{fleet, token_usage};
+
+const USAGE: &str = "usage: north config agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|check-hook-paths|check-owners|live-refs}";
 
 pub(super) fn claude_access() -> RuntimeAccess {
     RuntimeAccess { runtimes: Runtimes::new(vec![Arc::new(Claude)]), invocation: claude::invocation }
 }
 
 pub(super) fn run(arguments: &[String]) -> u8 {
-    let Some(verb) = arguments.first().map_or(Some(Verb::Catalog), |name| Verb::named(name)) else {
-        eprintln!("{}", agents::USAGE);
-        return 2;
-    };
-    let rest = &arguments[1..];
-    match verb {
-        Verb::Catalog => exit(agent_catalog::run(arguments).map(|()| 0)),
-        Verb::Sync => exit(sync_gate::run(arguments)),
-        Verb::Busy => agents::busy(rest),
-        Verb::Routines => agents::routines::run(rest),
-        Verb::Plan if rest.first().is_some_and(|flag| flag == "--roomiest") => roomiest(),
-        Verb::Plan => with_harness(|root| {
-            plan::run(
-                rest,
-                &plan::Ports {
-                    harness: root,
-                    place: &pace,
-                },
-            )
-        }),
-    }
-}
-
-fn roomiest() -> u8 {
-    match fleet::roster().map_err(|error| error.to_string()).and_then(|roster| pacing::placement::case::roomiest(&roster)) {
-        Ok(Some(label)) => {
-            println!("{label}");
-            0
-        }
-        Ok(None) => {
-            eprintln!("no Claude account here has headroom");
-            1
-        }
-        Err(error) => {
-            eprintln!("north config agents plan --roomiest: {error}");
+    match arguments.first().map(String::as_str) {
+        None | Some("status" | "stale" | "inspect" | "path" | "on" | "off" | "check-hook-paths" | "check-owners" | "live-refs") => exit(agent_catalog::run(arguments).map(|()| 0)),
+        Some("sync") => exit(sync_gate::run(arguments)),
+        Some(_) => {
+            eprintln!("{USAGE}");
             2
         }
     }
@@ -64,7 +33,7 @@ pub(super) fn usage(arguments: &[String]) -> u8 {
     if crate::usage::handles(arguments) {
         return with_usage_host(|host| crate::usage::run(arguments, host));
     }
-    eprintln!("{}", agents::USAGE);
+    eprintln!("{USAGE}");
     2
 }
 
@@ -108,16 +77,6 @@ fn pace(arguments: &[String]) -> u8 {
         },
         token_usage::read,
     )
-}
-
-fn with_harness(work: impl FnOnce(&Path) -> u8) -> u8 {
-    match harness::harness_root() {
-        Ok(root) => work(&root),
-        Err(skew) => {
-            eprintln!("{skew}");
-            1
-        }
-    }
 }
 
 pub(super) fn config(arguments: &[String]) -> std::process::ExitCode {

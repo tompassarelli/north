@@ -95,8 +95,6 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
     let digest = digest_text(&Facts { now: Moment::now(), now_ms: now, since_label: window, landed: &books.landed, sessions: &sessions, gates: &gates, held: &held, silent: &silent });
     let tree = tree(&sessions);
     let report = super::report::lines();
-    let lanes = crate::flow::work_rows();
-    let lane_lines = crate::flow::work_lines(&lanes);
     let losses = harness_losses(window_ms, now);
     let today = landed::read(at);
     let headline = match &today {
@@ -109,7 +107,7 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
         Ok(round) => round.line(),
         Err(why) => format!("Dispatch's last round unread: {why}"),
     };
-    let text = format!("{headline}{round_line}\n\n{}{}", text(window, &digest, &sessions, &tree, &report, &lane_lines, &losses), turn_section(&turns));
+    let text = format!("{headline}{round_line}\n\n{}{}", text(window, &digest, &sessions, &tree, &report, &losses), turn_section(&turns));
     let json = json!({
         "worker_turns": match &turns {
             Ok(found) => Value::Array(found.iter().map(|turn| json!({"agent": turn.agent, "provider": turn.provider, "started": turn.started, "minutes": turn.minutes, "tokens_in": turn.tokens_in, "tokens_out": turn.tokens_out, "outcome": turn.outcome, "landed": turn.landed, "landed_sha": turn.landed_sha})).collect()),
@@ -131,8 +129,6 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
         "gates": gates.iter().map(|gate| json!({"label": gate.label, "session": gate.session, "question": gate.question, "recommended": gate.recommended, "default_at_ms": gate.default_at_ms})).collect::<Vec<_>>(),
         "held": held,
         "report": report,
-        "lane_flow": lanes,
-        "lane_lines": lane_lines,
         "harness_losses": match &losses {
             Ok(found) => Value::Array(found.iter().map(|class| json!({"class": class.class, "runs": class.runs, "usd": class.usd, "owner": class.owner})).collect()),
             Err(why) => json!({"unread": why}),
@@ -165,7 +161,7 @@ fn turn_line(turn: &WorkerTurn) -> String {
     format!("{} [{}] started {}, {}m wall, tokens in {} out {}, exit {}, {landed}", turn.agent, turn.provider, turn.started, turn.minutes, turn.tokens_in, turn.tokens_out, turn.outcome)
 }
 
-fn text(window: &str, digest: &str, sessions: &[SessionRow], tree: &[String], report: &[String], lanes: &[String], losses: &Result<Vec<ClassLoss>, String>) -> String {
+fn text(window: &str, digest: &str, sessions: &[SessionRow], tree: &[String], report: &[String], losses: &Result<Vec<ClassLoss>, String>) -> String {
     let mut out = format!("Work: last {window}\n\n{digest}\n");
     out.push_str(&format!("Session list: {}\n", sessions.len()));
     for row in sessions {
@@ -190,10 +186,6 @@ fn text(window: &str, digest: &str, sessions: &[SessionRow], tree: &[String], re
     }
     out.push_str("\nReport:\n");
     for line in report {
-        out.push_str(&format!("  {line}\n"));
-    }
-    out.push_str("\nLane flow:\n");
-    for line in lanes {
         out.push_str(&format!("  {line}\n"));
     }
     out.push_str("\nHarness losses, costliest first:\n");

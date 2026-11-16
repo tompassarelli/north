@@ -1,12 +1,11 @@
 
 pub const FEEDBACK_LOOP: &str = "docs/feedback-loop.md";
-pub const LOOPS: &str = "harness/loops.toml";
 
 const ROOTS: &[&str] = &["bin/", "crates/", "harness/", "src/", "docs/", "lib/"];
 
-pub trait Tree {
-    fn exists(&self, path: &str) -> bool;
-    fn text(&self, path: &str) -> Option<String>;
+pub struct Tree<'a> {
+    pub exists: &'a dyn Fn(&str) -> bool,
+    pub text: &'a dyn Fn(&str) -> Option<String>,
 }
 
 fn signal_rows(doc: &str) -> Vec<Vec<&str>> {
@@ -49,25 +48,25 @@ fn classify(raw: &str) -> Option<Cite> {
     word.then(|| Cite::Symbol(token.into()))
 }
 
-fn resolve(tree: &impl Tree, path: &str, line: Option<usize>, symbol: Option<&str>) -> Result<(), String> {
-    if !tree.exists(path) {
+fn resolve(tree: &Tree, path: &str, line: Option<usize>, symbol: Option<&str>) -> Result<(), String> {
+    if !(tree.exists)(path) {
         return Err(format!("{path} does not exist"));
     }
     if let Some(line) = line {
-        let length = tree.text(path).map_or(0, |text| text.lines().count());
+        let length = (tree.text)(path).map_or(0, |text| text.lines().count());
         if line > length {
             return Err(format!("{path}:{line} is past the end ({length} lines)"));
         }
     }
     if let Some(symbol) = symbol
-        && !tree.text(path).is_some_and(|text| text.contains(symbol))
+        && !(tree.text)(path).is_some_and(|text| text.contains(symbol))
     {
         return Err(format!("{symbol} is not in {path}"));
     }
     Ok(())
 }
 
-fn check_cell(tree: &impl Tree, cell: &str) -> Vec<String> {
+fn check_cell(tree: &Tree, cell: &str) -> Vec<String> {
     let mut faults = Vec::new();
     let mut current: Option<String> = None;
     let mut fresh = false;
@@ -97,7 +96,7 @@ fn check_cell(tree: &impl Tree, cell: &str) -> Vec<String> {
     faults
 }
 
-pub fn dead_readers(doc: &str, tree: &impl Tree) -> Vec<String> {
+pub fn dead_readers(doc: &str, tree: &Tree) -> Vec<String> {
     signal_rows(doc)
         .into_iter()
         .filter(|cells| cells.len() >= 3)
@@ -106,27 +105,4 @@ pub fn dead_readers(doc: &str, tree: &impl Tree) -> Vec<String> {
             check_cell(tree, cells[2]).into_iter().map(move |fault| format!("{name}: {fault}"))
         })
         .collect()
-}
-
-pub fn dead_loop_sites(registry: &str, tree: &impl Tree) -> Vec<String> {
-    let Ok(document) = registry.parse::<toml_edit::DocumentMut>() else {
-        return vec![format!("{LOOPS} does not parse")];
-    };
-    let Some(loops) = document.get("loop").and_then(toml_edit::Item::as_array_of_tables) else {
-        return Vec::new();
-    };
-    let mut faults = Vec::new();
-    for entry in loops {
-        let name = entry.get("name").and_then(toml_edit::Item::as_str).unwrap_or("?");
-        for key in ["sites", "constants"] {
-            let cited = entry.get(key).and_then(toml_edit::Item::as_array).into_iter().flatten().filter_map(toml_edit::Value::as_str);
-            for cite in cited {
-                let (path, constant) = cite.split_once("::").map_or((cite, None), |(path, constant)| (path, Some(constant)));
-                if let Err(fault) = resolve(tree, path, None, constant) {
-                    faults.push(format!("loop {name}: {fault}"));
-                }
-            }
-        }
-    }
-    faults
 }

@@ -1,6 +1,6 @@
 use super::snapshot::git;
 use north_foundation::foundation::clock::Timestamp;
-use north_base::platform::rolling_issue::{Gh, Tracker, settle};
+use north_base::platform::rolling_issue::{Gh, settle};
 use serde::Deserialize;
 use std::io::Read;
 use std::path::Path;
@@ -53,7 +53,7 @@ fn fail(message: &str) -> u8 {
     2
 }
 
-fn settle_issue(tracker: &mut dyn Tracker, repo: &Path, measured: &str, today: &str) -> Result<String, String> {
+fn settle_issue(tracker: &mut Gh, repo: &Path, measured: &str, today: &str) -> Result<String, String> {
     let Measured { rust_lines } = serde_json::from_str(measured).map_err(|error| format!("stdin is not `north code-health budget --json` output: {error}"))?;
     let Lines { lines, budget } = rust_lines.ok_or("the budget JSON has no rust_lines; harness/defaults.toml names no [rust_line_budget]")?;
     let sha = git(repo, &["rev-parse", "--short=12", "HEAD"])?.trim().to_owned();

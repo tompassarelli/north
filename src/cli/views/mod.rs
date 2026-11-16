@@ -40,8 +40,8 @@ impl Snapshot {
         Ok(self)
     }
 
-    pub fn health(mut self, dry_run: bool) -> Result<Self, String> {
-        self.health = Some(health::read(dry_run)?);
+    pub fn health(mut self) -> Result<Self, String> {
+        self.health = Some(health::read()?);
         Ok(self)
     }
 }

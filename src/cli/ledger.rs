@@ -3,22 +3,20 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const CHECK_USAGE: &str = "Usage: north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO) | north task check (--observations | --dry-run | --body-file FILE | --repo OWNER/REPO) ...";
+const CHECK_USAGE: &str = "Usage: north task check REF -- CMD...";
 
-const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger grounding [--since 24h] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task comment REPO#N --body TEXT | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO) | north task rewrite-cargo [--dry-run] [--repo OWNER/REPO] [--tree DIR]";
+const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger grounding [--since 24h] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task comment REPO#N --body TEXT | north task check REF -- CMD...";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
-        [task, verb, ..] if task == "task" && (verb == "comment" || verb == "check" && arguments.iter().any(|word| word == "--done-when")) && let Some(code) = north_runtime::worker_sandbox::reenter_lane_only(arguments) => return ExitCode::from(code),
+        [task, verb, ..] if task == "task" && verb == "comment" && let Some(code) = north_runtime::worker_sandbox::reenter_lane_only(arguments) => return ExitCode::from(code),
         [task, verb, _, _] if task == "task" && verb == "landed" && let Some(code) = north_runtime::worker_sandbox::reenter_outside(arguments) => return ExitCode::from(code),
-        [task, verb, rest @ ..] if task == "task" && verb == "check" && rest.iter().any(|word| word == "--done-when") && let Some(code) = sandboxed_check(rest) => return code,
         [task, verb, reference, flag, body] if task == "task" && verb == "comment" && flag == "--body" => comment(reference, body),
         [ledger, verb, rest @ ..] if ledger == "ledger" && let Some(run) = super::tools::ledger_runner(verb) => return ExitCode::from(run(rest)),
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "claude-runs" => {
             crate::providers::claude::runs::run(rest).map(|()| ExitCode::SUCCESS)
         }
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "duplicate" => return ExitCode::from(super::ledger_duplicate::run(rest)),
-        [task, verb, rest @ ..] if task == "task" && verb == "rewrite-cargo" => crate::cargo_boxes::run(rest).map(|()| ExitCode::SUCCESS),
         _ => Ledger::open_default().and_then(|store| dispatch(&store, arguments)),
     };
     match outcome {
@@ -26,22 +24,6 @@ pub fn run(arguments: &[String]) -> ExitCode {
         Err(error) => {
             eprintln!("error: {}", error.user_message());
             ExitCode::from(error.exit_code())
-        }
-    }
-}
-
-/// A Done-when check asked inside a worker sandbox: the outside broker runs the one that writes a verdict, since the domain keeps the ledger unwritable (north#1137); `None` outside a sandbox and for a run that writes nothing.
-fn sandboxed_check(rest: &[String]) -> Option<ExitCode> {
-    use crate::done_when_boxes::{Sandboxed, sandboxed};
-    if !north_runtime::worker_sandbox::confined() {
-        return None;
-    }
-    match sandboxed(rest) {
-        Sandboxed::InPlace => None,
-        Sandboxed::Brokered(words) => Some(ExitCode::from(north_runtime::worker_sandbox::ask_check(&words))),
-        Sandboxed::Refused(why) => {
-            eprintln!("error: {why}");
-            Some(ExitCode::from(2))
         }
     }
 }
@@ -56,14 +38,6 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
             let sha = ledger::landed(store, &std::env::current_dir()?, task_ref, revision)?;
             println!("{task_ref} landed {sha}");
             Ok(ExitCode::SUCCESS)
-        }
-        ["task", "check", rest @ ..] if rest.contains(&"--done-when") => {
-            let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
-            crate::done_when_boxes::run(store, &rest, &north_runtime::worker_sandbox::checked_shell).map(|()| ExitCode::SUCCESS)
-        }
-        ["task", "check", rest @ ..] if rest.first().is_some_and(|word| ["--observations", "--dry-run", "--body-file", "--repo"].contains(word)) => {
-            let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
-            crate::observation_boxes::run(&rest).map(|()| ExitCode::SUCCESS)
         }
         ["task", "check", task_ref, "--", command @ ..] if !command.is_empty() => {
             let argv: Vec<String> = command.iter().map(|word| (*word).to_owned()).collect();

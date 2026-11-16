@@ -1,2 +1,2 @@
 ledger
-Fleet runs and cost; worker tiers, flow, tempo and incidents
+Fleet runs and cost; worker tiers and incidents

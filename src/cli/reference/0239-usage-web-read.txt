@@ -1,1 +1,0 @@
-  usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)

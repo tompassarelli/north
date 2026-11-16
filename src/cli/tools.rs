@@ -5,7 +5,6 @@ use self::graph::graph;
 use self::work_split::work_split;
 use self::subverbs::{Run, code_health, home, lane, land, ledger_verb, ops, runner, runtime};
 pub(super) use self::subverbs::ledger_runner;
-use crate::timers::{self, Timer};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
     provenance,
@@ -33,7 +32,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("hand-in", super::remote_land::hand_in),
     ("finish", super::remote_land::finish),
     ("follows-release", follows_release::run),
-    ("job-run", north_timers::job_run::run),
+    ("job-run", super::job_run::run),
     ("cloud", super::cloud::run),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
     ("pin-retire", crate::lanes::pin_retire),
@@ -42,9 +41,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("docs", north_docs::docs::run),
     ("convo", crate::convo::run),
     ("incident-mine", north_convo::incident_mine::run),
-    ("tool-mine", crate::tool_mine::run),
     ("policy-replay", crate::policy_replay::run),
-    ("defaults-measure", north_tune::defaults_measure::run),
     ("spend", super::spend::run),
     ("fetch-fleet", super::fetch_fleet::run),
     ("fleet-for", super::fleet_for::run),
@@ -73,10 +70,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("git-credential", crate::platform::git_credential::run),
     ("gh-broker", crate::gh_broker::run),
     ("broker", north_broker::run),
-    ("issue", |arguments| match arguments {
-        [word, rest @ ..] if word == "child" => file_child(rest),
-        _ => crate::issue_convert::run(arguments),
-    }),
 ];
 
 const DIRECT: &[(&str, Run)] = &[
@@ -88,8 +81,6 @@ const DIRECT: &[(&str, Run)] = &[
     ("lane", lane),
     ("home", home),
     ("runtime", runtime),
-    ("tune", crate::tune::run),
-    ("loops", crate::loops::run),
     ("code-health", code_health),
     ("dash", super::dash::run),
     ("infra", super::views::infra::run),
@@ -109,7 +100,6 @@ pub(super) enum Tool {
     Config,
     Work,
     Test,
-    Timer(Timer),
 }
 
 const FLEET: &[(&str, Run)] = &[("report", retired_work), ("usage", retired_usage)];
@@ -149,7 +139,6 @@ impl Tool {
             .map(Self::Uniform)
             .or_else(|| named(DIRECT, command).map(Self::Direct))
             .or_else(|| OPERATIONS.iter().find(|(name, _)| *name == command).map(|(_, tool)| *tool))
-            .or_else(|| Timer::named(command).map(Self::Timer))
     }
 
     pub(super) fn run(self, arguments: &[String]) -> ExitCode {
@@ -177,12 +166,10 @@ impl Tool {
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load, workers: crate::dispatch::fleet_workers }, super::token_usage::read)),
             Self::Capacity => match arguments.split_first() {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(north_capacity::run_bounded::run(rest)),
-                Some((verb, rest)) if verb == "nexus" => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(rest).await)) }),
                 Some((verb, rest)) if verb == "dev-shell" && rest.first().is_some_and(|run| run == "run") => ExitCode::from(crate::capacity::dev_shell::command(rest, &|command| capacity::gate::lease_class(command, &capacity_host()).is_some())),
                 _ => ExitCode::from(capacity::command::run(arguments, capacity_host())),
             },
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
-            Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),
         }
     }
 }
@@ -208,8 +195,7 @@ const CHECK: &[(&str, Run)] = &[
     ("concerns", concerns),
     ("harness", agent_config_check::run),
     ("disclosure", disclosure_judge),
-    ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
-    ("experiments", crate::experiments::run),
+    ("oneshot", |arguments| super::oneshot::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
     ("issue-boxes", issue_box_lint::run),
     ("nix", super::nix::doctor),
     ("provenance", provenance::run),
@@ -218,7 +204,7 @@ const CHECK: &[(&str, Run)] = &[
 fn disclosure_judge(arguments: &[String]) -> u8 {
     let access = super::agents::claude_access();
     north_land_scans::disclosure_judge::run(arguments, &|tier, prompt| {
-        north_timers::judge_model::ask_subscription(&north_timers::judge_model::Model { model: tier.model, effort: tier.effort, system: north_land_scans::disclosure_judge::SYSTEM }, prompt, &access)
+        super::oneshot::judge_model::ask_subscription(&super::oneshot::judge_model::Model { model: tier.model, effort: tier.effort, system: north_land_scans::disclosure_judge::SYSTEM }, prompt, &access)
     })
 }
 
@@ -275,10 +261,4 @@ fn work(arguments: &[String]) -> u8 {
 
 fn capacity_host() -> capacity::effects::Host {
     capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, gpu_slots: crate::pacing::placement::local_gpu_slots, offload: north_offload::land_offload::run, stage_runtime: north_runtime::runtime::stage_on, reenter_outside: crate::worker_sandbox::reenter_outside, build_offload: north_offload::build_offload::offload, hand_over: north_offload::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, build_host: north_offload::land_offload::builds_for_peers, session_builds: crate::pacing::placement::local_session_builds, reclaim_disk, tend_disk: north_offload::offload_cache::tend, keep_disk, tend_slots: north_offload::land_offload::warm::tend, run_lease: north_capacity_host::capacity::host::run }
-}
-
-fn file_child(arguments: &[String]) -> u8 {
-    let request: Vec<String> = ["issue", "child"].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect();
-    let outside = crate::platform::session_scope::confined_session().then(|| crate::worker_sandbox::reenter_outside(&request)).flatten();
-    outside.unwrap_or_else(|| crate::issue_child::run(arguments))
 }

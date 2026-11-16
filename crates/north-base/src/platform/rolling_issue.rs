@@ -38,20 +38,7 @@ pub struct Issue {
     pub body: String,
 }
 
-pub trait Tracker {
-    fn open(&self, title: &str) -> Result<Option<Issue>, String>;
-    fn body(&self, number: u64) -> Result<String, String>;
-    fn listed(&self, search: &str) -> Result<Vec<(u64, String)>, String>;
-    fn create(&mut self, title: &str, body: &str) -> Result<(), String>;
-    fn edit(&mut self, number: u64, body: &str) -> Result<(), String>;
-    fn close(&mut self, number: u64, comment: &str) -> Result<(), String>;
-    /// The alarm under `title` holds no longer and no open issue carries it.
-    fn cleared(&mut self, _title: &str) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-pub fn alarm(tracker: &mut dyn Tracker, breaches: &mut Breaches, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
+pub fn alarm(tracker: &mut Gh, breaches: &mut Breaches, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
     if body.is_some_and(declares_category) {
         return Err(STAFFED_ALARM.to_owned());
     }
@@ -62,7 +49,7 @@ pub fn declares_category(body: &str) -> bool {
     body.lines().any(|line| line.trim().trim_start_matches(['-', '*', ' ']).split_once(':').is_some_and(|(name, _)| name.trim().trim_matches('*').eq_ignore_ascii_case("category")))
 }
 
-pub fn settle(tracker: &mut dyn Tracker, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
+pub fn settle(tracker: &mut Gh, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
     match (tracker.open(title)?, body) {
         (None, None) => tracker.cleared(title)?,
         (Some(issue), None) => tracker.close(issue.number, closing)?,
@@ -88,40 +75,38 @@ impl Gh {
     pub fn of(repo: &str) -> Self {
         Self { repo: repo.to_owned() }
     }
-}
 
-impl Tracker for Gh {
-    fn open(&self, title: &str) -> Result<Option<Issue>, String> {
+    pub fn open(&self, title: &str) -> Result<Option<Issue>, String> {
         let listed = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--limit", "500", "--json", "number,title,body"])?;
         Ok(listed.as_array().into_iter().flatten().find(|issue| issue["title"] == title).and_then(|issue| {
             Some(Issue { number: issue["number"].as_u64()?, body: issue["body"].as_str().unwrap_or_default().to_owned() })
         }))
     }
 
-    fn body(&self, number: u64) -> Result<String, String> {
+    pub fn body(&self, number: u64) -> Result<String, String> {
         let found = github::json(&["issue", "view", &number.to_string(), "-R", &self.repo, "--json", "body"])?;
         found["body"].as_str().map(str::to_owned).ok_or(format!("gh issue view {number}: no body"))
     }
 
-    fn listed(&self, search: &str) -> Result<Vec<(u64, String)>, String> {
+    pub fn listed(&self, search: &str) -> Result<Vec<(u64, String)>, String> {
         let found = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--limit", "500", "--search", search, "--json", "number,title"])?;
         Ok(found.as_array().into_iter().flatten().filter_map(|issue| Some((issue["number"].as_u64()?, issue["title"].as_str()?.to_owned()))).collect())
     }
 
-    fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
+    pub fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
         let excerpt: String = body.chars().take(EXCERPT_CHARS).collect();
         tell_coordinator(&format!("{} {title}", self.repo), Some(&format!("{title} on {}: {excerpt}", self.repo)))
     }
 
-    fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
+    pub fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
         succeeded(github::run(&["issue", "edit", &number.to_string(), "-R", &self.repo, "--body", body]), "issue edit")
     }
 
-    fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
+    pub fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
         succeeded(github::run(&["issue", "close", &number.to_string(), "-R", &self.repo, "--comment", comment]), "issue close")
     }
 
-    fn cleared(&mut self, title: &str) -> Result<(), String> {
+    pub fn cleared(&mut self, title: &str) -> Result<(), String> {
         tell_coordinator(&format!("{} {title}", self.repo), None)
     }
 }

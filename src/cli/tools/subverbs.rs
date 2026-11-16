@@ -160,11 +160,9 @@ pub(super) fn home(arguments: &[String]) -> u8 {
 }
 
 const LEDGER: &[(&str, Run)] = &[
-    ("flow", crate::flow::run),
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("opencode", opencode),
     ("show", crate::cli::ledger_show::run),
-    ("tempo", crate::tempo::run),
     ("worker", super::super::worker_ledger::run),
 ];
 
@@ -174,7 +172,6 @@ pub(in crate::cli) fn ledger_runner(verb: &str) -> Option<Run> {
 
 const RUNTIME: &[(&str, Run)] = &[
     ("accept", |arguments| north_runtime::worker_sandbox::hold_client::accept_command(arguments, north_offload::land_offload::settles_fleet_here())),
-    ("agents", agent_runtime_update),
     ("agy", north_runtime::vendor_runtime::run_agy),
     ("claude", north_runtime::vendor_runtime::run_claude),
     ("host-op", north_runtime::worker_sandbox::host_op_client::command),
@@ -182,10 +179,6 @@ const RUNTIME: &[(&str, Run)] = &[
     ("opencode", north_runtime::vendor_runtime::run_opencode),
     ("pi", north_runtime::vendor_runtime::run_pi),
 ];
-
-fn agent_runtime_update(arguments: &[String]) -> u8 {
-    crate::timers::runtime_update::run(arguments)
-}
 
 pub(super) fn runtime(arguments: &[String]) -> u8 {
     match arguments.split_first() {
@@ -197,17 +190,13 @@ pub(super) fn runtime(arguments: &[String]) -> u8 {
 const OPS: &[(&str, Run)] = &[
     ("credentials", crate::credentials::run),
     ("github", ops_github),
-    ("strategy", north_timers::timers::decision_log_retain::run),
-    ("watch", ops_watch),
 ];
 
 pub(super) fn ops(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if let Some(run) = runner(OPS, verb) => run(rest),
-        Some((command, rest)) if command == "dividend" => north_expectations::dividend::run(rest),
-        Some((command, _)) if command == "check" => north_expectations::check::run(arguments),
         _ => {
-            eprintln!("usage: north ops dividend [--dry-run] [CHECK] | north ops check [--dry-run | --synthetic]");
+            eprintln!("usage: north ops (credentials|github) ...");
             2
         }
     }
@@ -215,8 +204,4 @@ pub(super) fn ops(arguments: &[String]) -> u8 {
 
 fn ops_github(arguments: &[String]) -> u8 {
     crate::gh_broker::github(arguments)
-}
-
-fn ops_watch(_: &[String]) -> u8 {
-    north_expectations::watch::run(&["--once".to_owned()])
 }

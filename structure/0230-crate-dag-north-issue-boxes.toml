@@ -1,5 +1,0 @@
-[[crate_dag.crate]]
-name = "north-issue-boxes"
-layer = 6
-paths = ["crates/north-issue-boxes/src/**"]
-may_use = ["north-base", "north-calibration", "north-dispatch", "north-github-mirror", "north-providers"]

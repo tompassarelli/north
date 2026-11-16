@@ -2,12 +2,6 @@ use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
 
-const RETIRE: &[north_base::lifecycle::Retire] = &[
-    north_base::lifecycle::retire::<north_landing::land::after_landing_lifecycle::AfterLandingRun>,
-    north_landing::land::after_landing_lifecycle::retire_without_lander,
-    north_base::lifecycle::retire::<north_base::land_ticket::LandTicket>,
-];
-
 pub struct Health {
     pub text: String,
     pub json: Value,
@@ -15,18 +9,15 @@ pub struct Health {
 }
 
 pub fn run(arguments: &[String]) -> std::process::ExitCode {
-    let (dry_run, json) = match arguments {
-        [] => (false, false),
-        [flag] if flag == "--dry-run" => (true, false),
-        [flag] if flag == "--json" => (false, true),
-        [first, second] if (first == "--dry-run" && second == "--json") || (first == "--json" && second == "--dry-run") => (true, true),
-        [verb] if verb == "facts" => return crate::health::run(arguments, RETIRE),
+    let json = match arguments {
+        [] => false,
+        [flag] if flag == "--json" => true,
         _ => {
-            eprintln!("Usage: north health [--dry-run] [--json] | facts");
+            eprintln!("Usage: north health [--json]");
             return std::process::ExitCode::from(2);
         }
     };
-    match super::Snapshot::new().health(dry_run) {
+    match super::Snapshot::new().health() {
         Ok(snapshot) => {
             let Some(health) = &snapshot.health else { return std::process::ExitCode::from(1) };
             if json {
@@ -43,19 +34,14 @@ pub fn run(arguments: &[String]) -> std::process::ExitCode {
     }
 }
 
-pub fn read(dry_run: bool) -> Result<Health, String> {
+pub fn read() -> Result<Health, String> {
     let now = Timestamp::now().unix_seconds();
     let bars = crate::cli::scoreboard::ready::run(now, crate::cli::scoreboard::ready::View::default())?;
     let concerns = north_concerns::tick::latest(now);
-    let (invariants_ok, invariants) = crate::health::report(dry_run)?;
     let mut text = String::from("Health\n\nReadiness bars:\n");
     text.push_str(&bars);
     text.push_str(&format!("\nConcerns: {} rows, {} red, measured {} min ago\n", concerns.rows, concerns.red, (now - concerns.at).max(0) / 60));
     for line in &concerns.lines {
-        text.push_str(&format!("  {line}\n"));
-    }
-    text.push_str("\nHarness invariants:\n");
-    for line in &invariants {
         text.push_str(&format!("  {line}\n"));
     }
     Ok(Health {
@@ -66,8 +52,7 @@ pub fn read(dry_run: bool) -> Result<Health, String> {
             "concerns": concerns.lines,
             "red_concerns": concerns.red,
             "concerns_at": Timestamp::from_unix_seconds(concerns.at).iso(),
-            "invariants": invariants,
         }),
-        ok: invariants_ok,
+        ok: concerns.red == 0,
     })
 }

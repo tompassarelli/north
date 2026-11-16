@@ -1,1 +1,0 @@
-- Goal ETA: `north config agents plan` prints, per project target, the critical path over the goal's open boxes at the spawn gate's width with landing overhead, predicted finish against the target and n per box, and records it as a `goal_eta` calibration row ([goal ETA measurements](rationale/learned-routing-and-goal-eta.md#goal-eta)).

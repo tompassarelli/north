@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use north_graph_change::split::{Answer, Planner, Question, Tokens};
 
-use crate::timers::oneshot::{self, Ask};
+use crate::cli::oneshot::session::{self as oneshot, Ask};
 
 const PLANNING_LIMIT: Duration = Duration::from_secs(600);
 

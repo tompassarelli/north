@@ -9,13 +9,13 @@ Operator console:
   dash                  The board: landings and boxes per hour, then four concern panels
   fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
   gate                  Open, answer or list decision gates
-  ledger                Fleet runs and cost; worker tiers, flow, tempo and incidents
+  ledger                Fleet runs and cost; worker tiers and incidents
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
   convo                 Search and read past agent transcripts
 
 Work and knowledge:
-  work                  The fleet's work, gates, landings and lane flow; work items
+  work                  The fleet's work, gates, landings and stalls; work items
   graph                 Record and query facts, ground prompts, list the ready backlog
 
 Engineering and landing:
@@ -34,12 +34,12 @@ System and telemetry:
   infra                 Live paid resources with their monthly price and a total
   config                Skills and hooks, agent plan and usage, context, coordinator calls
   runtime               Update, deploy or check the north and agent runtimes
-  capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
+  capacity              Leases, modes and watchdog; bounded and dev-shell runs
   ops                   Watch, expectations, credentials, GitHub, strategy, news
   help                  Show this help
 
 Run north COMMAND --help for its usage and contract. Run north --help-all
-for every command, including those run by timers, hooks and programs.
+for every command, including those run by hooks and programs.
 
 Options:
   -h, --help  Show this help

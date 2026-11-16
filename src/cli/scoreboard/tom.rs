@@ -12,7 +12,7 @@ use crate::foundation::clock::Timestamp;
 use crate::guard::recommend_acts::{self, Turn, turn_in};
 use crate::ledger::outcome::attention::{Typed, references};
 use crate::ledger::outcome::read::Places;
-use crate::flow::typed::{Reach, typed_messages};
+use super::typed::{Reach, typed_messages};
 
 const HOUR_S: i64 = 3_600;
 

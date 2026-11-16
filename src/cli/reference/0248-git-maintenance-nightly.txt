@@ -1,1 +1,0 @@
-  git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
