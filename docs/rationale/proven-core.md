@@ -6,18 +6,18 @@ Owner: north#1650. It follows docs/rationale/leaner-north.md (north#970), which 
 
 ## Summary for marking
 
-Buckets: 1 execution primitives (keep), 2 check and land (keep; the public-repo secret and private-text scans sit here and stay on always), 3 sandbox and broker (simplify), 4 fleet governance (mothball), 5 policy (opt-in).
+Buckets: 1 execution primitives (keep), 2 check and land (keep; the public-repo secret and private-text scans sit here and stay on always), 3 sandbox and broker (simplify), 4 fleet governance (mothball), 5 policy (opt-in, except the launch-critical hook and the language guard, which stay on).
 
 Crates (80; Rust lines are every `.rs` file under the crate, tests included, at e87d0a1601):
 
-- Bucket 1: 16 crates, 58,406 lines; 8 keep, 8 simplify
-- Bucket 2: 24 crates, 90,540 lines; 12 keep, 10 simplify, 2 mothball
+- Bucket 1: 15 crates, 57,556 lines; 8 keep, 7 simplify
+- Bucket 2: 25 crates, 91,390 lines; 13 keep, 11 simplify, 1 mothball
 - Bucket 3: 7 crates, 30,468 lines; 3 keep, 4 simplify
-- Bucket 4: 27 crates, 121,487 lines; all mothball (north-runtime-records split: its failure type moves into north-runtime)
+- Bucket 4: 27 crates, 121,487 lines; 24 mothball, 3 simplify (north-runtime-records split: its failure type moves into north-runtime)
 - Bucket 5: 6 crates, 41,158 lines; 5 mothball, 1 simplify
 - Total 342,059 lines under `crates/`. Buckets 1 to 3 hold 179,414 lines (52%); buckets 4 and 5 hold 162,645 (48%). The root binary adds 21,851 lines in `src/` and 6,913 in `tests/it` (see the added rows).
 
-Hooks (6 registered units, 45 decider rows): bucket 3 has 6 (3 keep, 3 simplify), bucket 4 has 18 (all mothball), bucket 5 has 27 (1 simplify, 26 mothball). No session hook stays on; the secret and private-text scans run at push and landing.
+Hooks (6 registered units, 45 decider rows): bucket 3 has 6 (3 keep, 3 simplify), bucket 4 has 18 (all mothball), bucket 5 has 27 (3 keep, 1 simplify, 23 mothball). The session hooks that stay on are launch-critical and the language guard (its unit and its `language` rule); the secret and private-text scans run at push and landing.
 
 Skills (22): bucket 4 has 3, bucket 5 has 19; all mothball.
 
@@ -27,7 +27,22 @@ Top-level verbs (108, plus bare `north`): bucket 1 has 13 (8 keep, 3 simplify, 2
 
 Rows the review added (12): bucket 1 has 2 (1 keep, 1 simplify), bucket 2 has 2 (both simplify), bucket 3 has 2 (both keep), bucket 4 has 5 (4 mothball, 1 simplify), bucket 5 has 1 (keep).
 
-The first draft's ten least certain calls went to an outside review on 2026-11-16; the decisions below replace them.
+The first draft's ten least certain calls went to an outside review on 2026-11-16; the coordinator's calls on them and the review's decisions follow, and the calls hold where the two differ.
+
+## Decisions on the ten least-sure calls (2026-11-16)
+
+The coordinator's calls on the inventory's ten least-sure calls, under the owner's go on the plan (north#1650). Where they differ from the review decisions in the next section (threads and providers, machine-model, launch-critical, the language-guard hook, strategy-types' bucket), these calls hold, and the rows below follow them.
+
+1. north-capacity and north-capacity-host: simplify; keep heavy-work admission, drop the overload paging.
+2. north-threads and north-providers: simplify to the run ledger alone; Phase 3 measures ask-to-landed time and cost from it.
+3. launch-critical hook: stays on, a third always-on rule beside the secret and private-text scans (1,994 refusals, 0 of 18 sampled false).
+4. north-github-mirror: simplify now; cut once Phase 2 removes the core's reads of it.
+5. runtime follow and stable hold: mothball automatic promotion; an update is one explicit `north runtime deploy` after landing.
+6. lander doctor, land-shadow and land-drill: mothball.
+7. north-strategy-types: moves to bucket 2 as the lander's decision record.
+8. north-buck and north-test-cases: keep while the after-only Buck2 workflow stays.
+9. north-machine-model: keep.
+10. language gate and language-guard: stay on; they enforce the owner's Rust-first rule on a public repository.
 
 ## Inventory review and decisions (2026-11-16)
 
@@ -92,13 +107,12 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-ssh-spare` | 1 Execution primitives | keep | 327 | 10/1 | spare ssh channels opened ahead: the single-call ssh of north#1650 |
 | `north-switch` | 1 Execution primitives | keep | 1160 | 2/0 | off switches that answer with the runtime broken (Phase 0, north#1648) |
 | `north-base` | 1 Execution primitives | simplify | 12883 | 470/23 | shared base holding dispatch_pause, autoland_status, agents_sync beside platform code; 470 commits and 23 reverts in 14 d, the most of any base crate |
-| `north-capacity` | 1 Execution primitives | simplify | 6623 | 144/10 | kept slice is local compile admission (src/capacity/admission/, 670 lines); leases, modes and the watchdog are mothballed: the watchdog paged "host overload" 78 times with no recorded prevented stall (decision 1) |
-| `north-capacity-host` | 1 Execution primitives | simplify | 11814 | 199/11 | kept slice is the bounded offload runs (src/run_bounded/, 157 lines); nexus_ram (580 lines) and leases are mothballed (decision 1); 199 commits, 11 reverts in 14 d |
+| `north-capacity` | 1 Execution primitives | simplify | 6623 | 144/10 | keeps heavy-work admission (src/capacity/admission/, 670 lines); leases, modes and the overload paging go: the watchdog paged "host overload" 78 times with no recorded prevented stall (call 1) |
+| `north-capacity-host` | 1 Execution primitives | simplify | 11814 | 199/11 | keeps the bounded heavy runs (src/run_bounded/, 157 lines); nexus_ram (580 lines) and the overload paging go (call 1); 199 commits, 11 reverts in 14 d |
 | `north-fleet` | 1 Execution primitives | simplify | 9157 | 383/22 | holds the warm spares of 6a8b10f237 (src/fleet/spares.rs); the rest is fleet session governance; 383 commits, 22 reverts in 14 d |
 | `north-lanes` | 1 Execution primitives | simplify | 9277 | 104/4 | lane worktrees, gc, rescue, squash; its gc reads the GitHub mirror (src/lanes/gc/audit.rs, remote.rs, evidence.rs), the issue-driven lane GC (decision 3) |
 | `north-reclaim` | 1 Execution primitives | simplify | 2061 | 11/1 | disk reclaim and retention; keep reclaim, drop retention tied to fleet state |
 | `north-session-host` | 1 Execution primitives | simplify | 1353 | 36/3 | holds a session's process and delivers its rows; names north-runtime-follow in its manifest (decision 3) |
-| `north-strategy-types` | 1 Execution primitives | simplify | 850 | 53/4 | keeps its envelope, land and admission types and `github::Quota`: the kept local compile admission records `admission` cases (crates/north-capacity/src/capacity/admission_record.rs) and crates/north-base/src/platform/github_quota.rs reads the quota; placement, credit, tokens and brief go once bucket 4 leaves; 11 manifests name it, the lander and landing among them (decision 10) |
 | `north-buck` | 2 Check and land | keep | 1743 | 17/0 | Buck2 target writer; stays while the after-only Buck2 workflow stays, and laptop safe-push never needs a remote Buck2 build (decision 10) |
 | `north-build-system` | 2 Check and land | keep | 2125 | 60/1 | the one build/test/clippy interface; 13 crates depend on it |
 | `north-check-environment` | 2 Check and land | keep | 133 | 8/0 | where a land check runs: runner, build host or here |
@@ -108,11 +122,11 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-graph-change` | 2 Check and land | keep | 2718 | 23/0 | affected, overlap and blame queries the lander asks: the code knowledge to salvage |
 | `north-land-checks` | 2 Check and land | keep | 10121 | 222/10 | land check slots and offload placement; nextest refused 27 lanes in 14 d, 24 later landed |
 | `north-land-sandbox` | 2 Check and land | keep | 1398 | 16/0 | confines what a land check may read and write |
+| `north-machine-model` | 2 Check and land | keep | 874 | 9/1 | lifecycle machine checker the lander and supervisor use; no recorded catch (call 9) |
 | `north-registries` | 2 Check and land | keep | 88 | 4/0 | derived registries regenerated at landing (62f0f64a3f, north#1537) |
 | `north-safe-push` | 2 Check and land | keep | 4795 | 69/5 | the landing entry; 69 commits, 5 reverts in 14 d |
 | `north-test-cases` | 2 Check and land | keep | 248 | 6/0 | runs libtest cases one per process for the Buck2 target; stays with the Buck2 workflow (decision 10) |
 | `north-lander-doctor` | 2 Check and land | mothball | 2754 | 70/1 | auto-remedy loop for stuck lander states; a lean lander has few states to heal; no recorded catch in the reports read |
-| `north-machine-model` | 2 Check and land | mothball | 874 | 9/1 | lifecycle machine checker; no recorded catch (decision 5) |
 | `north-ci` | 2 Check and land | simplify | 1689 | 5/0 | private_check is the private-text scan, on always (decision 2); ci_watch is mothballed |
 | `north-diff-gates` | 2 Check and land | simplify | 3662 | 29/1 | keeps the secrets and language gates; dep-gate (479), stub-exec (348) and build-cache (1) would-be refusals were shadow only, so those three are mothballed (decision 4) |
 | `north-graph` | 2 Check and land | simplify | 4279 | 31/0 | triple kernel; graph.db is 2.9 GB on gex45 (ls, 2026-11-16) and 18 GB on the laptop (north#1650); rebuild as a small library |
@@ -123,6 +137,7 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-land-scans` | 2 Check and land | simplify | 8577 | 131/6 | 30-odd scans; "lander scan" refused 76 lanes (37.6 worker-h, 13 landed unchanged); its self-policing scans (gate-shadow, holdlist, docs-owners, alarm definitions, ci-budget) are governance inside the core |
 | `north-offload` | 2 Check and land | simplify | 6365 | 49/4 | remote checks with the laptop fallback; depends on north-dispatch and north-pacing, which Phase 2 must cut |
 | `north-shared-config` | 2 Check and land | simplify | 498 | 18/1 | reads south agents/ config; keeps only what the always-on public-repo scans and the landing read (decision 2) |
+| `north-strategy-types` | 2 Check and land | simplify | 850 | 53/4 | keeps its envelope, land and admission types and `github::Quota`: the kept local compile admission records `admission` cases (crates/north-capacity/src/capacity/admission_record.rs) and crates/north-base/src/platform/github_quota.rs reads the quota; placement, credit, tokens and brief go once bucket 4 leaves; 11 manifests name it, the lander and landing among them (call 7: the lander's decision record) |
 | `north-agent-starts` | 3 Sandbox and broker | keep | 304 | 5/0 | the one door from fleet to an agent-user session; ring-0 |
 | `north-credentials` | 3 Sandbox and broker | keep | 1083 | 5/1 | credential store behind the broker; ring-0 |
 | `north-trusted-mirror` | 3 Sandbox and broker | keep | 222 | 7/0 | trusted bare mirror outside every worktree (south#128); ring-0 path |
@@ -142,7 +157,6 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-fleet-store` | 4 Fleet governance | mothball | 5023 | 76/5 | session store, alarms, coordinator records; 511 messages held from waking their recipient (north work --since 14d) |
 | `north-fleet-supervisor` | 4 Fleet governance | mothball | 11913 | 300/18 | fleet tick, registry, leads; 300 commits, 18 reverts in 14 d |
 | `north-flow` | 4 Fleet governance | mothball | 11231 | 95/1 | flow detectors, tempo, experiments judge, tool mining |
-| `north-github-mirror` | 4 Fleet governance | mothball | 844 | 22/1 | the graph's issue mirror, mothballed once its core callers are cut: 10 manifests name it, the core ones being the root Cargo.toml, north-lanes, north-landing, north-land-scans and north-ci (decision 8) |
 | `north-graph-ground` | 4 Fleet governance | mothball | 965 | 19/0 | prompt grounding from the graph; experiment grounding-g2 has no verdict before 2026-11-28 |
 | `north-graph-loops` | 4 Fleet governance | mothball | 1026 | 16/0 | learning-loop facts in the graph |
 | `north-health` | 4 Fleet governance | mothball | 1769 | 46/0 | readiness bars and rolling unit-failure issues |
@@ -150,13 +164,14 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-land-watch` | 4 Fleet governance | mothball | 1194 | 23/1 | raises landing hiccups to the proxy and the lane's lead |
 | `north-pace` | 4 Fleet governance | mothball | 7667 | 146/2 | spend, credit and the model router |
 | `north-pacing` | 4 Fleet governance | mothball | 5882 | 102/4 | placement and laptop pacing |
-| `north-providers` | 4 Fleet governance | mothball | 13199 | 293/9 | provider launchers and the run ledger; Phase 3 uses plain Claude Code or Pi sessions and reads cost from transcripts (decision 6) |
-| `north-runtime-records` | 4 Fleet governance | mothball, split | 451 | 3/0 | crates/north-runtime-records/src/failure.rs (24 lines) is north-runtime's error type, used in 44 of its files, so it moves into north-runtime as core; crates/north-runtime-records/src/hold_ledger.rs (306 lines) carries review accepts through the sandbox and moves with it; crates/north-runtime-records/src/after_landing.rs (118 lines, culprit-search records) is mothballed (docs/rationale/core-cut-plan.md) |
-| `north-threads` | 4 Fleet governance | mothball | 9136 | 220/6 | ledger of runs, claims and gates; Phase 3 reads timings and cost from land tickets and transcripts (decision 6) |
 | `north-timers` | 4 Fleet governance | mothball | 4114 | 16/0 | job-run, job-watch, outside-watch, usage web reads |
 | `north-tui` | 4 Fleet governance | mothball | 6143 | 82/3 | the fleet screen |
 | `north-tune` | 4 Fleet governance | mothball | 3277 | 36/0 | learning-loop tuner (harness/loops.toml) |
 | `north-unblocks` | 4 Fleet governance | mothball | 361 | 3/1 | coordinator's manual unblocks (north#1577) |
+| `north-runtime-records` | 4 Fleet governance | mothball, split | 451 | 3/0 | crates/north-runtime-records/src/failure.rs (24 lines) is north-runtime's error type, used in 44 of its files, so it moves into north-runtime as core; crates/north-runtime-records/src/hold_ledger.rs (306 lines) carries review accepts through the sandbox and moves with it; crates/north-runtime-records/src/after_landing.rs (118 lines, culprit-search records) is mothballed (docs/rationale/core-cut-plan.md) |
+| `north-github-mirror` | 4 Fleet governance | simplify | 844 | 22/1 | the graph's issue mirror; simplified now and cut once Phase 2 removes the core's reads: 10 manifests name it, the core ones being the root Cargo.toml, north-lanes, north-landing, north-land-scans and north-ci (call 4) |
+| `north-providers` | 4 Fleet governance | simplify | 13199 | 293/9 | simplified to the run ledger it writes (src/ledger/); the provider launchers go (call 2) |
+| `north-threads` | 4 Fleet governance | simplify | 9136 | 220/6 | simplified to the run ledger alone, from which Phase 3 measures ask-to-landed time and cost; claims and gates go (call 2) |
 | `north-agent-policy` | 5 Policy | mothball | 6886 | 2/0 | agent config check and policy contract; behind north policy |
 | `north-code-health` | 5 Policy | mothball | 7648 | 56/1 | debt ceiling refused 46 lanes (31.8 worker-h, 21 landed unchanged); after-landing code-health 733 failures in 14 d |
 | `north-concerns` | 5 Policy | mothball | 1017 | 8/0 | concerns.toml checks; opt-in |
@@ -191,11 +206,14 @@ North registers six hook units (`harness/policy-owners.toml`); the `north-hook` 
 | `reviewer-cli` | 4 Fleet governance | mothball | 4 refusals |
 | `spawn-capacity` | 4 Fleet governance | mothball | 20 advisories |
 | unit: `codex-conduct` | 4 Fleet governance | mothball | Codex-only deciders; no Codex subscription |
-| `unrunnable-box` | 4 Fleet governance | mothball | 4 refusals, 12/16 false (75%) |
 | unit: `prompt-grounding` | 4 Fleet governance | mothball | grounds Tom's interactive prompt from the graph |
+| `unrunnable-box` | 4 Fleet governance | mothball | 4 refusals, 12/16 false (75%) |
 | `worker-handoff` | 4 Fleet governance | mothball | 58 advisories |
 | `worker-tier` | 4 Fleet governance | mothball | missing-facet 168, facet-value 36, routing 30, payback 23, item 14 refusals |
 | `worker-wait` | 4 Fleet governance | mothball | 662 refusals, 24/30 false (80%) |
+| `language` | 5 Policy | keep | 13 refusals, 1/1 false; the language-guard's rule, on (call 10) |
+| `launch-critical` | 5 Policy | keep | 1994 refusals, 0/18 false, 249 sessions repeated it; always on, a third rule beside the secret and private-text scans (call 3) |
+| unit: `language-guard` | 5 Policy | keep | on: enforces the owner's Rust-first rule on a public repository, as the landing's language-gate does (45 lane refusals) (call 10) |
 | `ambient-test-input` | 5 Policy | mothball | 62 advisories |
 | `blind-stage` | 5 Policy | mothball | 2376 refusals, 0/30 false, 223 sessions repeated it |
 | `claude-sleep` | 5 Policy | mothball | 3911 refusals, 0/30 false, 475 sessions repeated it |
@@ -205,8 +223,6 @@ North registers six hook units (`harness/policy-owners.toml`); the `north-hook` 
 | `file-skill` | 5 Policy | mothball | 107 advisories |
 | `git-stash` | 5 Policy | mothball | 320 refusals, 0/30 false |
 | `heavy-command` | 5 Policy | mothball | 8207 fires, 8159 rewritten into capacity runs, 5/19 false; .local-write 2209 refusals; .farm 35 |
-| `language` | 5 Policy | mothball | 13 refusals, 1/1 false |
-| `launch-critical` | 5 Policy | mothball | 1994 refusals, 0/18 false, 249 sessions repeated it; stays as an opt-in policy hook (decision 7) |
 | `masked-pipeline` | 5 Policy | mothball | 27 refusals, 0/14 false |
 | `modern-search` | 5 Policy | mothball | 5660 fires, 5330 rewritten, 8/30 false |
 | `nix-activity` | 5 Policy | mothball | 3709 advisories; .deny 13 refusals, 4/7 false |
@@ -221,7 +237,6 @@ North registers six hook units (`harness/policy-owners.toml`); the `north-hook` 
 | `shared-mutability` | 5 Policy | mothball | 3 advisories |
 | `single-impl-trait` | 5 Policy | mothball | 17 advisories |
 | unit: `firn-system-policy` | 5 Policy | mothball | refuses edits to firn system policy paths |
-| unit: `language-guard` | 5 Policy | mothball | same rule the landing's language-gate enforces (45 lane refusals) |
 | unit: `north-hook (dispatch)` | 5 Policy | simplify | the dispatcher of every decider below; stays only to run the keep-on rules |
 
 ## Skills
