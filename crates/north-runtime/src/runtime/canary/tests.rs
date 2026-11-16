@@ -24,6 +24,7 @@ struct Fleet<'a> {
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
     pages: Mutex<Vec<(String, String)>>,
+    freeze: Mutex<Option<String>>,
 }
 
 impl Machine for Fleet<'_> {
@@ -89,6 +90,10 @@ impl Machine for Fleet<'_> {
         self.landers.clone()
     }
 
+    fn landing_freeze(&self) -> Option<String> {
+        self.freeze.lock().unwrap().clone()
+    }
+
     fn lander_take_host(&self, _sha: &str) -> Option<String> {
         self.checkout.as_deref().and_then(|checkout| take_host(&checkout.join(".git"), "live", "candidate").ok().flatten())
     }
@@ -117,7 +122,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, offloads_hub: true, settles: false, builds: false, landers: None, depbox_host: None, services: None, checkout: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, offloads_hub: true, settles: false, builds: false, landers: None, depbox_host: None, services: None, checkout: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()), freeze: Mutex::new(None) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -379,4 +384,18 @@ fn a_promotion_judge_fetches_a_candidate_its_mirror_lacks() {
     git(&["fetch", "-q", "origin", "live:refs/remotes/origin/main"]);
     assert_eq!(take_host(mirror.path(), &sha("live"), &sha("candidate")), Ok(Some("cpx62".to_owned())), "a mirror that had not yet fetched the candidate skipped the build host probe silently");
     assert!(take_host(mirror.path(), &sha("live"), PROMOTED).is_err(), "a candidate origin lacks too is reported, not skipped silently");
+}
+
+#[test]
+fn a_runtime_left_unjudged_is_judged_again_only_once_what_its_probe_waited_on_changes() {
+    let host = Host::promoted();
+    let fleet = host.fleet(Some(("opencode", Ran::Unrun("safe-push refused: the landing is frozen".to_owned()))));
+    *fleet.freeze.lock().unwrap() = Some(r#"{"cause":"paused","placed_at":1794798799,"placed_on":"whiterabbit"}"#.to_owned());
+    assert!(matches!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::Unrun(_)));
+    fleet.probed.lock().unwrap().clear();
+    assert_eq!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::Skipped);
+    assert!(fleet.probed.lock().unwrap().is_empty(), "on 2026-11-16 runtime follow on whiterabbit reran every canary probe for the same unjudged runtime each 20 s tick, about 1 GB of scratch writes a tick");
+    *fleet.freeze.lock().unwrap() = None;
+    assert!(matches!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::Unrun(_)));
+    assert!(!fleet.probed.lock().unwrap().is_empty(), "a runtime promoted under a landing freeze stayed unjudged and unshipped after the freeze was lifted");
 }

@@ -62,6 +62,10 @@ pub(super) trait Machine: Sync {
     fn lander_take_host(&self, _sha: &str) -> Option<String> {
         None
     }
+    /// The landing freeze the host holds, as its file reads, or none.
+    fn landing_freeze(&self) -> Option<String> {
+        None
+    }
     /// The probes runtime `sha` judges itself by on `host`, or why it printed none; a machine that asks no runtime answers with the list compiled into the running north.
     fn listed_by(&self, host: &str, sha: &str) -> Result<CoreLoop, String>
     where
@@ -121,9 +125,44 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
     if let Err(failure) = lifecycle::settle_orphans::<Canarying>(layout, &format!("{host}/")) {
         eprintln!("north runtime canary: {host}: {}", failure.message);
     }
-    if lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
+    let state = lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten();
+    if state.is_some_and(Canary::judged) {
         return Verdict::Skipped;
     }
+    let reading = conditions(machine);
+    if state == Some(Canary::Unjudged) && unjudged_under(layout, host, sha).as_deref() == Some(reading.as_str()) {
+        return Verdict::Skipped;
+    }
+    let verdict = judge(layout, host, sha, machine);
+    if matches!(verdict, Verdict::Unrun(_)) {
+        note_unjudged(layout, host, sha, &reading);
+    }
+    verdict
+}
+
+/// What a probe that could not run waits on, read each tick with a file read and a process scan and no write: the landing freeze, the repositories a running lander serves and the providers a worker launches with. A runtime left unjudged is judged again once this differs from the reading its canary ran under, as when the freeze is lifted or a lander starts serving, and not on every tick: on 2026-11-16 a freeze kept the build host take probe unrun and runtime follow reran every probe for the same runtime each 20 s, about 1 GB of scratch writes a run on the laptop (north#1553).
+fn conditions(machine: &impl Machine) -> String {
+    let landers = machine.lander_repositories().map_or_else(|| "unread".to_owned(), |landers| landers.served.join(" "));
+    format!("freeze: {}\nlanders: {landers}\nproviders: {}\n", machine.landing_freeze().unwrap_or_default().trim(), machine.launchable_providers().join(" "))
+}
+
+fn unjudged_file(layout: &Layout, host: &str) -> std::path::PathBuf {
+    layout.state.join(format!("runtime-canary-unjudged-{}", host.replace('/', "_")))
+}
+
+fn unjudged_under(layout: &Layout, host: &str, sha: &str) -> Option<String> {
+    let text = std::fs::read_to_string(unjudged_file(layout, host)).ok()?;
+    text.strip_prefix(sha)?.strip_prefix('\n').map(str::to_owned)
+}
+
+fn note_unjudged(layout: &Layout, host: &str, sha: &str, reading: &str) {
+    if let Err(error) = std::fs::write(unjudged_file(layout, host), format!("{sha}\n{reading}")) {
+        eprintln!("north runtime canary: {host}: could not record what {} waits on: {error}", layout::short(sha));
+    }
+}
+
+fn judge(layout: &Layout, host: &str, sha: &str, machine: &impl Machine) -> Verdict {
+    let instance = format!("{host}/{sha}");
     let short = layout::short(sha);
     let finish = |state: Canary, cause: &str| {
         if let Err(failure) = lifecycle::move_to::<Canarying>(layout, &instance, state, cause) {
@@ -359,6 +398,10 @@ impl Machine for Live<'_> {
 
     fn lander_repositories(&self) -> Option<Landers> {
         self.host.run(&probes::repositories_script()).ok().map(|listing| probes::parse_repositories(&listing))
+    }
+
+    fn landing_freeze(&self) -> Option<String> {
+        self.host.run("cat \"${XDG_STATE_HOME:-$HOME/.local/state}/north/land-freeze.json\" 2>/dev/null; true").ok().filter(|text| !text.trim().is_empty())
     }
 
     fn lander_take_host(&self, sha: &str) -> Option<String> {
