@@ -111,6 +111,7 @@ enum Command {
     Grounding(Vec<String>),
     RemoteServe(Vec<String>),
     VerbHelp(Vec<String>),
+    Switch(Vec<String>),
 }
 
 const CLI_HELP: &str = include_str!("help.txt");
@@ -161,7 +162,8 @@ const FORWARDED: &[(&str, Forward)] = &[
         _ => Command::Nix(rest),
     }),
     ("threads", |_, rest| Command::Threads(rest)),
-    ("fleet", |_, rest| match rest.split_first() {
+    ("fleet", |name, rest| match rest.split_first() {
+        Some((verb, _)) if verb == "off" || verb == "on" => Command::Switch([vec![name.to_owned()], rest].concat()),
         Some((verb, tail)) if let Some(tool) = Tool::fleet_verb(verb) => Command::Tool(tool, tail.to_vec()),
         _ => Command::Fleet(rest),
     }),
@@ -294,6 +296,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Grounding(arguments) => in_runtime(async move {
             grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
         }),
+        Command::Switch(arguments) => switch(&arguments),
     }
 }
 
@@ -308,4 +311,10 @@ async fn in_runtime(work: impl Future<Output = NorthResult<ExitCode>>) -> ExitCo
 fn failure(error: NorthError) -> ExitCode {
     eprintln!("error: {}", error.user_message());
     ExitCode::from(error.exit_code())
+}
+
+fn switch(arguments: &[String]) -> ExitCode {
+    use std::os::unix::process::CommandExt;
+    let error = std::process::Command::new("north-switch").args(arguments).exec();
+    failure(NorthError::Configuration(format!("north {}: north-switch, which the host configuration installs, does not start: {error}", arguments.join(" "))))
 }

@@ -2,6 +2,10 @@
 # Live project runtime: selected outside the NixOS closure.
 set -euo pipefail
 
+if [[ ${1:-} == fleet && ( ${2:-} == off || ${2:-} == on ) ]] && switch="$(command -v north-switch)"; then
+  exec "$switch" "$@"
+fi
+
 north_runtime="${HOME:+$HOME/.local/state/north/current/north}"
 own_runtime="$(dirname "$(readlink -f "$0")")/../../north"
 [[ ! -x "$own_runtime" ]] || north_runtime="$own_runtime"

@@ -1,0 +1,11 @@
+[[crate_dag.crate]]
+name = "north-switch"
+layer = 1
+paths = ["crates/north-switch/src/**"]
+may_use = []
+
+[[module]]
+name = "north_switch"
+paths = ["crates/north-switch/src/**"]
+responsibility = "North's off switches as a program of its own: `north fleet off` stops the fleet's sessions and units on every host and records them, `north fleet on` starts exactly those, and as `north` it hands every other command to the runtime."
+may_use = []

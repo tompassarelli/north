@@ -1130,6 +1130,7 @@ north_tree(
         "//crates/north-shared-config:files",
         "//crates/north-ssh-spare:files",
         "//crates/north-strategy-types:files",
+        "//crates/north-switch:files",
         "//crates/north-test-cases:files",
         "//crates/north-threads:files",
         "//crates/north-timers:files",

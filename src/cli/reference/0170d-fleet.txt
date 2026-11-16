@@ -1,0 +1,1 @@
+  fleet off [--force] | fleet on                 Stop the whole fleet on every host (dispatch, landing, sessions after their current step, every fleet unit; --force kills at once) and record it; `fleet on` starts exactly that. Runs as north-switch, without the runtime

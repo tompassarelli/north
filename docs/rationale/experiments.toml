@@ -999,3 +999,17 @@ min_n = 0
 after = ["2026-11-15", "2026-12-13"]
 review = "2026-12-15"
 owner = "tompassarelli/north#1487"
+
+[[experiment]]
+id = "north-switch"
+change = "north's off switch is the new crate north-switch, a program that needs no north runtime: `north fleet off` stops the fleet's sessions and units on every host and records them, and `north fleet on` starts exactly those (north#1648)"
+landed = "da2a48c8f7"
+crates = ["north-switch"]
+metric = "none"
+measure = "the owner's and coordinator's wind-downs over the 28 days after landing, from their transcripts: wind-downs done by hand (systemctl stops or stop messages to sessions) rather than by `north fleet off`, and runs of `north fleet off` that left a fleet unit running or took over eleven minutes; keep the crate when there are none, and record the count on north#1648"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-16", "2026-12-14"]
+review = "2026-12-16"
+owner = "tompassarelli/north#1648"

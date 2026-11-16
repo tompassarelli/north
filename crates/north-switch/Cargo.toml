@@ -1,0 +1,22 @@
+[package]
+name = "north-switch"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+test = false
+
+[[bin]]
+name = "north-switch"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
