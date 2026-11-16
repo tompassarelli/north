@@ -41,8 +41,9 @@ impl Fixture {
         for directory in [&main, &home.join("code/wisp/main"), &shim, &fleet.join(NAME)] {
             std::fs::create_dir_all(directory).unwrap();
         }
-        for (main, lane) in [(&main, &lane), (&home.join("code/wisp/main"), &other)] {
+        for (main, lane, repository) in [(&main, &lane, "north"), (&home.join("code/wisp/main"), &other, "wisp")] {
             git(main, &["init", "-q", "-b", "main"]);
+            git(main, &["remote", "add", "origin", &format!("https://github.com/tompassarelli/{repository}.git")]);
             git(main, &["commit", "-q", "--allow-empty", "-m", "one"]);
             git(main, &["worktree", "add", "-q", lane.to_str().unwrap(), "-b", NAME]);
         }
