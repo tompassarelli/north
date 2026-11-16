@@ -23,6 +23,6 @@ Read before writing or changing Wisp map TypeScript or building a map.
 ## Builds and tests
 
 - Build plumbing: declare typed UI frames through wisp:docs/ui.md. Measure existing compressed imports before re-encoding them (wisp:docs/asset-ingestion.md). Use wisp:docs/ci.md's reusable workflow, and keep private-runner .w3x builds out of public uploads.
-- Build through `bun wisp map build` with hashed private inputs in makgora:build-inputs.json. Add art with `bun wisp inputs add FAMILY DIR` and commit the result; never edit stored inputs in place.
+- Build through `bun wisp map build` with the hashed private inputs that makgora:build-inputs/ pins (makgora:docs/build-inputs.md). Add art with `bun wisp inputs add FAMILY DIR` and commit the result; never edit stored inputs in place.
 - Build a Mak'gora map once per commit and inputs: `bun wisp map build` copies a finished build of the same checkout state, profile, edition and arguments from `~/.cache/wisp/maps` and logs `reused map build HASH` (wisp:docs/compile-cache.md#map-reuse); `WISP_MAP_REUSE=off` forces a fresh build, and a before-measurement of origin/main is that reused build.
 - Tests: register `test()` in `*.tests.ts` for Bun and 32-bit Lua under the `verification` skill; it owns retention and bug-fix coverage.

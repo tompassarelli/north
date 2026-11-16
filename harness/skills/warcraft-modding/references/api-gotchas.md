@@ -29,7 +29,7 @@ their stated version scope. Confirm decisive behavior on the actual game build.
 Native command proxies are real alternatives, not proof of a free arbitrary-data
 channel. A command action does not automatically encode key release, held state,
 original capture frame or continuous analog values. Define those semantics
-before judging whether the coordinator fits. Compare an actual player-issued command
+before judging whether the proxy fits. Compare an actual player-issued command
 with the sync path; calling `IssueImmediateOrder`/`IssuePointOrder` in a timer
 would test map simulation orders instead. These script calls are not documented
 as sending a local player's command to peers. Warcraft runs map simulation on
@@ -39,7 +39,7 @@ all clients; do not issue divergent gameplay mutations under `GetLocalPlayer()`.
 letter/digit, depends on the player's hotkey layout and may fire key-down without
 key-up. `ForceUICancel` has different key-event behavior and hotkey-layout bugs.
 Neither is a faithful substitute for physical key transitions. In an order
-coordinator, separately prove the local UI action, resulting command and remote event.
+proxy, separately prove the local UI action, resulting command and remote event.
 
 The [2018 Warcraft networking tutorial](https://www.hiveworkshop.com/threads/wc3-networking-crucial-component-of-codeless-save-load.304287/)
 describes Wurst's `Network`/`SyncSimple` approach: send GameCache integers with

@@ -2,8 +2,8 @@
 name: warcraft-modding
 description: >-
   Warcraft III map work: Wisp, Mak'gora ts/, LAN or Battle.net clients, captures, playtests, desyncs, TypeScriptToLua frame cost or GC, Lua32, WurstScript.
-grounded: 2026-11-10
-written: 2026-11-10
+grounded: 2026-11-16
+written: 2026-11-16
 metadata:
   kind: domain
 ---
@@ -18,7 +18,7 @@ metadata:
 - Load `clean-room` and its [blizzard.md](../clean-room/references/blizzard.md) (Warcraft III's terms) before measuring native behaviour or when a task seems to need the game's internals; they decide where game facts may come from and what may run on a client.
 - Use `makgora` for fighter animation, characters and stage art, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
 - Touch Tom's game install only to bring it to the playtest lobby or to put builds he will test, each under a distinct in-map name, in his `Maps/00-Makgora` ([playtest-for-tom.md](references/playtest-for-tom.md)); south:agents/skills/battlenet-accounts/ says which clone shares his account, when it may run and when to sign it out.
-- Close Tom's Battle.net or Warcraft III, once he approves, only with `north desktop warcraft close` and never by killing single processes, because a partial kill leaves Steam's launch half-alive and his next Play does nothing.
+- Close Tom's Battle.net or Warcraft III only once he approves, and only with `north desktop warcraft close`: killing single processes leaves Steam's launch half-alive, so his next Play does nothing.
 
 ## Read when
 
