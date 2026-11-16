@@ -153,6 +153,8 @@ fn complexity(functions: Option<&Vec<Function>>) -> Option<usize> {
 }
 
 pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_path: Option<&Path>) -> Result<GateResult, String> {
+    let fork = git(repo, &["merge-base", base, head]).map_or_else(|_| base.to_owned(), |fork| fork.trim().to_owned());
+    let base = fork.as_str();
     let (mut hs, mut bs) = (Snapshot::new(repo, head)?, Snapshot::new(repo, base)?);
     let config = at_rev(&hs, override_path)?;
     if !config.present {
