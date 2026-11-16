@@ -22,7 +22,6 @@ pub mod budget;
 pub mod decide;
 pub mod meter;
 pub mod outlook;
-pub mod profiles;
 mod py;
 mod refresh;
 mod render;

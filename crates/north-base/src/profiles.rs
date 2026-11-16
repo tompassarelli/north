@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-pub(super) const PROJECTED: [&str; 6] = ["CLAUDE.md", "settings.json", "hooks", "skills", "agents", "commands"];
+const PROJECTED: [&str; 6] = ["CLAUDE.md", "settings.json", "hooks", "skills", "agents", "commands"];
 
 pub struct Profile {
     pub label: String,
@@ -18,7 +18,7 @@ pub struct Profile {
 
 pub fn policy_value(policy: &Path) -> Value {
     let document = fs::read_to_string(policy).ok().and_then(|text| text.parse::<toml_edit::DocumentMut>().ok());
-    document.map_or(Value::Null, |document| crate::router::policy::json_value(document.as_item()))
+    document.map_or(Value::Null, |document| crate::json_text::toml_value(document.as_item()))
 }
 
 pub fn home() -> PathBuf {
@@ -86,7 +86,7 @@ pub fn signed_in_emails(cfg: &Value, host: &str, home: &Path) -> Vec<String> {
 
 /// The sign-in emails of every Claude account this host runs, from the policy at the orchestration path.
 pub fn signed_in_here() -> Vec<String> {
-    signed_in_emails(&policy_value(&north_base::platform::orchestration::path()), &north_base::platform::host::name(), &home())
+    signed_in_emails(&policy_value(&crate::platform::orchestration::path()), &crate::platform::host::name(), &home())
 }
 
 pub fn label_of(cfg: &Value, uuid: &str) -> Option<String> {
@@ -112,7 +112,7 @@ pub fn rate_limit_tier(config: &Path, credentials: &Path) -> Option<String> {
 
 /// The catalog's current name for a plan key: a retired key such as `max-20x` resolves to the plan that replaced it.
 pub fn current_plan(provider: &str, key: &str) -> String {
-    let catalog = super::settings::catalog();
+    let catalog: toml_edit::DocumentMut = crate::platform::harness::table(crate::platform::harness::MODEL_CATALOG).parse().expect("harness/model-catalog.toml parses");
     let renamed = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|account| account.get("plans")).and_then(|plans| plans.get(key)).and_then(|plan| plan.get("renamed_to")).and_then(|to| to.as_str());
     renamed.unwrap_or(key).to_owned()
 }

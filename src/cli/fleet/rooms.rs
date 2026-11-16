@@ -9,7 +9,7 @@ use crate::fleet::registry::Fleet;
 pub(crate) fn of(fleet: &Fleet) -> Vec<AccountRoom> {
     let now = Timestamp::now();
     let Ok(verdicts) = crate::pacing::placement::case::verdicts(&fleet.roster()) else { return Vec::new() };
-    let weeks = crate::usage::open_ledger(&crate::usage::profiles::home(), None, &|| {}).and_then(|db| outlook::claude_accounts(&db, &crate::platform::orchestration::path(), now)).unwrap_or_default();
+    let weeks = crate::usage::open_ledger(&north_base::profiles::home(), None, &|| {}).and_then(|db| outlook::claude_accounts(&db, &crate::platform::orchestration::path(), now)).unwrap_or_default();
     verdicts
         .iter()
         .filter_map(|verdict| verdict.account.strip_prefix("claude:"))

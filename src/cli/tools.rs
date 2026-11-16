@@ -281,7 +281,7 @@ fn work(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if verb == "brief" => match rest.split_first() {
             Some((noun, paths)) if noun == "pack" => north_context_pack::run(paths),
-            _ => crate::guard::brief_skeleton::run(rest),
+            _ => 2,
         },
         Some((verb, rest)) if verb == "split" => work_split(rest),
         Some((_, rest)) => review_items(rest),

@@ -21,7 +21,7 @@ const LIMIT: Duration = Duration::from_secs(30);
 const AUTH: &[u8] = b"Authentication required.";
 
 pub(super) fn read() -> Vec<Reading> {
-    let conversations = crate::usage::profiles::home().join(".gemini/antigravity-cli/conversations");
+    let conversations = north_base::profiles::home().join(".gemini/antigravity-cli/conversations");
     read_with(&mut agy_output, &conversations, Timestamp::now()).unwrap_or_default()
 }
 

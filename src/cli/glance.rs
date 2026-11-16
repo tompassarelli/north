@@ -94,7 +94,7 @@ fn goals_red() -> Result<usize, String> {
 }
 
 fn accounts(now: Timestamp) -> Result<Vec<outlook::AccountOutlook>, String> {
-    let db = crate::usage::open_ledger(&crate::usage::profiles::home(), None, &|| {})?;
+    let db = crate::usage::open_ledger(&north_base::profiles::home(), None, &|| {})?;
     outlook::claude_accounts(&db, &crate::platform::orchestration::path(), now)
 }
 

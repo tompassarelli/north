@@ -1,10 +1,6 @@
-use north_pace::router::tier::Tier;
-use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-pub type Pace = fn(&Value) -> Result<Value, String>;
-pub type PickTier = fn(&str) -> Result<Tier, String>;
 pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
 pub type StatusVerb = fn(&[&str]) -> bool;
@@ -13,8 +9,6 @@ pub type FileReadRefusal = fn(&[String], &Path) -> Option<String>;
 
 #[derive(Clone, Copy)]
 pub struct Host {
-    pub pace: Pace,
-    pub picked_tier: PickTier,
     pub recorded_decisions: RecordedDecisions,
     pub account_home: AccountHome,
     pub status_verb: StatusVerb,
@@ -30,14 +24,6 @@ pub fn install(host: Host) {
 
 fn installed() -> Result<Host, String> {
     INSTALLED.get().copied().ok_or_else(|| "north hook: no guard host installed".to_owned())
-}
-
-pub fn pace(request: &Value) -> Result<Value, String> {
-    installed().and_then(|host| (host.pace)(request))
-}
-
-pub fn picked_tier(brief: &str) -> Result<Tier, String> {
-    installed().and_then(|host| (host.picked_tier)(brief))
 }
 
 pub fn recorded_decisions(paragraph: &str, now: f64) -> Vec<String> {

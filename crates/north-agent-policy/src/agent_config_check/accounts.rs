@@ -42,7 +42,7 @@ impl Machines<'_> {
 
     fn tier(&self, host: &str, path: &str) -> Option<String> {
         let directory = expand(&self.local(host)?, path);
-        north_pace::usage::profiles::rate_limit_tier(&directory.join(".claude.json"), &directory.join(".credentials.json"))
+        north_base::profiles::rate_limit_tier(&directory.join(".claude.json"), &directory.join(".credentials.json"))
     }
 }
 
@@ -96,7 +96,7 @@ fn problems(orchestration: &str, costs: &str, profiles: &Machines<'_>) -> Vec<St
                     found.push(format!("accounts.{provider}.{account} has no profile directory {path} on {host}"));
                 }
                 if let (Some(plan), Some(tier)) = (plan, profiles.tier(host, path))
-                    && north_pace::usage::profiles::current_plan(provider, plan) != north_pace::usage::profiles::current_plan(provider, &tier)
+                    && north_base::profiles::current_plan(provider, plan) != north_base::profiles::current_plan(provider, &tier)
                 {
                     found.push(format!("accounts.{provider}.{account} plans entry {plan} differs from the {tier} rate-limit tier of its profile on {host}"));
                 }

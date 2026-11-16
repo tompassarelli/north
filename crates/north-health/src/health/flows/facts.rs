@@ -9,7 +9,7 @@ use north_base::agents_sync::UNPUBLISHED;
 use north_base::dispatch_pause::{RECORD, TIMER};
 use north_foundation::error::NorthResult;
 use north_base::lifecycle::{Fault, Retire, Store};
-use north_pace::usage::profiles;
+use north_base::profiles;
 
 use super::{Dispatch, Held, HostFacts, Lifecycles};
 use north_foundation::foundation::clock::Timestamp;

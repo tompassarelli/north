@@ -59,8 +59,6 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | usage log command, censored | crates/north-capacity-host/src/capacity/host/run/outcome.rs usage_entry | crates/north-capacity-host/src/capacity/host/usage_log.rs history signs a run by its command; crates/north-capacity-host/src/capacity/host/sizing.rs censored_floor raises a censored command's memory charge | read | |
 | job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-timers/src/job_watch/mod.rs | read | |
 | machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/usage_log.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
-| usage-gate.json | crates/north-pace/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
-| spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | src/cli/views/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
 | goal-scores.jsonl | crates/north-flow/src/agents/goal/score.rs | src/cli/views/report/mod.rs jsonl | read | 871718bb |
@@ -82,7 +80,6 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 | signal file | reader stamp | writer | cadence | owner |
 |---|---|---|---|---|
 | `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` | crates/north-pace/src/usage/gate.rs | 5m | north#35 |
-| `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-guard/src/guard/spawn_capacity/logs.rs | event | north#35 |
 | `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-flow/src/agents/goal/score.rs | event | north#35 |
 | `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-capacity-host/src/capacity/host/usage_log.rs | event | north#35 |
 | `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-timers/src/usage_web_read | 6h | north#35 |

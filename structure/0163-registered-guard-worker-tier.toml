@@ -1,4 +1,0 @@
-[[registered]]
-id = "guard.worker_tier"
-path = "crates/north-guard/src/guard/worker_tier.rs"
-

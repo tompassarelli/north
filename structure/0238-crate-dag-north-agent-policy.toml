@@ -2,4 +2,4 @@
 name = "north-agent-policy"
 layer = 3
 paths = ["crates/north-agent-policy/src/**"]
-may_use = ["north-base", "north-git-locks", "north-pace"]
+may_use = ["north-base", "north-git-locks"]

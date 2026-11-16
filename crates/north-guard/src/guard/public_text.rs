@@ -1,7 +1,6 @@
-use super::gh_write::{self, GhWrite};
+use super::gh_write;
 use crate::hook_input::{HookInput, Verdict};
 use north_base::platform::betterleaks;
-use north_base::platform::private_text::{self, Finding};
 use north_base::platform::shared_config;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -19,9 +18,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         input,
         |text| betterleaks::scan_text(&config, text).unwrap_or_default(),
         |repo, dir| is_private(repo, dir.or(cwd.as_deref())),
-        private_text::judge_in_hook,
-        current_body,
-        north_pace::usage::profiles::signed_in_here,
+        north_base::profiles::signed_in_here,
     )
 }
 
@@ -46,36 +43,15 @@ fn is_private(repo: Option<&str>, cwd: Option<&str>) -> bool {
         .is_some_and(|out| String::from_utf8_lossy(&out.stdout).trim() == "true")
 }
 
-fn current_body(write: &GhWrite) -> Option<String> {
-    let (group, number) = write.edits.as_ref()?;
-    let mut gh = Command::new("gh");
-    gh.args([group.as_str(), "view", number.as_str()]);
-    if let Some(repo) = &write.repo {
-        gh.args(["-R", repo]);
-    }
-    gh.args(["--json", "body", "-q", ".body"]);
-    if let Some(dir) = &write.dir {
-        gh.current_dir(dir);
-    }
-    gh.output().ok().filter(|out| out.status.success()).map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
 fn names_account(text: &str, accounts: &mut impl FnMut() -> Vec<String>) -> bool {
     let text = text.to_lowercase();
     accounts().iter().any(|email| text.contains(&email.to_lowercase()))
-}
-
-fn added(text: &str, current: &str) -> String {
-    let held: BTreeSet<&str> = current.lines().map(str::trim_end).collect();
-    text.lines().filter(|line| !held.contains(line.trim_end())).map(|line| format!("{line}\n")).collect()
 }
 
 pub(super) fn decide_with(
     input: &HookInput,
     mut scan: impl FnMut(&str) -> BTreeSet<String>,
     mut private: impl FnMut(Option<&str>, Option<&str>) -> bool,
-    mut judge: impl FnMut(&str) -> Result<Vec<Finding>, String>,
-    mut current: impl FnMut(&GhWrite) -> Option<String>,
     mut accounts: impl FnMut() -> Vec<String>,
 ) -> Verdict {
     if !input.is_shell() || !input.raw.windows(2).any(|bytes| bytes == b"gh") {
@@ -105,14 +81,6 @@ pub(super) fn decide_with(
         }
         if is_public() && names_account(&joined, &mut accounts) {
             return Verdict::Deny(ACCOUNT_REFUSAL.to_owned());
-        }
-        if !joined.trim().is_empty() && is_public() {
-            let judged = current(&write).map_or_else(|| joined.clone(), |held| added(&joined, &held));
-            match if judged.trim().is_empty() { Ok(Vec::new()) } else { judge(&judged) } {
-                Ok(found) if found.is_empty() => {}
-                Ok(found) => return Verdict::Deny(private_text::refusal(&found)),
-                Err(reason) => return Verdict::Deny(private_text::unavailable(&reason)),
-            }
         }
     }
     Verdict::Allow

@@ -108,8 +108,8 @@ fn main_checkout_name(checkout: &Path) -> Result<String, String> {
 }
 
 fn project_profiles() -> bool {
-    let cfg = north_pace::usage::profiles::policy_value(&north_base::platform::orchestration::path());
-    match north_pace::usage::profiles::sync(&cfg, &north_base::platform::host::name(), &north_pace::usage::profiles::home()) {
+    let cfg = north_base::profiles::policy_value(&north_base::platform::orchestration::path());
+    match north_base::profiles::sync(&cfg, &north_base::platform::host::name(), &north_base::profiles::home()) {
         Ok(lines) => {
             lines.iter().for_each(|line| println!("{line}"));
             true

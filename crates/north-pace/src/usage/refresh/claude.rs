@@ -10,7 +10,7 @@ use super::record::Reading;
 use north_foundation::foundation::clock::Timestamp;
 use crate::usage::decide::world::ModelFamily;
 use crate::usage::{meter, py, web};
-use crate::usage::profiles;
+use north_base::profiles;
 
 const KNOWN: [&str; 6] = ["five_hour", "seven_day", "limits", "extra_usage", "spend", "cedar_ember"];
 const FRESH_SECONDS: f64 = 60.0;

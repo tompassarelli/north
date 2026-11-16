@@ -1,1 +1,1 @@
-- Graph grounding: the UserPromptSubmit hook and `north work brief new --category C --item REPO#N` add the fact graph's neighborhood of each issue and file a message names, read-only inside the hook's retrieval bound; what the neighborhood holds is in [docs/graph.md](../../graph.md#grounding).
+- Graph grounding: the UserPromptSubmit hook adds the fact graph's neighborhood of each issue and file a message names, read-only inside the hook's retrieval bound; what the neighborhood holds is in [docs/graph.md](../../graph.md#grounding).

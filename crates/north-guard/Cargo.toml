@@ -16,9 +16,7 @@ north-shared-config = { path = "../north-shared-config" }
 north-unblocks = { path = "../north-unblocks" }
 north-capacity = { path = "../north-capacity" }
 north-fleet-store = { path = "../north-fleet-store" }
-north-pace = { path = "../north-pace" }
 north-calibration = { path = "../north-calibration" }
-north-graph-ground = { path = "../north-graph-ground" }
 north-code-health = { path = "../north-code-health" }
 fancy-regex.workspace = true
 regex.workspace = true

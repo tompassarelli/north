@@ -277,7 +277,7 @@ may_use = ["north-providers"]
 name = "north-guard"
 layer = 3
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-graph-ground", "north-code-health", "north-unblocks"]
+may_use = ["north-dispatch", "north-code-health", "north-unblocks"]
 
 [[crate_dag.crate]]
 name = "north-check-environment"
@@ -1064,14 +1064,6 @@ id = "guard.worker_wait"
 path = "crates/north-guard/src/guard/worker_wait.rs"
 
 [[registered]]
-id = "guard.worker_tier"
-path = "crates/north-guard/src/guard/worker_tier.rs"
-
-[[registered]]
-id = "guard.spawn_capacity"
-path = "crates/north-guard/src/guard/spawn_capacity.rs"
-
-[[registered]]
 id = "guard.native_launch"
 path = "crates/north-guard/src/guard/native_launch.rs"
 
@@ -1435,7 +1427,7 @@ may_use = []
 name = "north-agent-policy"
 layer = 3
 paths = ["crates/north-agent-policy/src/**"]
-may_use = ["north-base", "north-git-locks", "north-pace"]
+may_use = ["north-base", "north-git-locks"]
 [[module]]
 name = "secrets_seal"
 paths = ["crates/north-shared-config/src/secrets_seal.rs"]

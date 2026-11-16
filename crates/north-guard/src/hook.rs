@@ -107,7 +107,6 @@ const PRE_BASH: &[Guard] = &[
     Guard("north-hook", crate::guard::masked_pipeline::decide, Anywhere),
     Guard("north-hook", crate::guard::node_modules_write::decide, Host),
     Guard("north-hook", crate::guard::native_evidence::evaluate, Host),
-    Guard("north-hook", crate::guard::issue_filing::evaluate, Anywhere),
     Guard("north-hook", crate::guard::issue_close::close, Anywhere),
     Guard("north-hook", crate::guard::issue_shrink::evaluate, Anywhere),
     Guard("north-hook", crate::guard::sops_decrypt::evaluate, Anywhere),
@@ -150,8 +149,6 @@ const PRE_READ: &[Guard] = &[
 const PRE_AGENT: &[Guard] = &[
     Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere),
     Guard("", crate::guard::agent_cwd::evaluate, Anywhere),
-    Guard("worker-tier-guard", crate::guard::worker_tier::evaluate, Anywhere),
-    Guard("spawn-capacity-guard", crate::guard::spawn_capacity::admission, Anywhere),
 ];
 
 const PRE_TIMER: &[Guard] = &[Guard("north-hook", crate::guard::lead_timer::evaluate, Anywhere)];
@@ -160,14 +157,11 @@ const PRE_MESSAGE: &[Guard] = &[Guard("", crate::guard::subagent_message::evalua
 
 const PRE_ASK: &[Guard] = &[Guard("north-hook", crate::guard::question_box::evaluate, Anywhere)];
 
-const SPAWN_CAPACITY: &[Guard] = &[Guard("", crate::guard::spawn_capacity::admission, Anywhere)];
-
-const NATIVE_SPAWN: &[Guard] = &[Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere), Guard("spawn-capacity-guard", crate::guard::spawn_capacity::admission, Anywhere)];
+const NATIVE_SPAWN: &[Guard] = &[Guard("north-hook", crate::guard::coordinator_role::evaluate, Anywhere)];
 
 const POST_TOOL: &[Guard] = &[
     Guard("", crate::guard::accepted_finish::evaluate, Anywhere),
     Guard("north-hook", crate::guard::worker_lease::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::issue_filing::link, Anywhere),
     Guard("north-hook", crate::guard::code_health_edit::evaluate, Anywhere),
 ];
 
@@ -208,7 +202,6 @@ const HOOKS: &[Hook] = &[
     Hook { name: "pre-timer", event: "PreToolUse", guards: PRE_TIMER, answers: Answer::Tool { event: "PreToolUse", tools: &["ScheduleWakeup", "CronCreate"] } },
     Hook { name: "pre-message", event: "PreToolUse", guards: PRE_MESSAGE, answers: Answer::Tool { event: "PreToolUse", tools: &[crate::guard::subagent_message::MESSAGE_TOOL] } },
     Hook { name: "pre-ask", event: "PreToolUse", guards: PRE_ASK, answers: Answer::Tool { event: "PreToolUse", tools: &[crate::guard::question_box::QUESTION_TOOL] } },
-    Hook { name: "spawn-capacity", event: "PreToolUse", guards: SPAWN_CAPACITY, answers: Answer::Never },
     Hook { name: "", event: "PreToolUse", guards: NATIVE_SPAWN, answers: Answer::Suffix("spawn_agent") },
     Hook { name: "post-tool", event: "PostToolUse", guards: POST_TOOL, answers: Answer::Event("PostToolUse") },
     Hook { name: "permission-request", event: "PermissionRequest", guards: PERMISSION_REQUEST, answers: Answer::Event("PermissionRequest") },
@@ -410,16 +403,12 @@ fn first_prompt(input: &HookInput) -> bool {
     std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
-const USAGE: &str = "Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]";
+const USAGE: &str = "Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]";
 
 pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Result<Vec<Evidence>, String> {
     let hook = match arguments {
         [] => None,
         [verb] if verb == "dispatch" => None,
-        [verb] if verb == "spawn-gate" => {
-            let _ = writeln!(writer, "{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live));
-            return Ok(Vec::new());
-        }
         [name] => Some(Hook::named(name).ok_or_else(|| format!("unknown hook '{name}'"))?),
         _ => return Err(USAGE.into()),
     };

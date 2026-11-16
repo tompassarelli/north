@@ -3,6 +3,7 @@ pub mod autoland_status;
 pub mod dispatch_pause;
 pub mod dispatch_pause_lifecycle;
 pub mod json_text;
+pub mod profiles;
 pub mod build_inputs;
 pub mod cites;
 pub mod land_ticket;

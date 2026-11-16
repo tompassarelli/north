@@ -50,11 +50,6 @@ static RUN_TIME_READERS: [run_time_data::Consumer; 7] = [
 
 fn main() -> std::process::ExitCode {
     run_time_data::install(&RUN_TIME_READERS);
-    pacing::spawn_gate::install(pacing::spawn_gate::SpawnGate {
-        summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live),
-        launch_capacity: || guard::spawn_capacity::launch_capacity(&guard::spawn_capacity::Live),
-        launch_verdict: guard::spawn_capacity::launch_verdict,
-    });
     platform::stdio::with_blocking_outputs(|| {
         let arguments = std::env::args().skip(1).collect::<Vec<_>>();
         if let Some(point) = std::env::args_os().next().and_then(|argv0| entry_points::named(&argv0)) {

@@ -1,4 +1,0 @@
-[[registered]]
-id = "guard.spawn_capacity"
-path = "crates/north-guard/src/guard/spawn_capacity.rs"
-

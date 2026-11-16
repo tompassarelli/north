@@ -183,19 +183,6 @@ pub(super) fn joined_words(input: &HookInput, brief: bool) -> Option<String> {
     ))
 }
 
-fn codex_box_denial(input: &HookInput) -> Option<String> {
-    let message = match input.data.get("tool_input") {
-        Some(Value::Object(_)) => match input.data["tool_input"].get("message") {
-            None => "",
-            Some(value) => value.as_str()?,
-        },
-        _ => "",
-    };
-    let answer = north_pace::router::ops::answer(&json!({"op": "codex_box", "brief": message}))?.ok()?;
-    let failed = answer.as_str().filter(|text| !text.is_empty())?;
-    Some(format!("route to Claude: {failed}"))
-}
-
 pub(super) fn pre_spawn(input: &HookInput) -> Verdict {
     if let Some(reason) = joined_words(input, true) {
         return Verdict::Deny(reason);
@@ -204,7 +191,7 @@ pub(super) fn pre_spawn(input: &HookInput) -> Verdict {
     if MEASURE_ONLY.is_match(&brief) && !MEASURE_OUTCOME.is_match(&brief) {
         return Verdict::Deny("This brief only measures. Tom's rule: a measurement worker ends with a fix it lands, or a PEER line naming what the numbers point to. On 8 Oct perf_phases_168 spent 6.0M tokens on a measure-only brief and #168 moved no number. To retry, add one line to the brief: \"End with a fix you land, or a PEER line.\"".into());
     }
-    codex_box_denial(input).map_or(Verdict::Allow, Verdict::Deny)
+    Verdict::Allow
 }
 
 fn new_files(event: &Value) -> Vec<String> {
