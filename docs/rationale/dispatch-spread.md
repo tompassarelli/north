@@ -21,7 +21,7 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   reaper, at 94 GiB, slept (north#634); one line means a refused host is always one the reaper is reclaiming.
 - **Disk was read once per round and never charged.** On 2026-11-11 gex45 fell to 3% free because one round placed
   workers against a disk reading taken before the round, each worker cold-building 4 to 8 GiB in its lane. A host's disk
-  bound is `[hosts.NAME] disk_free_gib`, else the eviction line; under it the host takes nothing and the refusal names the
+  bound is `[hosts.NAME] disk_free_gib`, else on the dispatch host (`[placement] dispatch_host`) `dispatch_disk_free_gib` (24, a guess), else the eviction line; the dispatch host has no lease reaper, so its own keep, which runs every hour, is what reclaims there, and that keep frees only the harness's own stores (north#1632). Under the bound the host takes nothing and the refusal names the
   host, its free GiB and the bound, and above it the host's room is the smaller of its memory room and the free space
   over the bound divided by `dispatch_cold_build_gib` (8), so each placement in a round takes a cold build from the disk
   and the host takes work again in the first round after free space is back over the bound. On 2026-11-12 a 150 GiB

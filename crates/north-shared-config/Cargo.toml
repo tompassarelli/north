@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 north-trusted-mirror = { path = "../north-trusted-mirror" }
+toml_edit.workspace = true
 
 [dev-dependencies]
 north-foundation = { path = "../north-foundation" }

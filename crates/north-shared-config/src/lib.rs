@@ -1,6 +1,6 @@
 //! Shared configuration a host reads: the top-level files of south's `agents/` at a fetched origin/main, materialized
 //! under the state directory, never the south checkout's work tree, which lags (north#892).
-//! Depends on std, the git binary and north-trusted-mirror, whose origin/main it reads (south#138).
+//! Depends on std, the git binary, north-trusted-mirror, whose origin/main it reads (south#138), and toml_edit, to read the policy's disk bound.
 #![forbid(unsafe_code)]
 
 use std::env;
@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use north_trusted_mirror::Mirror;
 
+pub mod disk_bound;
 pub mod regenerated;
 pub mod roles;
 pub mod secrets_seal;

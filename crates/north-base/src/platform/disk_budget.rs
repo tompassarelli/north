@@ -64,8 +64,7 @@ impl DiskBudget {
 
     /// The host's `disk_free_gib`: the free GiB under which dispatch and fleet placement send it no new session.
     pub fn dispatch_bound_gib(&self) -> Option<f64> {
-        let value = self.policy.as_ref()?.get("hosts")?.get(&self.host)?.get("disk_free_gib")?;
-        value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).filter(|gib| *gib > 0.0)
+        north_shared_config::disk_bound::bound(self.policy.as_ref()?, &self.host, super::harness::default_number("dispatch_disk_free_gib")).filter(|gib| *gib > 0.0)
     }
 
     pub fn bytes(&self, share: Share) -> Option<u64> {

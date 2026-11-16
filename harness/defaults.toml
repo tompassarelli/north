@@ -728,6 +728,14 @@ source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/2
 fallback = "an unreadable disk admits, as before"
 consumers = ["crates/north-capacity/src/capacity/admission/disk.rs", "crates/north-capacity/src/capacity/saturation.rs"]
 
+[dispatch_disk_free_gib]
+value = 24
+allowed = { min = 0, max = 65536 }
+unit = "GiB free on the dispatch host's root disk under which dispatch and fleet placement send it no new session, when the operator policy's [hosts.NAME] table sets no disk_free_gib for that host (the host named by [placement] dispatch_host)"
+source = "guess: 9 GiB over build_disk_free_gib (15) and 6 GiB under the 30.3 GiB free on 2026-11-16, when the dispatch host's 31 GiB eviction line closed dispatch for over an hour and a half (north#1632); the largest growth on that host between two keeps settles it"
+fallback = "none: the dispatch host's bound is this line unless the policy sets its own"
+consumers = ["crates/north-shared-config/src/disk_bound.rs", "crates/north-pacing/src/pacing/placement/hosts.rs", "crates/north-base/src/platform/disk_budget.rs"]
+
 [build_disk_reserve_gib]
 value = 5
 allowed = { min = 0, max = 65536 }

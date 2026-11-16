@@ -384,7 +384,7 @@ may_use = ["north-cli-reference", "north-capacity", "north-fleet-supervisor", "n
 name = "north-pacing"
 layer = 5
 paths = ["crates/north-pacing/src/**"]
-may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-ssh-spare", "north-threads", "north-capacity-host"]
+may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-shared-config", "north-ssh-spare", "north-threads", "north-capacity-host"]
 
 [[crate_dag.crate]]
 name = "north-tune"
@@ -639,7 +639,7 @@ may_use = ["platform.process"]
 name = "platform.harness"
 paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/disk_line.rs", "crates/north-base/src/platform/verification_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
 responsibility = "The harness tables other repos read (defaults, orchestration, disk budget, frozen topics, repo names) and the rules read from them."
-may_use = ["strategy_types", "foundation", "platform.host", "crate-roots"]
+may_use = ["strategy_types", "foundation", "platform.host", "crate-roots", "disk_bound"]
 
 [[module]]
 name = "platform.records"
@@ -909,7 +909,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 name = "ops"
 paths = ["crates/north-remote-serve/src/lib.rs", "crates/north-credentials/src/lib.rs", "crates/north-claims/src/lib.rs", "crates/north-issue-boxes/src/lib.rs", "crates/north-timers/src/lib.rs", "crates/north-github-broker/src/lib.rs", "crates/north-github-broker/src/gh_broker/**", "crates/north-ci/src/lib.rs", "crates/north-ci/src/ci_watch/**", "crates/north-ci/src/private_check/**", "crates/north-desktop/src/lib.rs", "crates/north-desktop/src/agent_capture/**", "crates/north-desktop/src/private_desktop/**", "crates/north-desktop/src/warcraft_close/**", "crates/north-desktop/src/wc3_login_field/**", "crates/north-reclaim/src/lib.rs", "crates/north-reclaim/src/reclaim/**", "crates/north-reclaim/src/retention/**", "crates/north-capacity-host/src/run_bounded/**", "crates/north-capacity-host/src/nexus_ram/**", "crates/north-timers/src/job_run/**", "crates/north-timers/src/judge_model.rs", "crates/north-timers/src/timers/decision_log_retain/**", "crates/north-expectations/src/**", "crates/north-offload/src/lib.rs", "crates/north-runtime/src/agent_contain/**", "crates/north-offload/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-offload/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-timers/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-runtime/src/vendor_runtime/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-offload/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/incident_mine/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/defaults_measure/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**", "crates/north-issue-boxes/src/issue_convert/**", "crates/north-issue-boxes/src/issue_child.rs", "crates/north-issue-boxes/src/done_when_boxes/**", "crates/north-issue-boxes/src/observation_boxes/**", "crates/north-issue-boxes/src/cargo_boxes/**", "crates/north-claims/src/citation_check/**", "crates/north-claims/src/review_items/**", "crates/north-credentials/src/credentials/**", "crates/north-remote-serve/src/remote_serve/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["check_offload", "landing", "strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "runtime_records", "registries", "build_system", "platform.store", "platform.git", "unblocks", "coordinator_roles", "graph"]
+may_use = ["check_offload", "landing", "strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.ssh", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "runtime_records", "registries", "build_system", "platform.store", "platform.git", "unblocks", "coordinator_roles", "graph", "disk_bound"]
 
 [[module.limit]]
 commit = "90042c896d"
@@ -1418,3 +1418,7 @@ may_use = ["north-base", "north-git-locks", "north-pace"]
 name = "secrets_seal"
 paths = ["crates/north-shared-config/src/secrets_seal.rs"]
 responsibility = "Which files under secrets/ may land (north#1626): sops-encrypted YAML, an OpenSSH ed25519 public key or an empty placeholder, judged by one predicate that the coordinator guard and the landing gate both call."
+[[module]]
+name = "disk_bound"
+paths = ["crates/north-shared-config/src/disk_bound.rs"]
+responsibility = "The free GiB a host's disk is held to, from the operator policy's [hosts.NAME] disk_free_gib, else the dispatch host's harness default (north#1632), so placement and the disk budget read one rule."

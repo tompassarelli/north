@@ -2052,6 +2052,7 @@ dependencies = [
  "north-foundation",
  "north-pace",
  "north-providers",
+ "north-shared-config",
  "north-ssh-spare",
  "north-strategy-types",
  "north-threads",
@@ -2236,6 +2237,7 @@ dependencies = [
  "north-foundation",
  "north-trusted-mirror",
  "tempfile",
+ "toml_edit",
 ]
 
 [[package]]

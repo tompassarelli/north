@@ -103,10 +103,9 @@ pub(in crate::pacing) fn saturation(name: &str, destination: &str) -> Option<Sat
     read_saturation(name, destination).map(|reading| reading.bounded(bound))
 }
 
-/// The `disk_free_gib` a host's `[hosts.NAME]` table sets, None when it sets none.
+/// The free GiB a host's disk is held to: its `[hosts.NAME] disk_free_gib`, else the dispatch host's harness default; None when it has none.
 fn disk_bound(cfg: &DocumentMut, name: &str) -> Option<f64> {
-    let setting = cfg.get("hosts")?.get(name)?.get("disk_free_gib")?;
-    setting.as_float().or_else(|| setting.as_integer().map(|whole| whole as f64))
+    north_shared_config::disk_bound::bound(cfg, name, north_base::platform::harness::default_number("dispatch_disk_free_gib"))
 }
 
 /// Each machine's facts with its saturation reading held to the host's configured disk bound, whether the reading was probed, cached or recorded.
