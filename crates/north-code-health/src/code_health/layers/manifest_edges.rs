@@ -6,10 +6,10 @@ const KINDS: [(&str, &str); 3] = [("dependencies", "normal"), ("dev-dependencies
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(in crate::code_health) struct ManifestEdge {
-    from: String,
-    to: String,
-    kind: &'static str,
-    direction: &'static str,
+    pub(super) from: String,
+    pub(super) to: String,
+    pub(super) kind: &'static str,
+    pub(super) direction: &'static str,
 }
 
 struct Placed {

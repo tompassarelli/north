@@ -53,6 +53,7 @@ struct Revision<'a> {
     rev: &'a str,
     source: Source,
     crates: Vec<Crate>,
+    manifests: Vec<String>,
 }
 
 impl<'a> Revision<'a> {
@@ -64,7 +65,12 @@ impl<'a> Revision<'a> {
             .map(|path| show(repo, rev, path).map(|text| (path.clone(), text.unwrap_or_default())))
             .collect::<Result<_, _>>()?;
         let crates = Crate::from_manifests(manifests.iter().map(|(path, text)| (path.as_str(), text.as_str())));
-        Ok(Self { repo, rev, source: Source::tree(paths), crates })
+        let manifests = manifests.into_iter().map(|(_, text)| text).collect();
+        Ok(Self { repo, rev, source: Source::tree(paths), crates, manifests })
+    }
+
+    fn manifest_edges(&self, structure: &str) -> Vec<ManifestEdge> {
+        manifest_edges(structure, self.manifests.iter().map(String::as_str))
     }
 
     fn text(&self, path: &str) -> Result<Option<String>, String> {
@@ -85,8 +91,9 @@ fn verdict(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, u8), Str
         return Ok((vec!["layers: no structure.toml at HEAD; nothing to check".to_owned()], 0));
     };
     let head_rules = Rules::parse(&structure)?;
-    let base_rules = match super::config::structure_at(repo, base)? {
-        Some(text) => Rules::parse(&text).unwrap_or_default().or(&head_rules),
+    let base_structure = super::config::structure_at(repo, base)?;
+    let base_rules = match &base_structure {
+        Some(text) => Rules::parse(text).unwrap_or_default().or(&head_rules),
         None => head_rules.clone(),
     };
     let (before, after) = (Revision::at(repo, base)?, Revision::at(repo, head)?);
@@ -104,11 +111,17 @@ fn verdict(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, u8), Str
             }
         }
     }
+    let known_edges = base_structure.map(|text| before.manifest_edges(&text)).unwrap_or_default();
+    for edge in after.manifest_edges(&structure) {
+        if !known_edges.contains(&edge) {
+            lines.push(manifest_refusal(&edge));
+        }
+    }
     let code = u8::from(!lines.is_empty());
     let summary = if lines.is_empty() {
-        "layers: no new reference breaks structure.toml's module layers or crate DAG".to_owned()
+        "layers: no new reference or manifest edge breaks structure.toml's module layers or crate DAG".to_owned()
     } else {
-        format!("✗ layers: {} new reference(s) or crate(s) break structure.toml's module layers or crate DAG", lines.len())
+        format!("✗ layers: {} new reference(s), crate(s) or manifest edge(s) break structure.toml's module layers or crate DAG", lines.len())
     };
     lines.push(summary);
     Ok((lines, code))
@@ -124,6 +137,12 @@ fn unplanned_crates(repo: &Path, base: &str, head: &str, changed: &[(Option<Stri
         lines.push(format!("✗ crate-dag {path}: adds crate {name} with no [[crate_dag.crate]] entry in structure.toml, so no reference into or out of it is checked (plan {PLAN}); add its paths and may_use in this change"));
     }
     Ok(lines)
+}
+
+fn manifest_refusal(edge: &ManifestEdge) -> String {
+    let (from, to, kind) = (&edge.from, &edge.to, edge.kind);
+    let place = if edge.direction == "up" { "a higher layer" } else { "another family of its layer" };
+    format!("✗ manifest {from} -> {to}: the {kind} dependency of {from} on {to} points at {place} in structure.toml (plan {PLAN}); invert it through a trait the lower crate owns, or move the code, or change `layer` and `family` in structure.toml in this change")
 }
 
 fn crate_files(repo: &Path, head: &str, name: &str) -> Result<Vec<String>, String> {
