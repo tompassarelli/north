@@ -195,14 +195,14 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, outbox: &Sender<
             shown_map = Some(note);
         }
         if retire.load(Ordering::Relaxed) {
-            if watch.runs_in_flight() == 0 {
+            if !watch.holds(lander) {
                 return handover::hand_over(lander, &watch);
             }
             watch.drain();
         }
-        publish(outbox, watch.waits());
+        publish(outbox, watch.waits(lander));
         let round = Serve::new(lander).round(&mut watch);
-        publish(outbox, watch.waits());
+        publish(outbox, watch.waits(lander));
         lander.heartbeat.enter(Step::Watchdog);
         watchdog::after_round(lander, &round);
         if let Some(note) = super::promote::watch_round(std::slice::from_ref(&lander.repo)) {
@@ -332,14 +332,25 @@ fn serve_once(options: &Options) -> u8 {
     })
 }
 
-fn record_waits(layout: &Layout, pid: u32, next: &str, running: &mut HashMap<PathBuf, Serving>, leave_by: f64) {
+fn record_waits(layout: &Layout, pid: u32, next: &str, running: &mut HashMap<PathBuf, Serving>, leave_by: f64) -> f64 {
     running.values_mut().for_each(Serving::refresh);
-    let mut waits: Vec<Wait> = running.values().flat_map(|serving| post_land::adoptable(&serving.lander.queue)).map(|(_, record)| Wait { what: format!("the after-landing run of {}", record.head), until: record.started + record.deadline as f64 }).collect();
-    waits.extend(running.values().flat_map(|serving| serving.waits.iter().cloned()));
-    let until = waits.iter().map(|wait| wait.until).reduce(f64::min).unwrap_or(leave_by);
-    let what = if waits.is_empty() { "the serve loop".to_owned() } else { waits.iter().map(|wait| wait.what.as_str()).collect::<Vec<_>>().join(", ") };
+    let waits: Vec<&Wait> = running.values().flat_map(|serving| serving.waits.iter()).collect();
+    let until = waits.iter().map(|wait| wait.until + handover::BOUND.as_secs_f64()).fold(leave_by, f64::max);
+    let what = if waits.is_empty() { "the serve loop".to_owned() } else { waits.iter().map(|wait| wait.describe()).collect::<Vec<_>>().join(", ") };
     if let Err(error) = leaving::write(layout, pid, &leaving::Record { target: next.to_owned(), until: until.ceil() as u64, what }) {
         println!("north land: could not record that it waits to leave for {next}: {error}");
+    }
+    until
+}
+
+fn report_overdue(next: &str, running: &HashMap<PathBuf, Serving>) {
+    let now = epoch_seconds();
+    for wait in running.values().flat_map(|serving| serving.waits.iter()).filter(|wait| wait.until <= now) {
+        let note = format!("north land: leaving for {next} with {} past its limit, so the restarted lander runs it again and its verdict comes late", wait.describe());
+        println!("{note}");
+        if !after::send("coordinator", &note) {
+            eprintln!("north land: could not tell the coordinator that {} passed its limit", wait.what);
+        }
     }
 }
 
@@ -357,15 +368,17 @@ fn serve_forever(options: &Options) -> u8 {
             let layout = Layout::from_env();
             let pid = std::process::id();
             let leave_by = epoch_seconds() + handover::BOUND.as_secs_f64();
-            record_waits(&layout, pid, &next, &mut running, leave_by);
-            let deadline = Instant::now() + handover::BOUND;
-            while let Some(held) = running.values().find(|serving| !serving.handle.is_finished()) {
-                if Instant::now() >= deadline && handover::landing(held.lander.heartbeat.current().0) {
+            loop {
+                let until = record_waits(&layout, pid, &next, &mut running, leave_by);
+                let held: Vec<Step> = running.values().filter(|serving| !serving.handle.is_finished()).map(|serving| serving.lander.heartbeat.current().0).collect();
+                let now = epoch_seconds();
+                let open = running.values().flat_map(|serving| serving.waits.iter()).any(|wait| wait.until > now);
+                if held.is_empty() || (!open && held.iter().all(|step| handover::abandonable(*step) || (now >= until && handover::landing(*step)))) {
                     break;
                 }
-                record_waits(&layout, pid, &next, &mut running, leave_by);
                 std::thread::sleep(TICK);
             }
+            report_overdue(&next, &running);
             leaving::remove(&layout, pid);
             return 0;
         }

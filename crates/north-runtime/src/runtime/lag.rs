@@ -71,7 +71,11 @@ fn report(proc_root: &Path, state: &Path) -> String {
 }
 
 fn processes(proc_root: &Path, state: &Path) -> Vec<Process> {
-    residents(proc_root, state, wall_clock()).into_iter().filter(|resident| resident.pages).map(|resident| Process { pid: resident.pid, kind: resident.kind.to_owned(), process: format!("{}{}", resident.kind, resident.subject), runtime: resident.runtime }).collect()
+    residents(proc_root, state, wall_clock()).into_iter().filter(|resident| resident.pages).map(|resident| Process { pid: resident.pid, kind: resident.kind.to_owned(), process: format!("{}{}", resident.kind, resident.subject), runtime: resident.runtime, leaving_until: leaving_until(state, resident.pid) }).collect()
+}
+
+fn leaving_until(state: &Path, pid: u32) -> Option<u64> {
+    north_runtime_follow::leaving::record(&north_runtime_follow::layout::Layout { state: state.to_owned() }, pid).filter(north_runtime_follow::leaving::Record::open).map(|record| record.until)
 }
 
 fn residents(proc_root: &Path, state: &Path, now: u64) -> Vec<Resident> {

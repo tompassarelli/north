@@ -75,12 +75,24 @@ struct Running {
     run: Task<Outcome>,
     host: Option<String>,
     cancel: Cancel,
+    until: f64,
 }
 
 #[derive(Clone)]
 pub struct Wait {
     pub what: String,
+    pub since: f64,
     pub until: f64,
+}
+
+impl Wait {
+    pub fn describe(&self) -> String {
+        format!("{} started {} with its limit at {}", self.what, clock(self.since), clock(self.until))
+    }
+}
+
+fn clock(epoch: f64) -> String {
+    time::OffsetDateTime::from_unix_timestamp(epoch as i64).map_or_else(|_| format!("{epoch:.0}"), |at| format!("{:02}:{:02}:{:02} UTC", at.hour(), at.minute(), at.second()))
 }
 
 struct Searching {
@@ -89,6 +101,7 @@ struct Searching {
     search: Task<Found>,
     host: Option<String>,
     cancel: Cancel,
+    since: f64,
     until: f64,
 }
 
@@ -264,29 +277,34 @@ impl Watch {
         let host = runner.host.clone();
         let cancel = Cancel::default();
         moved(heads(&batch), Run::Running, "adopted the runner a stopped lander started");
+        let until = runner.started + runner.deadline as f64;
         let run = post_land::adopt(lander, landed(lander, &batch), runner, cancel.clone());
-        self.running.push(Running { batch, run, host, cancel });
+        self.running.push(Running { batch, run, host, cancel, until });
     }
 
     pub fn drain(&mut self) {
         self.draining = true;
     }
 
-    pub fn runs_in_flight(&self) -> usize {
-        self.running.len() + self.searching.len() + self.waiting.len() + self.buck2.len()
-    }
-
     /// What the culprit searches and Buck2 runs in flight wait for, each with the epoch second its own limit ends; a queued
     /// search ends after the searches ahead of it, each at its limit.
-    pub fn waits(&self) -> Vec<Wait> {
-        let mut waits: Vec<Wait> = self.searching.iter().map(|searching| Wait { what: format!("the culprit search of {}", searching.batch.head), until: searching.until }).collect();
+    pub fn waits(&self, lander: &Lander) -> Vec<Wait> {
+        let recorded = post_land::adoptable(&lander.queue);
+        let mut waits: Vec<Wait> = self.running.iter().filter(|running| !recorded.iter().any(|(_, record)| record.head == running.batch.head)).map(|running| Wait { what: format!("the after-landing run of {}", running.batch.head), since: running.batch.started.unwrap_or(running.until), until: running.until }).collect();
+        waits.extend(self.searching.iter().map(|searching| Wait { what: format!("the culprit search of {}", searching.batch.head), since: searching.since, until: searching.until }));
         let mut at = self.searching.iter().map(|searching| searching.until).fold(epoch(), f64::max);
         for waiting in &self.waiting {
+            let since = at;
             at += waiting.search.limit().as_secs_f64();
-            waits.push(Wait { what: format!("the queued culprit search of {}", waiting.batch.head), until: at });
+            waits.push(Wait { what: format!("the queued culprit search of {}", waiting.batch.head), since, until: at });
         }
-        waits.extend(self.buck2.iter().map(|buck2| Wait { what: format!("the Buck2 run of {}", buck2.head), until: buck2.until }));
+        waits.extend(self.buck2.iter().map(|buck2| Wait { what: format!("the Buck2 run of {}", buck2.head), since: buck2.until - buck2_after::TIMEOUT_SECONDS as f64, until: buck2.until }));
         waits
+    }
+
+    pub fn holds(&self, lander: &Lander) -> bool {
+        let now = epoch();
+        self.waits(lander).iter().any(|wait| wait.until > now)
     }
 
     pub fn journaled(&self) -> usize {
@@ -329,8 +347,9 @@ impl Watch {
             return;
         }
         let Waiting { batch, outcome, search, host, cancel } = self.waiting.remove(0);
-        let until = epoch() + search.limit().as_secs_f64();
-        self.searching.push(Searching { batch, outcome, search: post_land::search(&lander.wake, search), host, cancel, until });
+        let since = epoch();
+        let until = since + search.limit().as_secs_f64();
+        self.searching.push(Searching { batch, outcome, search: post_land::search(&lander.wake, search), host, cancel, since, until });
     }
 
     fn stop_covered(&mut self, lander: &Lander) {
@@ -402,12 +421,14 @@ impl Watch {
         };
         let cancel = Cancel::default();
         moved(heads(&batch), Run::Running, &format!("its after-landing run of {} started{}", batch.head, host.as_deref().map_or_else(String::new, |host| format!(" on {host}"))));
-        let run = post_land::start(lander, landed(lander, &batch), host.clone(), cancel.clone());
+        let landed = landed(lander, &batch);
+        let limit = post_land::limit(lander, &landed);
+        let run = post_land::start(lander, landed, host.clone(), cancel.clone(), limit);
         if let Some(run) = buck2_after::start(&lander.wake, &lander.worktree, &lander.queue, &lander.offload_owner, &batch.head) {
             let until = epoch() + buck2_after::TIMEOUT_SECONDS as f64;
             self.buck2.push(Buck2Run { head: batch.head.clone(), base: batch.base.clone(), lanes: batch.lanes.clone(), run, until });
         }
-        self.running.push(Running { batch, run, host, cancel });
+        self.running.push(Running { batch, run, host, cancel, until: started + limit.as_secs_f64() });
         true
     }
 
@@ -426,7 +447,7 @@ impl Watch {
             settled = true;
         }
         while let Some(at) = self.running.iter().position(|running| running.run.is_finished()) {
-            let Running { batch, run, host, cancel } = self.running.remove(at);
+            let Running { batch, run, host, cancel, .. } = self.running.remove(at);
             self.finish(lander, batch, run, host, cancel);
             settled = true;
         }

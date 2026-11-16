@@ -8,7 +8,7 @@ const NEWEST: &str = "cccccccc3333333333333333333333333333cccc";
 const LATEST: &str = "dddddddd4444444444444444444444444444dddd";
 
 fn process(pid: u32, kind: &str, name: &str, runtime: Option<&str>) -> Process {
-    Process { pid, kind: kind.to_owned(), process: name.to_owned(), runtime: runtime.map(str::to_owned) }
+    Process { pid, kind: kind.to_owned(), process: name.to_owned(), runtime: runtime.map(str::to_owned), leaving_until: None }
 }
 
 fn took(runtime: &str, at: i64) -> Option<Swap> {

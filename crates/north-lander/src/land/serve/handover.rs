@@ -10,6 +10,10 @@ pub(super) fn landing(step: Step) -> bool {
     matches!(step, Step::Push | Step::Finish | Step::Speculate)
 }
 
+pub(super) fn abandonable(step: Step) -> bool {
+    matches!(step, Step::Prepare | Step::Build | Step::Check)
+}
+
 pub(super) fn announce(next: &str) {
     println!("north land: the live runtime changed to {next}; exiting so the service restarts on it");
 }

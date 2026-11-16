@@ -11,6 +11,8 @@ pub(super) struct Process {
     pub(super) kind: String,
     pub(super) process: String,
     pub(super) runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) leaving_until: Option<u64>,
 }
 
 pub(super) struct Seen {
@@ -26,7 +28,8 @@ pub(super) fn objects(seen: &[Seen], now: i64, built_on: impl Fn(&str, &str) -> 
             Ok(processes) => {
                 let hold = held(seen);
                 processes.iter().map(|process| {
-                    let behind = if hold.is_some() { 0 } else { behind_since_its_host_took(seen.swap.as_ref(), process.runtime.as_deref(), now, &built_on) };
+                    let leaving = process.leaving_until.is_some_and(|until| i64::try_from(until).is_ok_and(|until| until > now));
+                    let behind = if hold.is_some() || leaving { 0 } else { behind_since_its_host_took(seen.swap.as_ref(), process.runtime.as_deref(), now, &built_on) };
                     let mut object = json!({"host": seen.host, "kind": process.kind, "process": process.process, "runtime": process.runtime, "linked": seen.swap.as_ref().map(|swap| &swap.runtime), "seconds": behind});
                     if let Some(hold) = &hold {
                         object["held"] = Value::Bool(true);

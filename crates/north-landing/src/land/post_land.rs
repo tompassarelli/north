@@ -293,8 +293,12 @@ fn after_run(lander: &Lander, landed: &Landed, host: Option<String>, cancel: Can
     .at(head, head)
 }
 
-pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Cancel) -> Task<Outcome> {
-    let run = after_run(lander, &landed, host, cancel, deadline(&lander.repo, &ledger_path(), &landed.repository, &landed.head));
+pub fn limit(lander: &Lander, landed: &Landed) -> Duration {
+    deadline(&lander.repo, &ledger_path(), &landed.repository, &landed.head)
+}
+
+pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Cancel, limit: Duration) -> Task<Outcome> {
+    let run = after_run(lander, &landed, host, cancel, limit);
     Task::spawn(&lander.wake, move || {
         let known = settle::known_failing(&landed, &run);
         let verdict = settle(&landed, &run, send);
