@@ -27,24 +27,24 @@ pub(super) fn print(survey: &Survey) {
     }
 }
 
-/// Pages the coordinator once when this host goes over twice its cores, with the load, the idle cores and the same unit lines the dry run prints, and once more when the load falls back. The keyed send holds the page open for the whole overload, so the coordinator hears of one episode at most once.
-pub(super) fn page(survey: &Survey, at: f64) {
+/// Pages the coordinator once when this host goes over twice its cores, with the load, the idle cores, the same unit lines the dry run prints and this host's harness stores by size, and once more when the load falls back. The keyed send holds the page open for the whole overload, so the coordinator hears of one episode at most once.
+pub(super) fn page(survey: &Survey, disk: &[String], at: f64) {
     let Some(host) = survey.hosts.iter().find(|host| host.name == survey.here) else { return };
     let Some(measure) = host.measure else { return };
     let open = std::fs::read(record::directory().join(STATE)).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).is_some_and(|state| state["open"] == true);
     let over = measure.load > 2.0 * measure.cores;
     if over && !open {
-        open_episode(host, &survey.live, at);
+        open_episode(host, &survey.live, &super::disk::here(survey, disk), at);
     } else if !over && open {
         close_episode(host, at);
     }
 }
 
-fn open_episode(host: &Host, live: &std::collections::BTreeSet<String>, at: f64) {
+fn open_episode(host: &Host, live: &std::collections::BTreeSet<String>, disk: &[String], at: f64) {
     let Some(measure) = host.measure else { return };
     let idle = measure.idle_cores.map_or_else(|| "unread".to_owned(), |idle| format!("{idle:.1}"));
     let summary = format!("north fleet dispatch on {}: load {:.1} on {:.0} cores, {idle} idle cores", host.name, measure.load, measure.cores);
-    let text = std::iter::once(format!("{summary}; the CPU consumers:")).chain(lines(&host.name)).chain([super::waits::slowest(&host.name, at)]).chain(super::tasks::lines(&host.name, live)).collect::<Vec<_>>().join("\n");
+    let text = std::iter::once(format!("{summary}; the CPU consumers:")).chain(lines(&host.name)).chain([super::waits::slowest(&host.name, at)]).chain(super::tasks::lines(&host.name, live)).chain(disk.iter().cloned()).collect::<Vec<_>>().join("\n");
     match effects::page_condition(KEY, &text) {
         Ok(()) => effects::remember(STATE, &json!({"open": true, "at": at})),
         Err(why) => eprintln!("north fleet dispatch: CPU overload not paged: {why}"),

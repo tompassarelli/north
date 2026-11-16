@@ -31,6 +31,7 @@ mod cloud;
 mod cpu;
 mod decision;
 mod disk;
+mod disk_stores;
 pub mod drafts;
 pub mod drafting;
 mod from_draft;
@@ -290,10 +291,11 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         eprintln!("north fleet dispatch: {why}");
     }
     let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run, &survey.live);
-    let watched = freeze::watch(&survey.here, frozen, dry_run, now);
-    disk::print(&survey, dry_run);
+    let disk = disk::read(&survey, dry_run);
+    let watched = freeze::watch(&survey.here, frozen, &disk, dry_run, now);
+    print_lines(&disk);
     if !dry_run {
-        cpu::page(&survey, now);
+        cpu::page(&survey, &disk, now);
     }
     exit(told, reported, watched)
 }

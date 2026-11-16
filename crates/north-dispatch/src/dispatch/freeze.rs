@@ -57,15 +57,15 @@ pub fn closed(hosts: &[Host]) -> Vec<String> {
     hosts.iter().filter_map(|host| host.running.as_ref().err().map(|why| if why.starts_with(&host.name) { why.clone() } else { format!("{}: {why}", host.name) })).collect()
 }
 
-/// Keeps the stretch in `FILE` across runs and tells the coordinator once it passes the limit; a failed send is retried on the next frozen run. Returns false when a page due this run did not go out.
-pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) -> bool {
+/// Keeps the stretch in `FILE` across runs and tells the coordinator once it passes the limit, with the disk lines of each host closed for its disk; a failed send is retried on the next frozen run. Returns false when a page due this run did not go out.
+pub fn watch(here: &str, frozen: Option<String>, disk: &[String], dry_run: bool, at: f64) -> bool {
     let path = record::directory().join(FILE);
     let previous = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<Stretch>(&bytes).ok());
     let limit = north_base::platform::harness::default_number("dispatch_freeze_alarm_min");
     let (mut stretch, text) = step(previous, frozen, at, limit);
     let mut sent_all = true;
     if let Some(text) = text {
-        let text = format!("north fleet dispatch on {here}: {text}");
+        let text = std::iter::once(format!("north fleet dispatch on {here}: {text}")).chain(disk.iter().cloned()).collect::<Vec<_>>().join("\n");
         if dry_run {
             println!("would tell the coordinator: {text}");
             return true;
