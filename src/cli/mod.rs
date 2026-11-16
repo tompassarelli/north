@@ -28,7 +28,6 @@ mod gate_list;
 mod gate_relay;
 mod glance;
 mod holds;
-mod hook_stats;
 mod hook_verb;
 mod ledger;
 mod ledger_duplicate;

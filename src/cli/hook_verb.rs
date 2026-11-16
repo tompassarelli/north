@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use super::{fleet, hook_stats};
+use super::fleet;
 use crate::{foundation, grounding, guard, hook};
 
 const GUARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
@@ -14,7 +14,6 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
         }
     };
     match arguments.first().map(String::as_str) {
-        Some("stats") => reported(hook_stats::run(&arguments[1..])),
         Some("prompt-grounding") => {
             grounding::prompt_hook(|| guard::activation::authoring_guards_off("prompt-grounding"), grounded_session);
             ExitCode::SUCCESS

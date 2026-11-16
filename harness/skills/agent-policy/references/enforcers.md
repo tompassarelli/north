@@ -26,7 +26,6 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | No destructive commands, unsafe Git publishing or sensitive outbound transfers | `north-hook` (tripwire) | Claude, Codex |
 | A `claude/land-*` branch Autoland has neither landed nor handed back (a run queued or running, a run started under 24 hours ago while its status is pending or under 4 hours ago while it has none, or runs it cannot read) is never deleted from origin | `safe-push abandon` (`north land abandon`) and `north-hook` (tripwire) on `git push --delete` or `:ref` | Claude, Codex |
 | Codex prompts, plans and endings avoid the recorded delivery failures | `codex-conduct` (`north hook codex-conduct`) | Codex |
-| A worker over its 45-minute leash lands what passes and hands off the rest | `north-hook` (worker-lease) | Claude |
 | A worker never runs a foreground command that can block past 60 seconds | `worker-wait-guard` through `north-hook` | Claude |
 | A bug brief names a `Class:` line, and a `Verify: native` worker brief names `Lands-before: native`; `north fleet launch` and dispatch refuse a missing Class | `class_refusal` and `landing_refusal` in `crates/north-pace/src/router/brief.rs` | Claude |
 | A planning box is grounded: its Spec line reads `Spec: measured (...)` citing a ledger measurement with its n or a docs/references.md entry; dispatch refuses one that does not | `grounding_refusal` in `crates/north-pace/src/router/brief.rs` | Claude |

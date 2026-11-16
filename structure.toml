@@ -277,7 +277,7 @@ may_use = ["north-providers"]
 name = "north-guard"
 layer = 3
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-code-health", "north-unblocks"]
+may_use = ["north-dispatch", "north-code-health"]
 
 [[crate_dag.crate]]
 name = "north-check-environment"

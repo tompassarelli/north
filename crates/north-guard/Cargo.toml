@@ -13,10 +13,8 @@ doctest = false
 north-strategy-types = { path = "../north-strategy-types" }
 north-base = { path = "../north-base" }
 north-shared-config = { path = "../north-shared-config" }
-north-unblocks = { path = "../north-unblocks" }
 north-capacity = { path = "../north-capacity" }
 north-fleet-store = { path = "../north-fleet-store" }
-north-calibration = { path = "../north-calibration" }
 north-code-health = { path = "../north-code-health" }
 fancy-regex.workspace = true
 regex.workspace = true

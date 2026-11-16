@@ -101,7 +101,6 @@ const PRE_BASH: &[Guard] = &[
     Guard("north-hook", crate::guard::blind_stage::decide, Host),
     Guard("north-hook", crate::guard::reviewer_cli::decide, Anywhere),
     Guard("north-hook", crate::guard::git_stash::decide, Host),
-    Guard("north-hook", crate::guard::patch_carry::evaluate, Anywhere),
     Guard("north-hook", crate::guard::worktree_add::decide, Host),
     Guard("north-hook", crate::guard::worktree_remove::evaluate, Host),
     Guard("north-hook", crate::guard::masked_pipeline::decide, Anywhere),
@@ -111,7 +110,6 @@ const PRE_BASH: &[Guard] = &[
     Guard("north-hook", crate::guard::issue_shrink::evaluate, Anywhere),
     Guard("north-hook", crate::guard::sops_decrypt::evaluate, Anywhere),
     Guard("north-hook", crate::guard::public_text::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::frozen_topics::evaluate, Anywhere),
     Guard("poll-loop-guard", crate::guard::poll_loop::verdict, Anywhere),
     Guard("poll-loop-guard", crate::guard::poll_loop_task_output::verdict, Anywhere),
     Guard("heavy-command-guard", crate::guard::heavy_command::judge, Host),
@@ -161,14 +159,12 @@ const NATIVE_SPAWN: &[Guard] = &[Guard("north-hook", crate::guard::coordinator_r
 
 const POST_TOOL: &[Guard] = &[
     Guard("", crate::guard::accepted_finish::evaluate, Anywhere),
-    Guard("north-hook", crate::guard::worker_lease::evaluate, Anywhere),
     Guard("north-hook", crate::guard::code_health_edit::evaluate, Anywhere),
 ];
 
 const PERMISSION_REQUEST: &[Guard] = &[Guard("", crate::guard::tripwire::check, Anywhere)];
 
 const STOP: &[Guard] = &[
-    Guard("north-hook", crate::guard::class_review::evaluate, Anywhere),
     Guard("north-hook", crate::guard::permission_offer::evaluate, Anywhere),
     Guard("north-hook", crate::guard::permission_offer::evaluate_handoff, Anywhere),
     Guard("north-hook", crate::guard::recommendation_grounding::evaluate, Anywhere),
@@ -403,7 +399,7 @@ fn first_prompt(input: &HookInput) -> bool {
     std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
-const USAGE: &str = "Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]";
+const USAGE: &str = "Usage: north hook [dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]";
 
 pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Result<Vec<Evidence>, String> {
     let hook = match arguments {

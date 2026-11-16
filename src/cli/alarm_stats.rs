@@ -3,9 +3,17 @@ use crate::fleet::alarms;
 use crate::fleet::registry::root_here;
 use crate::foundation::clock::Timestamp;
 
-use super::hook_stats::window;
-
 const USAGE: &str = "Usage: north alarm stats [--since 7d|48h]";
+
+fn window(text: &str) -> Option<i64> {
+    let (number, unit) = text.split_at(text.len().checked_sub(1)?);
+    let number: i64 = number.parse().ok().filter(|number| *number > 0)?;
+    match unit {
+        "d" => Some(number * 86_400),
+        "h" => Some(number * 3_600),
+        _ => None,
+    }
+}
 
 pub(super) fn run(arguments: &[String]) -> Result<(), String> {
     let since = match arguments {

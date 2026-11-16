@@ -5,16 +5,11 @@ use std::time::Duration;
 
 use rustix::fs::{FlockOperation, flock};
 
-use north_foundation::foundation::hook_deadline::HOOK_TIMEOUT_SECS;
 
 use super::north_binary::north_binary;
 use super::process;
 
 const JUDGE_LIMIT: Duration = Duration::from_secs(300);
-const JUDGE_P90_SECS: u64 = 28;
-const HOOK_MARGIN_SECS: u64 = 15;
-const HOOK_LIMIT: Duration = Duration::from_secs(HOOK_TIMEOUT_SECS as u64 - HOOK_MARGIN_SECS);
-const _: () = assert!(HOOK_LIMIT.as_secs() >= JUDGE_P90_SECS + 10, "the hook must wait past the judge's measured p90 (13 to 28 s on 2026-11-08) with room to spare");
 const AT_ONCE_LIMIT: Duration = Duration::from_millis(300);
 pub const JUDGE_ARGS: [&str; 5] = ["check", "disclosure", "judge", "--text", "-"];
 const SPAN_CHARS: usize = 160;
@@ -87,14 +82,6 @@ pub fn judge_within(text: &str, wait: Duration) -> Result<Option<Vec<Finding>>, 
     match process::run_command_or_leave(command(), text.as_bytes(), wait) {
         Ok(Some(output)) => verdict(&output).map(Some),
         Ok(None) => Ok(None),
-        Err(error) => Err(format!("the private-text judge did not start: {error}")),
-    }
-}
-
-pub fn judge_in_hook(text: &str) -> Result<Vec<Finding>, String> {
-    match process::run_command_or_leave(command(), text.as_bytes(), HOOK_LIMIT) {
-        Ok(Some(output)) => verdict(&output),
-        Ok(None) => Err("judging, retry the same command in about 15 s and the cached verdict answers it".to_owned()),
         Err(error) => Err(format!("the private-text judge did not start: {error}")),
     }
 }
