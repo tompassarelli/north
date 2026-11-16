@@ -23,6 +23,7 @@ pub mod disclosure_judge;
 mod peer_invocations;
 pub mod policy;
 pub mod push_jobs;
+pub mod review;
 pub mod review_accept;
 pub mod rule_owners;
 pub mod safe_push_keys;

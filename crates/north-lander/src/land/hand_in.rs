@@ -181,7 +181,6 @@ fn hand(request: &Request, verb: &str, road: impl Road) -> u8 {
     if let (Some(check), Err((failure, output))) = (request.check, checked) {
         eprint!("{output}");
         road.failed(&named.lane.root, &failure);
-        crate::land::review_request::tell(verb, &named.lane.root, (&format!("refs/remotes/origin/{}", named.lane.destination), head.as_deref().unwrap_or("HEAD")), kept::own_session().as_deref(), &output);
         let written = if request.files.is_empty() { "" } else { "the files stay as written; " };
         let attempt = keep_attempt(&named, head.as_deref(), &output).map_or_else(|why| format!("the attempt was not kept: {why}"), |path| format!("the attempt is kept in {}", path.display()));
         eprintln!("{verb}: ✗ the check `{check}` {failure}; {written}NOT committed, NOT queued; {attempt}");

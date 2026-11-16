@@ -182,6 +182,7 @@ fn ticket(branch: &str, verdict: Option<String>) -> Ticket {
         alone_base: None,
         alone_unsettled: None,
         unjudged_on: None,
+        unreviewed: None,
         gated_from: None,
         hand_in: None,
         failed_on_main: Vec::new(),

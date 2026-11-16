@@ -272,7 +272,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
         let checked_tree = git(&root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])?;
         let gates_first = static_first::enabled();
-        let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop).map_err(|refusal| refused_finish(environment.session, &root, (&base, &lane_head), refusal)), || (runner::queue_steps(), runner::queue_windows()));
+        let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop).map_err(|refusal| refused_finish(environment.session, &root, &lane_head, refusal)), || (runner::queue_steps(), runner::queue_windows()));
         let early = (!gates_first).then(|| scope.spawn(run_checks));
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
         let stated = matches!(shape, Shape::OneCommit { message: Some(_) });
@@ -282,6 +282,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         }))?;
         let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
         lane_squash::refuse_unfinished_subject(&root, &branch, &lane_head, stated)?;
+        let unreviewed = timings.stage("review", || super::review_request::held(&root, &base, &head, environment.session))?;
         let queue = queue::directory(environment.state_home, &origin);
         let seen = Seen { visibility: facts.repository().visibility.clone(), held: None };
         let asked_micros = micros();
@@ -344,6 +345,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             published: published(&root, &branch, &destination),
             gated_from,
             hand_in: Some(hand_in),
+            unreviewed,
             tests_after_landing: after_landing,
             ..checked_alone(&root, head, &checked_tree, gate, &base, after_landing)
         };

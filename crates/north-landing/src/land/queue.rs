@@ -82,9 +82,19 @@ pub struct Ticket {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unjudged_on: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unreviewed: Option<Unreviewed>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gated_from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hand_in: Option<HandIn>,
+}
+
+/// A ticket held in the queue for the reviewer accept its lane needs (north#1632): the patch id the accept is keyed by, and whether the coordinator was told it waits past its notice.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unreviewed {
+    pub patch: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub noted: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

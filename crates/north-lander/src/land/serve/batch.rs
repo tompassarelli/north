@@ -17,7 +17,7 @@ use crate::land::queue::{self, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::telemetry::Stages;
 use crate::land::watch::Watch;
-use crate::land::{lander_fix, pause, steps, unjudged};
+use crate::land::{lander_fix, pause, steps, unjudged, unreviewed};
 use super::private_kinds;
 
 pub(super) type Entry<'a> = (&'a PathBuf, &'a Ticket);
@@ -91,6 +91,7 @@ impl Serve<'_> {
         let repo = self.repo.clone();
         let verdict: Arc<unjudged::Verdict> = Arc::new(move |ticket, base, wait| private_kinds::verdict(&repo, ticket, base, wait));
         let tickets = watch.asks.settle(self, if pass.red_only { lander_fix::repairs(&open) } else { open }, now(), &verdict)?;
+        let tickets = unreviewed::settle(self, tickets, now())?;
         if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }

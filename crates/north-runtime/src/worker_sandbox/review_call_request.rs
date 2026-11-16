@@ -9,6 +9,7 @@ use std::time::Duration;
 use north_base::platform::finish_record::verdict_store;
 use north_base::platform::harness::DEFAULTS;
 use north_base::platform::review_accept::{Accept, Accepts, CALL_SESSION, patch_diff, patch_id};
+use north_landing::land::review_calls::{CallVerdict as Verdict, REVIEW_CALLS, store_key};
 use north_trusted_mirror::Mirror;
 use rustix::fs::{FlockOperation, flock};
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,6 @@ const ROUNDS: usize = 2;
 const MAIN_AGE: Duration = Duration::from_secs(300);
 const MODELS: &str = "review_call_models";
 const INSTRUCTIONS: &str = "harness/review/commit-reviewer.md";
-const STORE: &str = "review-calls";
 const MARKER: &str = concat!("LANE", "-DATA");
 const HELD: &str = "review held: ask your lead";
 
@@ -32,13 +32,6 @@ pub(super) fn asked(arguments: &[String]) -> Option<Result<String, String>> {
         [head] if head.len() == 40 && head.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) => Ok(head.clone()),
         _ => Err(format!("a review call is `{VERB} HEAD`, with the head's full sha")),
     })
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Verdict {
-    pub session: String,
-    pub accept: bool,
-    pub findings: String,
 }
 
 /// The verdict of `answer`: an accept only when its first non-empty line is `ACCEPT`, and a refusal for every other answer.
@@ -58,26 +51,22 @@ fn verdict(session: &str, answer: &str) -> Verdict {
 struct Kept(PathBuf);
 
 impl Kept {
-    fn key(word: &str) -> String {
-        word.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect()
-    }
-
     fn read<T: for<'a> Deserialize<'a> + Default>(&self, kind: &str, name: &str) -> T {
-        fs::read_to_string(self.0.join(kind).join(format!("{}.json", Self::key(name)))).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+        fs::read_to_string(self.0.join(kind).join(format!("{}.json", store_key(name)))).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
     }
 
     fn write<T: Serialize>(&self, kind: &str, name: &str, value: &T) -> Result<(), String> {
         let directory = self.0.join(kind);
         let failure = |error: std::io::Error| format!("the review verdicts in {}: {error}", directory.display());
         fs::create_dir_all(&directory).map_err(failure)?;
-        fs::write(directory.join(format!("{}.json", Self::key(name))), serde_json::to_string(value).map_err(|error| error.to_string())?).map_err(failure)
+        fs::write(directory.join(format!("{}.json", store_key(name))), serde_json::to_string(value).map_err(|error| error.to_string())?).map_err(failure)
     }
 
     fn lock(&self, task: &str) -> Result<File, String> {
         let directory = self.0.join("tasks");
         let failure = |error: std::io::Error| format!("the review round lock in {}: {error}", directory.display());
         fs::create_dir_all(&directory).map_err(failure)?;
-        let held = File::create(directory.join(format!("{}.lock", Self::key(task)))).map_err(failure)?;
+        let held = File::create(directory.join(format!("{}.lock", store_key(task)))).map_err(failure)?;
         flock(&held, FlockOperation::LockExclusive).map(|()| held).map_err(|error| format!("the review round lock of {task}: {error}"))
     }
 
@@ -247,7 +236,7 @@ pub(super) fn serve(north: &Path, environment: &[(String, String)], home: &Path,
     let base = opened.origin_main_within(MAIN_AGE)?;
     let fork = git(mirror, &["merge-base", &base, head])?.trim().to_owned();
     let patch = patch_id(mirror, &fork, head)?;
-    let kept = Kept(verdict_store(environment, home).join(STORE));
+    let kept = Kept(verdict_store(environment, home).join(REVIEW_CALLS));
     let _round = kept.lock(&asker.task)?;
     let mut verdicts = kept.verdicts(&patch);
     if verdicts.is_empty() {

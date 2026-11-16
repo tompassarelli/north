@@ -146,6 +146,7 @@ impl Repository {
             alone_base: Some(git(&lane, &["rev-parse", "origin/main"])),
             alone_unsettled: None,
             unjudged_on: None,
+            unreviewed: None,
             gated_from: None,
             hand_in: None,
             queued_micros: Some(micros),
