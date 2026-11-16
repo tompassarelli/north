@@ -38,7 +38,16 @@ fn started(root: &Path, base: &str, head: &str, session: Option<&str>) -> Result
     let log = state_home().join(CALLS).join(format!("{patch}.log"));
     let failure = |error: std::io::Error| format!("the log {}: {error}", log.display());
     log.parent().map_or(Ok(()), fs::create_dir_all).map_err(failure)?;
-    call(root, &head, &log)?
+    let output = File::create(&log).map_err(failure)?;
+    let errors = output.try_clone().map_err(failure)?;
+    Command::new(land_north())
+        .args(["--worker-sandbox", "--outside", "--"])
+        .arg(land_north())
+        .args(["review-call", &head])
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(output)
+        .stderr(errors)
         .process_group(0)
         .spawn()
         .map_err(|error| format!("north review-call {head}: {error}"))?;
@@ -48,28 +57,6 @@ fn started(root: &Path, base: &str, head: &str, session: Option<&str>) -> Result
 /// Whether `refusal` is a scan's refusal for missing review accepts: a review still pending, not a failed check.
 pub fn pending(refusal: &str) -> bool {
     SCANS.iter().any(|scan| refusal.contains(scan))
-}
-
-/// Whether `refusal` is [`pending`] and the review call this hand-in then runs on its own lane at `head`, waiting for its verdict, recorded an accept.
-pub fn reviewed(root: &Path, head: &str, refusal: &str) -> bool {
-    let asked = pending(refusal) && sandboxed();
-    asked && git(root, &["rev-parse", "--verify", &format!("{head}^{{commit}}")]).is_ok_and(|head| waited(root, &head))
-}
-
-fn waited(root: &Path, head: &str) -> bool {
-    let log = state_home().join(CALLS).join(format!("{head}.log"));
-    println!("safe-push: the lane needs a review accept; waiting on its review call, logged in {}", log.display());
-    let status = log.parent().map_or(Ok(()), fs::create_dir_all).map_err(|error| error.to_string()).and_then(|()| call(root, head, &log)).and_then(|mut command| command.status().map_err(|error| error.to_string()));
-    status.is_ok_and(|status| status.success())
-}
-
-fn call(root: &Path, head: &str, log: &Path) -> Result<Command, String> {
-    let failure = |error: std::io::Error| format!("the log {}: {error}", log.display());
-    let output = File::create(log).map_err(failure)?;
-    let errors = output.try_clone().map_err(failure)?;
-    let mut command = Command::new(land_north());
-    command.args(["--worker-sandbox", "--outside", "--"]).arg(land_north()).args(["review-call", head]).current_dir(root).stdin(Stdio::null()).stdout(output).stderr(errors);
-    Ok(command)
 }
 
 fn sandboxed() -> bool {

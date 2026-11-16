@@ -30,11 +30,6 @@ pub(super) fn refused_finish(session: Option<&str>, root: &Path, (base, head): (
     }
 }
 
-/// The checks before queueing `checks`, run once more when they refuse for missing accepts and the review call this hand-in then runs on its own lane at `head`, waiting for its verdict, records an accept, so the lane queues in this call instead of sending its author back to hand in again (north#1632).
-pub(super) fn rechecked<T>(root: &Path, head: &str, checks: impl Fn() -> Result<T, QueueRefusal>) -> Result<T, QueueRefusal> {
-    checks().or_else(|refusal| if crate::land::review_request::reviewed(root, head, refusal.text()) { checks() } else { Err(refusal) })
-}
-
 pub(super) fn refuse_archived(repository: &Repository) -> Result<(), String> {
     if repository.archived {
         return Err(format!("GitHub reports {} as archived, so origin refuses every push; unarchive it or land elsewhere", repository.name));
