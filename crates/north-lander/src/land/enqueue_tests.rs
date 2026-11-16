@@ -1,18 +1,12 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
+use north_foundation::test_inputs::git::git_in as run;
 use serde_json::json;
 
 use super::Denylist;
 use crate::land::slots::runner::{QueueRefusal, STOPPED, Stop};
 use super::QueueChecks;
-
-fn run(repo: &Path, args: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(repo).args(["-c", "commit.gpgsign=false", "-c", "user.name=Gate fixture", "-c", "user.email=fixture@example.invalid"]).args(args).output().unwrap();
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
 
 fn commit(repo: &Path, message: &str) -> String {
     run(repo, &["add", "--all"]);
