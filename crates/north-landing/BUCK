@@ -25,7 +25,6 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-check-environment:north-check-environment",
-        "//crates/north-concerns:north-concerns",
         "//crates/north-diff-gates:north-diff-gates",
         "//crates/north-foundation:north-foundation",
         "//crates/north-git-locks:north-git-locks",
@@ -59,7 +58,6 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-check-environment:north-check-environment",
-        "//crates/north-concerns:north-concerns",
         "//crates/north-diff-gates:north-diff-gates",
         "//crates/north-foundation:north-foundation",
         "//crates/north-git-locks:north-git-locks",

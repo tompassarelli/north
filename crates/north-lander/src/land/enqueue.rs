@@ -214,19 +214,11 @@ fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
     (name != destination && name != branch).then(|| name.to_owned())
 }
 
-/// Why the lane goes first: it touches a path that pays a debt goal reading over its ceiling in the base'"'"'s concerns.toml.
-fn pays_debt(root: &Path, base: &str, head: &str) -> Option<String> {
-    let registry = git(root, &["show", &format!("{base}:{}", north_concerns::registry::PATH)]).ok()?;
-    let changed: Vec<String> = git(root, &["diff", "--name-only", &format!("{base}..{head}")]).ok()?.lines().map(str::to_owned).collect();
-    north_concerns::ceiling::paid(root, &registry, &changed).ok()?.into_iter().next()
-}
-
-type Marks = (Option<RedFix>, Option<String>, Option<String>);
+type Marks = (Option<RedFix>, Option<String>);
 
 fn marks(root: &Path, base: &str, head: &str, destination: &str) -> Result<Marks, String> {
     let red_fix = red_fix(root, base, destination)?;
-    let urgent = red_fix.is_none().then(|| pays_debt(root, base, head)).flatten();
-    Ok((red_fix, super::lander_fix::marked(root, base, head)?, urgent))
+    Ok((red_fix, super::lander_fix::marked(root, base, head)?))
 }
 
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, facts: Option<Facts>) -> Result<Queued, String> {
@@ -286,7 +278,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let seen = Seen { visibility: facts.repository().visibility.clone(), held: None };
         let asked_micros = micros();
         let settled = AtomicBool::new(false);
-        let ((gate, ran, answered), gated_from, (red_fix, lander_fix, urgent), failed_on_main) = std::thread::scope(|inner| {
+        let ((gate, ran, answered), gated_from, (red_fix, lander_fix), failed_on_main) = std::thread::scope(|inner| {
             let judge = inner.spawn(|| {
                 let asked = timings.stage("private-kind ask", || outgoing::enqueue_gate(&root, (&base, &head), environment.denylist, &origin, &destination, seen, &|| !settled.load(Ordering::Acquire)).map(|(gate, ran)| (gate, ran, micros())));
                 if asked.is_err() && gates_first {
@@ -339,7 +331,6 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             several_commits,
             red_fix,
             keep_lane,
-            urgent,
             failed_on_main,
             lander_fix,
             published: published(&root, &branch, &destination),

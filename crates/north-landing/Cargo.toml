@@ -15,7 +15,6 @@ north-diff-gates = { path = "../north-diff-gates" }
 north-landing-gates = { path = "../north-landing-gates" }
 north-land-checks = { path = "../north-land-checks" }
 north-land-scans = { path = "../north-land-scans" }
-north-concerns = { path = "../north-concerns" }
 north-strategy-types = { path = "../north-strategy-types" }
 regex.workspace = true
 rustix.workspace = true

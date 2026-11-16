@@ -3,5 +3,5 @@ name = "north-lander"
 layer = 4
 family = "landing"
 paths = ["crates/north-lander/src/**"]
-may_use = ["north-base", "north-check-environment", "north-git-locks", "north-concerns", "north-land-sandbox", "north-land-scans", "north-landing", "north-offload", "north-strategy-types", "north-runtime-follow"]
+may_use = ["north-base", "north-check-environment", "north-git-locks", "north-land-sandbox", "north-land-scans", "north-landing", "north-offload", "north-strategy-types", "north-runtime-follow"]
 

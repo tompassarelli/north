@@ -4,7 +4,6 @@ pub mod follow;
 pub use follow::{send, send_condition};
 pub mod gates;
 pub mod ingest_gate;
-pub mod concerns;
 pub mod leaf;
 pub mod owner;
 pub mod route;
@@ -27,6 +26,10 @@ use super::trace;
 const INTENT: &str = "intent.json";
 const RECOVERING: &str = "recovering.json";
 const LANDED_MAIN: &str = "refs/lander/landed-main";
+
+fn code_root() -> PathBuf {
+    std::env::var_os("NORTH_CODE_ROOT").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code"), PathBuf::from)
+}
 
 fn fetch_main(lander: &Lander) -> Result<String, String> {
     git(&lander.worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", &format!("+refs/heads/main:{LANDED_MAIN}")])
@@ -114,7 +117,7 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
     checkout::follow(lander, head);
     let state = state_home();
     let batch_size = tickets.len();
-    let log = push_ledger::landing_log(&lander.repo, &state, &north_concerns::code_root());
+    let log = push_ledger::landing_log(&lander.repo, &state, &code_root());
     let mut spans = trace::landing::shared(stages, head);
     for (path, ticket, tip) in tickets {
         let name = name_of(&path);
