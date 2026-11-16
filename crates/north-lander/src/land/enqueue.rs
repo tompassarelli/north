@@ -282,7 +282,6 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         }))?;
         let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
         lane_squash::refuse_unfinished_subject(&root, &branch, &lane_head, stated)?;
-        let unreviewed = timings.stage("review", || super::review_request::held(&root, &base, &head, environment.session))?;
         let queue = queue::directory(environment.state_home, &origin);
         let seen = Seen { visibility: facts.repository().visibility.clone(), held: None };
         let asked_micros = micros();
@@ -324,6 +323,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             let (gate, ran, answered) = asked??;
             Ok::<_, String>(((gate, ran, answered), gated_from, marks, failed_on_main))
         })?;
+        let unreviewed = timings.stage("review", || super::review_request::held(&root, &base, &head, environment.session))?;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran, check: environment.session.and_then(|session| super::after::leaf::passed(&FinishRecords::here(), session, &root, &head)) };
         let queued_micros = micros();
         let after_landing = runner::tests_after_landing();
