@@ -61,6 +61,12 @@ pub enum QueueRefusal {
 }
 
 impl QueueRefusal {
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Failed(text) | Self::Unjudged(text) => text,
+        }
+    }
+
     pub fn into_text(self) -> String {
         match self {
             Self::Failed(text) | Self::Unjudged(text) => text,

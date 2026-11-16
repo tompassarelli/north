@@ -29,7 +29,7 @@ use timings::Timings;
 mod alone;
 use alone::checked_alone;
 pub use facts::Facts;
-use refuse::{DiffOnly, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
+use refuse::{DiffOnly, rechecked, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
 use super::scans::outgoing;
 use north_landing::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen};
@@ -272,7 +272,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
         let checked_tree = git(&root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])?;
         let gates_first = static_first::enabled();
-        let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop).map_err(|refusal| refused_finish(environment.session, &root, (&base, &lane_head), refusal)), || (runner::queue_steps(), runner::queue_windows()));
+        let run_checks = || timings.stage_in_steps("queue checks", || rechecked(&root, &lane_head, || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop)).map_err(|refusal| refused_finish(environment.session, &root, (&base, &lane_head), refusal)), || (runner::queue_steps(), runner::queue_windows()));
         let early = (!gates_first).then(|| scope.spawn(run_checks));
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
         let stated = matches!(shape, Shape::OneCommit { message: Some(_) });
