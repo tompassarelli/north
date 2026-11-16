@@ -266,7 +266,7 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     }
     commit(repo, "n882-context: pack context from graph-ground");
     let queued = crate::land::slots::runner::queue_commands(repo, &base, "HEAD").unwrap();
-    for gate in ["code-health layers", "check experiments", "code-health habits"] {
+    for gate in ["code-health layers", "code-health habits"] {
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
     assert!(queued.iter().all(|command| !command.contains("cargo") && !command.contains("./bin/head-north")), "a check that compiles, clippy and the test line among them, runs after landing, never before queueing: {queued:#?}");

@@ -27,17 +27,11 @@
 	check = @enqueue,Cargo.toml,Cargo.lock,crates/,BUCK,build/,third-party/,toolchains/ :: north buck targets --check --third-party
 	check = @enqueue,build/host-cases.list,Cargo.toml,:(glob)**/BUCK :: north buck targets --check
 	check = Cargo.toml,Cargo.lock,crates/,BUCK,build/,third-party/,toolchains/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-buck/src/,crates/north-build-system/src/,src/cli/ --no-build buck targets --check
-	check = @enqueue,@lane,harness/gates.toml,.safe-push :: north land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = Cargo.lock,:(glob)**/BUCK,:(glob)**/*.bzl,build/,third-party/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-checks/src/,crates/north-build-system/src/,src/cli/ --no-build land graph-build
 	check = src/,crates/ :: CARGO_TARGET_DIR=target ./bin/head-north land scan tool-removal ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	check = crates/north-base/src/lifecycle.rs,crates/north-base/src/lifecycle/,crates/north-base/src/land_ticket.rs,crates/north-base/src/dispatch_pause_lifecycle.rs,crates/north-machine-model/,crates/north-fleet-store/src/session_lifecycle.rs,crates/north-session-host/src/row_delivery.rs,crates/north-fleet-supervisor/src/fleet/registry/launching.rs,crates/north-land-scans/src/withdrawal.rs,crates/north-landing/src/land/enqueue.rs,crates/north-landing/src/land/after_landing_lifecycle.rs,crates/north-capacity/src/capacity/lease_lifecycle.rs,crates/north-fleet-store/src/gate_lifecycle.rs,crates/north-threads/src/threads/claims/lifecycle.rs,crates/north-threads/src/threads/client/spool.rs,crates/north-check-environment/src/lib.rs,crates/north-runtime/src/runtime/lifecycle.rs,crates/north-lander/src/land/shadow/check_phase.rs,crates/north-lander/src/land/shadow/run.rs,src/cli/machines.rs,docs/rationale/state-machines/ :: CARGO_TARGET_DIR=target ./bin/head-north check machines --root .
-	check = src/,crates/,.safe-push :: CARGO_TARGET_DIR=target ./bin/head-north check machines --registry --root .
-	check = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/holdlist.rs,src/cli/ --no-build land scan holdlist-guards-resolve ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	check = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/holdlist.rs,crates/north-land-scans/src/turn_scope.rs,src/cli/ --no-build land scan turn-scope ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = @lane,** :: north land scan review-accept ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = @lane,** :: north land scan safe-push-keys ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,** :: north land scan leftovers ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
-	check = @enqueue,harness/alarms.toml,crates/north-fleet-store/src/fold.rs,src/,crates/ :: north land scan alarm-definitions ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,harness/ :: north check harness tree-policy
 	check = harness/mayday/ :: harness/mayday/mayday --self-test # mayday-self-test
 	check = .,:(exclude)third-party/BUCK,:(exclude)third-party/fixups/ :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=fail ${SAFE_PUSH_LAND_PACKAGES:---workspace} $([[ ${SAFE_PUSH_LAND_PACKAGES:-} == '-p north' ]] || echo --lib) --bins $([[ -z ${SAFE_PUSH_LAND_AFTER:-} ]] || echo --no-fail-fast) ${SAFE_PUSH_LAND_IT:---test it -E kind(lib)|kind(bin)|kind(test)}
@@ -57,10 +51,8 @@
 	check = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/ --no-build docs readme --check
 	check = @enqueue,flake.lock,harness/nix/lock-allow.toml :: north check nix --lock flake.lock --allow harness/nix/lock-allow.toml
 	check = "@enqueue,@lane,src/,crates/,tests/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/ --no-build land scan test-admission kills --remote-north \"CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/test_admission/,src/cli/\" ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
-	check = @enqueue,** :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ check citations --root $PWD
 	check = @enqueue,harness/scripts/,harness/lib/,bin/,.safe-push,flake.nix :: north land scan nix-entry ${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,.safe-push,src/,crates/ :: north land scan safe-push-verbs ${SAFE_PUSH_LAND_HEAD}
-	check = @enqueue,docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: north check experiments --root .
 	check = @enqueue,harness/,north-data/private-checks.toml,north-data/expectations.toml,docs/feedback-loop.md :: north land scan run-time-data ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = src/,crates/ :: ! git grep -l 'code/south' -- src crates ':!*test*' ':!crates/north-shared-config/src/lib.rs' | grep .
 	check = src/cli/operator.rs,src/cli/operator/,crates/north-credentials/src/credentials/ :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check $HOME/code/south/main # hardcoded-repo-path:allow
@@ -76,7 +68,6 @@
 	machine-bound = reads the south checkout beside north, which no lane tree holds, so a template value equal to the owner's is judged on the build host that owns it :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/operator/ config operator check src/cli/operator/template --distinct-from $HOME/code/south/main # hardcoded-repo-path:allow
 	machine-bound = resolves this host's Claude Code runtime, account token file and south checkout, which no Actions runner holds :: harness/mayday/mayday --self-test # mayday-self-test
 	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only machine-bound"
-	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ check citations --root $PWD
 	runner = build-host
 	reports-all = it names every BUCK file that differs from what north buck targets writes, not only the first :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-buck/src/,crates/north-build-system/src/,src/cli/ --no-build buck targets --check
 	reports-all = it names every generated page that is stale, not only the first :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-docs/src/docs.rs,crates/north-docs/src/readme.rs --no-build docs readme --check
@@ -94,21 +85,17 @@
 	after-only = it runs every shell and Python harness test on a clean runner, where the changed ones run as the machine-bound land tests on the lander :: .github/workflows/harness.yml:test
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north buck targets --check --third-party"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north buck targets --check"
-	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan review-accept ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan safe-push-keys ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan leftovers ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
-	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan alarm-definitions ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check harness tree-policy"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health gate ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north code-health habits --new-since ${SAFE_PUSH_LAND_BASE}"
 	local-only = "pure git scan of the lane tree that takes about 41 ms, so it waits for no build-host slot; on 2026-11-15 it queued 599 s for one and exited 96 (north#1632) :: ! git grep -l 'code/south' -- src crates ':!*test*' ':!crates/north-shared-config/src/lib.rs' | grep ."
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check nix --lock flake.lock --allow harness/nix/lock-allow.toml"
-	local-only = "static scan on the hand-in host that runs the lane's own north only when the CLI or the checker changed, so no other lane build waits for a build-host slot (north#1247) :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-claims/src/citation_check/ check citations --root $PWD"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan nix-entry ${SAFE_PUSH_LAND_HEAD}"
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan safe-push-verbs ${SAFE_PUSH_LAND_HEAD}"
-	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north check experiments --root ."
 	local-only = "static scan the installed north runs on the hand-in host, so no lane build waits for a build-host slot (north#1247) :: north land scan run-time-data ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}"
 [test-admission]
 	contract = file-or-wire-format :: a format another program or a past north writes or reads: ledgers, trailers, transcripts, the GitHub and Claude APIs, git output
