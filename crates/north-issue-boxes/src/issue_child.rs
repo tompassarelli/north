@@ -1,16 +1,18 @@
 //! `north issue child`: one sub-issue under a parent, created with its type and labels and linked to the parent by one
-//! GraphQL mutation through the broker (north#1137).
-use north_base::platform::broker_client::Client;
-use serde_json::json;
+//! GraphQL mutation sent as the gh shim's App token (north#1137).
+use std::collections::BTreeMap;
+
+use north_base::platform::github;
+use serde_json::Value;
 
 use super::issue_convert::{manifest, read, scan, slug};
 use north_base::platform::box_oracles::done_when_command;
 
 const USAGE: &str = "usage: north issue child [OWNER/]REPO#N --title TITLE --body BODY [--box TEXT] [--type Task|Bug|Feature] [--label LABEL]...
 
-Creates one sub-issue under the parent. A confined worker names no parent: its own task issue is the parent, and the outside broker, which holds the token, runs the verb for it. --box TEXT is added to the body as one unticked box; with no --label the parent's type, priority and category labels are taken, and its Category: and Class: lines go first in a body that has none. Its type and labels are set and it is linked to the parent in one GraphQL mutation
-through the broker, and the new issue's URL is printed. It refuses a title equal to an open issue's, a body with no
-runnable Done when (a command in backticks), a parent in another owner's repository, a parent that holds 100 children
+Creates one sub-issue under the parent. A confined worker names no parent: its own task issue is the parent, and the outside broker, which reads the host token the confined session cannot, runs the verb for it. --box TEXT is added to the body as one unticked box; with no --label the parent's type, priority and category labels are taken, and its Category: and Class: lines go first in a body that has none. Its type and labels are set and it is linked to the parent in one GraphQL mutation
+with that token, and the new issue's URL is printed. It refuses a title equal to an open issue's, a body with no
+runnable Done when (a command in backticks), a parent in another owner's repository or one the host's token does not cover (or whose token lacks issues:write), a parent that holds 100 children
 already, a type or label the repository lacks, and text the public deny-list matches in a public repository.";
 
 struct Asked {
@@ -107,21 +109,13 @@ fn create(asked: &Asked) -> Result<bool, String> {
     let asked = &completed;
     let titles: Vec<String> = open.issues.iter().map(|issue| issue.title.clone()).collect();
     let scanner = scan(open.private);
-    let refused = refusals(asked, &titles, &target, &*scanner);
+    let mut refused = refusals(asked, &titles, &target, &*scanner);
+    refused.extend(held_scope_refusal(&asked.name));
     if !refused.is_empty() {
         refused.iter().for_each(|why| println!("refused: {why}"));
         return Ok(false);
     }
-    let issue_type_id = target.issue_types.get(&asked.kind).cloned().unwrap_or_default();
-    let label_ids: Vec<String> = asked.labels.iter().map(|label| target.labels[label].clone()).collect();
-    let answer = Client::discover().github_child(&json!({
-        "repository": asked.name,
-        "parent": asked.number,
-        "issue_type_id": issue_type_id,
-        "label_ids": label_ids,
-        "title": asked.title,
-        "body": asked.body,
-    }))?;
+    let answer = create_issue(asked, &target)?;
     println!("created {}/{}#{} under {reference}: {}", asked.owner, asked.name, answer["number"], answer["url"].as_str().unwrap_or_default());
     Ok(true)
 }
@@ -174,4 +168,32 @@ fn refusals(asked: &Asked, titles: &[String], target: &read::Target, scanner: &m
         Err(why) => refused.push(format!("the privacy scan could not read it, so it is refused: {why}")),
     }
     refused
+}
+
+const CREATE: &str = "mutation($input: CreateIssueInput!) { createIssue(input: $input) { issue { number url } } }";
+const HELD_TOKEN: &str = ".local/state/north/github-installation-token.yaml";
+
+/// The one GraphQL mutation that creates the child and links it to its parent, sent as the gh shim's App token.
+fn create_issue(asked: &Asked, target: &read::Target) -> Result<Value, String> {
+    let issue_type_id = target.issue_types.get(&asked.kind).cloned().unwrap_or_default();
+    let mut fields: Vec<String> = [("repositoryId", &target.repository_id), ("parentIssueId", &target.parent_id), ("issueTypeId", &issue_type_id), ("title", &asked.title), ("body", &asked.body)].map(|(key, value)| format!("input[{key}]={value}")).to_vec();
+    fields.extend(asked.labels.iter().map(|label| format!("input[labelIds][]={}", target.labels[label])));
+    let query = format!("query={CREATE}");
+    let mut arguments = vec!["api", "graphql", "-f", query.as_str()];
+    fields.iter().for_each(|field| arguments.extend(["-f", field.as_str()]));
+    let answer = github::json(&arguments)?;
+    let issue = &answer["data"]["createIssue"]["issue"];
+    if issue.is_object() { Ok(issue.clone()) } else { Err(format!("GitHub created no issue: {}", answer["errors"])) }
+}
+
+/// Why the token this host holds cannot create an issue in `name`: the repositories and permissions the laptop sent it with, the same ceiling the token broker applied to a child (none when this host holds no token file, whose mint is then the broker's to limit).
+fn held_scope_refusal(name: &str) -> Option<String> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
+    let text = std::fs::read_to_string(std::path::Path::new(&home).join(HELD_TOKEN)).ok()?;
+    let fields: BTreeMap<&str, &str> = text.lines().filter_map(|line| line.split_once(':')).map(|(key, value)| (key.trim(), value.trim())).collect();
+    let list = |key: &str| fields.get(key).map(|value| value.split(',').map(str::trim).filter(|word| !word.is_empty()).collect::<Vec<_>>()).unwrap_or_default();
+    if !list("repositories").contains(&name) {
+        return Some(format!("{name} is outside the repositories this host's token covers ({})", list("repositories").join(", ")));
+    }
+    (!list("permissions").iter().any(|pair| matches!(pair.split_once(':'), Some(("issues", "write" | "admin"))))).then(|| "this host's token holds no issues:write".to_owned())
 }
