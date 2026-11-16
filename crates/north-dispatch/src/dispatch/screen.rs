@@ -39,7 +39,7 @@ pub(super) fn arm(survey: &Survey, launch: &mut Launch) {
     if launch.route.stamp().is_some() {
         return;
     }
-    if super::deepseek::is(launch) {
+    if super::deepseek::is(launch) || super::standin::is(launch) {
         return;
     }
     let evidence = survey.ledger.get(&launch.route.category).cloned().unwrap_or_default();

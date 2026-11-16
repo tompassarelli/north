@@ -19,6 +19,7 @@ mod box_path;
 mod fetch_fleet;
 mod fleet_for;
 mod fleet_issue;
+mod proof_run;
 mod fleet;
 mod steps;
 mod gate;

@@ -27,6 +27,7 @@ mod band;
 mod brief;
 pub mod cells;
 pub mod deepseek;
+pub mod standin;
 mod cloud;
 mod cpu;
 mod decision;

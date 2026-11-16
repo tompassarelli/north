@@ -70,7 +70,9 @@ pub(super) fn command_in(launch: &Launch, name: &str, survey: &Survey, north: &s
     if let Some(parent) = &launch.lineage.parent {
         words.extend(["--parent".to_owned(), parent.clone()]);
     }
-    words.extend(super::deepseek::invocation(launch, &survey.cfg)?);
+    if !super::standin::is(launch) {
+        words.extend(super::deepseek::invocation(launch, &survey.cfg)?);
+    }
     let held = (!remote && launch.local.is_none()).then(|| format!("north fleet dispatch placed this box on {}", launch.host));
     if let Some(reason) = launch.local.as_ref().or(held.as_ref()) {
         words.extend(["--local".to_owned(), reason.clone()]);
@@ -93,7 +95,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     let name = session_name(launch, at);
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let result = fleet_launch(launch, &name, survey, &home);
-    let cell = super::deepseek::cell(launch, &survey.cfg);
+    let cell = super::deepseek::cell(launch, &survey.cfg).filter(|_| !super::standin::is(launch));
     let entry = Record {
         at,
         item: launch.item.to_string(),
@@ -103,7 +105,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         cloud: false,
         launched: result.is_ok(),
         detail: result.clone().unwrap_or_else(|why| why),
-        tier: super::deepseek::tier(launch),
+        tier: super::deepseek::tier(launch).filter(|_| !super::standin::is(launch)),
         category: Some(launch.route.category.clone()),
         box_text: super::facets::declared_in(&launch.brief, "Box").map(str::to_owned),
         hand: false,
@@ -116,7 +118,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         route: None,
     };
     record::append(&record::directory(), &entry)?;
-    if result.is_ok() && !super::deepseek::is(launch) && !launch.lineage.lead {
+    if result.is_ok() && !super::deepseek::is(launch) && !super::standin::is(launch) && !launch.lineage.lead {
         predict(launch);
     } else if entry.failed() {
         attribution::record(&entry.name, "dispatch", Cause::Harness(Harness::Placement), &format!("{}: {}", launch.host, entry.detail));

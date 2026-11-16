@@ -6,6 +6,7 @@ pub mod fixtures;
 pub mod ledger_rows;
 pub mod opencode;
 pub mod pi;
+pub mod standin;
 
 /// The harness a provider label names, for the providers that run DeepSeek on a lane.
 pub fn harness_named(provider: &str) -> Option<&'static dyn opencode::harness::Harness> {

@@ -1,0 +1,1 @@
+  proof-run --repo OWNER/REPO [--profile-repo NAME] [--stages RATE:MINUTES,...] [--dies-at RATE --dies N]  Write stand-in boxes onto one issue per stage of a scratch repository at each stage's rate, count the stand-in landings and stop when a box written over 5 min ago stays unlanded for 5 min

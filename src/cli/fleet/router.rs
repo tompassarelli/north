@@ -18,6 +18,7 @@ use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::providers::opencode::Deepseek;
 use crate::providers::pi::PI;
+use crate::providers::standin::Standin;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
@@ -83,7 +84,7 @@ fn lane_maker() -> Arc<crate::providers::opencode::Making> {
 }
 
 fn runtimes() -> Runtimes {
-    Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex), Arc::new(Deepseek::opencode().with_lanes(lane_maker())), Arc::new(Deepseek::live(&PI).with_lanes(lane_maker()))])
+    Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex), Arc::new(Deepseek::opencode().with_lanes(lane_maker())), Arc::new(Deepseek::live(&PI).with_lanes(lane_maker())), Arc::new(Standin)])
 }
 
 pub(in crate::cli) fn roster() -> NorthResult<Roster> {

@@ -191,6 +191,10 @@ fn place_box(round: &Round, issue: &Issue, reference: &IssueRef, box_text: Optio
 }
 
 fn staff(round: &Round, issue: &Issue, box_text: Option<&str>, ready: &Ready, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
+    let standin = super::standin::Standin::parse(&round.survey.cfg);
+    if standin.takes(issue) {
+        return standin.place(ready, candidates, pools);
+    }
     let scope = round.scope;
     let claude = |pools: &mut Pools| if scope.allows_provider("claude") { plan::place(ready, round.capacity, candidates, pools) } else { Err(scope.why_not_provider("claude")) };
     match (scope.allows_provider(deepseek::PROVIDER), scope.allows_provider("claude")) {

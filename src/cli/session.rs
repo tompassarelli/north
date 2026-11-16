@@ -12,9 +12,10 @@ pub enum Session {
     Attach,
     Opencode,
     Pi,
+    Standin,
 }
 
-pub const NAMES: &[(&str, Session)] = &[("session-host", Session::Host), ("session-link", Session::Link), ("session-attach", Session::Attach), ("opencode-host", Session::Opencode), ("pi-host", Session::Pi)];
+pub const NAMES: &[(&str, Session)] = &[("session-host", Session::Host), ("session-link", Session::Link), ("session-attach", Session::Attach), ("opencode-host", Session::Opencode), ("pi-host", Session::Pi), ("standin-host", Session::Standin)];
 
 impl Session {
     pub fn named(command: &str) -> Option<Self> {
@@ -28,6 +29,7 @@ impl Session {
             Self::Attach => link::attach_here(arguments),
             Self::Opencode => crate::providers::opencode::turns::run(&crate::providers::opencode::harness::OPENCODE, arguments),
             Self::Pi => crate::providers::pi::run(arguments),
+            Self::Standin => Ok(crate::providers::standin::run(arguments)),
         }
     }
 }
