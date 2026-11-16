@@ -2040,22 +2040,6 @@ settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity 
 fallback = "none: the cap is applied when the profile is applied and agent.slice shows no write rate"
 consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
 
-[eval_unit_askers]
-value = ["release-evals-lead"]
-allowed = { min_len = 1 }
-unit = "names of the lead sessions whose request the outside broker answers with an eval unit it starts, reads or stops (crates/north-runtime/src/worker_sandbox/eval_unit_request.rs); the session's own record must also name the role lead, and its scope is the one the caller runs in"
-source = "north#1414 (2026-11-14): the coordinator ordered a typed request through the outside broker for the evaluation lead, which cannot reach the user manager's bus or the evaluation data directory from its confined domain"
-fallback = "an empty or missing list answers no request, so no eval unit starts through the broker"
-consumers = ["crates/north-runtime/src/worker_sandbox/eval_unit_request.rs"]
-
-[eval_start_directories]
-value = ["code/south/main/agents/decisions/harness/overhaul-2026-11-11/evals"]
-allowed = { min_len = 0 }
-unit = "directories under the home directory whose executable files, each byte for byte the one origin/main of its project's trusted mirror holds, a lead session or the coordinator may start as user units through the outside broker (crates/north-runtime/src/worker_sandbox/eval_start.rs)"
-source = "north#1439 (2026-11-14): evaluation blocks stalled about 50 minutes because every start needed the coordinator's window; the owner asked for the route fixed so a sandboxed lead starts a registered block itself; the owner chose to register the one south evaluation script directory (2026-11-15) so the large comparison runs of north#1542 can start"
-fallback = "an empty or missing list starts no script"
-consumers = ["crates/north-runtime/src/worker_sandbox/eval_start.rs"]
-
 [host_op_units]
 value = ["north-worker-outside.service", "north-gh-broker.service", "north-runtime-follow.service", "north-land-rest.service", "north-pace.service", "north-fleet-held.service", "north-watch.service", "north-clean-install.service"]
 allowed = { min_len = 0 }

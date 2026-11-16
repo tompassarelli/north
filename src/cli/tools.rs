@@ -213,7 +213,7 @@ const CHECK: &[(&str, Run)] = &[
     ("citations", citation_check),
     ("concerns", concerns),
     ("harness", agent_config_check::run),
-    ("disclosure", |arguments| north_runtime::worker_sandbox::judge_client::command(arguments).unwrap_or_else(|| disclosure_judge(arguments))),
+    ("disclosure", disclosure_judge),
     ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
     ("experiments", crate::experiments::run),
     ("issue-boxes", issue_box_lint::run),

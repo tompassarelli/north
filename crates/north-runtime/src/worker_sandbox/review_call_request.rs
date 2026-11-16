@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use north_base::platform::finish_record::verdict_store;
 use north_base::platform::harness::DEFAULTS;
+use north_base::platform::private_text::CLAUDE_ENV;
 use north_base::platform::review_accept::{Accept, Accepts, CALL_SESSION, patch_diff, patch_id};
 use north_landing::land::review_calls::{CallVerdict as Verdict, REVIEW_CALLS, store_key};
 use north_trusted_mirror::Mirror;
@@ -252,4 +253,19 @@ pub(super) fn serve(north: &Path, environment: &[(String, String)], home: &Path,
     }
     let told = verdicts.iter().map(|verdict| format!("{} {} patch {patch}\n{}", verdict.session, if verdict.accept { "ACCEPT" } else { "REFUSE" }, verdict.findings)).collect::<Vec<_>>().join("\n\n");
     Ok((told, verdicts.iter().all(|verdict| verdict.accept)))
+}
+
+/// `environment` with the two programs a review call starts by name given as absolute paths, its `PATH` untouched: a broker the user manager starts on a build host has a `PATH` holding neither, so every ask failed with no such file. `north` is the broker's own build and `claude` the first one on the broker's `PATH`, else `home`'s `.local/bin/claude`; a path that does not exist is written to `refusals`, naming it, and starts nothing.
+pub(super) fn programs(mut environment: Vec<(String, String)>, north: &Path, home: &Path, refusals: &mut impl Write) -> Option<Vec<(String, String)>> {
+    let path = environment.iter().find(|(name, _)| name == "PATH").map(|(_, value)| value.clone()).unwrap_or_default();
+    let claude = std::env::split_paths(&path).map(|entry| entry.join("claude")).chain([home.join(".local/bin/claude")]).find(|candidate| candidate.is_absolute() && candidate.is_file()).unwrap_or_else(|| home.join(".local/bin/claude"));
+    for program in [north, claude.as_path()] {
+        if !program.is_file() {
+            let _ = writeln!(refusals, "review call: it needs {}, which does not exist", program.display());
+            return None;
+        }
+    }
+    environment.retain(|(name, _)| name != "NORTH_BIN" && name != CLAUDE_ENV);
+    environment.extend([("NORTH_BIN".to_owned(), north.to_string_lossy().into_owned()), (CLAUDE_ENV.to_owned(), claude.to_string_lossy().into_owned())]);
+    Some(environment)
 }

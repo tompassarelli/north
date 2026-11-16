@@ -370,7 +370,6 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let wrapped = super::capability::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"), false);
     assert_eq!(wrapped.join(" "), "capacity host run --class heavy --owner o -- /n/north --worker-sandbox --program -- cargo test -p x");
     offload_request::an_offload_request_s_process_takes_nothing_of_the_worker_s_but_its_typed_words();
-    super::eval_unit_request::tests::a_listed_lead_starts_reads_and_stops_only_the_finish_proof_unit_and_a_request_outside_the_closed_list_starts_nothing();
 }
 
 #[test]
@@ -917,62 +916,6 @@ fn a_confined_command_that_unsets_its_mark_still_reads_confined() {
         .output()
         .unwrap();
     assert!(output.status.success(), "a command in a Landlock domain without the sandbox mark read as unconfined: {}", String::from_utf8_lossy(&output.stderr));
-}
-
-#[test]
-fn a_confined_sessions_model_calls_run_outside_through_the_broker_with_their_text_in_and_only_the_answer_back_north_1553_1599() {
-    use std::io::{Read, Seek};
-    use std::os::fd::AsFd;
-    use std::os::unix::net::UnixStream;
-    let scratch = tempfile::tempdir().unwrap();
-    let north = scratch.path().join("north");
-    north_foundation::foundation::shim::write_executable(&north, "#!/bin/sh\necho \"$* at-once=$NORTH_PRIVACY_AT_ONCE claude=$NORTH_PRIVACY_CLAUDE\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\necho 'api credit: a refusing model said this' >&2\nexit 1\n");
-    let text = scratch.path().join("text");
-    std::fs::write(&text, "a session's text\n").unwrap();
-    let (home, fleet) = (scratch.path().join("home"), scratch.path().join("fleet"));
-    std::fs::create_dir_all(fleet.join("worker")).unwrap();
-    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
-    std::fs::write(home.join(".local/bin/claude"), "").unwrap();
-    std::fs::write(fleet.join("worker/host.scope"), "north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n").unwrap();
-    std::fs::write(fleet.join("worker/session.json"), json!({ "name": "worker", "role": "worker", "cwd": home, "model": "claude-opus-5-5", "effort": "high", "account": "a" }).to_string()).unwrap();
-    std::fs::create_dir_all(fleet.join("laneworker")).unwrap();
-    std::fs::write(fleet.join("laneworker/host.scope"), "north-session-lane-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n").unwrap();
-    std::fs::write(fleet.join("laneworker/session.json"), json!({ "name": "laneworker", "role": "worker", "cwd": home, "model": "claude-opus-5-5", "effort": "high", "account": "a" }).to_string()).unwrap();
-    let host = super::lane_grant::Host { fleet, code: vec![home.join("code")], home, environment: Vec::new(), cgroups: PathBuf::from("/sys/fs/cgroup") };
-    let judged = |scope: Option<&str>, words: &[&str]| {
-        let (input, mut output, mut errors) = (std::fs::File::open(&text).unwrap(), tempfile::tempfile().unwrap(), tempfile::tempfile().unwrap());
-        let (client, server) = UnixStream::pair().unwrap();
-        let request = super::broker::Request { arguments: words.iter().map(|word| (*word).to_owned()).collect(), directory: PathBuf::from("/"), environment: Vec::new() };
-        let code = std::thread::scope(|threads| {
-            let _ = threads.spawn(|| super::broker::answer(&north, &server, &Peer::from(scope), &host));
-            super::broker::send(&client, request, [input.as_fd(), output.as_fd(), errors.as_fd()]).unwrap()
-        });
-        let (mut answered, mut told) = (String::new(), String::new());
-        output.rewind().unwrap();
-        output.read_to_string(&mut answered).unwrap();
-        errors.rewind().unwrap();
-        errors.read_to_string(&mut told).unwrap();
-        (code, answered, told)
-    };
-    let session = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
-    let claude = host.home.join(".local/bin/claude");
-    assert_eq!(judged(Some(session), &["disclosure-judge", "at-once"]), (1, format!("check disclosure judge --text - at-once=1 claude={}\na session's text\n", claude.display()), String::new()), "a confined session's judge request was refused, or a refusing model's words reached the client");
-    let (code, answered, told) = judged(None, &["disclosure-judge", "at-once"]);
-    assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "a caller in no session's scope drew the judge: {told}");
-    let lane_only = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-lane-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
-    assert_eq!(judged(Some(lane_only), &["disclosure-judge", "at-once"]), (1, format!("check disclosure judge --text - at-once=1 claude={}\na session's text\n", claude.display()), String::new()), "a lane-only session's judge request was refused, so a build host's session could not judge the text it posts (north#1575)");
-    let broker_service = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-worker-outside.service\n";
-    let (code, answered, told) = judged(Some(broker_service), &["disclosure-judge", "at-once"]);
-    assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "code the broker started drew the judge on the host's login: {told}");
-    let planned = ["planner-ask", "claude-opus-5-5", "medium", "a system", "600"];
-    assert_eq!(judged(Some(session), &planned), (1, format!("check oneshot --model claude-opus-5-5 --effort medium --system a system --seconds 600 --json --account a --session worker at-once= claude={}\na session's text\n", claude.display()), String::new()), "a confined session's planning call was refused, or a refusing model's words reached the client");
-    let refusals = [["planner-ask", "claude-haiku-4-5", "low", "a system", "600"], ["planner-ask", "claude-opus-5-5", "max", "a system", "600"], ["planner-ask", "claude-opus-5-5", "medium", "a system", "901"], ["planner-ask", "/bin/sh", "low", "a system", "600"]];
-    assert!(refusals.iter().all(|words| {
-        let (code, answered, _) = judged(Some(session), words);
-        (code, answered.as_str()) == (super::broker::REFUSED, "")
-    }), "a planning call past the admission was refused with an answer, or not refused");
-    let (code, answered, told) = judged(None, &planned);
-    assert_eq!((code, answered.as_str()), (super::broker::REFUSED, ""), "a caller in no session's scope drew the planning call: {told}");
 }
 
 #[test]

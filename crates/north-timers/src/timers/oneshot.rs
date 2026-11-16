@@ -281,10 +281,3 @@ pub fn ask_claude_measured_on(question: &Ask, limit: Duration, account: Option<&
 pub fn answer_json(measured: &Measured) -> String {
     serde_json::json!({"text": measured.text, "tokens": {"input": measured.input_tokens, "output": measured.output_tokens, "cache_read": measured.cache_read_tokens, "cache_write": measured.cache_write_tokens}}).to_string()
 }
-
-pub fn measured_from_answer_json(answer: &str) -> Result<Measured, String> {
-    let value: serde_json::Value = serde_json::from_str(answer.trim()).map_err(|why| format!("the planning call printed no JSON answer: {why}"))?;
-    let text = value.get("text").and_then(serde_json::Value::as_str).ok_or("the planning call's answer holds no text")?.to_owned();
-    let count = |key: &str| value.get("tokens").and_then(|tokens| tokens.get(key)).and_then(serde_json::Value::as_u64).unwrap_or(0);
-    Ok(Measured { text, input_tokens: count("input"), output_tokens: count("output"), cache_read_tokens: count("cache_read"), cache_write_tokens: count("cache_write") })
-}

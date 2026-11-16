@@ -181,7 +181,6 @@ const RUNTIME: &[(&str, Run)] = &[
     ("agents", agent_runtime_update),
     ("agy", north_runtime::vendor_runtime::run_agy),
     ("claude", north_runtime::vendor_runtime::run_claude),
-    ("eval-unit", north_runtime::worker_sandbox::eval_unit_client::command),
     ("host-op", north_runtime::worker_sandbox::host_op_client::command),
     ("hold", |arguments| north_runtime::worker_sandbox::hold_client::command(arguments, north_offload::land_offload::settles_fleet_here())),
     ("opencode", north_runtime::vendor_runtime::run_opencode),
