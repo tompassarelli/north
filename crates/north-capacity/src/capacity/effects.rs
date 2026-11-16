@@ -30,4 +30,6 @@ pub struct Host {
     pub keep_disk: fn(),
     /// Warms one land-check slot toward its repository's head while no land check runs here.
     pub tend_slots: fn(),
+    /// Runs `capacity host run ARGS` here: the lease runner the gate holds a build in.
+    pub run_lease: fn(&[String], &Host) -> u8,
 }

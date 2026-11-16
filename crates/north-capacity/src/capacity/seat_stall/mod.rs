@@ -60,7 +60,7 @@ pub fn now_ms() -> u64 {
 }
 
 pub fn trip_ms() -> u64 {
-    u64::try_from(north_capacity::capacity::agent_load::seat_stall_trip().as_millis()).unwrap_or(u64::MAX)
+    u64::try_from(crate::capacity::agent_load::seat_stall_trip().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// The unit patterns of harness/defaults.toml's `seat_stall_units`, the fleet's units on the laptop the breaker stops.

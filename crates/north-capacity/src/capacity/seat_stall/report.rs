@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use north_foundation::foundation::clock::Timestamp;
 
 use super::{EVENTS, Event, Log, SLOW_MS, append, dir, now_ms, trip_ms};
-use crate::capacity::host::parse_window_seconds;
+use crate::capacity::window::parse_window_seconds;
 
 const USAGE: &str = "usage: north capacity seat-stall --since DURATION | resume";
 const STOP_WITHIN_MS: u64 = 10_000;

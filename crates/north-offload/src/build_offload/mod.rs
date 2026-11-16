@@ -1,7 +1,7 @@
 //! Runs a heavy build this host would defer on another host with room: the lane's commit and uncommitted diff go to a per-lane checkout there, the command runs under that host's own admission, and its output and exit code come back.
 use std::time::Duration;
 
-use north_capacity_host::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
+use north_capacity::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
 use crate::land_offload::{check_hosts, closed_build_hosts, room};
 
 mod lane;

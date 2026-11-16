@@ -17,11 +17,9 @@ RUSTC_FLAGS = [
 
 rust_library(
     name = "north-capacity-host",
-    mapped_srcs = {path: "crates/north-capacity-host/" + path for path in glob(["src/**"])} | {
-        "//crates/north-guard:src/guard/fixtures/heavy_command.json": "crates/north-guard/src/guard/fixtures/heavy_command.json",
-    },
+    srcs = glob(["src/**"]),
     crate = "north_capacity_host",
-    crate_root = "crates/north-capacity-host/src/lib.rs",
+    crate_root = "src/lib.rs",
     edition = "2024",
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
@@ -39,7 +37,6 @@ rust_library(
         "//third-party:rustix",
         "//third-party:serde",
         "//third-party:serde_json",
-        "//third-party:sha2",
         "//third-party:tempfile",
         "//third-party:tokio",
         "//third-party:toml_edit",
@@ -50,11 +47,9 @@ rust_library(
 north_rust_test(
     name = "north-capacity-host-unittest",
     binary_id = "north-capacity-host",
-    mapped_srcs = {path: "crates/north-capacity-host/" + path for path in glob(["src/**"])} | {
-        "//crates/north-guard:src/guard/fixtures/heavy_command.json": "crates/north-guard/src/guard/fixtures/heavy_command.json",
-    },
+    srcs = glob(["src/**"]),
     crate = "north_capacity_host",
-    crate_root = "crates/north-capacity-host/src/lib.rs",
+    crate_root = "src/lib.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
     deps = [
@@ -73,7 +68,6 @@ north_rust_test(
         "//third-party:rustix",
         "//third-party:serde",
         "//third-party:serde_json",
-        "//third-party:sha2",
         "//third-party:tempfile",
         "//third-party:tokio",
         "//third-party:toml_edit",

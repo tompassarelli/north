@@ -17,6 +17,7 @@ rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
@@ -28,7 +29,6 @@ test-support = []
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
-tempfile.workspace = true
 
 [lints]
 workspace = true

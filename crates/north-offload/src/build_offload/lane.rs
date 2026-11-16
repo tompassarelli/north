@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use north_capacity_host::capacity::build_host_command::unwrapped;
-use north_capacity_host::capacity::build_offload::{Declined, names_a_path_here, ships};
+use north_capacity::capacity::build_host_command::unwrapped;
+use north_capacity::capacity::build_offload::{Declined, names_a_path_here, ships};
 use crate::land_offload::ship::remote_checkout;
 
 /// A worktree as the remote host rebuilds it: the commit, the commits it holds beyond origin/main, and the uncommitted diff.

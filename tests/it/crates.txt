@@ -6,7 +6,7 @@
 # A module whose tests read the whole tree (every source file, not only what it imports) carries a trailing `# tree-wide: REASON` and runs for every lane, whatever it changes.
 # One line per module, merged as a set.
 agent_build_sandbox north-capacity-host north-capacity
-depbox_broker north-capacity-host
+depbox_broker north-capacity
 capacity_exclusive_native north-capacity north-core
 capacity_host north-capacity-host
 capacity_live north-capacity-host

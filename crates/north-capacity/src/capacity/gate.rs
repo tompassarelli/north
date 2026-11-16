@@ -96,7 +96,7 @@ fn leased(class: Class, program: &str, rest: &[String], host: &Host) -> u8 {
     let mut run = ["run", "--class", class.name(), "--owner", &owner(), "--timeout-seconds", "3600", "--"].map(str::to_owned).to_vec();
     run.push(program.to_owned());
     run.extend(rest.iter().cloned());
-    super::host::run(&run, host)
+    (host.run_lease)(&run, host)
 }
 
 fn words(program: &str, rest: &[String]) -> Vec<String> {

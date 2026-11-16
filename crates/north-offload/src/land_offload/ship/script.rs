@@ -686,11 +686,11 @@ pub fn is_lander_slot(slot: &str) -> bool {
 
 /// The shell `case` arms that set `lock_wait` to the line wait limit of each slot rank, which the capacity crate owns.
 pub(super) fn deadlines() -> String {
-    (0..=BACKGROUND_RANK).map(|rank| format!("{rank}) lock_wait={} ;; ", north_capacity_host::capacity::line_wait::deadline(rank))).collect()
+    (0..=BACKGROUND_RANK).map(|rank| format!("{rank}) lock_wait={} ;; ", north_capacity::capacity::line_wait::deadline(rank))).collect()
 }
 
 fn settle_seconds() -> u64 {
-    north_capacity_host::capacity::pressure_target::settle_seconds().round() as u64
+    north_capacity::capacity::pressure_target::settle_seconds().round() as u64
 }
 
 pub(super) fn remote_script(class: SlotClass) -> String {

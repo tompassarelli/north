@@ -29,6 +29,7 @@ fn laptop() -> Host {
         tend_disk: || {},
         keep_disk: || {},
         tend_slots: || {},
+        run_lease: |_, _| 2,
     }
 }
 

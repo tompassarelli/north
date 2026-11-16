@@ -78,8 +78,8 @@ fn a_finish_check_that_compiles_runs_as_the_sessions_fleet_compile_north_1553() 
     let gate = ["capacity", "host", "run", "--class", "heavy", "--owner", "gate:w-joining", "--timeout-seconds", "3600", "--", "/var/lib/agent-runtime/current/north", FLAG, CHECKED, "--", "sh", "-c", "cargo nextest run --workspace"];
     assert_eq!(compiled, gate, "a finish check that compiles Rust escaped the capacity gate's run as the session's fleet compile");
     let command = &compiled[10..];
-    assert!(north_capacity_host::capacity::gate::compiles_rust(command), "the gate's run does not read the finish check as a Rust compile, so a host that compiles for no session would run it");
-    assert_eq!(north_capacity_host::capacity::build_host_command::for_build_host(command, false), ["north", "depbox", "run", "--", "sh", "-c", "cargo nextest run --workspace"], "a build host was sent the laptop's worker-domain wrapper");
+    assert!(north_capacity::capacity::gate::compiles_rust(command), "the gate's run does not read the finish check as a Rust compile, so a host that compiles for no session would run it");
+    assert_eq!(north_capacity::capacity::build_host_command::for_build_host(command, false), ["north", "depbox", "run", "--", "sh", "-c", "cargo nextest run --workspace"], "a build host was sent the laptop's worker-domain wrapper");
 
     assert_eq!(check("echo ran"), [FLAG, CHECKED, "--", "sh", "-c", "echo ran"], "a finish check that compiles nothing left its domain for the capacity gate");
     assert_eq!(check("cargo --version"), [FLAG, CHECKED, "--", "sh", "-c", "cargo --version"], "a finish check that only asks cargo its version was held as a compile");

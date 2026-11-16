@@ -39,7 +39,7 @@ mod measure;
 mod offload_cost;
 mod model;
 mod calibration;
-pub use calibration::{calibration_command, model_command, parse_window_seconds};
+pub use calibration::{calibration_command, model_command};
 pub(super) mod policy;
 pub use policy::maximum_seconds;
 mod priority;

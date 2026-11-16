@@ -5,8 +5,8 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use super::lane::Lane;
-use north_capacity_host::capacity::build_offload::{Declined, Job, REMOTE_MARK, SHIP_SECONDS_ENV, SLOT_HEAD_ENV, SLOT_TARGET_ENV};
-use north_capacity_host::capacity::handover::{Offer, Received, receive};
+use north_capacity::capacity::build_offload::{Declined, Job, REMOTE_MARK, SHIP_SECONDS_ENV, SLOT_HEAD_ENV, SLOT_TARGET_ENV};
+use north_capacity::capacity::handover::{Offer, Received, receive};
 use crate::land_offload::ship::{fill_part, quote};
 
 const SYNC_LIMIT: Duration = Duration::from_secs(180);

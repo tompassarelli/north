@@ -346,14 +346,14 @@ pub fn tend() {
     if fixture() || north_base::platform::orchestration::read().is_ok_and(|cfg| !north_base::platform::orchestration::keeps_disk(&cfg, &north_base::platform::host::name())) {
         return;
     }
-    let marker = north_capacity_host::capacity::agent_load::capacity_root().join(KEEP_STARTED);
+    let marker = north_capacity::capacity::agent_load::capacity_root().join(KEEP_STARTED);
     let ran = fs::metadata(&marker).and_then(|metadata| metadata.modified()).ok().and_then(|started| SystemTime::now().duration_since(started).ok());
     if ran.is_some_and(|ran| ran > KEEP_BOUND) {
         eprintln!("north capacity: the disk pass ran past its {} s bound and was ended; starting the next one", KEEP_BOUND.as_secs());
         let _ = fs::remove_file(&marker);
     }
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let weight = (north_capacity_host::capacity::admission::default_mib("land_check_cpu_weight") as u32).to_string();
+    let weight = (north_capacity::capacity::admission::default_mib("land_check_cpu_weight") as u32).to_string();
     let started = Command::new("systemd-run")
         .args(["--user", "--quiet", "--collect", "--slice=agent.slice", "--property=IOAccounting=yes", "--unit", KEEP_UNIT])
         .arg(format!("--property=CPUWeight={weight}"))
@@ -391,7 +391,7 @@ pub fn keep() {
 
 /// One disk pass over `home`, run while this pass holds the host's disk-pass lock.
 fn pass(home: &Path) {
-    let _started = Started::mark(north_capacity_host::capacity::agent_load::capacity_root().join(KEEP_STARTED));
+    let _started = Started::mark(north_capacity::capacity::agent_load::capacity_root().join(KEEP_STARTED));
     for seed in north_lanes::lanes::reclaim_dead_seeds(&home.join("code"), Path::new("/proc"), SystemTime::now(), false) {
         eprintln!("north capacity: removed dead lane target seed {} ({} MiB)", seed.path.display(), seed.bytes >> 20);
     }
@@ -400,7 +400,7 @@ fn pass(home: &Path) {
     }
     let runtime_source = north_base::platform::orchestration::read().is_ok_and(|cfg| own_stores::runtime_source(&cfg, &north_base::platform::host::name()));
     own_stores::prune(&home.join(".local/state"), Path::new("/proc"), SystemTime::now(), runtime_source);
-    let marker = north_capacity_host::capacity::agent_load::capacity_root().join(EPISODE_FILE);
+    let marker = north_capacity::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = marker.exists();
     let Some(before) = disk_of(home) else { return };
     let budget = DiskBudget::local();
@@ -426,7 +426,7 @@ fn pass(home: &Path) {
 
 /// The host's disk-pass lock file, opened for this pass to hold; None when it cannot be opened, which holds no pass back.
 fn keep_lock() -> Option<fs::File> {
-    let lock = north_capacity_host::capacity::agent_load::capacity_root().join(KEEP_LOCK);
+    let lock = north_capacity::capacity::agent_load::capacity_root().join(KEEP_LOCK);
     let _ = lock.parent().map(fs::create_dir_all);
     fs::OpenOptions::new().create(true).append(true).open(&lock).ok()
 }

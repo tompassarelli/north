@@ -35,6 +35,7 @@ toml_edit.workspace = true
 tokio.workspace = true
 landlock = "0.4.7"
 north-calibration = { path = "../north-calibration" }
+north-capacity = { path = "../north-capacity" }
 north-capacity-host = { path = "../north-capacity-host" }
 north-foundation = { path = "../north-foundation" }
 north-pace = { path = "../north-pace" }

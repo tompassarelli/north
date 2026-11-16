@@ -2,7 +2,7 @@ use std::io::{BufRead, Write};
 
 use north_foundation::foundation::offload::{HOLD_ENV, RUN_SECONDS_CEILING};
 
-use north_capacity_host::capacity::carry;
+use north_capacity::capacity::carry;
 
 /// The line the host prints on its standard output once a hold has its slot, followed by the slot's name.
 pub(super) const HOLDING: &str = "offload: holding ";

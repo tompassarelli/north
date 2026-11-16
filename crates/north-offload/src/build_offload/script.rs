@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use north_capacity_host::capacity::build_offload::Declined;
+use north_capacity::capacity::build_offload::Declined;
 use north_base::shell;
 
 static MOVED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?s)^\s*cd\s+([^\s;&|<>()$`'"\\]+)\s*&&\s*(.*)$"#).unwrap());

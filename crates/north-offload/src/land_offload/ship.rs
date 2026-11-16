@@ -246,7 +246,7 @@ fn ship_once(land: &Land, relative: &str, name: &str, runtime: Option<&str>, hel
     let spilled = header.len().to_string();
     let generated = generated::paths(land);
     let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled, &generated, urgent];
-    let mut waiting = north_capacity_host::capacity::deadline::SlotWait::begin(&north_capacity_host::capacity::local_machine::runtime_root());
+    let mut waiting = north_capacity::capacity::deadline::SlotWait::begin(&north_capacity::capacity::local_machine::runtime_root());
     let master = master::options(land.ssh);
     let options: Vec<&str> = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"].into_iter().chain(master.iter().map(String::as_str)).collect();
     let spawned = on_host(land.ssh, &script, &words, &options)

@@ -12,6 +12,7 @@ test-resources = ["//:tree"]
 [dependencies]
 north-base = { path = "../north-base" }
 north-build-system = { path = "../north-build-system" }
+north-capacity = { path = "../north-capacity" }
 north-capacity-host = { path = "../north-capacity-host" }
 north-dispatch = { path = "../north-dispatch" }
 north-lanes = { path = "../north-lanes" }

@@ -407,7 +407,7 @@ defaults = [
 
 [plumbing]
 constants = [
-  "crates/north-capacity-host/src/capacity/gate.rs::TOOLCHAIN_MISSING",
+  "crates/north-capacity/src/capacity/gate.rs::TOOLCHAIN_MISSING",
   "crates/north-capacity-host/src/capacity/host/actions_pull.rs::FIRST_PULL_DAYS",
   "crates/north-capacity-host/src/capacity/host/args.rs::MAX_SAFE_INTEGER",
   "crates/north-capacity-host/src/capacity/host/calibration.rs::COVERAGE_TARGET",

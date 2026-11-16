@@ -4,7 +4,7 @@ use super::super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::super::build_host;
 use super::super::pull;
 use super::git;
-use north_capacity_host::capacity::game_reserve::Confinement;
+use north_capacity::capacity::game_reserve::Confinement;
 use north_offload::land_offload;
 use std::ffi::OsStr;
 use std::fs;
@@ -91,7 +91,7 @@ pub(super) fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
         Err(why) => why,
     };
     let mut confined = None;
-    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), north_capacity_host::capacity::game_reserve::confinement) {
+    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), north_capacity::capacity::game_reserve::confinement) {
         Placement::Confined(confinement) => {
             println!("north runtime: {refused}; this host is in game-reserve, so it builds {short} on the agent CPUs {} at idle priority", confinement.cpus);
             confined = Some(confinement);

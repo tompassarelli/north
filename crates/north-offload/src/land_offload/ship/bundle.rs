@@ -3,7 +3,7 @@ use std::io::{Seek, Write};
 use std::process::Command;
 
 use super::{CommitId, Land, quote};
-use north_capacity_host::capacity::carry;
+use north_capacity::capacity::carry;
 
 /// The bundle of `reference` cut at the shipped base, or at each commit in `held` when the host named the commits its checkout holds; a base the head's history does not contain travels in it too, as `base_reference(reference)`, so the host reads every commit the shipped context names.
 pub(super) fn bundle(land: &Land, reference: &str, held: Option<&[CommitId]>) -> Result<File, String> {

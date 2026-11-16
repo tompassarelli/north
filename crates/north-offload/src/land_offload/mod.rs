@@ -1,4 +1,4 @@
-use north_capacity_host::capacity::{agent_load, laptop_auto, mode};
+use north_capacity::capacity::{agent_load, laptop_auto, mode};
 use north_pacing::pacing::placement::{config, gate};
 use ship::CommitId;
 use std::path::Path;
@@ -263,7 +263,7 @@ pub fn in_game_reserve() -> bool {
 }
 
 pub fn checks_confined_here() -> bool {
-    north_capacity_host::capacity::mode_tick::confined_agent_cpus(&agent_load::Host::from_env()).is_some()
+    north_capacity::capacity::mode_tick::confined_agent_cpus(&agent_load::Host::from_env()).is_some()
 }
 
 /// A build host this host reaches and the free cores its admission reported, none when it did not answer.

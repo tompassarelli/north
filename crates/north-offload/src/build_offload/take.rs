@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use super::remote::{SYNCED, Trust, script, words};
-use north_capacity_host::capacity::admission::offload_room;
-use north_capacity_host::capacity::handover::{Frame, Offer};
+use north_capacity::capacity::admission::offload_room;
+use north_capacity::capacity::handover::{Frame, Offer};
 use crate::land_offload::room::{self, Room};
 use crate::land_offload::{build_hosts, check_hosts, runs_no_checks_here, ship::quote};
 
@@ -277,7 +277,7 @@ fn serve(route: &Route, mut ssh: Child, reader: BufReader<ChildStdout>, offer: O
 
 /// Whether this host holds its game reserve, during which it takes nothing.
 fn game_reserved() -> bool {
-    north_capacity_host::capacity::mode_tick::confined_agent_cpus(&north_capacity_host::capacity::agent_load::Host::from_env()).is_some()
+    north_capacity::capacity::mode_tick::confined_agent_cpus(&north_capacity::capacity::agent_load::Host::from_env()).is_some()
 }
 
 /// The build hosts' rooms, read over ssh every `ROOM_FRESH` by a thread of their own, so a slow or unreachable host never holds up a poll.
@@ -343,7 +343,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 0;
         }
         let reserved = game_reserved();
-        let discharging = north_capacity_host::capacity::laptop_auto::shed_battery();
+        let discharging = north_capacity::capacity::laptop_auto::shed_battery();
         let here_room = if reserved { None } else { room::read_local() };
         let rooms = remote_rooms.now();
         let mut backoff = false;
