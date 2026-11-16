@@ -38,6 +38,7 @@ fn emptied_pick_a_lane_whose_change_is_already_carried_is_named_by_its_carrier_o
     assert_eq!(decided, format!("landed {carrier}"), "on 2026-11-08 model-catalog-argon, whose change da2941ea10 had already landed, was told it landed as bde3db9c68, the base it was checked against");
     emptied_pick_scenario(&dir.path().join("emptied"));
     rebase_compile_scenario(&dir.path().join("rebase"));
+    leftover_sequencer_scenario(&dir.path().join("sequencer"));
 }
 
 fn lanes_repo(dir: &Path) -> (PathBuf, String) {
@@ -64,6 +65,23 @@ fn lane_editing(repo: &Path, base: &str, branch: &str, text: &str) -> String {
 
 fn lane_ticket(repo: &Path, dir: &Path, branch: &str, head: &str) -> (PathBuf, Ticket) {
     (dir.join(format!("{branch}.json")), Ticket { branch: branch.to_owned(), head: head.to_owned(), root: repo.to_path_buf(), origin: repo.display().to_string(), ..Default::default() })
+}
+
+fn leftover_sequencer_scenario(dir: &Path) {
+    let (repo, base) = lanes_repo(dir);
+    let head = lane_editing(&repo, &base, "lane-one", "A1\nC\nB0\n");
+    let worktree = dir.join("worktrees/lander");
+    ensure(&repo, &worktree).unwrap();
+    let sequencer = PathBuf::from(git(&worktree, &["rev-parse", "--path-format=absolute", "--git-path", "sequencer"]).unwrap());
+    fs::create_dir_all(&sequencer).unwrap();
+    fs::write(sequencer.join("todo"), format!("pick {head} Edit the lines of the lane\n")).unwrap();
+    fs::write(sequencer.join("head"), format!("{base}\n")).unwrap();
+    assert!(!succeeds(&worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]));
+    assert!(merge_continue::finish_at(&worktree, &base).is_err(), "a leftover sequencer is an unfinished pick");
+    ensure(&repo, &worktree).unwrap();
+    assert!(!sequencer.exists(), "the round's setup clears the leftover sequencer");
+    let built = build(&worktree, &base, &[lane_ticket(&repo, dir, "lane-one", &head)], &[], usize::MAX, &dir.join("logs")).unwrap();
+    assert!(matches!(built.picks[0], Pick::Included), "on 2026-11-16 a stopped pick left a sequencer and every later round counted 0 picked commits for the lane");
 }
 
 fn emptied_pick_scenario(dir: &Path) {

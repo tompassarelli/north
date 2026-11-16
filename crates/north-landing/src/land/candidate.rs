@@ -91,6 +91,7 @@ pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
     if worktree.join(".git").is_file() && succeeds(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]) {
         git(worktree, &["cherry-pick", "--abort"])?;
     }
+    git(worktree, &["cherry-pick", "--quit"])?;
     Ok(())
 }
 

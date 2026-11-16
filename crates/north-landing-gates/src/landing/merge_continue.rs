@@ -41,7 +41,7 @@ fn git_path(worktree: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 fn in_progress(worktree: &Path) -> Result<Option<Operation>, String> {
-    for (name, operation) in [("rebase-merge", Operation::Rebase), ("rebase-apply", Operation::Rebase), ("CHERRY_PICK_HEAD", Operation::CherryPick)] {
+    for (name, operation) in [("rebase-merge", Operation::Rebase), ("rebase-apply", Operation::Rebase), ("CHERRY_PICK_HEAD", Operation::CherryPick), ("sequencer", Operation::CherryPick)] {
         if git_path(worktree, name)?.exists() {
             return Ok(Some(operation));
         }
