@@ -123,3 +123,10 @@ The second box's Done when has two parts, read on main on 2026-11-15:
 - `north --help` lists the same top-level verbs before and after the split: the verb lines of `src/cli/help.txt` at the design's base commit `15fc1ebdb0` and on main both number 27, and a `diff` of the two sorted lists exits 0. No verb moved out of the public workspace.
 - `north code-health domains --repo .` exits 0 with `domains: no crate spans more unrelated domains than its bound`. The two dated allowances in `structure/0235-domains.toml` are north-land-scans (under north#1487) and north-fleet (until its split is filed).
 
+The group boxes of the split, read on origin/main at `7192b7d29` on 2026-11-16, each by its own filter: `git ls-tree --name-only origin/main crates/north-ops/src/ops/ | grep -E` with that group's names printed nothing (exit 1) for every group, and `north-ops` has no tree on main (`git ls-tree -d --name-only origin/main crates/north-ops` printed nothing):
+
+- Group 1, GitHub and CI: `gh_broker` is in `north-github-broker`, `ci_watch` and `private_check` in `north-ci`, first landed in `ea982628f` (north#1487).
+- Group 2, issue boxes and claims: `issue_convert`, `issue_child.rs`, `done_when_boxes`, `observation_boxes`, `cargo_boxes` are in `north-issue-boxes`, and `citation_check` and `review_items` in `north-claims`, first landed in `d730f20f8` (north#1487).
+- Group 4, disk and host room: `reclaim` and `retention` are in `north-reclaim`, `run_bounded` and `nexus_ram` in `north-capacity-host`, `job_run` in `north-timers`, first landed in `269be1eb0` (north#1487).
+- Group 7, expectations and removal: `check`, `watch` and `dividend` are in `north-expectations`, `report` and `command` in the root package, the three integration tests in `north-health` and `north-lanes`, and `crates/north-ops/` is deleted; the moves began in `cce923a3b`.
+
