@@ -15,10 +15,11 @@ const THIS_FILE: &str = "crates/north-land-checks/src/land/wall_time_tests.rs";
 const REAL_BUDGETS: (&str, &str) = ("crates/north-providers/src/providers/claude/fleet_tick_tests.rs", "the tick measures hung stages against real budgets through Instant deadlines in north-fleet-supervisor tick.rs; an injected tick clock is north#892 follow-up");
 const SUB_SECOND_BUDGET: &str = r"[(,]\s*Duration::from_millis\(\s*\d{1,3}\s*\)\s*[,)]";
 const INJECTED_CLOCK: &str = r"&\|\|";
-const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 3] = [
+const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 4] = [
     ("crates/north-base/src/platform/process.rs", "a negative wait: load can only end the 200 ms wait later, never make the gated command finish, so the assertion holds at any budget"),
     ("crates/north-fleet/src/fleet/rebooted_tests.rs", "the revive is held until its release, so the 100 ms budget only bounds how promptly the pass returns and the deferral does not depend on it"),
     ("crates/north-capacity-host/src/capacity/watchdog/sampler_tests.rs", "a negative wait: load can only end the 200 ms wait later, never make the process left alone exit, so the assertion holds at any budget"),
+    ("crates/north-capacity-host/src/capacity/seat_stall/probe_tests.rs", "the sync is held until the test releases it after seeing the trip, so load can only make the 50 ms trip and 10 ms poll fire later, never keep the held sync from tripping"),
 ];
 
 const OLD_REAPER_BUDGET: &str = "    let reaped = reap_within(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300));";
