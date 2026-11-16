@@ -14,14 +14,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RedFix {
-    Issue(u64),
     Marker,
 }
 
 impl Serialize for RedFix {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            RedFix::Issue(number) => serializer.serialize_u64(*number),
             RedFix::Marker => serializer.serialize_str("marker"),
         }
     }
@@ -30,9 +28,8 @@ impl Serialize for RedFix {
 impl<'de> Deserialize<'de> for RedFix {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         match serde_json::Value::deserialize(deserializer)? {
-            serde_json::Value::Number(number) => number.as_u64().map(RedFix::Issue).ok_or_else(|| serde::de::Error::custom("red_fix issue must be a positive integer")),
             serde_json::Value::String(text) if text == "marker" => Ok(RedFix::Marker),
-            other => Err(serde::de::Error::custom(format!("red_fix must be an issue number or \"marker\", not {other}"))),
+            other => Err(serde::de::Error::custom(format!("red_fix must be \"marker\", not {other}"))),
         }
     }
 }

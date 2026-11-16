@@ -1,11 +1,10 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Deserialize;
 use time::OffsetDateTime;
 
 use super::first_commit;
@@ -95,58 +94,9 @@ pub fn is_main_red_marker(line: &str) -> bool {
     line.strip_prefix("Main-red:").is_some_and(|rest| rest.starts_with(char::is_whitespace) && !rest.trim().is_empty())
 }
 
-pub fn issue_numbers(text: &str) -> Vec<u64> {
-    let mut numbers = Vec::new();
-    let mut rest = text;
-    while let Some(at) = rest.find('#') {
-        rest = &rest[at + 1..];
-        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        if let Ok(number) = digits.parse() {
-            numbers.push(number);
-        }
-    }
-    numbers
-}
-
-#[derive(Deserialize)]
-struct OpenIssue {
-    number: u64,
-    title: String,
-}
-
-pub fn pick_issue(listing: &str, destination: &str, named: &[u64]) -> Option<RedFix> {
-    let title = format!("{destination} is red");
-    let issues: Vec<OpenIssue> = serde_json::from_str(listing).ok()?;
-    let issue = issues.into_iter().find(|issue| issue.title == title)?;
-    named.contains(&issue.number).then_some(RedFix::Issue(issue.number))
-}
-
-fn open_issues(repo: &Path, destination: &str) -> Option<String> {
-    let output = Command::new("timeout")
-        .current_dir(repo)
-        .args(["10", "gh", "issue", "list", "--state", "open", "--search"])
-        .arg(format!("\"{destination} is red\" in:title"))
-        .args(["--json", "number,title"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-fn red_fix(repo: &Path, base: &str, destination: &str) -> Result<Option<RedFix>, String> {
-    let range = format!("{base}..HEAD");
-    let bodies = git(repo, &["log", "--format=%B", &range])?;
-    if bodies.lines().any(is_main_red_marker) {
-        return Ok(Some(RedFix::Marker));
-    }
-    let subjects = git(repo, &["log", "--format=%s", &range])?;
-    let folded: Vec<&str> = bodies.lines().filter(|line| line.starts_with("- ")).collect();
-    let named = issue_numbers(&format!("{subjects}\n{}", folded.join("\n")));
-    if named.is_empty() {
-        return Ok(None);
-    }
-    Ok(open_issues(repo, destination).and_then(|listing| pick_issue(&listing, destination, &named)))
+fn red_fix(repo: &Path, base: &str) -> Result<Option<RedFix>, String> {
+    let bodies = git(repo, &["log", "--format=%B", &format!("{base}..HEAD")])?;
+    Ok(bodies.lines().any(is_main_red_marker).then_some(RedFix::Marker))
 }
 
 fn is_other_host(lander: &str, host: &str) -> bool {
@@ -215,9 +165,8 @@ fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
 
 type Marks = (Option<RedFix>, Option<String>);
 
-fn marks(root: &Path, base: &str, head: &str, destination: &str) -> Result<Marks, String> {
-    let red_fix = red_fix(root, base, destination)?;
-    Ok((red_fix, super::lander_fix::marked(root, base, head)?))
+fn marks(root: &Path, base: &str, head: &str) -> Result<Marks, String> {
+    Ok((red_fix(root, base)?, super::lander_fix::marked(root, base, head)?))
 }
 
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, facts: Option<Facts>) -> Result<Queued, String> {
@@ -298,7 +247,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
                         (scope.spawn(run_checks), None)
                     }
                 };
-                let marks = timings.stage("marks", || marks(&root, &base, &head, &destination))?;
+                let marks = timings.stage("marks", || marks(&root, &base, &head))?;
                 let failed_on_main = checks.join().map_err(|_| "the checks before queueing panicked".to_owned())??;
                 if let Some(secrets) = secrets {
                     secrets.join().map_err(|_| "the secret scan panicked".to_owned())??;
