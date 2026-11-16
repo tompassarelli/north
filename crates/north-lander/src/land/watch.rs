@@ -111,6 +111,7 @@ struct Waiting {
     search: post_land::Search,
     host: Option<String>,
     cancel: Cancel,
+    queued: f64,
 }
 
 struct Buck2Run {
@@ -292,10 +293,10 @@ impl Watch {
         let recorded = post_land::adoptable(&lander.queue);
         let mut waits: Vec<Wait> = self.running.iter().filter(|running| !recorded.iter().any(|(_, record)| record.head == running.batch.head)).map(|running| Wait { what: format!("the after-landing run of {}", running.batch.head), since: running.batch.started.unwrap_or(running.until), until: running.until }).collect();
         waits.extend(self.searching.iter().map(|searching| Wait { what: format!("the culprit search of {}", searching.batch.head), since: searching.since, until: searching.until }));
-        let mut at = self.searching.iter().map(|searching| searching.until).fold(epoch(), f64::max);
+        let mut at = self.searching.iter().map(|searching| searching.until).fold(f64::NEG_INFINITY, f64::max);
         for waiting in &self.waiting {
-            let since = at;
-            at += waiting.search.limit().as_secs_f64();
+            let since = at.max(waiting.queued);
+            at = since + waiting.search.limit().as_secs_f64();
             waits.push(Wait { what: format!("the queued culprit search of {}", waiting.batch.head), since, until: at });
         }
         waits.extend(self.buck2.iter().map(|buck2| Wait { what: format!("the Buck2 run of {}", buck2.head), since: buck2.until - buck2_after::TIMEOUT_SECONDS as f64, until: buck2.until }));
@@ -346,7 +347,7 @@ impl Watch {
         if !self.searching.is_empty() || self.waiting.is_empty() {
             return;
         }
-        let Waiting { batch, outcome, search, host, cancel } = self.waiting.remove(0);
+        let Waiting { batch, outcome, search, host, cancel, .. } = self.waiting.remove(0);
         let since = epoch();
         let until = since + search.limit().as_secs_f64();
         self.searching.push(Searching { batch, outcome, search: post_land::search(&lander.wake, search), host, cancel, since, until });
@@ -512,7 +513,7 @@ impl Watch {
         match outcome.search.take() {
             Some(search) if !outcome.superseded => {
                 moved(heads(&batch), Run::Searching, &format!("verdict {class}, searching for the culprit lane"));
-                self.waiting.push(Waiting { batch, outcome, search, host, cancel });
+                self.waiting.push(Waiting { batch, outcome, search, host, cancel, queued: epoch() });
                 self.start_search(lander);
                 return;
             }
