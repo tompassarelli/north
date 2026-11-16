@@ -229,15 +229,13 @@ pub(super) fn serve(served: Vec<OsString>, answer: Answer) -> std::process::Exit
             return std::process::ExitCode::from(1);
         }
     };
-    let listener = std::fs::create_dir_all(directory).and_then(|()| std::fs::remove_file(&path).or_else(|error| if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) })).and_then(|()| UnixListener::bind(&path)).and_then(|listener| listener.set_nonblocking(true).map(|()| listener));
-    let listener = match listener {
-        Ok(listener) => listener,
+    let (listener, own) = match std::fs::create_dir_all(directory).and_then(|()| listen(&path)) {
+        Ok(listening) => listening,
         Err(error) => {
             eprintln!("north worker-sandbox broker: cannot listen on {}: {error}", path.display());
             return std::process::ExitCode::from(1);
         }
     };
-    let own = inode(&path);
     let running = std::sync::Arc::new(AtomicUsize::new(0));
     let mut handed_over = false;
     let mut follow = follow_for(std::env::var_os(SOCKET_ENV).is_some(), &north_runtime_follow::link(), &north_runtime_follow::host_link(), Some(north.clone()));
@@ -278,6 +276,18 @@ pub(super) fn serve(served: Vec<OsString>, answer: Answer) -> std::process::Exit
 /// Waits until a request arrives on `listener` or [`SOCKET_CHECK`] passes, so a request is taken at once while the replaced-socket and promoted-runtime checks still run between requests: a sleep between accepts kept every worker shell call, hook and tool waiting a median 65 ms on cpx62b (north#1167).
 fn await_request(listener: &UnixListener) {
     let _ = rustix::event::poll(&mut [rustix::event::PollFd::new(listener, rustix::event::PollFlags::IN)], i32::try_from(SOCKET_CHECK.as_millis()).unwrap_or(i32::MAX));
+}
+
+/// Listens on `path` by binding a path of this process's own beside it and renaming that onto `path`, and returns the listener with the inode it bound. Removing `path` and then binding it left a moment with no listener, in which a client started another broker, and two brokers doing so at once both read the second one's inode, so the one that lost the path never saw it replaced (two broker chains on one socket on cpx62b, 2026-11-15, north#1397).
+fn listen(path: &Path) -> std::io::Result<(UnixListener, Option<u64>)> {
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let staged = path.with_file_name(format!(".{name}.{}", std::process::id()));
+    std::fs::remove_file(&staged).or_else(|error| if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) })?;
+    let listener = UnixListener::bind(&staged)?;
+    let own = inode(&staged);
+    std::fs::rename(&staged, path).inspect_err(|_| _ = std::fs::remove_file(&staged))?;
+    listener.set_nonblocking(true)?;
+    Ok((listener, own))
 }
 
 fn inode(path: &Path) -> Option<u64> {

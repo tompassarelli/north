@@ -144,18 +144,33 @@ fn disk(name: &str, host: &Host, reach: &dyn Reach) -> Result<String, String> {
     Ok(told)
 }
 
+fn state(name: &str, unit: &str, reach: &dyn Reach) -> Result<String, String> {
+    let destination = reach.destination(name)?;
+    let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+    let shown = reach.run(destination.as_deref(), "systemctl", &words(&["--user", "show", "-p", "Id", "-p", "LoadState", "-p", "ActiveState", "-p", "SubState", "-p", "Result", "-p", "ActiveEnterTimestamp", unit]))?;
+    let load = reach.run(destination.as_deref(), "cat", &words(&["/proc/loadavg"]))?;
+    let brokers = (unit.strip_suffix(".service") == Some(north_base::platform::session_scope::WORKER_BROKER_UNIT)).then(|| broker_runtimes(destination.as_deref(), reach)).transpose()?.unwrap_or_default();
+    Ok(format!("{shown}load {}{brokers}", load.trim()))
+}
+
+/// Each live broker unit on the host `destination` with the runtime its main process runs: after the first handover every broker runs as `north-worker-outside-<predecessor pid>`, so the listed unit's own state named no serving broker and no runtime (cpx62b, 2026-11-15, north#1397).
+fn broker_runtimes(destination: Option<&str>, reach: &dyn Reach) -> Result<String, String> {
+    let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+    let listed = reach.run(destination, "systemctl", &words(&["--user", "list-units", "--plain", "--no-legend", "--type=service", "--state=active"]))?;
+    let broker = |unit: &str| -> Result<String, String> {
+        let pid = reach.run(destination, "systemctl", &words(&["--user", "show", "-p", "MainPID", "--value", unit]))?.trim().to_owned();
+        let runs = reach.run(destination, "readlink", &[format!("/proc/{pid}/exe")]).unwrap_or_else(|error| format!("unreadable ({error})"));
+        Ok(format!("\nbroker {unit} pid {pid} runs {}", runs.trim()))
+    };
+    listed.lines().filter_map(|line| line.split_whitespace().next()).filter(|unit| unit.starts_with(north_base::platform::session_scope::WORKER_BROKER_UNIT)).map(broker).collect()
+}
+
 /// Does what `ask` names for the session the caller `peer` runs in on `host`, touching only what `listed` holds, through `reach`; the lines saying what was read or done.
 pub(super) fn serve(ask: Ask, peer: &Peer, host: &Host, listed: &Listed, reach: &dyn Reach, admission: &Admission) -> Result<String, String> {
     let asker = asking(peer, host)?;
     let owned = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
     match ask {
-        Ask::State { host: name, unit } => {
-            let unit = listed_unit(&unit, listed)?;
-            let destination = reach.destination(&name)?;
-            let shown = reach.run(destination.as_deref(), "systemctl", &owned(&["--user", "show", "-p", "Id", "-p", "LoadState", "-p", "ActiveState", "-p", "SubState", "-p", "Result", "-p", "ActiveEnterTimestamp", unit]))?;
-            let load = reach.run(destination.as_deref(), "cat", &owned(&["/proc/loadavg"]))?;
-            Ok(format!("{shown}load {}", load.trim()))
-        }
+        Ask::State { host: name, unit } => state(&name, listed_unit(&unit, listed)?, reach),
         Ask::Disk { host: name } => disk(&name, host, reach),
         Ask::Restart { host: name, unit, issue } => {
             let unit = listed_unit(&unit, listed)?;
