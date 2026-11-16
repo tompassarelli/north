@@ -1,3 +1,4 @@
+use super::disk_roots;
 use super::disk_stores;
 use super::record;
 use super::slots::Host;
@@ -62,7 +63,7 @@ fn lines(survey: &Survey) -> Vec<String> {
 
 fn read_host(survey: &Survey, host: &Host) -> Vec<String> {
     if host.name == survey.here {
-        return survey.home.as_deref().map(disk_stores::read).unwrap_or_default();
+        return survey.home.as_deref().map(|home| disk_stores::read(home).into_iter().chain(disk_roots::local(home)).collect()).unwrap_or_default();
     }
     let north = north_base::platform::north_binary::north_binary();
     let limit = Duration::from_secs(READS * disk_read::SECONDS.parse::<u64>().unwrap_or_default());

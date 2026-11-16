@@ -34,6 +34,7 @@ mod cloud;
 mod cpu;
 mod decision;
 mod disk;
+mod disk_roots;
 mod disk_stores;
 pub mod drafts;
 pub mod drafting;
