@@ -2001,10 +2001,10 @@ consumers = ["crates/north-land-scans/src/review_accept.rs"]
 [review_call_models]
 value = ["claude-opus-5-5:high"]
 allowed = { min_len = 1 }
-unit = "MODEL:EFFORT of the review call of a hand-in, under harness/review/commit-reviewer.md; the broker reads this list at origin/main, never from the lane"
+unit = "MODEL:EFFORT of the security read the lander makes of a lane held for a review accept, under harness/review/commit-reviewer.md; the lander reads this list at main, never from the lane"
 source = "north#1610 plan, conditions of the reviewers and of p-agent-user-slice4: a call on a trust-boundary patch runs at Opus tier"
 fallback = "a missing or malformed list starts no review call and says so"
-consumers = ["crates/north-runtime/src/worker_sandbox/review_call_request.rs"]
+consumers = ["crates/north-landing/src/land/security_read.rs", "crates/north-runtime/src/worker_sandbox/review_call_request.rs"]
 
 [review_request_sessions]
 value = ["commit-reviewer"]

@@ -91,7 +91,7 @@ impl Serve<'_> {
         let repo = self.repo.clone();
         let verdict: Arc<unjudged::Verdict> = Arc::new(move |ticket, base, wait| private_kinds::verdict(&repo, ticket, base, wait));
         let tickets = watch.asks.settle(self, if pass.red_only { lander_fix::repairs(&open) } else { open }, now(), &verdict)?;
-        let tickets = unreviewed::settle(self, tickets, now())?;
+        let tickets = unreviewed::settle(self, &mut watch.reads, tickets, now())?;
         if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }

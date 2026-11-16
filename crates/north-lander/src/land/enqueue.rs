@@ -263,7 +263,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             let (gate, ran, answered) = asked??;
             Ok::<_, String>(((gate, ran, answered), gated_from, marks, failed_on_main))
         })?;
-        let unreviewed = timings.stage("review", || super::review_request::held(&root, &base, &head, environment.session))?;
+        let unreviewed = timings.stage("review", || super::review_request::held(&root, &base, &head))?;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran };
         let queued_micros = micros();
         let after_landing = runner::tests_after_landing();

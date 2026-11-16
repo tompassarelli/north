@@ -24,6 +24,7 @@ use super::alone_flight::{self, Flight};
 use super::buck2_after;
 use super::jobs::Jobs;
 use super::unjudged::Asks;
+use super::unreviewed::Reads;
 use super::setting;
 use super::slots::select::Config;
 use super::revert;
@@ -162,6 +163,7 @@ pub struct Watch {
     hosts: Hosts,
     pub jobs: Jobs,
     pub asks: Asks,
+    pub reads: Reads,
     pub alone: Option<Flight>,
     /// The queue whose journaled runs this watch holds, empty until it resumes or follows one.
     queue: PathBuf,
@@ -313,7 +315,7 @@ impl Watch {
     }
 
     pub fn in_flight(&self) -> usize {
-        self.journaled() + self.jobs.running().len() + self.asks.unread() + usize::from(self.alone.is_some())
+        self.journaled() + self.jobs.running().len() + self.asks.unread() + self.reads.unread() + usize::from(self.alone.is_some())
     }
 
     pub fn adoptable(&self, lander: &Lander) -> bool {
