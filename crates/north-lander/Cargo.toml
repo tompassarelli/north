@@ -30,7 +30,6 @@ tempfile.workspace = true
 time.workspace = true
 north-diff-gates = { path = "../north-diff-gates" }
 north-foundation = { path = "../north-foundation" }
-north-graph-ground = { path = "../north-graph-ground" }
 
 
 [lints]

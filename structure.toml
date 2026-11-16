@@ -234,7 +234,7 @@ name = "north-landing"
 layer = 4
 family = "landing"
 paths = ["crates/north-landing/src/**"]
-may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-concerns", "north-mutants", "north-landing-gates", "north-land-scans", "north-check-environment", "north-land-checks", "north-git-locks", "north-trusted-mirror"]
+may_use = ["north-base", "north-diff-gates", "north-concerns", "north-landing-gates", "north-land-scans", "north-check-environment", "north-land-checks", "north-git-locks", "north-trusted-mirror"]
 
 [[crate_dag.crate]]
 name = "north-land-watch"
@@ -266,7 +266,7 @@ may_use = ["north-providers"]
 name = "north-guard"
 layer = 3
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-github-mirror", "north-graph-ground", "north-code-health", "north-unblocks"]
+may_use = ["north-dispatch", "north-graph-ground", "north-code-health", "north-unblocks"]
 
 [[crate_dag.crate]]
 name = "north-check-environment"
