@@ -9,6 +9,7 @@ pub mod reaper;
 pub mod strays;
 pub mod registry;
 pub mod resume;
+pub mod silence;
 #[cfg(test)]
 mod relaunch_tests;
 #[cfg(test)]

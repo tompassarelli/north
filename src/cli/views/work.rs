@@ -91,7 +91,8 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
     gates.extend(fleet.gates_elsewhere().map_err(|error| error.user_message())?.iter().map(|row| gate_line(&row.label(), row.request.session.clone(), row.request.question.clone(), recommended(&row.request.options, row.request.recommend), row.default_at_ms())));
     let sessions = fleet.cached_sessions().map_err(|error| error.user_message())?.unwrap_or_default();
     let held = fleet.held_since(since);
-    let digest = digest_text(&Facts { now: Moment::now(), now_ms: now, since_label: window, landed: &books.landed, sessions: &sessions, gates: &gates, held: &held });
+    let silent: Vec<String> = fleet.silent_sessions(std::time::SystemTime::now()).iter().map(|one| one.line()).collect();
+    let digest = digest_text(&Facts { now: Moment::now(), now_ms: now, since_label: window, landed: &books.landed, sessions: &sessions, gates: &gates, held: &held, silent: &silent });
     let tree = tree(&sessions);
     let report = super::report::lines();
     let lanes = crate::flow::work_rows();

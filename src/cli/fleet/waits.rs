@@ -139,6 +139,7 @@ impl WaitProbes for Probes {
                 remembered.keep();
                 said(reaped.lines())
             }) },
+            ProbeJob { name: "probes.settle.silent", own: None, run: Box::new(|fleet| said(fleet.tell_silent(std::time::SystemTime::now()))) },
             ProbeJob { name: "probes.settle.strays", own: None, run: Box::new(|fleet| said(crate::fleet::strays::stop_strays(&fleet, now_ms()))) },
         ];
         let reports = vec![
