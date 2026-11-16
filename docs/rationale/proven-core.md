@@ -10,12 +10,12 @@ Buckets: 1 execution primitives (keep), 2 check and land (keep; the public-repo 
 
 Crates (80; Rust lines are every `.rs` file under the crate, tests included, at e87d0a1601):
 
-- Bucket 1: 15 crates, 57,888 lines; 7 keep, 8 simplify
+- Bucket 1: 16 crates, 58,406 lines; 8 keep, 8 simplify
 - Bucket 2: 24 crates, 90,540 lines; 12 keep, 10 simplify, 2 mothball
 - Bucket 3: 7 crates, 30,468 lines; 3 keep, 4 simplify
-- Bucket 4: 28 crates, 122,005 lines; all mothball
+- Bucket 4: 27 crates, 121,487 lines; all mothball (north-runtime-records split: its failure type moves into north-runtime)
 - Bucket 5: 6 crates, 41,158 lines; 5 mothball, 1 simplify
-- Total 342,059 lines under `crates/`. Buckets 1 to 3 hold 178,896 lines (52%); buckets 4 and 5 hold 163,163 (48%). The root binary adds 21,851 lines in `src/` and 6,913 in `tests/it` (see the added rows).
+- Total 342,059 lines under `crates/`. Buckets 1 to 3 hold 179,414 lines (52%); buckets 4 and 5 hold 162,645 (48%). The root binary adds 21,851 lines in `src/` and 6,913 in `tests/it` (see the added rows).
 
 Hooks (6 registered units, 45 decider rows): bucket 3 has 6 (3 keep, 3 simplify), bucket 4 has 18 (all mothball), bucket 5 has 27 (1 simplify, 26 mothball). No session hook stays on; the secret and private-text scans run at push and landing.
 
@@ -88,6 +88,7 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-git-locks` | 1 Execution primitives | keep | 252 | 10/0 | the one stale-lock removal every lane path uses |
 | `north-publish` | 1 Execution primitives | keep | 28 | 3/0 | whole-file create; threads and fleet-store depend on it |
 | `north-resume` | 1 Execution primitives | keep | 116 | 6/0 | session resume record |
+| `north-runtime-follow` | 1 Execution primitives | keep | 518 | 16/1 | the runtime layout library: it depends only on north-base, and its tree layout and collection carry the remote checks (crates/north-offload/src/land_offload/ship/pinned.rs:3), while its runtime link is what the broker, GitHub broker, session host and worker sandbox follow (crates/north-runtime/src/worker_sandbox/broker.rs); only `leaving` and `LANDER_ROLLBACK` serve promotion, which stays off (decision 9; docs/rationale/core-cut-plan.md) |
 | `north-ssh-spare` | 1 Execution primitives | keep | 327 | 10/1 | spare ssh channels opened ahead: the single-call ssh of north#1650 |
 | `north-switch` | 1 Execution primitives | keep | 1160 | 2/0 | off switches that answer with the runtime broken (Phase 0, north#1648) |
 | `north-base` | 1 Execution primitives | simplify | 12883 | 470/23 | shared base holding dispatch_pause, autoland_status, agents_sync beside platform code; 470 commits and 23 reverts in 14 d, the most of any base crate |
@@ -97,7 +98,7 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-lanes` | 1 Execution primitives | simplify | 9277 | 104/4 | lane worktrees, gc, rescue, squash; its gc reads the GitHub mirror (src/lanes/gc/audit.rs, remote.rs, evidence.rs), the issue-driven lane GC (decision 3) |
 | `north-reclaim` | 1 Execution primitives | simplify | 2061 | 11/1 | disk reclaim and retention; keep reclaim, drop retention tied to fleet state |
 | `north-session-host` | 1 Execution primitives | simplify | 1353 | 36/3 | holds a session's process and delivers its rows; names north-runtime-follow in its manifest (decision 3) |
-| `north-strategy-types` | 1 Execution primitives | simplify | 850 | 53/4 | shrinks to its envelope and land types; 11 manifests name it, the lander and landing among them (decision 10) |
+| `north-strategy-types` | 1 Execution primitives | simplify | 850 | 53/4 | keeps its envelope, land and admission types and `github::Quota`: the kept local compile admission records `admission` cases (crates/north-capacity/src/capacity/admission_record.rs) and crates/north-base/src/platform/github_quota.rs reads the quota; placement, credit, tokens and brief go once bucket 4 leaves; 11 manifests name it, the lander and landing among them (decision 10) |
 | `north-buck` | 2 Check and land | keep | 1743 | 17/0 | Buck2 target writer; stays while the after-only Buck2 workflow stays, and laptop safe-push never needs a remote Buck2 build (decision 10) |
 | `north-build-system` | 2 Check and land | keep | 2125 | 60/1 | the one build/test/clippy interface; 13 crates depend on it |
 | `north-check-environment` | 2 Check and land | keep | 133 | 8/0 | where a land check runs: runner, build host or here |
@@ -150,8 +151,7 @@ Parts that are not a crate, hook, skill, unit or verb, and the governance that s
 | `north-pace` | 4 Fleet governance | mothball | 7667 | 146/2 | spend, credit and the model router |
 | `north-pacing` | 4 Fleet governance | mothball | 5882 | 102/4 | placement and laptop pacing |
 | `north-providers` | 4 Fleet governance | mothball | 13199 | 293/9 | provider launchers and the run ledger; Phase 3 uses plain Claude Code or Pi sessions and reads cost from transcripts (decision 6) |
-| `north-runtime-follow` | 4 Fleet governance | mothball | 518 | 16/1 | automatic runtime promotion is off (decision 9); 8 manifests name it, broker, lander and session-host among them, until Phase 2 cuts that |
-| `north-runtime-records` | 4 Fleet governance | mothball | 451 | 3/0 | after-landing, failure and hold records (culprit searches) |
+| `north-runtime-records` | 4 Fleet governance | mothball, split | 451 | 3/0 | crates/north-runtime-records/src/failure.rs (24 lines) is north-runtime's error type, used in 44 of its files, so it moves into north-runtime as core; crates/north-runtime-records/src/hold_ledger.rs (306 lines) carries review accepts through the sandbox and moves with it; crates/north-runtime-records/src/after_landing.rs (118 lines, culprit-search records) is mothballed (docs/rationale/core-cut-plan.md) |
 | `north-threads` | 4 Fleet governance | mothball | 9136 | 220/6 | ledger of runs, claims and gates; Phase 3 reads timings and cost from land tickets and transcripts (decision 6) |
 | `north-timers` | 4 Fleet governance | mothball | 4114 | 16/0 | job-run, job-watch, outside-watch, usage web reads |
 | `north-tui` | 4 Fleet governance | mothball | 6143 | 82/3 | the fleet screen |
