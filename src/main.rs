@@ -22,7 +22,7 @@ use north_diff_gates::{build_cache_gate, dep_gate, language_gate, provenance};
 use north_landing_gates::{follows_release, issue_box_lint, land_abandon};
 use north_github_mirror as github_mirror;
 use north_tui::tui;
-use north_ci::{ci_watch, private_check};
+use north_ci::private_check;
 use north_github_broker::gh_broker;
 use north_desktop::{agent_capture, private_desktop, warcraft_close, wc3_login_field};
 use north_runtime::{agent_contain, laptop_runner, runtime, worker_sandbox};

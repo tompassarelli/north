@@ -85,9 +85,6 @@ const UNIFORM: &[(&str, Run)] = &[
         [word, rest @ ..] if word == "child" => file_child(rest),
         _ => crate::issue_convert::run(arguments),
     }),
-    ("ci-diagnose", crate::ci_watch::diagnose::run),
-    ("red-main-notify", crate::ci_watch::notify::run),
-    ("main-red", crate::ci_watch::sheriff::run),
 ];
 
 const DIRECT: &[(&str, Run)] = &[

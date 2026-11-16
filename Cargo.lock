@@ -1257,13 +1257,8 @@ dependencies = [
  "clap",
  "north-base",
  "north-foundation",
- "north-github-mirror",
- "regex",
  "rustix 0.38.44",
- "serde",
  "serde_json",
- "sha2",
- "tempfile",
  "toml_edit",
 ]
 

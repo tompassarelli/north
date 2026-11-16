@@ -11,19 +11,11 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
-north-github-mirror = { path = "../north-github-mirror" }
-regex.workspace = true
 rustix.workspace = true
-serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 toml_edit.workspace = true
 north-foundation = { path = "../north-foundation" }
 clap.workspace = true
-
-
-[dev-dependencies]
-tempfile.workspace = true
 
 [lints]
 workspace = true
