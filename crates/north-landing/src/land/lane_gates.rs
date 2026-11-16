@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::after::gates::{self, Landed};
-use super::scans::{git, incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
+use super::scans::{git, incident_guard, push_jobs, test_admission, test_integrity, tool_removal};
 use super::slots::select::Config;
 use north_diff_gates::advisory_gate;
 use north_diff_gates::dep_gate::{self, Registry};
@@ -33,7 +33,6 @@ const GATES: &[(&str, Gate)] = &[
     ("test integrity", integrity),
     ("incident test", incident),
     ("tool removal", removal),
-    ("policy sweep", sweep),
     ("after-only reason", after_only),
     ("dependency age", dependency_age),
     ("dependency advisory", dependency_advisory),
@@ -61,10 +60,6 @@ fn incident(lane: &Lane, out: &mut Vec<u8>) -> bool {
 fn removal(lane: &Lane, out: &mut Vec<u8>) -> bool {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     tool_removal::scan(lane.worktree, &home, &lane.range(), out) != 0
-}
-
-fn sweep(lane: &Lane, out: &mut Vec<u8>) -> bool {
-    policy::scan(lane.worktree, &lane.range(), out) != 0
 }
 
 fn after_only(lane: &Lane, out: &mut Vec<u8>) -> bool {

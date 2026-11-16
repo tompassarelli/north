@@ -3,5 +3,6 @@
   "tests/it/fleet_launch.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "tests/it/lane_gc_journeys.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "crates/north-agent-policy/src/catalog/retired_hooks.rs": "production: writes real retired-hook stubs",
-  "crates/north-guard/src/guard/activation_tests.rs": "test restores a read-only directory chain to its owner mode"
+  "crates/north-guard/src/guard/activation_tests.rs": "test restores a read-only directory chain to its owner mode",
+  "src/cli/job_run/scratch.rs": "production: job-run makes its scratch directory owner-only, which is not an executable stub"
 }

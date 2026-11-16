@@ -184,7 +184,7 @@ fn a_limited_free_model_runs_the_turn_again_on_paid_go_flash() {
 }
 
 const GROUNDING_NORTH: &str = r#"#!/bin/sh
-[ "$2" = prompt-grounding ] || exit 0
+[ "$1" = hook ] && [ -z "$2" ] || exit 0
 cat > "$(dirname "$0")/prompt.json"
 printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"Grounding: north#1041 is open"}}'
 "#;

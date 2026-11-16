@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::thread::ScopedJoinHandle;
 
 use north_foundation::error::{NorthError, NorthResult};
-use crate::fleet::{brief_files, brief_grounding, proposal};
+use crate::fleet::{brief_files, proposal};
 use crate::fleet::hops;
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
@@ -15,7 +15,6 @@ use crate::fleet::sender::Sender;
 use crate::fleet::runtime::{Opening, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
-use super::grounding;
 use super::reserve;
 use super::stopping::Halt;
 use super::coordinator_window::{held_in_window, hosts_early};
@@ -384,17 +383,10 @@ fn first_prompt(request: &LaunchRequest, verification: bool) -> (String, Option<
     if request.role() != Role::Worker || request.resume.is_some() {
         return (request.prompt.clone(), None);
     }
-    let brief = request.named_brief().map_or_else(|| request.prompt.clone(), |named| format!("{named}\n{}", request.prompt));
-    let arm = grounding::drawn(&request.name, now_ms());
-    let prompt = match arm {
-        Some(arm) if !verification => grounding::stamped(&request.prompt, arm),
-        _ => request.prompt.clone(),
-    };
+    let prompt = request.prompt.clone();
     std::thread::scope(|scope| {
         let verdict = scope.spawn(|| hops::timed("verdict", || launch_verdict(request, verification)));
-        let grounded = scope.spawn(|| if verification || !grounding::carries_pack(arm) { None } else { hops::timed("brief grounding", || brief_grounding::section(&brief, &request.cwd, request.machine.as_ref(), &north_base::platform::north_binary::own_binary())) });
         let shown = hops::timed("brief files", || brief_files::shown(&prompt, &request.cwd, request.machine.as_ref()));
-        let shown = grounded.join().unwrap_or(None).map_or(shown.clone(), |section| format!("{shown}\n\n{section}"));
         (proposal::told(&shown, &verdict.join().unwrap_or(proposal::Verdict::Unasked)), None)
     })
 }

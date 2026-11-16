@@ -167,10 +167,8 @@ const PERMISSION_REQUEST: &[Guard] = &[Guard("", crate::guard::tripwire::check, 
 const STOP: &[Guard] = &[
     Guard("north-hook", crate::guard::permission_offer::evaluate, Anywhere),
     Guard("north-hook", crate::guard::permission_offer::evaluate_handoff, Anywhere),
-    Guard("north-hook", crate::guard::recommendation_grounding::evaluate, Anywhere),
     Guard("north-hook", crate::guard::recommend_acts::evaluate, Anywhere),
     Guard("north-hook", crate::guard::unanswered::evaluate, Anywhere),
-    Guard("", crate::guard::correction_capture::evaluate, Anywhere),
 ];
 
 const RECOMMEND_ACTS: &[Guard] = &[Guard("north-hook", crate::guard::recommend_acts::evaluate, Anywhere)];
@@ -399,7 +397,7 @@ fn first_prompt(input: &HookInput) -> bool {
     std::fs::create_dir_all(&marks).is_ok() && std::fs::OpenOptions::new().write(true).create_new(true).open(marks.join(conversation)).is_ok()
 }
 
-const USAGE: &str = "Usage: north hook [dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]";
+const USAGE: &str = "Usage: north hook [dispatch|pre-bash|safety|pre-edit|pre-read|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|subagent-stop|user-prompt-submit|language-guard|firn-system-policy|permission-request|codex-conduct]";
 
 pub fn run(arguments: &[String], request: &[u8], writer: &mut impl Write) -> Result<Vec<Evidence>, String> {
     let hook = match arguments {

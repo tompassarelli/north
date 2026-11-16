@@ -23,7 +23,7 @@ const AGENT_ENV: &str = "PI_CODING_AGENT_DIR";
 pub(super) const EXTENSION: &str = r#"// The north fleet bridge for Pi: register this window so `north fleet adopt` and dispatch see it
 // live, and listen on its socket so a report to the name reaches this session as a user message.
 // It also hands each tool call and each submitted prompt to `north hook`, as Claude Code's hooks do,
-// so a Pi session meets the same refusals and the same prompt grounding (north#1041).
+// so a Pi session meets the same refusals (north#1041).
 // `north fleet adopt` installs this file under <agent>/extensions; Pi loads it on start or /reload.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
@@ -37,7 +37,7 @@ const state = xdg && xdg.startsWith("/") ? join(xdg, "north") : join(homedir(), 
 const windows = join(state, "pi-windows");
 const sockets = join(state, "pi-sessions");
 const hookTools: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write" };
-const promptHooks = [["hook", "prompt-grounding"], ["hook"]];
+const promptHooks = [["hook"]];
 
 function hookInput(tool: string, input: Record<string, unknown>): Record<string, unknown> {
   if (tool === "Bash") return { command: input.command };

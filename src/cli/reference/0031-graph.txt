@@ -1,1 +1,0 @@
-  graph ground query [--query TEXT | TEXT] [--tier A|B] [--hook]  Retrieve existing infrastructure and history for a query

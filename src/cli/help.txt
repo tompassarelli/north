@@ -12,11 +12,10 @@ Operator console:
   ledger                Fleet runs and cost; worker tiers and incidents
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
-  convo                 Search and read past agent transcripts
 
 Work and knowledge:
   work                  The fleet's work, gates, landings and stalls; work items
-  graph                 Record and query facts, ground prompts, list the ready backlog
+  graph                 Record and query facts, list the ready backlog
 
 Engineering and landing:
   check                 Citations, concerns, boxes, nix, provenance, privacy, the harness
@@ -32,7 +31,7 @@ System and telemetry:
   accounts              Each account's state, 5h and week room, and each api grant's dollars
   health                Readiness bars, concerns and harness invariants
   infra                 Live paid resources with their monthly price and a total
-  config                Skills and hooks, agent plan and usage, context, coordinator calls
+  config                Skills and hooks, agent plan and usage
   runtime               Update, deploy or check the north and agent runtimes
   capacity              Leases, modes and watchdog; bounded and dev-shell runs
   ops                   Watch, expectations, credentials, GitHub, strategy, news

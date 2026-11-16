@@ -24,8 +24,6 @@ use crate::platform::attribution::{self, Cause};
 use north_warm_spares::spares;
 use crate::fleet::waits::{Probe, Registered, Run, Settled, runtime_holds};
 use crate::foundation::clock::Timestamp;
-use crate::grounding::distill;
-use crate::threads::incidents::corrections;
 use crate::pacing::placement::{config, gate};
 use crate::platform::process::{run_command_within, run_within};
 
@@ -145,7 +143,6 @@ impl WaitProbes for Probes {
         let reports = vec![
             ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_concerns::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
             ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
-            ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.settle.class_review", own: None, run: Box::new(|fleet| said(super::class_review::tick(&fleet, i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
         ];
         let published = vec![
@@ -182,14 +179,6 @@ pub(super) fn reap(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         println!("lane {} on {} kept in the last 24 h: {}", lane.lane, lane.machine, lane.reason);
     }
     Ok(())
-}
-
-fn recurred_corrections(now: i64) -> Vec<String> {
-    north_concerns::tick::announce(&north_concerns::tick::state_file("north/grounding/recurrence-tick.json"), now, || {
-        let seen = distill::corrections_seen();
-        let (set, text) = corrections::red(&corrections::recurrences(&seen, corrections::classes(), now as f64));
-        north_concerns::tick::Red { set, text }
-    })
 }
 
 fn said(lines: impl IntoIterator<Item = String>) -> Probed {

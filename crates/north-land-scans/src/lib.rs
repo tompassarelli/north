@@ -21,7 +21,6 @@ pub mod nix_entry;
 pub mod outgoing;
 pub mod disclosure_judge;
 mod peer_invocations;
-pub mod policy;
 pub mod push_jobs;
 pub mod review;
 pub mod review_accept;
@@ -130,7 +129,7 @@ fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
         "test-integrity" => test_integrity::scan(directory, range, &mut out),
         "incident-test" => incident_guard::scan(directory, range, &mut out),
         "test-admission" => test_admission::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
-        "policy-sweep" => policy::sweep(directory, range, &mut out),
+        "policy-sweep" => rule_owners::scan(directory, range, &mut out),
         "leftovers" => leftovers::scan(directory, range, &mut out),
         "alarm-definitions" => alarm_definitions::scan(directory, range, &mut out),
         "strategy-replay" => strategy_replay::scan(directory, range, &mut out),

@@ -48,8 +48,7 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | Tom's last prompt asked a question, so the final reply's first line answers it: a yes or no, a number to a question that asks for one, or a name or fact from the question's words; absent that, the Stop hook refuses the reply, at most twice per turn | `north-hook` (unanswered-guard) | Claude |
 | A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
 
-`prompt-grounding` delivers context rather than enforcing a rule; `north-hook`
-dispatches provider events to the in-process guards above.
+`north-hook` dispatches provider events to the in-process guards above.
 
 ## Landing gates in safe-push
 

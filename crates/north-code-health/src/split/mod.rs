@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use north_base::platform::process;
 
-const USAGE: &str = "usage: north code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...";
+const USAGE: &str = "usage: north code-health split move-module [--dry-run] --from FROM --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...";
 const CHECK_USAGE: &str = "usage: north code-health split check [--target-dir DIR] --crate CRATE";
 
 pub struct Plan {
@@ -105,7 +105,7 @@ fn parse_check(arguments: &[String]) -> Result<Plan, String> {
 
 fn parse(arguments: &[String]) -> Result<Plan, String> {
     let root = toplevel()?;
-    let mut plan = Plan { root, from: "north-core".into(), to: String::new(), modules: Vec::new(), dry_run: false, allow_test_items: Vec::new(), target_dir: None };
+    let mut plan = Plan { root, from: String::new(), to: String::new(), modules: Vec::new(), dry_run: false, allow_test_items: Vec::new(), target_dir: None };
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         let mut value = || words.next().cloned().ok_or_else(|| format!("{word} needs a value\n{USAGE}"));
@@ -119,7 +119,7 @@ fn parse(arguments: &[String]) -> Result<Plan, String> {
             module => plan.modules.push(module.trim_end_matches('/').to_string()),
         }
     }
-    if plan.to.is_empty() || plan.modules.is_empty() {
+    if plan.from.is_empty() || plan.to.is_empty() || plan.modules.is_empty() {
         return Err(USAGE.into());
     }
     Ok(plan)

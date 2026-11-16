@@ -39,9 +39,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("graph", graph),
     ("resident-cap", crate::resident_cap::run),
     ("docs", north_docs::docs::run),
-    ("convo", crate::convo::run),
-    ("incident-mine", north_convo::incident_mine::run),
-    ("policy-replay", crate::policy_replay::run),
     ("spend", super::spend::run),
     ("fetch-fleet", super::fetch_fleet::run),
     ("fleet-for", super::fleet_for::run),
@@ -197,7 +194,6 @@ const CHECK: &[(&str, Run)] = &[
     ("disclosure", disclosure_judge),
     ("oneshot", |arguments| super::oneshot::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
     ("issue-boxes", issue_box_lint::run),
-    ("nix", super::nix::doctor),
     ("provenance", provenance::run),
 ];
 
@@ -241,8 +237,7 @@ fn keep_disk() {
 
 fn config(arguments: &[String]) -> u8 {
     match arguments.split_first() {
-        Some((noun, rest)) if noun == "context" => crate::context_audit::run(rest, agent_config_check::startup_tokens),
-        Some((noun, rest)) if noun == "coordinator" => crate::coordinator::run(rest, &super::verbs::VERB_KINDS, crate::guard::coordinator_table::run),
+        Some((noun, rest)) if noun == "coordinator" => crate::coordinator::run(rest, crate::guard::coordinator_table::run),
         _ => 2,
     }
 }

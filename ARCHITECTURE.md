@@ -34,7 +34,7 @@ The crates under [crates/](crates/), by the layer each sits in; a crate depends 
 - **4 landing**, checks a handed-in change and lands it on main, or refuses it with the reason: [north-land-checks](crates/north-land-checks/), [north-land-sandbox](crates/north-land-sandbox/), [north-lander](crates/north-lander/), [north-landing](crates/north-landing/), [north-safe-push](crates/north-safe-push/)
 - **4 capacity**, leases machine room to builds and sessions: [north-capacity-host](crates/north-capacity-host/)
 - **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/)
-- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-convo](crates/north-convo/), [north-core](crates/north-core/), [north-credentials](crates/north-credentials/), [north-docs](crates/north-docs/), [north-graph-ingest](crates/north-graph-ingest/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/)
+- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-credentials](crates/north-credentials/), [north-docs](crates/north-docs/), [north-graph-ingest](crates/north-graph-ingest/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/)
 <!-- end layout -->
 
 ## The layers
@@ -115,9 +115,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-credentials | Every credential the fleet uses, with its kind, expiry and renewal path, and the renewals themselves. |
 | 6 operations | north-remote-serve | The command a trusted ssh peer runs on this host: its plan, guards, audit and log. |
 | 6 operations | north-reclaim | Disk room on the fleet's hosts: what may be deleted or archived, under which budget, and when. |
-| 6 operations | north-convo | Search and audit of agent transcripts, with replays of the policy over them. |
 | 6 operations | north-graph-ingest | Load what north already records into the fact graph. |
-| 6 operations | north-core | Grounding, the crate-split tool, build time, Nix upkeep and the contract probe and coordinator calls move out before the crate is removed (docs/rationale/architecture-layers.md). |
 | 7 command | north | The `north` command: argument routing and the composition root. The dash report, the eval runner and launch placement move out (L07, L45, L46, docs/rationale/architecture-layers.md); verify-north has no planned owner yet. |
 
 ## Owning boundary

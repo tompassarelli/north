@@ -13,4 +13,3 @@
   code-health layers [--repo DIR] BASE HEAD     Exit 1 for each reference a changed Rust file adds that breaks a structure.toml module or crate DAG rule
   hook stop                                     Run the Stop hook guards: permission offers, command handoffs and recommendations that act
   hook recommend-acts                           Run the recommendations-act guard on a final reply
-  policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N] [--dry-run]  Replay recorded correction cases against policy arms and write one row per sample

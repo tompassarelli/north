@@ -4,9 +4,6 @@
     "firn-system-policy": {
       "distributions": []
     },
-    "prompt-grounding": {
-      "distributions": []
-    },
     "skill.agent-policy": {
       "distributions": [
         {

@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
 pub type StatusVerb = fn(&[&str]) -> bool;
 pub type FileToolRefusal = fn(&[String], &Path) -> Option<String>;
@@ -9,7 +8,6 @@ pub type FileReadRefusal = fn(&[String], &Path) -> Option<String>;
 
 #[derive(Clone, Copy)]
 pub struct Host {
-    pub recorded_decisions: RecordedDecisions,
     pub account_home: AccountHome,
     pub status_verb: StatusVerb,
     pub file_tool_refusal: FileToolRefusal,
@@ -24,10 +22,6 @@ pub fn install(host: Host) {
 
 fn installed() -> Result<Host, String> {
     INSTALLED.get().copied().ok_or_else(|| "north hook: no guard host installed".to_owned())
-}
-
-pub fn recorded_decisions(paragraph: &str, now: f64) -> Vec<String> {
-    installed().map_or_else(|_| Vec::new(), |host| (host.recorded_decisions)(paragraph, now))
 }
 
 pub fn account_home(provider: &str, label: &str) -> Option<PathBuf> {

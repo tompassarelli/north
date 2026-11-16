@@ -6,7 +6,7 @@ Policy is the rules agents follow and the checks that hold them to it. Each kind
 - **Rules for `~/code`:** [harness/code/AGENTS.md](../harness/code/AGENTS.md); sync links it as `~/code/AGENTS.md`.
 - **Rules for one repository:** that repository's `AGENTS.md`, such as [this one](../AGENTS.md), read in the checkout.
 - **Procedures:** skills in [harness/skills/](../harness/skills/), linked by sync.
-- **Guards on tool calls:** `north hook` verbs (`dispatch`, `language-guard`, `codex-conduct`, `firn-system-policy`, `prompt-grounding`), bound to events by [harness/policy-owners.toml](../harness/policy-owners.toml); `north agent-policy-contract --write` renders the Claude and Codex hook configs that run them.
+- **Guards on tool calls:** `north hook` verbs (`dispatch`, `language-guard`, `codex-conduct`, `firn-system-policy`), bound to events by [harness/policy-owners.toml](../harness/policy-owners.toml); `north agent-policy-contract --write` renders the Claude and Codex hook configs that run them.
 - **Claude worker definitions and Codex prompts:** [harness/claude/agents/](../harness/claude/agents/) and [harness/codex/prompts/](../harness/codex/prompts/); `north check harness` reads the installed copies in `~/.claude/agents`.
 - **Thresholds and priors:** [harness/defaults.toml](../harness/defaults.toml), each with its source, read by the commands that use them.
 - **Models, prices and benchmarks:** [harness/model-catalog.toml](../harness/model-catalog.toml), read by routing. `north fleet usage --refresh` records `agy models` and reports any gemini key the catalog lacks or lists after agy retired it (`agents/agy-models-drift.txt` in the state directory).

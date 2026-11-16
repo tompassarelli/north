@@ -1,4 +1,0 @@
-[[registered]]
-id = "hook.prompt_grounding"
-path = "crates/north-core/src/grounding/prompt_hook.rs"
-

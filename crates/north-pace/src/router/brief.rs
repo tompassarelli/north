@@ -245,13 +245,6 @@ pub fn review_admits(
     }
 }
 
-/// The heading the launch puts before the full query form; a brief that the prompt hook grounded
-/// carries the same prefix, so `north ledger grounding` counts either.
-pub const GROUNDING_PACK: &str = "Grounding (auto-retrieved";
-
-/// The line experiment G2 stamps on a first prompt whose launch drew the plain arm, which carries no pack.
-pub const PLAIN_ARM_LINE: &str = "Grounding: plain";
-
 /// The categories whose work changes code; the rest end in a document, a review, a plan or a check.
 pub const CODE_CATEGORIES: [&str; 8] = ["mechanical", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning"];
 /// The categories whose work changes no code.

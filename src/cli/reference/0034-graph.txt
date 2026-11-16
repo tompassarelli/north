@@ -1,1 +1,0 @@
-  graph ground distill status                      Show the distill state

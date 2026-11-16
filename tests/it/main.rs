@@ -13,7 +13,6 @@ mod land_enqueue;
 mod land_rebase;
 mod land_serve;
 mod lane_gc_journeys;
-mod policy_replay_login;
 mod release;
 mod runtime_update;
 mod safe_push;

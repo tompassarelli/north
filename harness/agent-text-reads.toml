@@ -23,23 +23,8 @@ lines = 1
 kind = "hint"
 
 [[read]]
-file = "crates/north-core/src/grounding/compose.rs"
-lines = 1
-kind = "hint"
-
-[[read]]
-file = "crates/north-core/src/grounding/sources/history.rs"
-lines = 1
-kind = "hint"
-
-[[read]]
 file = "crates/north-guard/src/guard/codex_conduct/stop.rs"
 lines = 1
-kind = "hint"
-
-[[read]]
-file = "crates/north-convo/src/incident_mine/classify.rs"
-lines = 3
 kind = "hint"
 
 

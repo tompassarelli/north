@@ -162,7 +162,6 @@ pub(super) fn home(arguments: &[String]) -> u8 {
 const LEDGER: &[(&str, Run)] = &[
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("opencode", opencode),
-    ("show", crate::cli::ledger_show::run),
     ("worker", super::super::worker_ledger::run),
 ];
 

@@ -1,2 +1,2 @@
 graph
-Record and query facts, ground prompts, list the ready backlog
+Record and query facts, list the ready backlog

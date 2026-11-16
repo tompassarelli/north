@@ -7,7 +7,7 @@
 # One line per module, merged as a set.
 agent_build_sandbox north-capacity-host north-capacity
 depbox_broker north-capacity
-capacity_exclusive_native north-capacity north-core
+capacity_exclusive_native north-capacity
 capacity_host north-capacity-host
 capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
@@ -21,17 +21,16 @@ threads_ledger north-threads
 threads_snapshot north-threads
 capacity_agent_compile north-capacity north-capacity-host north-runtime
 cargo_config north
-fleet_launch north-core north-fleet north-dispatch
-fleet_hand_in north-core north-fleet north-fleet-supervisor north-providers
-fleet_spool north-core north-fleet
+fleet_launch north-fleet north-dispatch
+fleet_hand_in north-fleet north-fleet-supervisor north-providers
+fleet_spool north-fleet
 fleet_compaction north-fleet north-fleet-supervisor north-providers
 fleet_state_root north-providers north-fleet-supervisor
-policy_replay_login north-convo
-threads_resume north-core north-threads
+threads_resume north-threads
 agent_text_reads north # tree-wide: counts agent-text reads in every Rust source under src/ and crates/
 affected_modules north-landing north north-land-checks north-lander # tree-wide: reads every tests/it module and every crate the crate DAG names
 golden_path north-fleet north-landing north-land-checks north-lander
-land_checks north-landing north-core north-land-checks north-lander
+land_checks north-landing north-land-checks north-lander
 land_enqueue north-landing north-land-checks north-lander
 land_rebase north-landing north-land-checks north-lander
 land_serve north-landing north-land-checks north-lander

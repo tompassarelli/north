@@ -1,2 +1,1 @@
-  config coordinator calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   config coordinator role                              Print the coordinator role table of harness/defaults.toml: what the coordinator does itself and what it launches a worker for

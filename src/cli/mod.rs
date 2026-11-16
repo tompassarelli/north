@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, language_gate, nix_explain};
+use crate::{agent_catalog, build_cache_gate, guard, language_gate, nix_explain};
 
 mod abandon_witness;
 mod mutant_issues;
@@ -32,12 +32,9 @@ mod holds;
 mod hook_verb;
 mod ledger;
 mod ledger_duplicate;
-mod ledger_show;
 mod moved;
-mod nix;
 mod operator;
 mod orders;
-mod probe_account;
 pub(crate) mod remote_land;
 mod draft_road;
 mod land_adopt;
@@ -90,7 +87,6 @@ enum Command {
     Alarm(Vec<String>),
     Hook(Vec<String>),
     Nix(Vec<String>),
-    NixGc(Vec<String>),
     Threads(Vec<String>),
     Ledger(Vec<String>),
     Agents(Vec<String>),
@@ -107,8 +103,6 @@ enum Command {
     Operator(Vec<String>),
     BoxPath(Vec<String>),
     GuardLanguage,
-    ContractProbe(Vec<String>),
-    Grounding(Vec<String>),
     RemoteServe(Vec<String>),
     VerbHelp(Vec<String>),
     Switch(Vec<String>),
@@ -157,10 +151,7 @@ type Forward = fn(&str, Vec<String>) -> Command;
 const FORWARDED: &[(&str, Forward)] = &[
     ("alarm", |_, rest| Command::Alarm(rest)),
     ("hook", |_, rest| Command::Hook(rest)),
-    ("nix", |_, rest| match rest.split_first() {
-        Some((verb, tail)) if verb == "gc" => Command::NixGc(tail.to_vec()),
-        _ => Command::Nix(rest),
-    }),
+    ("nix", |_, rest| Command::Nix(rest)),
     ("threads", |_, rest| Command::Threads(rest)),
     ("fleet", |name, rest| match rest.split_first() {
         Some((verb, _)) if verb == "off" || verb == "on" => Command::Switch([vec![name.to_owned()], rest].concat()),
@@ -181,15 +172,11 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("glance", |_, rest| Command::Glance(rest)),
     ("holds", |_, rest| Command::Holds(rest)),
     ("box", |_, rest| Command::BoxPath(rest)),
-    ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
     ("policy", |name, rest| Command::Switch([vec![name.to_owned()], rest].concat())),
 ];
 
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
-    if command == "graph" && rest.first().is_some_and(|verb| verb == "ground") {
-        return Some(Command::Grounding(rest[1..].to_vec()));
-    }
     if command == "config" && rest.first().is_some_and(|verb| verb == "operator") {
         return Some(Command::Operator(rest[1..].to_vec()));
     }
@@ -237,7 +224,6 @@ fn dispatch(command: Command) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Command::NixGc(arguments) => nix::gc(&arguments),
         Command::Threads(arguments) => ExitCode::from(ledger::threads(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
@@ -287,16 +273,10 @@ fn dispatch(command: Command) -> ExitCode {
             Err(error) => failure(error),
         },
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
-        Command::ContractProbe(arguments) => in_runtime(async move {
-            contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)
-        }),
         Command::RemoteServe(arguments) => match remote_serve::run(&arguments) {
             Ok(code) => ExitCode::from(code),
             Err(error) => failure(error),
         },
-        Command::Grounding(arguments) => in_runtime(async move {
-            grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
-        }),
         Command::Switch(arguments) => switch(&arguments),
     }
 }

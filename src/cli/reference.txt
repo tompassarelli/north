@@ -13,7 +13,6 @@ Commands:
   check calls [--tree DIR] [--live DIR]         Read every north call on this host (unit Exec lines and the scripts they run, hooks, ssh hops in the --tree source) against this runtime, exit 1 naming each unparsable one; runtime update runs it from the incoming runtime before each swap
   check concerns [--root DIR] [PROJECT...]      Check each project's declared concerns
   check issue-boxes [REPO#N...] [--repo REPO]   Check issue acceptance boxes
-  check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
   check provenance check BASE HEAD              List each new gating bar, hook or policy line with no Provenance record
   check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers
   language-gate --repo DIR --base REV --head REV  Check language policy
@@ -27,12 +26,6 @@ Commands:
   code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]] [--new-since REV] [--grown-since REV]  Run the Rust habit checks; --new-since reports only the findings new since REV and --grown-since adds the allowances grown since REV; --base reports each added // line that names no determinism, engine, Lua or external-format constraint, and --shadow prints the findings and exits 0
   code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold; --rev measures a fresh detached checkout of REF, --file keeps one rolling split issue per repo
   guard language                                PreToolUse language guard
-  graph ground query [--query TEXT | TEXT] [--tier A|B] [--hook]  Retrieve existing infrastructure and history for a query
-  graph ground refresh [--force] [--if-idle] [--source NAME]...  Refresh the grounding docs in the graph from their sources
-  graph ground distill run [--since SINCE] [--no-refresh] [--if-idle] [--after-prompt]  Distill new corrections into grounding records
-  graph ground distill status                      Show the distill state
-  graph ground distill capture                     Capture a correction for the next distill run
-  graph ground score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]  Score grounding retrieval against an eval set
   work [--since DURATION] [--json]              Show the fleet's work: sessions, gates, landings, stalls, report and the harness-loss classes of the window with the issue that owns each
   work own CLASS --issue REPO#N                 Record REPO#N, an open issue with an owner, as the owner of the harness-loss class CLASS, which lets the coordinator's turn end while CLASS repeats
   work list                                     List the open work items
@@ -97,7 +90,6 @@ Commands:
   ledger incident report [--days N] [--since EPOCH --until EPOCH]  Read incidents by class, detector-first rate and recurrences
   ledger duplicate [--days N] [--json]          Count the worker runs that started on a box another run still worked, by day; a day without one reads 0
   ledger opencode [--since 7d]                  Per week and DeepSeek model: boxes attempted, landed Done, checked, escalated to Claude and its cost, Go window share and limit wait, against the ledger's Sonnet rate
-  ledger show L<id>                             Print one recorded decision's date, owner, source and decision; exit 1 naming the id when none exists
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   lane squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
@@ -112,8 +104,6 @@ Commands:
   hand-in --message TEXT [--] PATH...            Stage and commit exactly the changed PATH... in their lane with TEXT, or queue the lane as it stands when PATH... are already committed on it, then hand the lane in as safe-push --to main does and print its ticket without waiting on the lander
   land release VERSION [--notes FILE]                 From a clean main at origin, create and push the annotated tag vVERSION and its GitHub release; a rerun finishes a partial release
   nix explain <nix subcommand | class>           Print a Nix footgun card, then the option sections of this host's `nix <cmd> --help` it names
-  nix gc [--dry-run] [--max-freed SIZE]          Root every promoted runtime, live worktree dev shell and rustup wrapper store path, then collect the store
-  contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   test coverage select BASE HEAD [--map FILE]   Pick the Rust tests that reach the functions a change touches
   test coverage miss BASE HEAD --log FILE [--map FILE]  Name the after-push failures the selection missed and refresh the map
   test coverage record [NEXTEST-ARGUMENT...]    Record the test-to-function coverage map on a check host
@@ -129,10 +119,9 @@ Commands:
   graph split [--repo DIR] [--record FILE] [--plan FILE | --prompt FILE] --base SHA (--task FILE | -)  Split a task into a first box of shared signatures, parts that share no file and a last box, from the base tree and one planning call
   graph split --check ID --parts N [--record FILE]  Check that every part of a split landed and no stub of its first box remains on origin/main
   graph validate [--db PATH]  Check the graph is sound
-  config coordinator calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   config coordinator role                              Print the coordinator role table of harness/defaults.toml: what the coordinator does itself and what it launches a worker for
   check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
-  check harness policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
+  check harness policy-gate (budget|measure) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token measurement agents sync uses
   check harness tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits, and each portable: true skill's files against host-specific paths, names and provider directories, with no other checkout or live state; the land check for harness/
   agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring
   test mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]  Run a mutation sweep over the named repositories and file surviving mutants
@@ -154,14 +143,11 @@ Commands:
   fleet-issue [ARGS...]                         Run north fleet list, gh issue ARGS (list when none is named) and north fleet list again in one call
   fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready boxes of every unpaused project in orchestration.toml (its dispatch_repos, else repos) on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
   coordinator [--interactive] | coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
-  incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
-  config context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
   config operator paths [--class CLASS]         One line per path north reads from the operator repository, as PATH<TAB>CLASS in the inventory's order; class is schema, generic method, private value or secret
   config operator check [DIR] [--only NAME,...] [--distinct-from OWNER]  Read the operator repository's schema-class files against their typed keys; each finding prints as FILE: KEY: reason and the command exits 1; with --distinct-from a string a template DIR holds at an identifying key (id, name, email, repo, path, host, source and the like) that equals the owner repository OWNER's string at that key is also a finding naming the file and key, never the value; DIR defaults to the resolved operator root, NAME is costs, claude-accounts, credentials or infra
   config operator init [--check] DIR                    Create the operator repository DIR (which must not exist or be empty) holding synthetic values for every file north reads from it (accounts, costs, credentials, policy lists, orchestration, privacy lists, infra, a secrets note, the schema marker and a landing configuration) and a catalog registering each skill of north's structure registry; `north config operator check DIR` passes on it; init --check DIR exits 1 naming each file of DIR that differs from, lacks or adds to that output; init --sync DIR rewrites DIR in place to that output, with no git repository, as the lander does for examples/operator
   ledger worker [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
   dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]  One screen over the window: the readiness bars failing first, each Claude account's week and the spend by model and effort, and per task category the model mix, first-try success and cost per closed box; --closed prints the closed-box report dispatch decides on as JSON, the other flags the scoreboard's reports, and losses lists each first try lost to the harness with its class and boundary record
-  policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   policy off | policy on                         Take north's hooks, skills, instructions and the git checks on your own commits and pushes away on this host, or put back exactly what policy off took; stops nothing. Runs as north-switch, without the runtime
   glance                                        One line (layer 0): whether anything is broken, whether money is all right and whether any gate waits on Tom
   ledger runs [--json]                          Fleet turn records
@@ -254,7 +240,6 @@ Commands:
   runtime health                                Check that the running binary is the current runtime with its programs and tree
   after-landing [--only gates] --git-dir DIR --base BASE --head HEAD  Run the after-landing checks on a landed range
   build-cache-gate --repo DIR --base REV --head REV  Refuse a landing that breaks build-cache reuse
-  convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex|corpus]  Search past agent transcripts and the Tom corpus; corpus appends typed messages to it
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
   broker serve [--user]                          Run the credential broker that holds the app credentials and cloud tokens
@@ -266,7 +251,6 @@ Commands:
   git-credential store                          Give no answer; nothing is stored
   git-credential erase                          Give no answer; nothing is erased
   hook HOOK                                     Run an agent hook
-  hook prompt-grounding                         Run the prompt grounding hook
   alarm stats [--since 7d|48h]                  Print each alarm source's alerts and false share
   job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] [--notify] NAME -- CMD...  Run a scheduled job and record its result
   land adopt [--dry-run]                        Land each finished lane (its last finish call passed on its tree, nothing uncommitted) whose session has ended: rebase it onto main and safe-push it, or file why not on its issue; each head once
@@ -287,7 +271,7 @@ Commands:
   capacity bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
   session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND  Link a remote session unit
   session-unit SYSTEMD-RUN-ARGS...              Run systemd-run in the fleet session's scope (systemd-run's own --help passes through)
-  code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...  Move modules into a crate
+  code-health split move-module [--dry-run] --from FROM --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...  Move modules into a crate
   code-health split check [--target-dir DIR] --crate CRATE  Type-check a crate with this host's build system
   ssh-argv SSH-ARGS...                          Print the attributed ssh argv, NUL separated
   ssh-session REAL_SSH [ARGS...]                Run ssh with session attribution
@@ -350,9 +334,7 @@ Commands:
   code-health layers [--repo DIR] BASE HEAD     Exit 1 for each reference a changed Rust file adds that breaks a structure.toml module or crate DAG rule
   hook stop                                     Run the Stop hook guards: permission offers, command handoffs and recommendations that act
   hook recommend-acts                           Run the recommendations-act guard on a final reply
-  policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N] [--dry-run]  Replay recorded correction cases against policy arms and write one row per sample
   graph retain [--db PATH]                      Remove the history no reader needs, under the graph's retention rule
-  ledger grounding [--since 24h] [--json]  Share of the window's code-change briefs whose first prompt carried the full grounding pack, against its 90% bar
   runtime host-op state HOST UNIT | runtime host-op disk HOST | runtime host-op restart HOST UNIT | runtime host-op sync COPY  Through the outside broker, for a lead session or the coordinator: read a north unit's state and the load of HOST, read the free space of the filesystem holding the home on HOST and the size of each top-level directory under ~/.local/state, ~/.local/state/north, ~/.local/share, ~/.cache and ~/code there (each walk limited to 300 s), restart a north unit on HOST, or refresh the copy COPY on its host with rsync from this host; UNIT is one the harness default host_op_units lists, COPY one the harness default host_copies names with its source and target, HOST this host or one it reaches over ssh; no command, path or login of the caller's is taken
   lane restore [--archive DIR] BRANCH           Restore the newest archived copy of BRANCH to a worktree at the lane's old path when that is free, with its uncommitted and untracked changes unstaged as they were (lane gc archives an unheld lane idle 24 h: its commits and those changes ride in a bundle under ~/archive/lanes/<project>)
   proof-run print|watch --start YYYY-MM-DDTHH:MMZ [--stages RATE:MINUTES,...] [--dies-at RATE --dies N] [--issues N --dir DIRECTORY] [--profile-repo NAME]  Write one file per issue (title, then body) with every stand-in box stamped (not before TIME) at its stage's rate and dealt round-robin, or watch the stand-in landings against the boxes due and stop when one due over 5 min ago stays unlanded for 5 min

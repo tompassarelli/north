@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,27 +6,22 @@ use std::time::Duration;
 
 use regex::Regex;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use super::roots::Roots;
-use north_base::platform::trials::{Scenarios, TRIALS, Verdict, compare, flips};
-use north_base::platform::{host, process, pystats, toml_json};
+use north_base::platform::{host, process, toml_json};
 
 const PLAYBOOK_LINES: usize = 500;
 const SKILL_BYTES: usize = 6144;
-const SWEEP_DUE_SHARE: f64 = 0.15;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Mode {
     Budget,
     Measure,
-    Session,
 }
 
 pub(super) struct Gate {
     pub(super) repo: PathBuf,
     pub(super) operator: PathBuf,
-    pub(super) replay: PathBuf,
     pub(super) start: Box<dyn Fn(bool) -> Result<usize, String>>,
     pub(super) roots: Roots,
 }
@@ -51,34 +45,6 @@ fn description(front: &str) -> String {
         .flatten()
         .and_then(|found| found.get(1).map(|text| text.as_str().split_whitespace().collect::<Vec<_>>().join(" ")))
         .unwrap_or_default()
-}
-
-fn scenarios_of(value: Option<&Value>) -> Scenarios {
-    value
-        .and_then(Value::as_object)
-        .map(|object| {
-            object
-                .iter()
-                .filter_map(|(name, cell)| {
-                    let cell = cell.as_array()?;
-                    Some((name.clone(), [cell.first()?.as_u64()? as usize, cell.get(1)?.as_u64()? as usize]))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn covered(scenarios: &Scenarios, wanted: &BTreeSet<String>) -> usize {
-    wanted.iter().filter(|name| scenarios.get(*name).is_some_and(|cell| cell[1] >= TRIALS)).count()
-}
-
-fn general(value: f64) -> String {
-    if value == 0.0 {
-        return "0".into();
-    }
-    let decimals = (5 - value.abs().log10().floor() as i32).max(0) as usize;
-    let text = format!("{value:.decimals$}");
-    if text.contains('.') { text.trim_end_matches('0').trim_end_matches('.').to_owned() } else { text }
 }
 
 impl Gate {
@@ -159,95 +125,6 @@ impl Gate {
         Ok((total, format!("chars/4: {detail} (fixture state; live SessionStart {}, not gated); harness-bundled listing not counted; project AGENTS.md, not gated: {project}", live / 4)))
     }
 
-    fn sweep_row(&self, sha: &str, wanted: Option<&BTreeSet<String>>) -> Option<Value> {
-        let mut files: Vec<PathBuf> = Vec::new();
-        for directory in [self.operator.join("replay"), self.replay.clone()] {
-            for entry in fs::read_dir(directory).into_iter().flatten().flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with("sweep-") && name.ends_with(".jsonl") {
-                    files.push(entry.path());
-                }
-            }
-        }
-        files.sort_by_key(|path| path.file_name().map(|name| name.to_owned()));
-        let (mut newest, mut full) = (None, None);
-        for path in files {
-            for line in fs::read_to_string(&path).unwrap_or_default().lines() {
-                let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
-                if row.get("policy_sha256").and_then(Value::as_str) != Some(sha) {
-                    continue;
-                }
-                let scenarios = scenarios_of(row.get("scenarios"));
-                let need: BTreeSet<String> = wanted.cloned().unwrap_or_else(|| scenarios.keys().cloned().collect());
-                if !need.is_empty() && covered(&scenarios, &need) == need.len() {
-                    full = Some(row.clone());
-                }
-                newest = Some(row);
-            }
-        }
-        full.or(newest)
-    }
-
-    fn scenario_ids(&self) -> BTreeSet<String> {
-        let mut ids = BTreeSet::new();
-        for entry in fs::read_dir(self.operator.join("replay")).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.extension().is_none_or(|extension| extension != "json") {
-                continue;
-            }
-            let stem = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
-            let id = fs::read_to_string(&path)
-                .ok()
-                .and_then(|body| serde_json::from_str::<Value>(&body).ok())
-                .and_then(|value| value.as_object().map(|object| object.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)))
-                .flatten();
-            ids.insert(id.unwrap_or(stem));
-        }
-        ids
-    }
-
-    fn regression(&self, point: Option<&Value>, sha: &str, tokens: usize) -> Result<String, String> {
-        let Some(point) = point else {
-            return Err("agents sync: no operating point; run the sweep and promote one".into());
-        };
-        if point.get("n").and_then(Value::as_u64).unwrap_or(0) == 0 {
-            return Ok("no measured operating point yet (starter n 0); the first policy replay sets one".into());
-        }
-        let point_row = point.get("policy_sha256").and_then(Value::as_str).and_then(|point_sha| self.sweep_row(point_sha, None)).unwrap_or(Value::Null);
-        let mut wanted = self.scenario_ids();
-        let point_scenarios = scenarios_of(point_row.get("scenarios"));
-        if !point_scenarios.is_empty() {
-            wanted.retain(|name| point_scenarios.contains_key(name));
-        }
-        let Some(row) = self.sweep_row(sha, Some(&wanted)) else {
-            return Err(format!(
-                "agents sync: the live policy has no sweep row in {} or {}; run north policy-replay sweep with it as a variant",
-                self.operator.join("replay").display(),
-                self.replay.display()
-            ));
-        };
-        if row.get("model") != point.get("model") {
-            return Err(format!(
-                "agents sync: the live policy's sweep row ran on {}, the operating point on {}; rerun the sweep on one model",
-                shown(row.get("model")),
-                shown(point.get("model"))
-            ));
-        }
-        let row_scenarios = scenarios_of(row.get("scenarios"));
-        let count = covered(&row_scenarios, &wanted);
-        if count < wanted.len() {
-            return Err(format!("agents sync: sweep row for {} covers {count} of {} scenarios", &sha[..8.min(sha.len())], wanted.len()));
-        }
-        let flipped = flips(&point_scenarios, &row_scenarios);
-        if !flipped.is_empty() {
-            return Err(format!(
-                "agents sync: scenario {} flipped to 0 passes where the operating point passed every trial; confirm at 10 trials per arm",
-                flipped.join(", ")
-            ));
-        }
-        judge(point, &row, tokens)
-    }
-
     fn skill_budget(&self, catalog: &Value) -> Result<Budget, String> {
         let mut budget = Budget::default();
         for (unit, entry) in catalog["activation"].as_object().into_iter().flatten() {
@@ -264,26 +141,6 @@ impl Gate {
         Ok(budget)
     }
 
-    fn session(&self, tokens: usize, detail: String, lines: &mut Vec<String>, errors: &mut Vec<String>) -> Result<(), String> {
-        let sha = hex(&Sha256::digest(fs::read(self.operator.join("AGENTS.md")).map_err(|error| error.to_string())?));
-        let point = match fs::read_to_string(self.operator.join("operating-point.toml")) {
-            Ok(text) => Some(toml_json::parse(&text).map_err(|error| error.to_string())?),
-            Err(_) => None,
-        };
-        match self.regression(point.as_ref(), &sha, tokens) {
-            Ok(line) => lines.push(line),
-            Err(failure) => errors.push(failure),
-        }
-        lines.push(detail);
-        if let Some(point) = &point {
-            let startup = point["startup_tokens"].as_i64().unwrap_or(0);
-            if ((tokens as i64 - startup).abs() as f64) > SWEEP_DUE_SHARE * startup as f64 {
-                lines.push(format!("sweep due: startup tokens {tokens} differ from the operating point's {startup} by more than 15%"));
-            }
-        }
-        Ok(())
-    }
-
     pub(super) fn startup_total(&self) -> Result<usize, String> {
         let catalog = crate::agent_catalog::owner_modules::read_resolved_catalog(&self.operator.join("catalog-config.json")).map_err(|error| error.to_string())?;
         let budget = self.skill_budget(&catalog)?;
@@ -295,16 +152,12 @@ impl Gate {
             &self.operator.join("catalog-config.json"),
         )
         .map_err(|error| error.to_string())?;
-        let mut budget = self.skill_budget(&catalog)?;
+        let budget = self.skill_budget(&catalog)?;
         let mut lines: Vec<String> = Vec::new();
         if mode != Mode::Budget {
             let (tokens, detail) = self.startup_tokens(&catalog, budget.claude_listing)?;
-            if mode == Mode::Measure {
-                lines.push(format!("session start {tokens} tokens"));
-                lines.push(detail);
-            } else {
-                self.session(tokens, detail, &mut lines, &mut budget.errors)?;
-            }
+            lines.push(format!("session start {tokens} tokens"));
+            lines.push(detail);
         }
         lines.push(if budget.errors.is_empty() { budget.summary() } else { budget.errors.join("\n") });
         Ok(Verdicts { text: lines.join("\n"), passed: budget.errors.is_empty() })
@@ -366,33 +219,6 @@ fn distributes_shared_skill(entry: &Value) -> bool {
     })
 }
 
-fn shown(value: Option<&Value>) -> String {
-    value.map_or("None".to_owned(), |value| value.as_str().map_or(value.to_string(), str::to_owned))
-}
-
-fn judge(point: &Value, row: &Value, tokens: usize) -> Result<String, String> {
-    let old = (point["conformance"].as_f64().unwrap_or(0.0), point["n"].as_u64().unwrap_or(0) as usize);
-    let new = (row["conformance"].as_f64().unwrap_or(0.0), row["n"].as_u64().unwrap_or(0) as usize);
-    let verdict = compare(old, new);
-    if verdict == Verdict::Drop {
-        return Err(format!("agents sync: replay conformance dropped {}→{}", general(old.0), general(new.0)));
-    }
-    let startup = point["startup_tokens"].as_u64().unwrap_or(0) as usize;
-    if tokens > startup && verdict != Verdict::Gain {
-        return Err(format!(
-            "agents sync: startup tokens grew {startup}→{tokens} with no measured conformance gain; run north policy-replay sweep"
-        ));
-    }
-    let (low, high) = pystats::wilson(old.0, old.1);
-    Ok(format!(
-        "session start {tokens} tokens (operating point {} {startup} at {}, conformance {} [{low:.3}, {high:.3}] n={})",
-        point.get("variant").and_then(Value::as_str).unwrap_or("?"),
-        shown(point.get("date")),
-        general(old.0),
-        old.1
-    ))
-}
-
 const START_DEADLINE: Duration = Duration::from_secs(10);
 const LEASE_WAIT_SECONDS: u64 = 600;
 
@@ -448,8 +274,4 @@ fn program(north: &OsStr) -> String {
         (true, true) => "present",
         (true, false) => "missing",
     })
-}
-
-pub(super) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

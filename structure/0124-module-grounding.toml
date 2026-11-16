@@ -1,6 +1,0 @@
-[[module]]
-name = "grounding"
-paths = ["crates/north-core/src/grounding/**"]
-responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "lifecycle", "graph_loops", "graph", "platform.process", "platform", "platform.github", "platform.store", "usage"]
-

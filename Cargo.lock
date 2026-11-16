@@ -518,8 +518,6 @@ dependencies = [
  "north-code-health",
  "north-concerns",
  "north-control-plane",
- "north-convo",
- "north-core",
  "north-coverage",
  "north-credentials",
  "north-diff-gates",
@@ -791,52 +789,6 @@ name = "north-control-plane"
 version = "0.1.0"
 dependencies = [
  "north-base",
-]
-
-[[package]]
-name = "north-convo"
-version = "0.1.0"
-dependencies = [
- "fancy-regex",
- "north-base",
- "north-fleet",
- "north-foundation",
- "north-threads",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "time",
- "tokio",
- "toml_edit",
-]
-
-[[package]]
-name = "north-core"
-version = "0.1.0"
-dependencies = [
- "clap",
- "north-base",
- "north-claude-stream",
- "north-fleet-supervisor",
- "north-foundation",
- "north-graph",
- "north-graph-ground",
- "north-graph-loops",
- "north-pace",
- "north-threads",
- "regex",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "time",
- "tokio",
- "toml_edit",
 ]
 
 [[package]]

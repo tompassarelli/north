@@ -1,1 +1,0 @@
-  ledger show L<id>                             Print one recorded decision's date, owner, source and decision; exit 1 naming the id when none exists

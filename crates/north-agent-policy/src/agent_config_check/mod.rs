@@ -27,7 +27,7 @@ use report::Report;
 use roots::Roots;
 
 const USAGE: &str = "usage: north check harness [--local] [--policy-only] [--verbose]
-       north check harness policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]
+       north check harness policy-gate (budget|measure) [--repo FIRN] [--operator DIR]
        north check harness tree-policy [--tree DIR]";
 
 struct Context {
@@ -49,13 +49,12 @@ fn operator_dir(roots: &Roots) -> PathBuf {
 }
 
 fn gate_for(repo: PathBuf, operator: PathBuf, roots: Roots) -> Gate {
-    let replay = environment("AGENTS_REPLAY_DIR").unwrap_or_else(|| roots.home.join(".local/state/agents/replay"));
     let start = gate::north_session_start(north_binary().into_os_string(), roots.home.clone());
-    Gate { repo, operator, replay, start, roots }
+    Gate { repo, operator, start, roots }
 }
 
 pub fn policy_gate_session(firn: &Path, operator: &Path) -> bool {
-    match gate_for(firn.to_path_buf(), operator.to_path_buf(), Roots::from_env()).run(Mode::Session) {
+    match gate_for(firn.to_path_buf(), operator.to_path_buf(), Roots::from_env()).run(Mode::Measure) {
         Ok(verdicts) => {
             println!("{}", verdicts.text);
             verdicts.passed
@@ -71,7 +70,6 @@ fn policy_gate_command(arguments: &[String]) -> u8 {
     let mode = match arguments.first().map(String::as_str) {
         Some("budget") => Mode::Budget,
         Some("measure") => Mode::Measure,
-        Some("session") => Mode::Session,
         _ => return usage(),
     };
     let roots = Roots::from_env();

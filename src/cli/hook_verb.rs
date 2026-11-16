@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use super::fleet;
-use crate::{foundation, grounding, guard, hook};
+use crate::{foundation, guard, hook};
 
 const GUARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
 
@@ -14,10 +14,6 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
         }
     };
     match arguments.first().map(String::as_str) {
-        Some("prompt-grounding") => {
-            grounding::prompt_hook(|| guard::activation::authoring_guards_off("prompt-grounding"), grounded_session);
-            ExitCode::SUCCESS
-        }
         Some("language-guard") => {
             if !guard_off("language-guard") {
                 let _ = crate::language_gate::run_guard();
@@ -34,7 +30,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             {
                 return ExitCode::SUCCESS;
             }
-            guard::host::install(guard::host::Host { recorded_decisions: grounding::bearing::records, account_home: fleet::account_home, status_verb, file_tool_refusal: north_runtime::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_runtime::worker_sandbox::unreadable_by_file_tool });
+            guard::host::install(guard::host::Host { account_home: fleet::account_home, status_verb, file_tool_refusal: north_runtime::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_runtime::worker_sandbox::unreadable_by_file_tool });
             let started = std::time::Instant::now();
             let mut request = Vec::new();
             let _ = std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut request);
@@ -76,12 +72,6 @@ fn guard_off(unit: &str) -> bool {
         let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
     }
     off
-}
-
-pub(super) fn grounded_session(conversation: &str) -> bool {
-    let named = std::env::var("NORTH_FLEET_SESSION").ok();
-    let entrypoint = std::env::var("CLAUDE_CODE_ENTRYPOINT").ok();
-    crate::fleet::audience::grounded(&crate::fleet::audience::fleet_dir(), named.as_deref(), conversation, entrypoint.as_deref())
 }
 
 fn status_verb(words: &[&str]) -> bool {
