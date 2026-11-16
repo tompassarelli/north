@@ -1971,16 +1971,8 @@ value = ["claude-opus-5-5:high"]
 allowed = { min_len = 1 }
 unit = "MODEL:EFFORT of the security read the lander makes of a lane held for a review accept, under harness/review/commit-reviewer.md; the lander reads this list at main, never from the lane"
 source = "north#1610 plan, conditions of the reviewers and of p-agent-user-slice4: a call on a trust-boundary patch runs at Opus tier"
-fallback = "a missing or malformed list starts no review call and says so"
-consumers = ["crates/north-landing/src/land/security_read.rs", "crates/north-runtime/src/worker_sandbox/review_call_request.rs"]
-
-[review_request_sessions]
-value = ["commit-reviewer"]
-allowed = { min_len = 1 }
-unit = "fleet session names a hand-in or a review call sends the review request to, once per patch, when no review call of a lane runs: outside a worker domain, on a host that does not settle the fleet, or when the call gave no answer or its input is over the cap"
-source = "north#1544, coordinator order 2026-11-15: the coordinator relayed ten such refusals to the reviewers by hand, and three lanes sat unreviewed for half an hour each while the reviewers' queues were two deep with medians of 3 and 8 minutes"
-fallback = "a missing list sends no request and says so in the refusal"
-consumers = ["crates/north-landing/src/land/review_send.rs"]
+fallback = "a missing or malformed list fails the security read, which refuses the held lane with the reason"
+consumers = ["crates/north-landing/src/land/security_read.rs"]
 
 [agent_slice_write_cap_mib]
 value = 200

@@ -14,7 +14,6 @@ pub(super) fn guard(mut plan: Plan, grants: &Grants, jobs: &dyn Jobs) -> Result<
     let words: Vec<&str> = plan.argv.iter().map(String::as_str).collect();
     match words.as_slice() {
         ["threads", rest @ ..] | ["north", "threads", rest @ ..] => threads(rest, grants, jobs).map_err(refused)?,
-        ["north", "runtime", "review-fetch", "--project", project, _] => granted(project, grants).map_err(refused)?,
         ["north", "fleet", "row", verb, rest @ ..] if FLEET_ROW_PEERED.contains(verb) => {
             match rest {
                 [] => {}

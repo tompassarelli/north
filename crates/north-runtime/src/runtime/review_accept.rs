@@ -67,7 +67,7 @@ fn command(flags: &[String], settles: bool, serve: impl FnOnce(Accept) -> Result
     };
     let [named] = rest else { return Err(failed(64, USAGE)) };
     if named.len() != 40 || !full_sha(named) {
-        return Err(failed(64, format!("{named} is not a full commit sha; accept the sha that north runtime review-fetch printed\n{USAGE}")));
+        return Err(failed(64, format!("{named} is not a full commit sha; accept the full sha of the lane head\n{USAGE}")));
     }
     if !settles {
         return Err(failed(64, format!("the host that settles the fleet reads the accepts its landing counts, and this is not it; accept from a session there\n{USAGE}")));

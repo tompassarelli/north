@@ -23,7 +23,7 @@ pub struct Accept {
 
 pub struct Accepts(pub PathBuf);
 
-/// The session name under which only the broker's review call records an accept (north#1610); no fleet session is launched under it and no other path records one.
+/// The session name under which only the lander's security read of a held lane records an accept (north#1610, north#1650); no fleet session is launched under it and no other path records one.
 pub const CALL_SESSION: &str = "review-call";
 
 pub fn reserved(session: &str) -> bool {
@@ -82,12 +82,12 @@ impl Accepts {
 
     pub fn record(&self, accept: &Accept) -> Result<(), String> {
         if reserved(&accept.session) {
-            return Err(format!("{} is a name only the broker's review call records an accept under", accept.session));
+            return Err(format!("{} is a name only the lander's security read records an accept under", accept.session));
         }
         self.write(accept)
     }
 
-    /// Records the accept of a review call, whose session is [`CALL_SESSION`].
+    /// Records the accept of the lander's security read, whose session is [`CALL_SESSION`].
     pub fn record_call(&self, accept: &Accept) -> Result<(), String> {
         if !reserved(&accept.session) {
             return Err(format!("{} is no review call's name", accept.session));

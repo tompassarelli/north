@@ -181,7 +181,6 @@ const RUNTIME: &[(&str, Run)] = &[
     ("hold", |arguments| north_runtime::worker_sandbox::hold_client::command(arguments, north_offload::land_offload::settles_fleet_here())),
     ("opencode", north_runtime::vendor_runtime::run_opencode),
     ("pi", north_runtime::vendor_runtime::run_pi),
-    ("review-fetch", |arguments| north_runtime::worker_sandbox::hold_client::fetch_command(arguments, north_offload::land_offload::settles_fleet_here(), review_fetch_forwarded)),
 ];
 
 fn agent_runtime_update(arguments: &[String]) -> u8 {
@@ -220,13 +219,4 @@ fn ops_github(arguments: &[String]) -> u8 {
 
 fn ops_watch(_: &[String]) -> u8 {
     north_expectations::watch::run(&["--once".to_owned()])
-}
-
-fn review_fetch_forwarded(words: &[String]) -> Result<String, String> {
-    let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    match crate::threads::client::ask_ledger_host(&words, &[]) {
-        Ok(Some(answer)) => Ok(String::from_utf8_lossy(&answer).trim().to_owned()),
-        Ok(None) => Err("this host holds the ledger and does not settle the fleet, so no host is asked for the review fetch".to_owned()),
-        Err(error) => Err(format!("the host that settles the fleet did not fetch the lane: {error}")),
-    }
 }

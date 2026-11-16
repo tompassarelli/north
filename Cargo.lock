@@ -1530,7 +1530,6 @@ dependencies = [
  "north-capacity-host",
  "north-control-plane",
  "north-foundation",
- "north-landing",
  "north-lanes",
  "north-offload",
  "north-pacing",

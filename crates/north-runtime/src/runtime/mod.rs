@@ -32,7 +32,6 @@ mod replay;
 mod reuse;
 mod scope;
 pub(crate) mod review_accept;
-pub(crate) mod review_fetch;
 pub mod review_hold;
 #[cfg(test)]
 mod after_landing_tests;

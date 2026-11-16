@@ -1,12 +1,12 @@
-//! The requests the outside broker answers from the caller's words alone, starting no `north` of the client's: a reviewer's hold or accept (hold_request.rs), a review fetch (review_fetch_request.rs) and a host operation (host_op_request.rs).
+//! The requests the outside broker answers from the caller's words alone, starting no `north` of the client's: a reviewer's hold or accept (hold_request.rs) and a host operation (host_op_request.rs).
 
 use std::os::fd::OwnedFd;
 
 use super::lane_grant::Host;
 use super::peer::Peer;
-use super::{hold_request, host_op_request, review_fetch_request};
+use super::{hold_request, host_op_request};
 
-const VERBS: [&str; 4] = [north_runtime_records::hold_ledger::VERB, crate::runtime::review_accept::VERB, crate::runtime::review_fetch::VERB, host_op_request::VERB];
+const VERBS: [&str; 3] = [north_runtime_records::hold_ledger::VERB, crate::runtime::review_accept::VERB, host_op_request::VERB];
 
 /// Whether `arguments` name one of these requests.
 pub(super) fn named(arguments: &[String]) -> bool {
@@ -20,9 +20,6 @@ pub(super) fn answer(arguments: &[String], streams: Vec<OwnedFd>, peer: &Peer, h
     }
     if let Some(asked) = crate::runtime::review_accept::Accept::asked(arguments) {
         return hold_request::answer_accept(asked, streams, peer, host);
-    }
-    if let Some(asked) = crate::runtime::review_fetch::Fetch::asked(arguments) {
-        return review_fetch_request::answer(asked, streams, peer, host);
     }
     host_op_request::Ask::asked(arguments).map_or_else(|| Err(format!("{} is not a request the broker answers from its words", arguments.join(" "))), |asked| host_op_request::answer(asked, streams, peer, host))
 }
