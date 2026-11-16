@@ -158,7 +158,8 @@ impl Runtime for Deepseek {
             argv.extend(["--effort".into(), effort.label().to_owned()]);
         }
         if let Some(machine) = &request.machine {
-            remote::stage(machine, &scratch(self.harness, &request.name), lane::planned(&request.cwd, &request.name, &request.tasks()).as_ref())?;
+            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+            remote::stage(machine, &home, &scratch(self.harness, &request.name), lane::planned(&request.cwd, &request.name, &request.tasks()).as_ref())?;
         }
         let mut env: Vec<(String, std::ffi::OsString)> = vec![(SESSION_ENV.into(), request.name.clone().into()), (ROLE_ENV.into(), request.role().label().into()), (ACTOR_ENV.into(), request.name.clone().into())];
         env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));

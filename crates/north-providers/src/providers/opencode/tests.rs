@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use time::Date;
 
-use north_fleet_supervisor::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Status, Transcript, UsageLimit};
+use north_fleet_supervisor::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Machine, Status, Transcript, UsageLimit};
 use north_fleet_supervisor::fleet::prompt::PromptMode;
 use north_fleet_supervisor::fleet::runtime::{Opening, Runtime};
 use north_fleet_supervisor::fleet::turns::{TurnExit, TurnSignal};
@@ -13,7 +13,7 @@ use north_fleet_supervisor::fleet::turns::{TurnExit, TurnSignal};
 use super::route::{self, Route, Visibility};
 use super::harness::{Harness, OPENCODE};
 use super::relay::{self, Relay};
-use super::{Deepseek, config, turns};
+use super::{Deepseek, accounts, config, lane, remote, turns};
 
 const FAKE: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$(dirname "$0")/args.txt"
@@ -342,4 +342,16 @@ fn deepseek_v4_1_flash_is_dispatched_at_low_effort() {
         let drawn = north_fleet_supervisor::fleet::registry::efforts::taken(&drawing, None, None, &format!("worker-{index}")).unwrap().unwrap();
         assert_eq!(drawn, Effort::Low, "worker-{index}");
     }
+}
+
+#[test]
+fn a_session_on_an_agent_login_stages_its_lane_in_that_logins_own_checkout_and_reads_its_own_key_north_1485() {
+    let machine = Machine { name: "cpx62".into(), ssh: "tom@cpx62".into(), agent_ssh: Some("agent@cpx62".into()) };
+    let operator = Path::new("/home/tom");
+    let planned = lane::planned(&operator.join("code/north/main"), "worker", &["north#1485".into()]).unwrap();
+    let script = remote::script(&machine, operator, Path::new("/tmp"), Some(&planned));
+    assert!(script.contains("cd '/home/agent/code/north/main' &&") && script.contains("north lane new --issue 'north#1485' '/home/agent/code/north/worktrees/worker'"), "the agent login did not stage in its own checkout and worktrees: {script}");
+    assert!(!script.contains("/home/tom"), "the agent login was sent a path under the operator's home: {script}");
+    let account = accounts::on_machine(&Deepseek::opencode().provider(), operator, accounts::LABEL, &machine).unwrap();
+    assert!(account.token_file.unwrap().starts_with("/home/agent"), "the agent login was sent the operator's key file");
 }
