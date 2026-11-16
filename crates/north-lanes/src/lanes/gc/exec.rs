@@ -68,14 +68,6 @@ pub(super) fn verified(dir: &Path, reference: &str) -> Option<String> {
     ran.ok.then_some(ran.out)
 }
 
-pub(super) fn api(endpoint: &str) -> Result<Value, String> {
-    let ran = command(&["gh", "api", endpoint, "--paginate", "--slurp"]);
-    if !ran.ok {
-        return Err(format!("GitHub eligibility unavailable: {}", ran.err));
-    }
-    serde_json::from_str(&ran.out).map_err(|error| error.to_string())
-}
-
 pub(super) fn text(value: &Value) -> Option<&str> {
     value.as_str().filter(|text| !text.is_empty())
 }

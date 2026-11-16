@@ -14,7 +14,6 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["report"], "fleet report", &[]),
     (&["context"], "config context", &[]),
     (&["release"], "land release", &[]),
-    (&["repo", "audit"], "lane audit", &[]),
     (&["split"], "code-health split", &[]),
     (&["warcraft-close"], "desktop warcraft close", &[]),
     (&["wc3-login-field"], "desktop warcraft login-field", &[]),

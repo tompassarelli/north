@@ -1,15 +1,11 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::Gc;
-use super::evidence::item_ref;
-use super::exec::{api, command, git, in_dir, real, text, verified};
-use north_github_mirror::read;
-use north_github_mirror::store::{self, Mirror};
-use north_foundation::foundation::clock::Timestamp;
+use super::exec::{command, git, real, text, verified};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct Trees {
@@ -31,19 +27,6 @@ impl Hosts {
 
 pub(super) fn alive_status(session: &Value) -> bool {
     session.get("status").and_then(Value::as_str) != Some("exited")
-}
-
-fn js_text(value: Option<&Value>) -> String {
-    match value {
-        Some(Value::String(text)) => text.clone(),
-        Some(other) => other.to_string(),
-        None => "undefined".to_string(),
-    }
-}
-
-pub(super) fn pid_alive(holder: &str) -> bool {
-    holder.bytes().all(|b| b.is_ascii_digit())
-        && holder.parse::<i32>().ok().filter(|pid| *pid > 0).and_then(rustix::process::Pid::from_raw).is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok())
 }
 
 impl Gc {
@@ -79,56 +62,11 @@ impl Gc {
         }))
     }
 
-    pub(super) fn live_claims(&mut self, main: &Path) -> Result<HashSet<String>, String> {
-        if let Some(claims) = &self.claims {
-            return Ok(claims.clone());
-        }
-        let listed = in_dir(main, &["north", "threads", "list"]);
-        if !listed.ok || !listed.out.starts_with("item") {
-            return Err(format!("NorthThread claims unavailable: {}", listed.last_err_line()));
-        }
-        let sessions = self.fleet_sessions()?;
-        let alive = |holder: &str| {
-            sessions.iter().any(|s| {
-                let conversation = js_text(s.get("conversation"));
-                let provider = js_text(s.get("provider"));
-                (s.get("conversation").and_then(Value::as_str) == Some(holder)
-                    || s.get("name").and_then(Value::as_str) == Some(holder)
-                    || format!("{provider}:{conversation}") == holder)
-                    && alive_status(s)
-            }) || pid_alive(holder)
-        };
-        let claims: HashSet<String> = listed
-            .out
-            .lines()
-            .skip(1)
-            .filter_map(|line| {
-                let row: Vec<&str> = line.split_whitespace().collect();
-                (row.len() >= 2 && alive(row[1])).then(|| item_ref(row[0]))
-            })
-            .collect();
-        self.claims = Some(claims.clone());
-        Ok(claims)
+    pub(super) fn local_archive_guard(&mut self, main: &Path, name: &str, branch: &str, path: Option<&Path>) -> String {
+        self.archive_guard(main, name, branch, path).unwrap_or_else(|why| format!("liveness unavailable: {why}"))
     }
 
-    pub(super) fn pushed_refs(&mut self, repo: &str) -> Option<HashMap<String, i64>> {
-        if let Some(memo) = self.pushes.get(repo) {
-            return memo.clone();
-        }
-        let refs = push_activity(repo);
-        self.pushes.insert(repo.to_string(), refs.clone());
-        refs
-    }
-
-    pub(super) fn local_archive_guard(&mut self, main: &Path, name: &str, issues: &[String], branch: &str, path: Option<&Path>) -> String {
-        self.archive_guard(main, name, issues, branch, path).unwrap_or_else(|why| format!("liveness unavailable: {why}"))
-    }
-
-    fn archive_guard(&mut self, main: &Path, name: &str, issues: &[String], branch: &str, path: Option<&Path>) -> Result<String, String> {
-        let claims = self.live_claims(main)?;
-        if issues.iter().any(|item| claims.contains(item)) {
-            return Ok("live holder session".into());
-        }
+    fn archive_guard(&mut self, main: &Path, name: &str, branch: &str, path: Option<&Path>) -> Result<String, String> {
         if let Some(path) = path
             && self.session_in(path)?
         {
@@ -145,50 +83,6 @@ impl Gc {
         }
         Ok(String::new())
     }
-}
-
-pub(super) fn pages(value: &Value) -> Result<&[Value], String> {
-    value.as_array().map(Vec::as_slice).ok_or_else(|| "GitHub pages malformed".to_string())
-}
-
-pub(super) fn open_pull_heads(repo: &str) -> Result<HashSet<String>, String> {
-    let listed = read::pages(&Mirror::local(), read::now(), repo, store::OPEN_PULLS, || api(&format!("repos/tompassarelli/{repo}/pulls?state=open&per_page=100")))?;
-    let mut heads = HashSet::new();
-    for page in pages(&listed)? {
-        for pull in page.as_array().map_or(std::slice::from_ref(page), Vec::as_slice) {
-            let head = pull.get("head").filter(|head| head.is_object()).ok_or("pull request head missing")?;
-            heads.insert(js_text(head.get("ref")));
-        }
-    }
-    Ok(heads)
-}
-
-pub(super) fn pending_autoland(status: Option<&Value>) -> bool {
-    status
-        .and_then(|status| status.get("contexts"))
-        .and_then(Value::as_array)
-        .is_some_and(|contexts| contexts.iter().any(|s| s.get("context").and_then(Value::as_str) == Some("autoland") && s.get("state").and_then(Value::as_str) == Some("PENDING")))
-}
-
-fn push_activity(repo: &str) -> Option<HashMap<String, i64>> {
-    let listed = api(&format!("repos/tompassarelli/{repo}/activity?time_period=day&per_page=100")).ok()?;
-    let pages = listed.as_array().filter(|pages| !pages.is_empty() && pages.iter().all(Value::is_array))?;
-    let rows: Vec<&Value> = pages.iter().filter_map(Value::as_array).flatten().collect();
-    let mut refs = HashMap::new();
-    let mut parsed = Vec::with_capacity(rows.len());
-    for row in rows {
-        let kind = row.get("activity_type").and_then(Value::as_str)?;
-        let name = row.get("ref").and_then(Value::as_str)?;
-        let at = Timestamp::parse_rfc3339(row.get("timestamp").and_then(Value::as_str)?)?.unix_millis();
-        parsed.push((kind, name, at));
-    }
-    for (kind, name, at) in parsed {
-        if matches!(kind, "push" | "force_push" | "branch_creation") {
-            let newest = refs.entry(name.to_string()).or_insert(0);
-            *newest = (*newest).max(at);
-        }
-    }
-    Some(refs)
 }
 
 pub(super) fn tree_is_live<'a>(trees: &'a Trees, key: &str) -> Option<&'a str> {

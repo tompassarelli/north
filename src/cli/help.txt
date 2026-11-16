@@ -23,7 +23,7 @@ Engineering and landing:
   check                 Citations, concerns, boxes, nix, provenance, privacy, the harness
   safe-push             Check and land a lane, or publish a tag
   land                  Serve the landing queue, run its checks, abandon or release
-  lane                  Collect, reap, rescue, seed, squash and audit lanes
+  lane                  Collect, reap, rescue, seed and squash lanes
   code-health           Structure debt, crate lines, build time; split modules out
   test                  Coverage map and mutation sweeps
   docs                  Regenerate or check the docs indexes

@@ -21,8 +21,6 @@ pub(super) struct Owned {
     pub(super) branch: String,
     pub(super) age_h: i64,
     pub(super) refs: Vec<String>,
-    #[serde(default)]
-    pub(super) issues: Vec<String>,
     pub(super) owner: String,
 }
 
@@ -30,8 +28,6 @@ pub(super) struct Owned {
 pub(super) struct RemoteStale {
     pub(super) branch: String,
     pub(super) age_h: i64,
-    #[serde(default)]
-    pub(super) issues: Vec<String>,
     pub(super) owner: String,
 }
 

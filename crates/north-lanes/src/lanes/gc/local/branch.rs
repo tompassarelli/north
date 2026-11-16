@@ -36,11 +36,10 @@ impl Gc {
     fn decide_branch(&mut self, sweep: &mut Container, branch: &str, tip: &str, verdict: &Landed) -> Result<(), String> {
         let name = sweep.name.clone();
         let issues = lane_issues(&sweep.main, &sweep.own, &sweep.base, branch, tip).unwrap_or_default();
-        let states = self.issue_states(&issues);
-        let class = lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false });
+        let class = lane_class(&LaneFacts { dirty: false, equivalent: false, idle_hours: 0.0, held: false });
         let touched_ms = reflog_ms(&sweep.common.join("logs/refs/heads").join(branch)).max(sweep.committed(tip) as f64 * 1000.0);
         let age_h = (self.now_ms as f64 - touched_ms) / HOUR_MS;
-        let why = if age_h < UNHELD_HOURS { format!("touched within {UNHELD_HOURS}h") } else { self.local_archive_guard(&sweep.main, &name, &issues, branch, None) };
+        let why = if age_h < UNHELD_HOURS { format!("touched within {UNHELD_HOURS}h") } else { self.local_archive_guard(&sweep.main, &name, branch, None) };
         if why.is_empty() {
             let found = ArchiveLane { worktree: None, branch, tip, place: &format!("branch {branch}"), issues: &issues, rejected: None };
             if self.archive_lane(sweep, &found) {
@@ -52,7 +51,6 @@ impl Gc {
         let row = Row { place: "(branch)", branch, ahead: verdict.ahead, dirty: "", class };
         let hours = self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
         let owner = self.surface(sweep, "(branch)", branch, hours, &issues)?;
-        self.list_open(&issues, &states, &format!("branch {branch}"));
         self.counts.kept += 1;
         if self.options.dry_run {
             println!("{name}: {} branch {branch}: surface to {owner}{}", class.label(), cited(&issues));

@@ -1,2 +1,2 @@
 lane
-Collect, reap, rescue, seed, squash and audit lanes
+Collect, reap, rescue, seed and squash lanes

@@ -272,14 +272,13 @@ impl Gc {
     fn decide_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf]) -> Result<bool, String> {
         let dirty = !lane.dirty.is_empty();
         let issues = lane_issues(&sweep.main, &sweep.own, &sweep.base, &lane.branch, &lane.tip).unwrap_or_default();
-        let states = self.issue_states(&issues);
         let held = self.held(lane, live);
         if held.is_empty() && self.archive_rejected(sweep, lane, &issues) {
             return Ok(true);
         }
         let idle_hours = if dirty && self.idle_for(lane, 24.0) { lane.age_h } else { 0.0 };
-        let class = lane_class(&LaneFacts { dirty, equivalent: lane.landed.landed, issues: &states, idle_hours, held: !held.is_empty() });
-        let why = if held.is_empty() { self.archive_hold(sweep, lane, &issues) } else { held };
+        let class = lane_class(&LaneFacts { dirty, equivalent: lane.landed.landed, idle_hours, held: !held.is_empty() });
+        let why = if held.is_empty() { self.archive_hold(sweep, lane) } else { held };
         if why.is_empty() {
             let found = ArchiveLane { worktree: Some(&lane.path), branch: &lane.branch, tip: &lane.tip, place: &lane.place, issues: &issues, rejected: None };
             if self.archive_lane(sweep, &found) {
@@ -291,7 +290,6 @@ impl Gc {
         self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Row { place: &lane.place, branch: &lane.branch, ahead: lane.landed.ahead, dirty: lane.dirty, class });
         let shown = if lane.branch.is_empty() { "(detached)" } else { &lane.branch };
         let owner = self.surface(sweep, &lane.place, shown, lane.age_h.floor() as i64, &issues)?;
-        self.list_open(&issues, &states, &format!("{} ({shown})", lane.place));
         self.counts.kept += 1;
         if self.options.dry_run {
             println!("{}: {} {}: surface to {owner}{}", sweep.name, class.label(), lane.place, cited(&issues));
@@ -311,7 +309,7 @@ impl Gc {
         self.archive_lane(sweep, &found)
     }
 
-    fn archive_hold(&mut self, sweep: &Container, lane: &Worktree, issues: &[String]) -> String {
+    fn archive_hold(&mut self, sweep: &Container, lane: &Worktree) -> String {
         if !self.idle_for(lane, UNHELD_HOURS) {
             return format!("touched within {UNHELD_HOURS}h");
         }
@@ -322,7 +320,7 @@ impl Gc {
         if let Some(first) = ignored.first() {
             return format!("ignored files ({first}, {} total)", ignored.len());
         }
-        self.local_archive_guard(&sweep.main, &sweep.name, issues, &lane.branch, Some(&lane.path))
+        self.local_archive_guard(&sweep.main, &sweep.name, &lane.branch, Some(&lane.path))
     }
 
     fn retire_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf], basis: &str) -> bool {

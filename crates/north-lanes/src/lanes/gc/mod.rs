@@ -1,6 +1,4 @@
 mod archive;
-mod audit;
-mod audit_rows;
 mod content;
 mod evidence;
 mod exec;
@@ -10,19 +8,18 @@ mod judged;
 mod liveness;
 mod local;
 mod remote;
-mod remote_boxes;
 mod report;
 mod restore;
 mod scratch;
 mod state;
 mod strays;
+mod supersession;
 mod targets;
 mod trees;
 
 #[cfg(test)]
 mod tickets_tests;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -32,11 +29,9 @@ use serde_json::Value;
 use super::live_process::open_paths;
 use north_foundation::foundation::clock::Timestamp;
 use north_base::platform::host;
-use evidence::{IssueLedger, IssueState};
 use liveness::{Hosts, Trees};
 use state::{StaleReport, write_atomically};
 
-pub use audit::run as repo;
 pub use restore::{USAGE as RESTORE_USAGE, restore as restore_archived, run as restore_verb};
 pub(super) use archive::{Lane as ArchivedLane, archive, broken, retire_broken};
 pub(super) use evidence::{lane_issues, origin_repo};
@@ -86,13 +81,8 @@ pub(super) struct Gc {
     counts: Counts,
     hosts: Hosts,
     fleet: Option<Vec<Value>>,
-    claims: Option<HashSet<String>>,
-    issues: IssueLedger,
-    pushes: HashMap<String, Option<HashMap<String, i64>>>,
-    open: HashMap<String, Vec<Value>>,
     remote_rows: Vec<String>,
     remote_due: bool,
-    kept_open: BTreeMap<String, Vec<String>>,
 }
 
 enum Parsed {
@@ -250,13 +240,8 @@ pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
         counts: Counts::default(),
         hosts,
         fleet,
-        claims: known.then(HashSet::new),
-        issues: IssueLedger::default(),
-        pushes: HashMap::new(),
-        open: HashMap::new(),
         remote_rows: Vec::new(),
         remote_due,
-        kept_open: BTreeMap::new(),
     };
     gc.sweep_all(&containers);
     gc.finish()
@@ -332,10 +317,6 @@ impl Gc {
 
     fn tilde(&self, path: &Path) -> String {
         tilde(&self.home, path)
-    }
-
-    fn issue_states(&mut self, items: &[String]) -> Vec<IssueState> {
-        items.iter().map(|item| self.issues.state(item)).collect()
     }
 }
 

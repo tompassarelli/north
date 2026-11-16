@@ -1,30 +1,24 @@
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use north_github_mirror::read;
-use north_github_mirror::store::{self, Mirror};
 use serde_json::Value;
 
 use super::Gc;
-use super::evidence::{landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
-use super::exec::{api, git, git_slow, in_dir, verified};
-use super::remote_boxes::{append_box, archived_as, box_line, cited_open, named_in_open_box, superseding, tell_unboxed};
-use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
+use super::evidence::{landed, origin_repo, protected_branch};
+use super::exec::{git, git_slow, in_dir, verified};
+use super::liveness::tree_is_live;
+use super::local::activity::reflog_ms;
 use super::state::RemoteStale;
-use north_foundation::foundation::clock::Timestamp;
+use super::supersession::{archived_as, superseding};
 
 const BASE: &str = "refs/remotes/origin/main";
 const LANDING: &str = "claude/land-";
 const HOUR_MS: i64 = 3_600_000;
-const ROUTE_AFTER_H: i64 = 1;
+const LANDING_HOLD_H: f64 = 4.0;
 
-struct Evidence {
-    repo: String,
-    branches: Vec<Value>,
-    prs: HashSet<String>,
-    active: HashSet<String>,
-    active_tips: HashSet<String>,
-    pushes: Option<HashMap<String, i64>>,
+struct Tip {
+    name: String,
+    oid: String,
+    committed_ms: i64,
 }
 
 enum Changes {
@@ -37,7 +31,6 @@ enum Changes {
 struct Branch<'a> {
     name: &'a str,
     tip: &'a str,
-    target: &'a Value,
     landing: bool,
     age_h: f64,
     on_main: bool,
@@ -51,33 +44,20 @@ struct Split {
     kept: usize,
 }
 
-pub(super) fn remote_branches(repo: &str) -> Result<Vec<Value>, String> {
-    read::listed(&Mirror::local(), read::now(), repo, store::BRANCHES, || store::fetch_branches(repo))
-}
-
-fn run_pages_complete(pages: &[Value]) -> bool {
-    let total = |page: &Value| page.get("total_count").and_then(Value::as_i64).filter(|count| (0..=9_007_199_254_740_991).contains(count));
-    let runs = |page: &Value| page.get("workflow_runs").and_then(Value::as_array).map(Vec::len);
-    let Some(first) = pages.first().and_then(total) else {
-        return false;
-    };
-    pages.iter().all(|page| runs(page).is_some() && total(page) == Some(first)) && pages.iter().filter_map(runs).sum::<usize>() as i64 == first
-}
-
-pub(super) fn active_runs(repo: &str) -> Result<(HashSet<String>, HashSet<String>), String> {
-    let (mut branches, mut tips) = (HashSet::new(), HashSet::new());
-    for status in store::RUN_STATUSES {
-        let listed = read::pages(&Mirror::local(), read::now(), repo, &store::runs_kind(status), || api(&format!("repos/tompassarelli/{repo}/actions/runs?status={status}&per_page=100")))?;
-        let pages = listed.as_array().filter(|pages| run_pages_complete(pages)).ok_or("Actions eligibility incomplete")?;
-        for run in pages.iter().filter_map(|page| page.get("workflow_runs")?.as_array()).flatten() {
-            let (Some(branch), Some(tip)) = (run.get("head_branch").and_then(Value::as_str), run.get("head_sha").and_then(Value::as_str)) else {
-                return Err("Actions eligibility incomplete".into());
-            };
-            branches.insert(branch.to_string());
-            tips.insert(tip.to_string());
-        }
+fn origin_tips(main: &Path) -> Result<Vec<Tip>, String> {
+    let listed = git(main, &["for-each-ref", "--format=%(refname:lstrip=3) %(objectname) %(committerdate:unix)", "refs/remotes/origin"]);
+    if !listed.ok {
+        return Err(format!("origin branches unavailable: {}", listed.last_err_line()));
     }
-    Ok((branches, tips))
+    Ok(listed
+        .out
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(' ');
+            let (name, oid, at) = (fields.next()?, fields.next()?, fields.next()?);
+            (name != "HEAD").then(|| Tip { name: name.to_owned(), oid: oid.to_owned(), committed_ms: at.parse::<i64>().unwrap_or(0) * 1000 })
+        })
+        .collect())
 }
 
 fn source_of(branch: &str) -> String {
@@ -98,32 +78,12 @@ fn live_ticket(home: &Path, branch: &str) -> Option<String> {
     }).map(|path| path.file_name().unwrap_or_default().to_string_lossy().into_owned())
 }
 
-fn github_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
-    if protected_branch(branch.name) {
-        Some("protected branch")
-    } else if branch.landing && evidence.pushes.is_none() {
-        Some("a push activity unavailable")
-    } else if evidence.prs.contains(branch.name) {
-        Some("b open PR")
-    } else if evidence.active.contains(branch.name) || evidence.active_tips.contains(branch.tip) {
-        Some("b active Actions")
-    } else if pending_autoland(branch.target.get("status")) && (!branch.landing || branch.age_h < 4.0) {
-        Some("b pending autoland")
-    } else {
-        None
-    }
-}
-
 impl Gc {
     pub(super) fn remote_sweep(&mut self, container: &Path) -> Result<(), String> {
         let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
         let main = container.join("main");
-        let Some(repo) = origin_repo(&main) else {
+        if origin_repo(&main).is_none() {
             println!("{name}: origin is not tompassarelli GitHub; remote read-only");
-            return Ok(());
-        };
-        if api(&format!("repos/tompassarelli/{repo}"))?.get(0).and_then(|page| page.get("archived")).and_then(Value::as_bool) == Some(true) {
-            self.say(format!("{name}: origin is archived on GitHub; remote read-only"));
             return Ok(());
         }
         if !git_slow(&main, &["fetch", "-q", "--prune", "origin"]).ok {
@@ -132,17 +92,13 @@ impl Gc {
         if verified(&main, BASE).is_none() {
             return Err("origin/main unavailable".into());
         }
-        let branches = remote_branches(&repo)?;
-        let prs = open_pull_heads(&repo)?;
-        let (active, active_tips) = active_runs(&repo)?;
-        let pushes = if branches.iter().any(|node| node.get("name").and_then(Value::as_str).is_some_and(|name| name.starts_with(LANDING))) { self.pushed_refs(&repo) } else { None };
-        let evidence = Evidence { repo, branches, prs, active, active_tips, pushes };
+        let tips = origin_tips(&main)?;
         let report = self.stale.repo(&name);
         report.remote_landed.clear();
         report.remote_stale.clear();
         let mut split = Split::default();
-        for target in &evidence.branches {
-            self.remote_branch(&name, &main, &evidence, target, &mut split)?;
+        for tip in &tips {
+            self.remote_branch(&name, &main, tip, &mut split)?;
         }
         self.say(format!("{name}: remote split: {} LIVE, {} deleted, {} unlanded kept", split.skipped, split.deletable, split.kept));
         Ok(())
@@ -153,58 +109,43 @@ impl Gc {
         self.remote_rows.push(line);
     }
 
-    fn branch_facts<'a>(&self, name: &str, main: &Path, evidence: &Evidence, node: &'a Value) -> Result<Branch<'a>, String> {
-        let branch = node.get("name").and_then(Value::as_str).unwrap_or("undefined");
-        let target = node.get("target").unwrap_or(&Value::Null);
-        let tip = target.get("oid").and_then(Value::as_str).filter(|oid| !oid.is_empty());
-        let committed = target.get("committedDate").and_then(Value::as_str).filter(|at| !at.is_empty());
-        let (Some(tip), Some(committed)) = (tip, committed) else {
-            return Err("branch tip evidence incomplete".into());
-        };
-        let landing = branch.starts_with(LANDING);
-        let pushed_at = evidence.pushes.as_ref().and_then(|pushes| pushes.get(&format!("refs/heads/{branch}"))).copied().unwrap_or(0);
-        let since = if landing {
-            Some(if pushed_at != 0 { pushed_at } else { self.now_ms - 24 * HOUR_MS })
-        } else {
-            Timestamp::parse_rfc3339(committed).map(Timestamp::unix_millis)
-        };
-        let since = since.ok_or("commit date unavailable")?;
-        Ok(Branch {
-            name: branch,
-            tip,
-            target,
+    fn branch_facts<'a>(&self, name: &str, main: &Path, tip: &'a Tip) -> Branch<'a> {
+        let landing = tip.name.starts_with(LANDING);
+        let seen_ms = if landing { tip.committed_ms.max(reflog_ms(&main.join(".git/logs/refs/remotes/origin").join(&tip.name)) as i64) } else { tip.committed_ms };
+        Branch {
+            name: &tip.name,
+            tip: &tip.oid,
             landing,
-            age_h: (self.now_ms - since) as f64 / HOUR_MS as f64,
-            on_main: landed(main, BASE, tip).landed,
-            key: format!("{name}:{branch}"),
-        })
+            age_h: (self.now_ms - seen_ms) as f64 / HOUR_MS as f64,
+            on_main: landed(main, BASE, &tip.oid).landed,
+            key: format!("{name}:{}", tip.name),
+        }
     }
 
-    fn live_reason(&mut self, name: &str, main: &Path, evidence: &Evidence, branch: &Branch, changes: &Changes) -> String {
+    fn live_reason(&self, name: &str, branch: &Branch, changes: &Changes) -> String {
         if let Some(ticket) = live_ticket(&self.home, branch.name) {
             return format!("c live land ticket {ticket}");
         }
-        if let Some(hold) = github_hold(evidence, branch) {
-            return hold.to_string();
+        if protected_branch(branch.name) {
+            return "protected branch".into();
         }
         if matches!(changes, Changes::OnMain | Changes::Superseded(_)) {
             return String::new();
         }
-        if branch.landing && branch.age_h < 4.0 {
+        if branch.landing && branch.age_h < LANDING_HOLD_H {
             return "a landing ref pushed under 4h".into();
         }
-        self.holder_reason(name, main, branch).unwrap_or_else(|_| "c Fleet holder liveness unavailable".into())
+        self.holder_reason(name, branch)
     }
 
-    fn holder_reason(&mut self, name: &str, main: &Path, branch: &Branch) -> Result<String, String> {
-        let claims = self.live_claims(main)?;
+    fn holder_reason(&self, name: &str, branch: &Branch) -> String {
         let source = if branch.landing { source_of(branch.name) } else { String::new() };
         let prefix = format!("{name}:");
         let (laptop, nexus) = (&self.hosts.laptop, &self.hosts.nexus);
         let author = (!source.is_empty())
             .then(|| laptop.branches.iter().chain(&nexus.branches).find(|(key, _)| key.strip_prefix(&prefix).is_some_and(|rest| slug(rest) == source)))
             .flatten();
-        Ok(if let Some((_, why)) = author {
+        if let Some((_, why)) = author {
             format!("c live source author {why}")
         } else if let Some(why) = tree_is_live(laptop, &branch.key) {
             format!("c laptop {why}")
@@ -212,15 +153,13 @@ impl Gc {
             format!("c nexus {why}")
         } else if !laptop.ok || !nexus.ok {
             "c worktree liveness unavailable".into()
-        } else if refs_on(main, BASE, branch.tip)?.iter().any(|item| claims.contains(item)) {
-            "d live holder session (claim clock ignored)".into()
         } else {
             String::new()
-        })
+        }
     }
 
-    fn remote_branch(&mut self, name: &str, main: &Path, evidence: &Evidence, node: &Value, split: &mut Split) -> Result<(), String> {
-        let branch = self.branch_facts(name, main, evidence, node)?;
+    fn remote_branch(&mut self, name: &str, main: &Path, tip: &Tip, split: &mut Split) -> Result<(), String> {
+        let branch = self.branch_facts(name, main, tip);
         let changes = if branch.on_main {
             Changes::OnMain
         } else if let Some(commits) = superseding(main, BASE, branch.tip)? {
@@ -228,7 +167,7 @@ impl Gc {
         } else {
             archived_as(main, branch.tip).map_or(Changes::Unlanded, Changes::Archived)
         };
-        let reason = self.live_reason(name, main, evidence, &branch, &changes);
+        let reason = self.live_reason(name, &branch, &changes);
         if !reason.is_empty() {
             split.skipped += 1;
             self.say(format!("{name}: origin {}: LIVE({reason})", branch.name));
@@ -243,49 +182,16 @@ impl Gc {
             }
             Changes::Superseded(commits) => self.delete_remote(name, main, &branch, &format!("superseded by {}", commits.join(" ")), &commits[0], split),
             Changes::Archived(archive) => self.delete_remote(name, main, &branch, &format!("archived locally as {archive}"), &archive, split),
-            Changes::Unlanded => self.route_unlanded(name, main, evidence, &branch, age, split),
+            Changes::Unlanded => self.keep_unlanded(name, &branch, age, split),
         }
     }
 
-    fn route_unlanded(&mut self, name: &str, main: &Path, evidence: &Evidence, branch: &Branch, age: i64, split: &mut Split) -> Result<(), String> {
-        let issues = named_issues(main, &own_repo(main, name), BASE, branch.tip)?;
-        let states = self.issue_states(&issues);
+    fn keep_unlanded(&mut self, name: &str, branch: &Branch, age: i64, split: &mut Split) -> Result<(), String> {
         let owner = self.owner(name)?;
-        let described = if issues.is_empty() { vec!["fault: names no issue".to_string()] } else { issues.iter().zip(&states).map(|(item, state)| format!("{item}={}", state.label())).collect() };
-        self.stale.repo(name).remote_stale.push(RemoteStale { branch: branch.name.into(), age_h: age, issues: described.clone(), owner });
+        self.stale.repo(name).remote_stale.push(RemoteStale { branch: branch.name.into(), age_h: age, owner });
         split.kept += 1;
-        let boxed = if age >= ROUTE_AFTER_H { self.boxed(main, evidence, branch, age)? } else { format!("under {ROUTE_AFTER_H}h, no box yet") };
-        self.say(format!("{name}: origin {}: KEEP unlanded ({age}h; {}; {boxed})", branch.name, described.join(" ")));
+        self.say(format!("{name}: origin {}: KEEP unlanded ({age}h)", branch.name));
         Ok(())
-    }
-
-    fn boxed(&mut self, main: &Path, evidence: &Evidence, branch: &Branch, age: i64) -> Result<String, String> {
-        let repo = evidence.repo.as_str();
-        let bodies = git(main, &["log", "--format=%B", &format!("{BASE}..{}", branch.tip)]);
-        let (named, target) = {
-            let open = self.open_issues(repo)?;
-            (named_in_open_box(open, branch.name), cited_open(&bodies.out, repo, open))
-        };
-        if let Some(number) = named {
-            return Ok(format!("named in an open box on {repo}#{number}"));
-        }
-        let line = box_line(branch.name, branch.tip, age);
-        if self.options.dry_run {
-            return Ok(target.map_or_else(|| format!("would tell the coordinator of it, filing no issue on {repo}"), |number| format!("would file a box on {repo}#{number}")));
-        }
-        let filed = match target {
-            Some(number) => append_box(repo, number, &line, branch.name).map(|appended| if appended { format!("filed a box on {repo}#{number}") } else { format!("{repo}#{number} already names it") }),
-            None => tell_unboxed(repo, branch.name, &line).map(|()| "told the coordinator of it, filing no issue".to_owned()),
-        };
-        Ok(filed.unwrap_or_else(|error| format!("box not filed: {error}")))
-    }
-
-    fn open_issues(&mut self, repo: &str) -> Result<&[Value], String> {
-        if !self.open.contains_key(repo) {
-            let open = read::listed(&Mirror::local(), read::now(), repo, store::OPEN_ISSUES, || store::fetch_open_issues(repo))?;
-            self.open.insert(repo.to_string(), open);
-        }
-        Ok(&self.open[repo])
     }
 
     fn delete_remote(&mut self, name: &str, main: &Path, branch: &Branch, class: &str, by: &str, split: &mut Split) -> Result<(), String> {

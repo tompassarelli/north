@@ -23,13 +23,13 @@ fn leading_hours(row: &str) -> i64 {
     row[..digits].parse().unwrap_or(0)
 }
 
-const CLASSES: [&str; 3] = ["landed-by-tree", "superseded", "lost"];
+const CLASSES: [&str; 2] = ["landed-by-tree", "lost"];
 
 pub(super) fn class_summary(rows: &[String]) -> Vec<String> {
-    let mut repos: BTreeMap<&str, [usize; 3]> = BTreeMap::new();
+    let mut repos: BTreeMap<&str, [usize; 2]> = BTreeMap::new();
     for row in rows.iter().filter(|row| !row.is_empty() && !row.starts_with('#')) {
         let fields: Vec<&str> = row.split('\t').collect();
-        let class = fields.get(8).and_then(|label| CLASSES.iter().position(|known| known == label)).unwrap_or(2);
+        let class = fields.get(8).and_then(|label| CLASSES.iter().position(|known| known == label)).unwrap_or(1);
         repos.entry(fields.get(1).copied().unwrap_or("-")).or_default()[class] += 1;
     }
     repos
@@ -87,10 +87,10 @@ impl Gc {
                 continue;
             }
             rows.sort_by_key(|row| std::cmp::Reverse(row.age_h));
-            let shown: Vec<String> = rows.iter().take(ALERT_ROWS).map(|row| format!("{} {} {}h {}", row.place, row.branch, row.age_h, row.issues.join(" "))).collect();
+            let shown: Vec<String> = rows.iter().take(ALERT_ROWS).map(|row| format!("{} {} {}h {}", row.place, row.branch, row.age_h, row.refs.join(" "))).collect();
             let more = rows.len().saturating_sub(ALERT_ROWS);
             let text = format!(
-                "{parent}: {} lanes hold unique work, oldest first (repository branch age issue=state): {}{}; land, continue or archive each (north lane gc --unlanded)",
+                "{parent}: {} lanes hold unique work, oldest first (repository branch age issues): {}{}; land, continue or archive each (north lane gc --unlanded)",
                 rows.len(),
                 shown.join("; "),
                 if more > 0 { format!("; +{more} more") } else { String::new() }
@@ -115,9 +115,6 @@ impl Gc {
 
 impl Gc {
     pub(super) fn print_outcome(&self) {
-        for (issue, places) in &self.kept_open {
-            println!("kept on open {issue}: {}", places.join(", "));
-        }
         let c = &self.counts;
         println!(
             "lane gc{}: retired {} worktrees, {} local branches, {} origin branches; bundled {} lanes to the archive before reaping them; kept {} ({} unlanded); dropped {} build targets ({}); pruned {} branch configs; dropped {} lane upstreams",

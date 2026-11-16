@@ -1945,7 +1945,6 @@ dependencies = [
  "north-base",
  "north-foundation",
  "north-git-locks",
- "north-github-mirror",
  "north-trusted-mirror",
  "regex",
  "rustix 0.38.44",

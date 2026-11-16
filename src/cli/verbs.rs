@@ -124,7 +124,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("land train", Status),
     ("land", Landing),
     ("landed-tree", Bookkeeping),
-    ("lane audit", Diagnosis),
     ("lane gc", Bookkeeping),
     ("lane land-draft", Landing),
     ("lane layout", Diagnosis),

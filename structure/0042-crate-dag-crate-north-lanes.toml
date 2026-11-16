@@ -3,5 +3,5 @@ name = "north-lanes"
 layer = 4
 family = "workspace"
 paths = ["crates/north-lanes/src/**"]
-may_use = ["north-base", "north-git-locks", "north-github-mirror", "north-trusted-mirror"]
+may_use = ["north-base", "north-git-locks", "north-trusted-mirror"]
 

@@ -8,7 +8,7 @@ with offload_builds, and prints how many live sessions each host was given.
 
 For every ~/code/<project> container with main/ (clients, resources and archive are
 skipped; lanes are swept only where worktrees/ exists, origin branches in every container
-whose origin is an unarchived tompassarelli GitHub repository), lane gc deletes a lane, branch or origin branch only
+whose origin is a tompassarelli GitHub repository), lane gc deletes a lane, branch or origin branch only
 when it is finished, and pushes no tag:
   - landed: its tip is contained in origin/main, patch-equivalent there (git cherry shows no +),
     its tree already on main (north landed-tree), it adds nothing when merged, or, where git
@@ -21,7 +21,7 @@ when it is finished, and pushes no tag:
     a clean worktree whose tip is none of these is landed when a landed ticket from this host, in
     this host's queue, the verdicts the lander sent back to its outbox or the records mirror, names
     that worktree with the head it still has and the commit the lander made is on origin/main;
-  - archived: a lane or local branch that is not landed and that no live Fleet session, live claim or peer host
+  - archived: a lane or local branch that is not landed and that no live Fleet session or peer host
     holds, idle 24 hours, is first bundled to
     --archive DIR/<project>/ (default ~/archive/lanes; uncommitted and untracked changes ride
     as one snapshot commit on the branch) with a line in index.tsv; `north lane restore BRANCH` brings it back
@@ -31,10 +31,10 @@ when it is finished, and pushes no tag:
     bundled the same way when no process, Fleet session or land ticket holds it and it holds no ignored
     files beyond build output: its files ride as one snapshot commit on the branch of the same name,
     which stays for the branch sweep, and the directory is then removed. A *.bundle.lock in --archive
-    that no process holds and that is over an hour old is deleted. A lane's issue is its branch.<name>.north-issue git config (north lane new
-    records it), else the issues its commits cite (Refs/Fixes/Closes/Part of, or a trailing
-    (repo#N) on a line). Its owner is a lock, a process inside, a live Fleet session, a live
-    claim on its issue or a peer host's hold; a lane holding ignored files beyond build output
+    that no process holds and that is over an hour old is deleted. The issues a lane names, from its branch.<name>.north-issue git config (north lane new
+    records it) or its commits (Refs/Fixes/Closes/Part of, or a trailing (repo#N) on a line), are
+    recorded in the archive index and the unlanded report; no decision reads their state. Its owner is a lock,
+    a process inside, a live Fleet session or a peer host's hold; a lane holding ignored files beyond build output
     or with a waiting land ticket is kept;
   - superseded origin branch: an origin branch is superseded only
     when each of its commits has a commit on origin/main with its subject or its author and
@@ -47,30 +47,24 @@ A worktree under worktrees/ must also have no uncommitted or untracked files, no
 its cwd or an open file inside, no live Fleet session, no lock, no undecided land ticket in a
 queue or outbox on this host naming it, and no touch within
 --idle-hours (default 3); it is removed with git worktree remove, then its branch. A local
-branch with no worktree passes the same idle check and, when superseded, the local liveness checks
-(live claim, live session, a peer host's hold). Origin branches are
-deleted when landed, superseded or archived, whatever their age, and not protected by an open PR, active
-Actions, Autoland or a land ticket; an origin branch whose changes are not on main is left alone
-while a claim, a live worktree or a live source author holds it (and for 4h if it is a
-claude/land-* ref); --remote sweeps only origin branches. An unlanded origin branch no one holds,
-older than 1h, that no unchecked box in an open issue names gets one: a box on the first open issue its commits cite, else a new issue
-in its repository. Every origin decision is written to remote.txt beside the unlanded report. A run without --remote sweeps
+branch with no worktree passes the same idle check and the local liveness checks
+(live session, a peer host's hold). Origin branches are
+deleted when landed, superseded or archived, whatever their age, and not protected by a land ticket; an origin
+branch whose changes are not on main is left alone while a live worktree or a live source author holds it (and for 4h
+after its commit or the fetch that first saw it if it is a claude/land-* ref); --remote sweeps only origin branches.
+Origin branches are read from git after git fetch --prune, with no GitHub call. Every origin decision is written to remote.txt beside the unlanded report. A run without --remote sweeps
 origin branches only when remote.txt is 1 hour old or absent, so lane-gc.timer's hourly run sweeps them every time.
 A worktree it keeps loses its build output: when its branch is landed or it has had no touch
 within --idle-hours, its git-ignored target/ is deleted unless the lane is locked or a process
 holds a file in it open, and the run prints the path and size freed. A run over every container
 also deletes each cargo target (cargo's CACHEDIR.TAG) directly under the temp directory or in a
 target/ one level below it that no process holds open and that has had no build within --idle-hours.
-Issue state comes from the GitHub mirror, else from one search of the open issues (one GitHub call per run); no
-lane or local branch costs a call of its own.
-Everything else is kept: a held lane, and a lane inside its 24 hours. Each held lane on an open issue is printed under it (kept on open
-REPO#N: ...). Each is written to the unlanded report
+Everything else is kept: a held lane, and a lane inside its 24 hours. Each is written to the unlanded report
 (default ~/.local/state/agents/lane-gc/unlanded.txt: age, container, path, branch, ahead count,
-dirty, first commit subject, Refs, class) and to stale.json under its Fleet parent, with the
-state of each issue it names (issue=open|closed|unknown) or "fault: names no issue", so the
-decision is made on the issue. Parents with more than 25 or any over 72h get supply-alert.
+dirty, first commit subject, Refs, class) and to stale.json under its Fleet parent with the issues its
+commits cite. Parents with more than 25 or any over 72h get supply-alert.
 --dry-run prints each lane's class and action. Lanes unlanded for 24h are flagged in stale.json.
-The report class is landed-by-tree, superseded or lost (everything else). --unlanded prints that
+The report class is landed-by-tree or lost (everything else). --unlanded prints that
 report and the count of each class per container. A run ends with git worktree prune and
 git fetch --prune. It also removes an empty worktrees/ directory (and its empty parent) that
 a mistyped lane path left inside a main checkout. From a worker sandbox it runs outside it.
