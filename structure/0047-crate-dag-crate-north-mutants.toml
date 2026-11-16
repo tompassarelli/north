@@ -2,5 +2,5 @@
 name = "north-mutants"
 layer = 3
 paths = ["crates/north-mutants/src/**"]
-may_use = ["north-base"]
+may_use = ["north-base", "north-landing-gates"]
 

@@ -4,9 +4,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use north_mutants::trees::RESULTS;
+use north_landing_gates::landing::flake::{self, Reported};
+use north_landing_gates::landing::trees::RESULTS;
 
-use super::flake::{self, Reported};
 
 const RUNS: usize = 1;
 pub const SHARED: &str = "mutant-src";

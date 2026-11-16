@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::env::{Env, Lease, Stop, git_bytes, repo_name, valid_id};
+use north_landing_gates::landing::env::{Env, Stop, git_bytes, process_env, repo_name, valid_id};
 use crate::sweep::{self, ContractTests, Issues, MatrixArgs, RetireArgs, SweepArgs};
 
 const USAGE: &str = "Usage: north test mutant record <id> | north test mutant verify <base> <head>
@@ -13,23 +13,6 @@ const USAGE: &str = "Usage: north test mutant record <id> | north test mutant ve
 Record the scratch copy diff against HEAD; verify each Test-kind kill claim on demand; mutate product code
 and print which tests kill which mutants; propose the tests with no recent catch, no unique kill and no
 listed contract; run both on a build host for each repository and add the proposal as a box on an issue.";
-
-pub fn process_env() -> Env {
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let base = |name: &str, fallback: &str| match std::env::var_os(name) {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => home.join(fallback),
-    };
-    Env { state_home: base("XDG_STATE_HOME", ".local/state"), cache_home: base("XDG_CACHE_HOME", ".cache"), lease: lease() }
-}
-
-fn lease() -> Lease {
-    let cgroup = fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
-    if cgroup.split('/').any(|part| part.starts_with("agent-capacity-") && part.trim_end().ends_with(".scope")) {
-        return Lease::Inherited;
-    }
-    Lease::Host(north_base::platform::north_binary::north_binary())
-}
 
 pub fn run(arguments: &[String], issues: &dyn Issues, contracts: ContractTests) -> u8 {
     let env = process_env();

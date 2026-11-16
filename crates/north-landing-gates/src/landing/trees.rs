@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use crate::env::{Config, Env, Lease, Stop, git, git_text};
+use super::env::{Config, Env, Lease, Stop, git, git_text};
 
 pub const RESULTS: &str = ".mutant-results";
 pub const EVERY_TEST: &str = "*";

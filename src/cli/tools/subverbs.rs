@@ -1,4 +1,5 @@
-use crate::landing::{fails_first, flake, land_actions, land_dispatch, lane_squash, lane_target, land_test_runner, missed, mutant_runs, red_check};
+use crate::landing::{fails_first, flake, land_actions, land_dispatch, lane_squash, lane_target, land_test_runner, missed, red_check};
+use north_mutants::mutant_runs;
 use crate::land_abandon;
 
 pub(super) type Run = fn(&[String]) -> u8;
@@ -68,7 +69,7 @@ fn mutant_runs(arguments: &[String]) -> u8 {
     let names: std::collections::BTreeSet<String> = lines("MUTANT_TESTS").into_iter().collect();
     let trees: Vec<std::path::PathBuf> = lines("MUTANT_TREES").into_iter().map(std::path::PathBuf::from).collect();
     let Ok(cwd) = std::env::current_dir() else { return north_foundation::foundation::exit::NO_VERDICT };
-    let target = std::env::var_os(north_mutants::trees::TARGET_ENV).map(std::path::PathBuf::from).unwrap_or_else(|| cwd.join("target"));
+    let target = std::env::var_os(north_landing_gates::landing::trees::TARGET_ENV).map(std::path::PathBuf::from).unwrap_or_else(|| cwd.join("target"));
     match mutant_runs::run(&trees, &names, &target.join(mutant_runs::SHARED), &mut std::io::stdout()) {
         Ok(()) => 0,
         Err(error) => {

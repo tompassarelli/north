@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
-use north_mutants::env::{Env, Lease, Stop, git_bytes, git_text};
-use north_mutants::trees::{self, RunDir};
+use super::env::{Env, Lease, Stop, git_bytes, git_text};
+use super::trees::{self, RunDir};
 use north_foundation::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north land fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
@@ -54,7 +54,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return NO_VERDICT;
     };
-    let env = Env { lease: Lease::Inherited, ..north_mutants::cli::process_env() };
+    let env = Env { lease: Lease::Inherited, ..super::env::process_env() };
     let outcome = std::env::current_dir().map_err(Stop::from).and_then(|cwd| check(&cwd, &base, &head, &env, &mut io::stdout()));
     match outcome {
         Ok(()) => 0,
@@ -136,7 +136,7 @@ fn unverified(out: &mut dyn Write, reason: &str) -> Result<(), Stop> {
 fn overlay(cwd: &Path, head: &str, tests: &[&str], tree: &Path) -> Result<Option<String>, Stop> {
     for path in tests {
         let target = tree.join(path);
-        let output = north_mutants::env::git(cwd, None, &["cat-file", "blob", &format!("{head}:{path}")])?;
+        let output = super::env::git(cwd, None, &["cat-file", "blob", &format!("{head}:{path}")])?;
         let placed = if output.status.success() {
             target.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(&target, &output.stdout))
         } else {
@@ -162,7 +162,7 @@ fn named(cwd: &Path, base: &str, head: &str, path: &str) -> Result<BTreeSet<Stri
             count => touched.extend(start..start + count.unwrap_or(1)),
         }
     }
-    let output = north_mutants::env::git(cwd, None, &["show", &format!("{head}:{path}")])?;
+    let output = super::env::git(cwd, None, &["show", &format!("{head}:{path}")])?;
     if !output.status.success() {
         return Ok(BTreeSet::new());
     }
@@ -211,7 +211,7 @@ fn apply(tree: &Path, patch: &[u8]) -> Result<Option<String>, Stop> {
 }
 
 pub fn pass_on_base(cwd: &Path, base: &str, patch: &[u8], names: &BTreeSet<String>, out: &mut dyn Write) -> Result<BTreeMap<String, bool>, String> {
-    let env = Env { lease: Lease::Inherited, ..north_mutants::cli::process_env() };
+    let env = Env { lease: Lease::Inherited, ..super::env::process_env() };
     match on_base(cwd, base, names, &env, &|tree| apply(tree, patch), out) {
         Ok(Base::Verdicts(verdicts)) => Ok(verdicts.into_iter().map(|(name, verdict)| (name, verdict == Verdict::Passes)).collect()),
         Ok(Base::Unverified(reason)) | Err(Stop::Usage(reason) | Stop::Fail(reason)) => Err(reason),
@@ -228,7 +228,7 @@ fn on_base(
     place: &dyn Fn(&Path) -> Result<Option<String>, Stop>,
     out: &mut dyn Write,
 ) -> Result<Base, Stop> {
-    let Some(config) = north_mutants::verify::config(cwd, "HEAD")? else {
+    let Some(config) = super::env::config(cwd, "HEAD")? else {
         return Err(Stop::Fail("HEAD:.safe-push sets no mutant.run test runner".to_owned()));
     };
     let top = PathBuf::from(git_text(cwd, None, &["rev-parse", "--show-toplevel"])?);

@@ -2,5 +2,5 @@
 name = "mutants"
 paths = ["crates/north-mutants/src/**"]
 responsibility = "Mutation testing of a repository's tests: the recorded mutants, the verify, matrix and retire runs, and the weekly sweep that files its findings."
-may_use = ["crate-roots", "lifecycle", "platform.process"]
+may_use = ["crate-roots", "lifecycle", "landing", "platform.process"]
 

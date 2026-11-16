@@ -8,8 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use north_base::platform::process::child_within;
-use north_mutants::env::{Stop, git, git_text};
-use north_mutants::trees::EVERY_TEST;
+use super::env::{Stop, git, git_text};
+use super::trees::EVERY_TEST;
 
 /// The exit status of the build line when the tests do not build; any other status without a verdict stops the check.
 pub const TESTS_DO_NOT_BUILD: u8 = 2;

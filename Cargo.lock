@@ -1935,7 +1935,6 @@ dependencies = [
  "north-foundation",
  "north-graph",
  "north-graph-loops",
- "north-mutants",
  "proptest",
  "regex",
  "serde_json",
@@ -1991,6 +1990,7 @@ name = "north-mutants"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-landing-gates",
  "regex",
  "sha2",
  "tempfile",

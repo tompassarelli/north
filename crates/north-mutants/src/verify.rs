@@ -7,8 +7,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use crate::env::{Config, Env, Stop, git, git_bytes, git_piped, git_text, repo_name, valid_id};
-use crate::trees::{self, Outcome, Plan};
+use north_landing_gates::landing::env::{Env, Stop, config, git, git_bytes, git_piped, git_text, repo_name, valid_id};
+use north_landing_gates::landing::trees::{self, Outcome, Plan};
 
 static TRAILER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^Test-kind:\s+(.+)\s+[1-5]\s+kills\s+(\S+)\s*$").unwrap());
@@ -100,34 +100,6 @@ fn recorded(
 fn applies(cwd: &Path, index: &Path, tree: &str, patch: &Path) -> bool {
     let succeeded = |args: &[&str]| git(cwd, Some(index), args).is_ok_and(|output| output.status.success());
     succeeded(&["read-tree", tree]) && succeeded(&["apply", "--cached", "--check", &patch.to_string_lossy()])
-}
-
-pub fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
-    let blob = format!("{base}:.safe-push");
-    if !git(cwd, None, &["cat-file", "-e", &blob])?.status.success() {
-        return Ok(None);
-    }
-    let get = |args: &[&str]| -> Result<Vec<String>, Stop> {
-        let output = git(cwd, None, &[&["config", "--blob", &blob], args].concat())?;
-        match output.status.code() {
-            Some(0) => Ok(String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect()),
-            Some(1) => Ok(Vec::new()),
-            _ => Err(Stop::Fail(format!("mutant: cannot read {blob}: {}", String::from_utf8_lossy(&output.stderr).trim()))),
-        }
-    };
-    let Some(run) = get(&["--get", "mutant.run"])?.pop().filter(|run| !run.trim().is_empty()) else {
-        return Ok(None);
-    };
-    let class = get(&["--get", "mutant.class"])?.pop().unwrap_or_else(|| "moderate".to_owned());
-    if class != "moderate" && class != "heavy" {
-        return Err(Stop::Fail(format!("mutant: mutant.class in {blob} must be moderate or heavy, not {class}")));
-    }
-    Ok(Some(Config {
-        run,
-        class,
-        links: get(&["--get-all", "mutant.link"])?,
-        sources: get(&["--get-all", "mutant.source"])?,
-    }))
 }
 
 fn change_id(cwd: &Path, base: &str, head: &str) -> Result<String, Stop> {

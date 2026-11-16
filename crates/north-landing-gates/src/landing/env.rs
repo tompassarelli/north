@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -112,3 +113,49 @@ pub fn git_text(cwd: &Path, index: Option<&Path>, args: &[&str]) -> Result<Strin
     Ok(String::from_utf8_lossy(&git_bytes(cwd, index, args)?).trim().to_owned())
 }
 
+
+pub fn process_env() -> Env {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let base = |name: &str, fallback: &str| match std::env::var_os(name) {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => home.join(fallback),
+    };
+    Env { state_home: base("XDG_STATE_HOME", ".local/state"), cache_home: base("XDG_CACHE_HOME", ".cache"), lease: lease() }
+}
+
+fn lease() -> Lease {
+    let cgroup = fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
+    if cgroup.split('/').any(|part| part.starts_with("agent-capacity-") && part.trim_end().ends_with(".scope")) {
+        return Lease::Inherited;
+    }
+    Lease::Host(north_base::platform::north_binary::north_binary())
+}
+
+
+pub fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
+    let blob = format!("{base}:.safe-push");
+    if !git(cwd, None, &["cat-file", "-e", &blob])?.status.success() {
+        return Ok(None);
+    }
+    let get = |args: &[&str]| -> Result<Vec<String>, Stop> {
+        let output = git(cwd, None, &[&["config", "--blob", &blob], args].concat())?;
+        match output.status.code() {
+            Some(0) => Ok(String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect()),
+            Some(1) => Ok(Vec::new()),
+            _ => Err(Stop::Fail(format!("mutant: cannot read {blob}: {}", String::from_utf8_lossy(&output.stderr).trim()))),
+        }
+    };
+    let Some(run) = get(&["--get", "mutant.run"])?.pop().filter(|run| !run.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let class = get(&["--get", "mutant.class"])?.pop().unwrap_or_else(|| "moderate".to_owned());
+    if class != "moderate" && class != "heavy" {
+        return Err(Stop::Fail(format!("mutant: mutant.class in {blob} must be moderate or heavy, not {class}")));
+    }
+    Ok(Some(Config {
+        run,
+        class,
+        links: get(&["--get-all", "mutant.link"])?,
+        sources: get(&["--get-all", "mutant.source"])?,
+    }))
+}

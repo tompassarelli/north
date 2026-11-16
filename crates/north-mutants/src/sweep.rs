@@ -6,10 +6,10 @@ use std::process::{Command, Stdio};
 
 use time::{Duration, OffsetDateTime};
 
-use crate::env::{Env, Stop, git_bytes, git_text, repo_name};
+use north_landing_gates::landing::env::{Env, Stop, config, git_bytes, git_text, repo_name};
 use crate::matrix::{self, Matrix};
 use crate::sites;
-use crate::trees::{self, Plan, EVERY_TEST};
+use north_landing_gates::landing::trees::{self, Plan, EVERY_TEST};
 
 pub trait Issues {
     fn body(&self, repo: &str, number: u64) -> Result<String, String>;
@@ -25,7 +25,7 @@ pub struct MatrixArgs {
 
 pub fn matrix(cwd: &Path, args: &MatrixArgs, env: &Env, out: &mut dyn Write, progress: &mut dyn Write) -> Result<(), Stop> {
     let repo = repo_name(cwd)?;
-    let Some(config) = crate::verify::config(cwd, "HEAD")? else {
+    let Some(config) = config(cwd, "HEAD")? else {
         return Err(Stop::Usage("mutant matrix: .safe-push at HEAD has no [mutant] run".to_owned()));
     };
     if config.sources.is_empty() {
@@ -195,7 +195,7 @@ fn run_matrix(dir: &Path, args: &SweepArgs, seed: &str) -> Result<String, Stop> 
 
 fn sweep_repo(dir: &Path, args: &SweepArgs, env: &Env, date: &str, since: &str) -> Result<String, Stop> {
     let repo = repo_name(dir)?;
-    let Some(config) = crate::verify::config(dir, "HEAD")? else {
+    let Some(config) = config(dir, "HEAD")? else {
         return Err(Stop::Usage(format!("mutant sweep: {repo} has no [mutant] run in .safe-push")));
     };
     if config.sources.is_empty() {

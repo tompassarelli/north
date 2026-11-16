@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-landing-gates = { path = "../north-landing-gates" }
 regex.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
