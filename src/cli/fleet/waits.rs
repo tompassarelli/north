@@ -133,7 +133,7 @@ impl WaitProbes for Probes {
                 }),
             },
             ProbeJob { name: "probes.settle.resume", own: None, run: Box::new(|fleet| said(resume::resume(&fleet, &super::held::read(i64::try_from(now_ms() / 1000).unwrap_or_default()), &Revival(&fleet)))) },
-            ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| {
+            ProbeJob { name: "probes.settle.reap", own: Some(reaper::LIMIT), run: Box::new(|fleet| {
                 let remembered = super::merge_bases::MergeBases::here();
                 let reaped = reaper::reap(&fleet, &remembered, now_ms(), true);
                 remembered.keep();

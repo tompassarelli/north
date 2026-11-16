@@ -22,7 +22,9 @@ use super::transcript::last_written;
 const STALE_KEY: &str = "fleet_stale_hours";
 const LAST_CHARS: usize = 4_000;
 const LEASE_BATCH: usize = 16;
-pub const BUDGET: Duration = Duration::from_secs(5);
+pub const BUDGET: Duration = Duration::from_secs(10);
+pub const LIMIT: Duration = Duration::from_secs(13);
+const LEASE_FLOOR: Duration = Duration::from_secs(1);
 const PROBE_SECS: u64 = 15;
 const ROTATION_MS: u64 = 60_000;
 const OPENINGS: [&str; 5] = ["Done", "Not done", "Split", "Blocked", "Waiting"];
@@ -49,6 +51,8 @@ pub struct Ahead {
     pub tip: String,
     pub commits: usize,
 }
+
+type Due<'a> = (&'a SessionRecord, String, Option<String>, Option<Ahead>);
 
 type Digests = BTreeMap<String, Vec<(String, Unlanded)>>;
 
@@ -204,7 +208,7 @@ impl Reaped {
     pub fn lines(&self) -> Vec<String> {
         let retired = self.retired.iter().map(|retired| format!("retired {}: {}", retired.name, retired.why));
         let failed = self.failed.iter().map(|failed| format!("not retired {}: {}", failed.name, failed.why));
-        let deferred = (self.deferred > 0).then(|| format!("deferred {} sessions to the next tick: the reaper spent its {}s", self.deferred, BUDGET.as_secs()));
+        let deferred = (self.deferred > 0).then(|| format!("deferred {} sessions to the next tick: the reaper spent its {}s or its last batch retired none", self.deferred, BUDGET.as_secs()));
         let unread = (self.unread > 0).then(|| format!("deferred {} sessions to the next tick: their job leases did not answer within the reaper's budget", self.unread));
         retired.chain(failed).chain(deferred).chain(unread).collect()
     }
@@ -233,8 +237,9 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     let mut verdicts: BTreeMap<String, String> = BTreeMap::new();
     let lanes = evidence.lanes();
     let mut unlanded: Digests = BTreeMap::new();
+    let mut stalled = false;
     for (done, batch) in candidates.chunks(LEASE_BATCH).enumerate() {
-        if spent() >= budget {
+        if stalled || spent() >= budget {
             reaped.deferred += candidates.len() - done * LEASE_BATCH;
             break;
         }
@@ -254,7 +259,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let asked: Vec<_> = judged_batch.iter().map(|(record, _, _, judged, _)| (*judged != Verdict::Keep).then(|| scope.spawn(move || evidence.lane(record)))).collect();
             asked.into_iter().map(|probe| probe.and_then(|probe| probe.join().ok().flatten())).collect()
         });
-        let mut due: Vec<(&SessionRecord, String, Option<String>, Option<Ahead>)> = Vec::new();
+        let mut due: Vec<Due> = Vec::new();
         for ((record, status, mut seen, mut judged, entries), probed) in judged_batch.into_iter().zip(probes) {
             let quiet = seen.quiet;
             if let Some(Unlanded::Unread(path)) = &probed {
@@ -284,14 +289,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| tail(&entry.text));
             due.push((record, format!("{}; its last report: {}", judged.why(stale), opening(&entries)), last, ahead));
         }
-        let leases = fleet.job_leases(&due.iter().map(|(record, _, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()));
-        for ((record, why, last, ahead), lease) in due.into_iter().zip(leases) {
-            if !reaped.retired.is_empty() && spent() >= budget {
-                reaped.deferred += 1;
-                continue;
-            }
-            retire_unleased(fleet, (&mut reaped, &mut unlanded), apply, (record, why, last, ahead), lease);
-        }
+        stalled = retire_due(fleet, (&mut reaped, &mut unlanded), apply, due, now_ms, budget, spent);
     }
     if apply {
         fleet.tell_retirement_digests(unlanded.iter().map(|(parent, lanes)| (parent.clone(), lanes.iter().map(digest_line).collect())).collect(), now_ms);
@@ -301,6 +299,23 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
         eprintln!("fleet reaper: graph tick failed: {why}");
     }
     reaped
+}
+
+fn retire_due(fleet: &Fleet, (reaped, unlanded): (&mut Reaped, &mut Digests), apply: bool, due: Vec<Due>, now_ms: u64, budget: Duration, spent: &dyn Fn() -> Duration) -> bool {
+    if due.is_empty() {
+        return false;
+    }
+    let leases = fleet.job_leases(&due.iter().map(|(record, _, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(spent()).max(LEASE_FLOOR));
+    let before = reaped.retired.len();
+    let mut leased = due.into_iter().zip(leases);
+    while let Some((due, lease)) = leased.next() {
+        retire_unleased(fleet, (reaped, unlanded), apply, due, lease);
+        if spent() >= budget {
+            reaped.deferred += leased.len();
+            break;
+        }
+    }
+    reaped.retired.len() == before
 }
 
 fn tail(text: &str) -> String {
