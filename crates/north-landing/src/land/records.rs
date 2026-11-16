@@ -5,7 +5,6 @@ use std::process::{Command, Stdio};
 use north_base::platform::push_ledger;
 use super::after::{cleanup, follow};
 use super::candidate::git;
-use super::incidents;
 use super::lander::Lander;
 use super::queue::{self, Ticket};
 use super::telemetry::{self, Stages};
@@ -94,10 +93,6 @@ pub(super) fn spawn(queue: &Path, arguments: &[String]) -> Result<(), String> {
 
 pub fn write(lander: &Lander, path: &Path, ticket: &Ticket, candidate: &Candidate, decision: &Decision) {
     let tree = if candidate.head.is_empty() { String::new() } else { git(&lander.worktree, &["rev-parse", &format!("{}^{{tree}}", candidate.head)]).unwrap_or_default() };
-    if let Decision::Refused { verdict } = decision {
-        incidents::record(&lander.queue, path, ticket, incidents::decided(path, ticket, verdict));
-        incidents::attribute(ticket, verdict);
-    }
     let landed = match decision {
         Decision::Landed { sha } => Some(*sha),
         Decision::Refused { verdict } => verdict.strip_prefix("landed ").and_then(|rest| rest.split_whitespace().next()),

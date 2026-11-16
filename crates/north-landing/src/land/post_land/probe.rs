@@ -6,7 +6,6 @@ use north_foundation::foundation::offload::OWNER_ENV;
 
 use super::{Landed, Run, check, failing, rerun_host, superseded};
 use crate::land::after::follow;
-use crate::land::blame;
 use crate::land::candidate::git;
 use crate::land::checks::Verdict;
 use crate::landing::red_check::{self, Failure};
@@ -47,7 +46,7 @@ impl Probe {
 }
 
 /// Runs `probe` on `tree`, logging to `run.log`, and reports the failing checks it reached.
-pub(super) fn probe(landed: &Landed, run: &Run, tree: &str, probe: &Probe) -> blame::Probe {
+pub(super) fn probe(landed: &Landed, run: &Run, tree: &str, probe: &Probe) -> super::Probed {
     match probe {
         Probe::Checks => checked(landed, tree, run),
         Probe::Steps(steps) => {
@@ -59,20 +58,20 @@ pub(super) fn probe(landed: &Landed, run: &Run, tree: &str, probe: &Probe) -> bl
     }
 }
 
-fn checked(landed: &Landed, tree: &str, run: &Run) -> blame::Probe {
+fn checked(landed: &Landed, tree: &str, run: &Run) -> super::Probed {
     let result = check(landed, tree, run);
     let reached = match &result.verdict {
         Verdict::RedMain(_) => failing(&run.log, &run.outcome).into_iter().map(|failure| failure.label().to_owned()).collect(),
         _ => BTreeSet::new(),
     };
-    blame::Probe { verdict: result.verdict, failing: reached }
+    super::Probed { verdict: result.verdict, failing: reached }
 }
 
 /// Runs the failed tests that exist at `tree` there; a harness test absent at the tree counts as a pass, and so does a
 /// Cargo test, since an exact filter naming no test runs none.
-fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> blame::Probe {
+fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> super::Probed {
     if run.superseded() {
-        return blame::Probe { verdict: superseded(landed, run), failing: BTreeSet::new() };
+        return super::Probed { verdict: superseded(landed, run), failing: BTreeSet::new() };
     }
     let present: BTreeSet<Failure> = tests
         .iter()
@@ -83,9 +82,9 @@ fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> 
         .cloned()
         .collect();
     let Some(host) = rerun_host(&landed.repo, run) else {
-        return blame::Probe { verdict: Verdict::Transient(format!("no build host takes the failed tests to rerun them on {tree}")), failing: BTreeSet::new() };
+        return super::Probed { verdict: Verdict::Transient(format!("no build host takes the failed tests to rerun them on {tree}")), failing: BTreeSet::new() };
     };
-    let Some(command) = red_check::rerun_on(&host, &present) else { return blame::Probe { verdict: Verdict::Green, failing: BTreeSet::new() } };
+    let Some(command) = red_check::rerun_on(&host, &present) else { return super::Probed { verdict: Verdict::Green, failing: BTreeSet::new() } };
     let timeout = run.deadline.as_secs().to_string();
     let ran = Command::new(follow::program())
         .args(["capacity", "offload", "run", "--host", &host, "--base", tree, "--head", tree, "--timeout", &timeout, "--", &command])
@@ -95,7 +94,7 @@ fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> 
         .output();
     let output = match ran {
         Ok(output) => output,
-        Err(error) => return blame::Probe { verdict: Verdict::Transient(format!("could not run the failed tests on {tree} on {host}: {error}")), failing: BTreeSet::new() },
+        Err(error) => return super::Probed { verdict: Verdict::Transient(format!("could not run the failed tests on {tree} on {host}: {error}")), failing: BTreeSet::new() },
     };
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     if let Some(parent) = run.log.parent() {
@@ -110,5 +109,5 @@ fn tested(landed: &Landed, run: &Run, tree: &str, tests: &BTreeSet<Failure>) -> 
     } else {
         Verdict::RedMain(format!("{} failed; log: {}", reached.iter().cloned().collect::<Vec<_>>().join(", "), run.log.display()))
     };
-    blame::Probe { verdict, failing: if output.status.success() { BTreeSet::new() } else { reached } }
+    super::Probed { verdict, failing: if output.status.success() { BTreeSet::new() } else { reached } }
 }

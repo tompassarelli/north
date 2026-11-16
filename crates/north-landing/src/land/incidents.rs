@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_base::platform::attribution::{self, Cause, Harness};
+use north_base::platform::attribution::{Cause, Harness};
 use north_base::platform::push_ledger;
 use super::queue::{self, Ticket};
 use super::{records, telemetry};
@@ -41,23 +41,6 @@ pub fn blame(verdict: &str) -> Option<Cause> {
         "lander-transient" | "lander-deferred" | "lander-hang" => Some(Cause::Harness(Harness::LandingRefusal)),
         _ => None,
     }
-}
-
-/// Records the cause of a refused or held lane for the fleet session that pushed it.
-pub fn attribute(ticket: &Ticket, verdict: &str) {
-    if let (Some(session), Some(cause)) = (ticket.session.as_deref(), blame(verdict)) {
-        attribution::record(session, LANDER, cause, verdict);
-    }
-}
-
-fn name(path: &Path) -> String {
-    path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
-/// A ticket the lander decided other than landed, keyed by its ticket file so a replayed decision adds no row.
-pub fn decided<'a>(path: &Path, ticket: &Ticket, verdict: &'a str) -> Option<Noticed<'a>> {
-    let class = class(verdict)?;
-    Some(Noticed { class, key: format!("{class}:{}@{}", name(path), ticket.head), noticed_by: LANDER, detail: verdict })
 }
 
 pub fn arguments(path: &Path, ticket: &Ticket, noticed: &Noticed, at: f64) -> Vec<String> {

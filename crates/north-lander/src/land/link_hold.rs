@@ -106,7 +106,7 @@ pub fn key(hold: Hold) -> String {
 }
 
 pub fn message(minutes: u64, candidate: &str, reason: &str) -> String {
-    format!("north land: the lander link has been held for {minutes} minutes: {reason}; the lander still runs an older runtime than {candidate}, so lanes that need the newer runtime are refused and the sheriff's fix cannot deploy itself")
+    format!("north land: the lander link has been held for {minutes} minutes: {reason}; the lander still runs an older runtime than {candidate}, so lanes that need the newer runtime are refused and a fix cannot deploy itself")
 }
 
 fn record(hold: Hold, candidate: &str, reason: &str) -> bool {

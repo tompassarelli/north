@@ -79,7 +79,7 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
     argv.push(program.into());
     argv.extend(prefix.iter().map(OsString::from));
     argv.extend(["--base", &landed.base, "--head", &landed.head, "--tree", tree].map(OsString::from));
-    argv.extend(crate::land::blame::ranges(&landed.base, &landed.lanes, &landed.tips).into_iter().flat_map(|lane| ["--lane".into(), lane.into()]));
+    argv.extend(lane_ranges(&landed.base, &landed.lanes, &landed.tips).into_iter().flat_map(|lane| ["--lane".into(), lane.into()]));
     argv.extend(landed.ran.iter().flat_map(|pass| ["--ran".into(), pass.into()]));
     argv.extend(["--outcome".into(), run.outcome.clone().into_os_string()]);
     if run.adoptable {
@@ -191,4 +191,8 @@ pub(crate) fn apart(failing: BTreeSet<Failure>, outcome: &Path, lanes: &[String]
     named.dedup();
     let rest = failing.into_iter().filter(|failure| !matches!(failure, Failure::Step(command) if scoped.iter().any(|(scoped, _)| scoped == command))).collect();
     (rest, named)
+}
+
+fn lane_ranges(base: &str, lanes: &[String], tips: &[String]) -> Vec<String> {
+    lanes.iter().zip(tips).enumerate().map(|(at, (lane, tip))| format!("{lane}={}..{tip}", if at == 0 { base } else { &tips[at - 1] })).collect()
 }

@@ -13,9 +13,9 @@ use super::{Batch, LandedLane, short};
 const WORKTREE: &str = "lander-revert";
 const BUCK2_RED: &str = "Buck2 red";
 
-pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], walked_back: Option<&str>, detail: &str, outcome: &Outcome) -> bool {
+pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], detail: &str, outcome: &Outcome) -> bool {
     if culprits.is_empty() {
-        inherited(&batch.head, walked_back, detail, outcome);
+        inherited(&batch.head, detail, outcome);
         return false;
     }
     let (base, lanes) = (&batch.base, &batch.lanes);
@@ -72,9 +72,8 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
     }
 }
 
-fn inherited(head: &str, walked_back: Option<&str>, detail: &str, outcome: &Outcome) {
-    let earlier = walked_back.map_or_else(String::new, |commit| format!("; walking back, {commit} is the first landing red where its parent passes"));
-    let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch{earlier}, so nothing is reverted; log: {}", outcome.log.display());
+fn inherited(head: &str, detail: &str, outcome: &Outcome) {
+    let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, so nothing is reverted; log: {}", outcome.log.display());
     println!("{message}");
     after::send("coordinator", &message);
 }

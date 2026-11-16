@@ -301,19 +301,15 @@ fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
             _ => tree != "ds-1033",
         };
         let failing = if red { std::collections::BTreeSet::from([sandbox.to_owned()]) } else { std::collections::BTreeSet::new() };
-        crate::land::blame::Probe { verdict: if red { Verdict::RedMain(sandbox.to_owned()) } else { Verdict::Green }, failing }
+        super::Probed { verdict: if red { Verdict::RedMain(sandbox.to_owned()) } else { Verdict::Green }, failing }
     };
     let mut landed = landed(&["lane-b"]);
     landed.base = "ds-1033".to_owned();
     landed.lanes = vec!["dash".to_owned(), "lane-b".to_owned()];
     landed.tips = vec!["95afbfbca".to_owned(), "lane-b".to_owned()];
-    let gates = tempfile::tempdir().unwrap();
-    let blamed = super::blamed(&landed, &crate::land::blame::Suspects::Untraced, &check, || vec!["before-ds".to_owned()], gates.path(), &failing);
-    assert_eq!(blamed, (None, Some("ds-1033".to_owned())), "no lane of the batch is red where its parent passes the failed test, and the walk-back names the earlier one");
+    let blamed = super::first_red(landed.tips.len(), |count| super::probed(&landed, count, &check));
+    assert_eq!(blamed, None, "no lane of the batch is blamed while its base is red on the failed test");
     assert!(probed.lock().unwrap().iter().any(|tree| tree == "ds-1033"), "the base is probed: {probed:?}");
-    let log = std::fs::read_to_string(gates.path().join("blame-walk-back.jsonl")).unwrap();
-    let row: serde_json::Value = serde_json::from_str(log.trim()).unwrap();
-    assert_eq!(row["would_revert"].as_str(), Some("ds-1033"), "walking back names the earlier lane red where its parent passes: {log}");
     let ledger = "1\tfirn\t780be397\tred-main\tbash .github/scripts/land-checks.sh native; log: /l\trevert\t661\n";
     let native = std::collections::BTreeSet::from([Failure::Step("bash .github/scripts/land-checks.sh native".to_owned())]);
     assert!(super::red_before(ledger, "firn", "780be397", &native), "a base whose own run was red on the check blames no lane, as firn's reverts of 2026-11-14 needed");
