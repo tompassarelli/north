@@ -50,7 +50,7 @@ pub struct Caller {
 
 impl Caller {
     pub fn in_worker_scope(&self) -> bool {
-        self.cgroup.as_deref().is_some_and(|cgroup| session_scope::worker_cgroup(cgroup) && !session_scope::lane_only_cgroup(cgroup))
+        self.cgroup.as_deref().is_some_and(|cgroup| session_scope::fleet_session_cgroup(cgroup) && !session_scope::lane_only_cgroup(cgroup))
     }
 
     /// The service or scope its cgroup names, for a caller in the broker's own user namespace only.

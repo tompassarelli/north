@@ -346,7 +346,9 @@ fn a_worker_scope_callers_call_carries_a_credential_added_outside_its_domain() {
     assert_eq!(sent(WORKER, "POST", None), (200, "token ghs_minted_outside".to_owned()), "a worker's write that carries no credential gets the broker's token");
     assert_eq!(sent(WORKER, "GET", Some("ghs_own")), (200, "token ghs_own".to_owned()), "a worker's own credential is sent as it is");
     assert_eq!(sent("app-niri-ghostty-1.scope", "GET", None), (200, String::new()), "a caller outside a worker scope gets no credential added");
+    assert_eq!(sent("north-fleet-north-1397-worker-b072a77a.service", "GET", Some(placeholder)), (200, "token ghs_minted_outside".to_owned()), "a session held as a service reads with the broker's token");
     assert_eq!(sent("north-session-lane-deepseek-1.scope", "GET", Some(placeholder)), (200, format!("token {placeholder}")), "a lane-only session, refused every GitHub token (south#104), gets none added");
+    assert_eq!(sent("north-fleet-deepseek-1-b072a77a.service/north-session-lane-deepseek-1.scope", "GET", Some(placeholder)), (200, format!("token {placeholder}")), "a lane-only session in its held service gets none added");
 }
 
 #[test]

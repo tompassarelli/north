@@ -125,6 +125,16 @@ pub fn worker_cgroup(cgroup: &str) -> bool {
     cgroup.lines().flat_map(|line| line.split('/')).any(|unit| (unit.starts_with(SESSION_UNIT_PREFIX) && unit.ends_with(".scope")) || unit.starts_with(WORKER_BROKER_UNIT))
 }
 
+/// The unit-name prefix of a fleet session the session host holds as a service, `north-fleet-NAME-SUFFIX.service`, SUFFIX being 8 hex digits.
+const HELD_UNIT_PREFIX: &str = "north-fleet-";
+
+/// Whether the process whose `/proc/PID/cgroup` reads `cgroup` runs for a fleet session in its held service, or a session scope inside one.
+pub fn fleet_session_cgroup(cgroup: &str) -> bool {
+    worker_cgroup(cgroup) || cgroup.lines().flat_map(|line| line.split('/')).any(|unit| {
+        unit.strip_prefix(HELD_UNIT_PREFIX).and_then(|rest| rest.strip_suffix(".service")).and_then(|rest| rest.rsplit_once('-')).is_some_and(|(name, suffix)| !name.is_empty() && suffix.len() == 8 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    })
+}
+
 /// Whether a command with the lane-only `marker` and the caller's `cgroup` runs outside its session's own scope, as the
 /// outside broker's fresh `--lane` child does: the broker decides what a lane-only caller may land from its cgroup, and a
 /// child it started reads as the broker's own service. `None`, a cgroup that cannot be read, counts as lane-only.

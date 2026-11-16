@@ -17,13 +17,5 @@ fn trusted(writer: &str) -> bool {
 }
 
 fn fleet_scope(cgroup: Option<&str>) -> bool {
-    cgroup.is_none_or(|cgroup| north_base::platform::session_scope::worker_cgroup(cgroup) || held_session(cgroup))
-}
-
-fn held_session(cgroup: &str) -> bool {
-    cgroup.lines().flat_map(|line| line.split('/')).any(|unit| {
-        unit.strip_prefix("north-fleet-").and_then(|rest| rest.strip_suffix(".service")).and_then(|rest| rest.rsplit_once('-')).is_some_and(|(name, digest)| {
-            !name.is_empty() && digest.len() == 8 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-    })
+    cgroup.is_none_or(north_base::platform::session_scope::fleet_session_cgroup)
 }
