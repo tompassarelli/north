@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::os::unix::net::UnixListener;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use north_broker::{Broker, Policy, Source, Surface};
 use super::{Context, Reader, confine, executable, readable, removable};
 
 const SOCKET: &str = "NORTH_1397_KEPT_BROKER";
+const CONFINED: &str = "NORTH_1397_KEPT_CONFINED";
 const NAME: &str = "worker_sandbox::tests::kept_socket::a_kept_socket_answers_a_confined_command_with_no_more_than_the_workers_reach";
 const REFUSED: &str = "the lander App goes only to a caller without NoNewPrivs";
 
@@ -21,9 +23,13 @@ fn asked(client: &Client, app: &str) -> String {
 #[test]
 fn a_kept_socket_answers_a_confined_command_with_no_more_than_the_workers_reach() {
     if let Some(socket) = std::env::var_os(SOCKET) {
-        let context = Context::from_env("north broker github-token");
-        let roots = removable(&context);
-        assert!(matches!(confine(Some(&roots), &readable(&context, Reader::of(true)), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+        if std::env::var_os(CONFINED).is_none() {
+            let context = Context::from_env("north broker github-token");
+            let roots = removable(&context);
+            assert!(matches!(confine(Some(&roots), &readable(&context, Reader::of(true)), Some(&executable(&context)), None, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+            let error = Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture"]).env(CONFINED, "1").exec();
+            panic!("the confined child did not start over as one confined process: {error}");
+        }
         let client = Client::at(Path::new(&socket));
         println!("lander\t{}\nagent\t{}", asked(&client, "lander"), asked(&client, "agent"));
         return;
