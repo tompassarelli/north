@@ -13,6 +13,7 @@ doctest = false
 north-base = { path = "../north-base" }
 north-capacity-host = { path = "../north-capacity-host" }
 north-providers = { path = "../north-providers" }
+clap.workspace = true
 regex.workspace = true
 percent-encoding.workspace = true
 rustix.workspace = true

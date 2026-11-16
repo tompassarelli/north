@@ -18,6 +18,7 @@ use std::env;
 use std::process::{Command, ExitStatus, Stdio};
 
 use self::records::{Recorder, Spooler};
+use clap::Parser;
 use north_capacity_host::capacity::{dev_shell, gate};
 use north_foundation::foundation::clock::Timestamp;
 
@@ -40,41 +41,56 @@ pub(crate) struct Job {
     command: Vec<String>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Parsed {
     Help,
     Job(Job),
 }
 
+#[derive(Parser)]
+#[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
+struct Words {
+    #[arg(long, allow_hyphen_values = true)]
+    path: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    user: Option<String>,
+    #[arg(long, allow_hyphen_values = true)]
+    class: Option<String>,
+    #[arg(long)]
+    notify: bool,
+    #[arg(short = 'h', long)]
+    help: bool,
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    rest: Vec<String>,
+}
+
 pub(crate) fn parse(arguments: &[String], session: Option<&str>) -> Result<Parsed, String> {
-    let mut rest = arguments;
-    let (mut record_path, mut user, mut class, mut notify) = (String::new(), String::new(), None, None);
-    while let Some((flag, tail)) = rest.split_first() {
-        match flag.as_str() {
-            "--path" | "--user" | "--class" => {
-                let (value, tail) = tail.split_first().ok_or_else(|| USAGE.to_owned())?;
-                match flag.as_str() {
-                    "--path" => record_path.clone_from(value),
-                    "--user" => user.clone_from(value),
-                    _ if ADMITTED_CLASSES.contains(&value.as_str()) => class = Some(value.clone()),
-                    _ => return Err(format!("job-run: --class is one of {}", ADMITTED_CLASSES.join(", "))),
-                }
-                rest = tail;
-            }
-            "--notify" => {
-                notify = Some(session.filter(|session| !session.is_empty()).ok_or_else(|| format!("job-run: --notify needs {FLEET_SESSION}"))?.to_owned());
-                rest = tail;
-            }
-            "-h" | "--help" => return Ok(Parsed::Help),
-            _ => break,
-        }
+    let words = Words::try_parse_from(arguments).map_err(|_| USAGE.to_owned())?;
+    if words.help {
+        return Ok(Parsed::Help);
     }
-    match rest {
-        [name, separator, command @ ..] if separator == "--" && !command.is_empty() => {
-            Ok(Parsed::Job(Job { record_path, user, class, notify, name: name.clone(), command: command.to_vec() }))
-        }
+    if let Some(class) = &words.class
+        && !ADMITTED_CLASSES.contains(&class.as_str())
+    {
+        return Err(format!("job-run: --class is one of {}", ADMITTED_CLASSES.join(", ")));
+    }
+    let notify = match words.notify {
+        true => Some(session.filter(|session| !session.is_empty()).ok_or_else(|| format!("job-run: --notify needs {FLEET_SESSION}"))?.to_owned()),
+        false => None,
+    };
+    match words.rest.as_slice() {
+        [name, separator, command @ ..] if separator == "--" && !command.is_empty() => Ok(Parsed::Job(Job {
+            record_path: words.path.unwrap_or_default(),
+            user: words.user.unwrap_or_default(),
+            class: words.class,
+            notify,
+            name: name.clone(),
+            command: command.to_vec(),
+        })),
         _ => Err(USAGE.to_owned()),
     }
 }
+
 
 fn stamp() -> String {
     let now = Timestamp::now();
@@ -107,6 +123,9 @@ fn run_command(job: &Job) -> i32 {
         }
     }
 }
+
+#[cfg(test)]
+mod usage_tests;
 
 pub fn run(arguments: &[String]) -> u8 {
     let session = env::var(FLEET_SESSION).ok();
