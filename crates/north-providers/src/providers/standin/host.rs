@@ -64,6 +64,9 @@ fn declared<'a>(text: &'a str, key: &str) -> Option<&'a str> {
 fn turn(checkout: &Path, brief: &str) -> Result<String, String> {
     let item = declared(brief, "Item").ok_or("the brief names no Item: line")?;
     let box_text = declared(brief, "Box").ok_or("the brief names no Box: line")?;
+    if !box_text.starts_with("standin ") {
+        return Err(format!("Box: {box_text} is not a box north proof-run print writes"));
+    }
     let (repo, number) = item.rsplit_once('#').ok_or_else(|| format!("Item: {item} is not REPO#N"))?;
     let repo = repo.rsplit('/').next().unwrap_or(repo);
     let plain = !repo.is_empty() && repo != "." && repo != ".." && repo.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte));

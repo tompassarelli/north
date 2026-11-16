@@ -8,6 +8,7 @@ use super::plan::{Candidate, Launch, Lineage, Ready};
 use super::slots::Pools;
 
 pub const ACCOUNT: &str = "standin:local";
+const BOX: &str = "standin ";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Standin {
@@ -26,7 +27,10 @@ impl Standin {
     }
 
     /// Places `ready` on the first stand-in host that serves the box and has a free slot, taking that slot.
-    pub fn place(&self, ready: &Ready, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
+    pub fn place(&self, ready: &Ready, box_text: Option<&str>, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
+        if !box_text.is_some_and(|text| text.trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim().starts_with(BOX)) {
+            return Err(format!("a stand-in repository staffs only boxes starting `{BOX}`, which north proof-run print writes"));
+        }
         let serves = |host: &str| candidates.iter().any(|candidate| candidate.host == host && candidate.refusal.is_none());
         let host = self.hosts.iter().find(|host| serves(host) && pools.host(host) > 0).ok_or_else(|| format!("no stand-in host ({}) serves this box with a free slot", self.hosts.join(", ")))?;
         pools.take(host);
