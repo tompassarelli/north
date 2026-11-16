@@ -15,9 +15,16 @@ pub fn read() -> Result<Vec<Seat>, String> {
     parse(&defaults)
 }
 
+/// The config check a change to harness/defaults.toml meets before it lands: the chain must read, and no seat may name a public-only provider.
+pub fn validate(text: &str) -> Result<(), String> {
+    let defaults: DocumentMut = text.parse().map_err(|error| format!("harness/defaults.toml: {error}"))?;
+    parse(&defaults).map(drop)
+}
+
 pub fn parse(defaults: &DocumentMut) -> Result<Vec<Seat>, String> {
-    let public_only: Vec<&str> = defaults["public_only_providers"]["value"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-    let seats = defaults["coordinator_chain"]["value"].as_array().ok_or("harness/defaults.toml has no coordinator_chain list")?;
+    let value = |name: &str| defaults.get(name).and_then(|entry| entry.get("value")).and_then(|entry| entry.as_value());
+    let public_only: Vec<&str> = value("public_only_providers").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+    let seats = value("coordinator_chain").and_then(Value::as_array).ok_or("harness/defaults.toml has no coordinator_chain list")?;
     seats.iter().enumerate().map(|(index, seat)| seat_at(index + 1, seat, &public_only)).collect()
 }
 

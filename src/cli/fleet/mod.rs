@@ -48,7 +48,7 @@ mod tier;
 mod tree;
 mod turn_json;
 pub(super) mod usage;
-mod coordinator_chain;
+pub(crate) mod coordinator_chain;
 mod coordinator_move;
 mod rooms;
 mod reads;

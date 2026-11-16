@@ -38,8 +38,9 @@ use north_claims::{citation_check, review_items};
 use north_credentials::credentials;
 use north_remote_serve::remote_serve;
 
-static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
+static RUN_TIME_READERS: [run_time_data::Consumer; 7] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },
+    run_time_data::Consumer { path: "harness/defaults.toml", validate: cli::validate_coordinator_chain },
     run_time_data::Consumer { path: "harness/loops.toml", validate: loops::validate },
     run_time_data::Consumer { path: "north-data/expectations.toml", validate: north_expectations::check::validate },
     run_time_data::Consumer { path: "north-data/private-checks.toml", validate: private_check::validate },

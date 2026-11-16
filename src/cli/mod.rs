@@ -76,6 +76,8 @@ mod worker_ledger;
 use session::Session;
 use tools::Tool;
 
+pub(crate) use fleet::coordinator_chain::validate as validate_coordinator_chain;
+
 /// The `north threads` verb families that live above north-threads, run beside the ones the ledger runs itself.
 pub(crate) const THREADS_FAMILIES: &[crate::threads::verb::Family] = &[crate::threads::calibration::FAMILY];
 
