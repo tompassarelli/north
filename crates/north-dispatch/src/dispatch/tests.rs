@@ -325,7 +325,7 @@ fn a_launch_reads_the_listing_the_keeper_recorded_without_asking_the_host() {
 }
 
 #[test]
-fn a_dispatched_name_fits_the_review_mirror() {
+fn dispatched_lane_names_fit_review_fetch() {
     let name_of = |box_text: &str| {
         let (hosts, accounts) = fleet();
         let outcome = decide(&survey(vec![issue("north", 1485, &format!("- [ ] {box_text}"), &[])], hosts, accounts), "test");
@@ -336,7 +336,7 @@ fn a_dispatched_name_fits_the_review_mirror() {
     let first = name_of("cargo test p north landing lib candidate tests p");
     let second = name_of("cargo test p north landing lib candidate tests q");
     for name in [&first, &second] {
-        assert!(name.len() <= north_trusted_mirror::LONGEST_LANE && north_trusted_mirror::plain_name(name), "{name}");
+        assert!(north_trusted_mirror::lane_name_ok(name).is_ok(), "{name}");
     }
     assert!(first.starts_with("north-1485-d0000-cargo-test-p-north-landing"), "{first}");
     assert_ne!(first, second, "two boxes whose slugs differ past the cut name apart");
