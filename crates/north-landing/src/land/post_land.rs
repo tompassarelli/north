@@ -431,7 +431,7 @@ fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Vec<usize>
             println!("north land: post-land checks of {} are not green on their base {} on the failed tests, so no landed lane is blamed", landed.head, landed.base);
             return Vec::new();
         }
-        let found = search::culprits(landed.tips.len(), &signatures, |counts| counts.iter().map(|&count| check(tree_at(landed, count))).collect());
+        let found = search::culprits(landed.tips.len(), &signatures, |counts| checked(&counts.iter().map(|&count| tree_at(landed, count)).collect::<Vec<_>>(), &check));
         if let Some(found) = found.filter(|found| !found.is_empty()) {
             for &at in &found {
                 println!("north land: {} is a landed lane whose prefix of {} first reaches a failed check", landed.lanes.get(at).map_or("?", String::as_str), landed.head);
@@ -467,6 +467,15 @@ pub(super) fn first_red(lanes: usize, mut red_at: impl FnMut(usize) -> Option<bo
         }
     }
     Some(red - 1)
+}
+
+fn checked(trees: &[&str], check: &(dyn Fn(&str) -> Probed + Sync)) -> Vec<Probed> {
+    let distinct: BTreeSet<&str> = trees.iter().copied().collect();
+    let probes: std::collections::BTreeMap<&str, Probed> = std::thread::scope(|scope| {
+        let checks: Vec<_> = distinct.into_iter().map(|tree| (tree, scope.spawn(move || check(tree)))).collect();
+        checks.into_iter().map(|(tree, handle)| (tree, handle.join().unwrap_or_else(|_| Probed { verdict: Verdict::Transient("a prefix check panicked".to_owned()), failing: BTreeSet::new() }))).collect()
+    });
+    trees.iter().map(|tree| probes[*tree].clone()).collect()
 }
 
 fn tree_at(landed: &Landed, count: usize) -> &str {
