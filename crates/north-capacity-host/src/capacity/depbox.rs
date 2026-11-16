@@ -248,6 +248,7 @@ impl Sandbox {
         let target = self.top.join("target");
         if let Some(chosen) = std::env::var_os("CARGO_TARGET_DIR").filter(|chosen| !chosen.is_empty())
             && resolved(Path::new(&chosen)) != target
+            && self.copied_tree_target().is_none()
         {
             eprintln!("depbox: ignoring CARGO_TARGET_DIR {}; building in {}", chosen.to_string_lossy(), target.display());
         }
@@ -303,11 +304,12 @@ impl Sandbox {
                 self.set(name, value);
             }
         }
-        self.set("CARGO_TARGET_DIR", sandbox.join("target").into());
+        let target = sandbox.join(self.copied_tree_target().unwrap_or_else(|| PathBuf::from("target")));
+        self.set("CARGO_TARGET_DIR", target.clone().into());
         let hand_off = self.hand_off.take();
         let mut hand_off_program = None;
         if let Some(mut roots) = hand_off {
-            roots.push(sandbox.join("target"));
+            roots.push(target);
             if top.join("node_modules").is_dir() {
                 roots.push(sandbox.join("node_modules"));
             }
@@ -325,6 +327,13 @@ impl Sandbox {
         }
         bubblewrap.args(command);
         bubblewrap
+    }
+
+    /// The target, relative to the checkout, of a tree copied into the checkout's own build output (a fails-first or mutant runner's tree, which has no git directory and so names this checkout as its top), when an absolute CARGO_TARGET_DIR places it below `target/`: building that copy in `target` itself wrote an older or mutated tree's libraries where the checkout's next build took them as fresh (north#1632), and a target anywhere else would let a lane grow a target of its own.
+    fn copied_tree_target(&self) -> Option<PathBuf> {
+        let chosen = PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").filter(|chosen| !chosen.is_empty())?);
+        let below = resolved(&chosen).strip_prefix(self.top.join("target")).ok()?.to_path_buf();
+        (chosen.is_absolute() && !below.as_os_str().is_empty()).then(|| Path::new("target").join(below))
     }
 
     fn set_check(&mut self) {
