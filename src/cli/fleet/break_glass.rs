@@ -24,7 +24,7 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
         Ok(grant) => {
             match &grant.issue {
                 Some(issue) => println!("break glass: the coordinator's reach guard is lifted for {} minutes ({}); a box is open on {issue}", break_glass::minutes(), grant.evidence),
-                None => println!("break glass: the coordinator's reach guard is lifted until the landing stall clears ({}); `north ledger flow --stall-alarm` reports when it clears", grant.evidence),
+                None => println!("break glass: the coordinator's reach guard is lifted for at most {} minutes, or until the landing stall clears ({}); `north ledger flow --stall-alarm` reports when it clears", break_glass::minutes(), grant.evidence),
             }
             Ok(())
         }
