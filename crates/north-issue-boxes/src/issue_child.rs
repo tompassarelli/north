@@ -6,9 +6,9 @@ use serde_json::json;
 use super::issue_convert::{manifest, read, scan, slug};
 use north_base::platform::box_oracles::done_when_command;
 
-const USAGE: &str = "usage: north issue child [OWNER/]REPO#N --title TITLE --body BODY [--type Task|Bug|Feature] [--label LABEL]...
+const USAGE: &str = "usage: north issue child [OWNER/]REPO#N --title TITLE --body BODY [--box TEXT] [--type Task|Bug|Feature] [--label LABEL]...
 
-Creates one sub-issue under the parent. Its type and labels are set and it is linked to the parent in one GraphQL mutation
+Creates one sub-issue under the parent. A confined worker names no parent: its own task issue is the parent, and the outside broker, which holds the token, runs the verb for it. --box TEXT is added to the body as one unticked box; with no --label the parent's type, priority and category labels are taken, and its Category: and Class: lines go first in a body that has none. Its type and labels are set and it is linked to the parent in one GraphQL mutation
 through the broker, and the new issue's URL is printed. It refuses a title equal to an open issue's, a body with no
 runnable Done when (a command in backticks), a parent in another owner's repository, a parent that holds 100 children
 already, a type or label the repository lacks, and text the public deny-list matches in a public repository.";
@@ -21,6 +21,7 @@ struct Asked {
     body: String,
     kind: String,
     labels: Vec<String>,
+    box_text: Option<String>,
 }
 
 #[derive(Default)]
@@ -30,6 +31,7 @@ struct Tokens {
     body: Option<String>,
     kind: Option<String>,
     labels: Vec<String>,
+    box_text: Option<String>,
 }
 
 impl Tokens {
@@ -39,6 +41,7 @@ impl Tokens {
             "--body" => self.body = Some(value),
             "--type" => self.kind = Some(value),
             "--label" => self.labels.push(value),
+            "--box" => self.box_text = Some(value),
             _ => return Err(format!("unknown flag {flag}")),
         }
         Ok(())
@@ -71,7 +74,7 @@ fn asked(arguments: &[String]) -> Result<Asked, String> {
     let (owner, name, number) = parent(&tokens.parent.ok_or("name the parent as [OWNER/]REPO#N")?)?;
     let title = tokens.title.filter(|title| !title.trim().is_empty()).ok_or("--title names the child's title")?;
     let body = tokens.body.ok_or("--body names the child's body")?;
-    Ok(Asked { owner, name, number, title, body, kind: tokens.kind.unwrap_or_else(|| "Task".to_owned()), labels: tokens.labels })
+    Ok(Asked { owner, name, number, title, body, kind: tokens.kind.unwrap_or_else(|| "Task".to_owned()), labels: tokens.labels, box_text: tokens.box_text })
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -100,6 +103,8 @@ fn create(asked: &Asked) -> Result<bool, String> {
     let reference = format!("{}/{}#{}", asked.owner, asked.name, asked.number);
     let open = read::repository(&asked.owner, &asked.name, false)?;
     let target = read::target(&asked.owner, &asked.name, asked.number)?;
+    let completed = completed(asked, open.issues.iter().find(|issue| issue.number == asked.number), &target);
+    let asked = &completed;
     let titles: Vec<String> = open.issues.iter().map(|issue| issue.title.clone()).collect();
     let scanner = scan(open.private);
     let refused = refusals(asked, &titles, &target, &*scanner);
@@ -119,6 +124,29 @@ fn create(asked: &Asked) -> Result<bool, String> {
     }))?;
     println!("created {}/{}#{} under {reference}: {}", asked.owner, asked.name, answer["number"], answer["url"].as_str().unwrap_or_default());
     Ok(true)
+}
+
+const FIRST_LINES: [&str; 2] = ["Category", "Class"];
+const INHERITED_LABELS: [&str; 3] = ["bug", "enhancement", "documentation"];
+
+fn completed(asked: &Asked, parent: Option<&read::Issue>, target: &read::Target) -> Asked {
+    let mut body = asked.body.clone();
+    let mut labels = asked.labels.clone();
+    if let Some(parent) = parent {
+        let present = |key: &str| body.lines().any(|line| line.trim_start_matches(|letter: char| letter.is_whitespace() || "*>-".contains(letter)).to_ascii_lowercase().starts_with(&format!("{}:", key.to_ascii_lowercase())));
+        let header: Vec<&str> = FIRST_LINES.iter().filter(|key| !present(key)).filter_map(|key| parent.body.lines().find(|line| line.starts_with(&format!("{key}:")))).collect();
+        if !header.is_empty() {
+            body = format!("{}\n\n{body}", header.join("\n"));
+        }
+        if labels.is_empty() {
+            let inherited = |label: &&String| (label.starts_with("priority:") || label.starts_with("category:") || INHERITED_LABELS.contains(&label.as_str())) && target.labels.contains_key(*label);
+            labels = parent.labels.iter().filter(inherited).cloned().collect();
+        }
+    }
+    if let Some(text) = asked.box_text.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+        body = format!("{}\n\n- [ ] {text}", body.trim_end());
+    }
+    Asked { owner: asked.owner.clone(), name: asked.name.clone(), number: asked.number, title: asked.title.clone(), body, kind: asked.kind.clone(), labels, box_text: None }
 }
 
 fn refusals(asked: &Asked, titles: &[String], target: &read::Target, scanner: &manifest::Scan) -> Vec<String> {

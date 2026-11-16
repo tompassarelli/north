@@ -7,6 +7,7 @@ mod brokered_reads;
 mod buck;
 mod capability;
 mod check_request;
+mod child_request;
 mod finish_request;
 mod fleet_compile;
 pub use fleet_compile::checked_shell;

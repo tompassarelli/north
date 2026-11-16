@@ -81,7 +81,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("gh-broker", crate::gh_broker::run),
     ("broker", north_broker::run),
     ("issue", |arguments| match arguments {
-        [word, rest @ ..] if word == "child" => crate::issue_child::run(rest),
+        [word, rest @ ..] if word == "child" => file_child(rest),
         _ => crate::issue_convert::run(arguments),
     }),
     ("ci-diagnose", crate::ci_watch::diagnose::run),
@@ -319,4 +319,10 @@ fn desktop(arguments: &[String]) -> u8 {
 
 fn capacity_host() -> capacity::effects::Host {
     capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, gpu_slots: crate::pacing::placement::local_gpu_slots, offload: north_offload::land_offload::run, stage_runtime: north_runtime::runtime::stage_on, reenter_outside: crate::worker_sandbox::reenter_outside, build_offload: north_offload::build_offload::offload, hand_over: north_offload::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, build_host: north_offload::land_offload::builds_for_peers, session_builds: crate::pacing::placement::local_session_builds, reclaim_disk, tend_disk: north_offload::offload_cache::tend, keep_disk, tend_slots: north_offload::land_offload::warm::tend }
+}
+
+fn file_child(arguments: &[String]) -> u8 {
+    let request: Vec<String> = ["issue", "child"].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect();
+    let outside = crate::platform::session_scope::confined_session().then(|| crate::worker_sandbox::reenter_outside(&request)).flatten();
+    outside.unwrap_or_else(|| crate::issue_child::run(arguments))
 }
