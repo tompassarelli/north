@@ -29,7 +29,8 @@ pub(super) fn read(survey: &Survey, dry_run: bool) -> Vec<String> {
 /// This host's disk lines: those `read` kept when this host is closed for its disk, else a fresh read of its harness stores.
 pub(super) fn here(survey: &Survey, kept: &[String]) -> Vec<String> {
     let prefix = format!("host {} disk: ", survey.here);
-    let lines: Vec<String> = kept.iter().filter(|line| line.starts_with(&prefix)).cloned().collect();
+    let keep = format!("{prefix}keep:");
+    let lines: Vec<String> = kept.iter().filter(|line| line.starts_with(&prefix) && !line.starts_with(&keep)).cloned().collect();
     if !lines.is_empty() {
         return lines;
     }
