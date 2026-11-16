@@ -1,8 +1,8 @@
 //! `north runtime tree-build`: builds north from the checkout it runs in and prints where the binary is, with Buck2 on a
 //! host whose `buck2_tree_build` is set and a tree whose Buck2 configuration is its base's, else with Cargo.
-//! `bin/head-north` calls it, on a host with a build engine and a live runtime, to run a tree's own north when the runtime
-//! does not cover the tree. With no live runtime that script bootstraps with Buck2, and a host with no engine never builds:
-//! it runs the tree's build-ahead artifact or exits 75.
+//! `bin/head-north` calls it, with a live runtime, to run a tree's own north when the runtime does not cover the tree. A host
+//! with no engine first tries the tree's build-ahead artifact, and builds with Cargo through this verb when none is reachable.
+//! With no live runtime that script bootstraps with `cargo build` through `bin/land-shell --dev`.
 
 use std::process::Stdio;
 
