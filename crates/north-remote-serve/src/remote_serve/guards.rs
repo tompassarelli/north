@@ -1,4 +1,4 @@
-use north_calibration::threads::catalog::CATALOG;
+use north_base::platform::repo_names::canonical;
 
 use super::{Grants, Jobs, Plan, Refusal};
 
@@ -53,8 +53,8 @@ fn repo_granted(word: &str, grants: &Grants) -> Result<(), String> {
 }
 
 fn granted(name: &str, grants: &Grants) -> Result<(), String> {
-    let repo = CATALOG.canonical(name);
-    if grants.repos.iter().any(|granted| CATALOG.canonical(granted) == repo) {
+    let repo = canonical(name);
+    if grants.repos.iter().any(|granted| canonical(granted) == repo) {
         Ok(())
     } else {
         Err(format!("{name} is not a repository granted to {}", grants.peer))

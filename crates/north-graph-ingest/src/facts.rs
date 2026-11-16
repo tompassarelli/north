@@ -1,4 +1,4 @@
-use north_graph::{Held, Telling, Term, Told};
+use north_graph::{Telling, Term, Told};
 
 pub struct Facts {
     telling: Telling,
@@ -25,16 +25,6 @@ impl Facts {
         self.telling.facts.push(Told::new(writer, subject, Term::keyword(predicate), object));
     }
 
-    pub fn holding(mut self, writer: &str, predicates: &[&str], quoting: &[&str], widens: fn(&Term, &Term) -> bool) -> Self {
-        let keywords = |names: &[&str]| names.iter().map(|name| Term::keyword(*name)).collect();
-        self.telling.held = Held { writer: writer.to_owned(), subjects: Vec::new(), predicates: keywords(predicates), quoting: keywords(quoting), widens: Some(widens) };
-        self
-    }
-
-    pub fn hold(&mut self, subject: impl Into<Term>) {
-        self.telling.held.subjects.push(subject.into());
-    }
-
     pub fn note(&mut self, line: String) {
         self.notes.push(line);
     }
@@ -50,24 +40,4 @@ impl Facts {
 
 pub fn text(value: impl Into<String>) -> Term {
     Term::string(value)
-}
-
-pub fn keyword(name: &str) -> Term {
-    Term::keyword(name)
-}
-
-pub fn instant(seconds: f64) -> Option<Term> {
-    if !seconds.is_finite() || seconds < 0.0 {
-        return None;
-    }
-    let whole = seconds.floor();
-    let nanos = ((seconds - whole) * 1e9).floor().clamp(0.0, 999_999_999.0);
-    Term::instant(whole as i64, nanos as u32).ok()
-}
-
-pub fn issue_ref(reference: &str) -> Option<String> {
-    let (repo, number) = reference.rsplit_once('#')?;
-    number.parse::<u64>().ok()?;
-    let name = repo.rsplit('/').next().filter(|name| !name.is_empty())?;
-    Some(format!("{name}#{number}"))
 }

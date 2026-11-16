@@ -12,10 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-coverage = { path = "../north-coverage" }
-north-fleet = { path = "../north-fleet" }
-north-github-mirror = { path = "../north-github-mirror" }
 north-graph = { path = "../north-graph" }
-north-threads = { path = "../north-threads" }
 regex.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true

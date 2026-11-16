@@ -17,7 +17,7 @@ use toml_edit::DocumentMut;
 use crate::agent_contain;
 use north_pacing::pacing::placement::{config, gate};
 use north_base::platform::ssh;
-use north_calibration::threads::client::shell_quote;
+use north_base::platform::ssh_session::shell_quote;
 use north_base::platform::process::run_within;
 use north_base::shell::shlex_split;
 

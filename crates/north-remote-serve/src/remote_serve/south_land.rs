@@ -10,7 +10,7 @@ use rustix::fs::{FlockOperation, flock};
 use super::south_policy;
 use north_base::platform::betterleaks;
 use north_base::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
-use north_fleet_supervisor::fleet::attachments::base64;
+use base64::Engine as _;
 
 pub const TOKEN_FILE: &str = "github-token";
 const BRANCH: &str = "main";
@@ -139,7 +139,7 @@ impl<'a> Session<'a> {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if authenticated {
-            let header = format!("Authorization: Basic {}", base64(format!("x-access-token:{}", self.token).as_bytes()));
+            let header = format!("Authorization: Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{}", self.token)));
             command
                 .env("GIT_CONFIG_COUNT", "1")
                 .env("GIT_CONFIG_KEY_0", format!("http.{}.extraHeader", self.remote))

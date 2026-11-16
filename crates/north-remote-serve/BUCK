@@ -24,9 +24,8 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-calibration:north-calibration",
-        "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//crates/north-foundation:north-foundation",
+        "//third-party:base64",
         "//third-party:rusqlite",
         "//third-party:rustix",
         "//third-party:serde",
@@ -45,9 +44,8 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-calibration:north-calibration",
-        "//crates/north-fleet-supervisor:north-fleet-supervisor",
         "//crates/north-foundation:north-foundation",
+        "//third-party:base64",
         "//third-party:rusqlite",
         "//third-party:rustix",
         "//third-party:serde",

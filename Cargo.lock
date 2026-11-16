@@ -1681,12 +1681,9 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-coverage",
- "north-fleet",
  "north-foundation",
- "north-github-mirror",
  "north-graph",
  "north-graph-ground",
- "north-threads",
  "regex",
  "rusqlite",
  "serde_json",
@@ -2089,9 +2086,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-capacity-host",
- "north-fleet",
  "north-lanes",
- "north-threads",
  "rustix 0.38.44",
  "serde_json",
  "sha2",
@@ -2110,9 +2105,8 @@ dependencies = [
 name = "north-remote-serve"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "north-base",
- "north-calibration",
- "north-fleet-supervisor",
  "north-foundation",
  "rusqlite",
  "rustix 0.38.44",

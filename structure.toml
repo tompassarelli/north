@@ -365,7 +365,7 @@ may_use = []
 name = "north-graph-ingest"
 layer = 6
 paths = ["crates/north-graph-ingest/src/**"]
-may_use = ["north-base", "north-coverage", "north-fleet", "north-github-mirror", "north-graph", "north-threads"]
+may_use = ["north-base", "north-coverage", "north-graph"]
 
 [[crate_dag.crate]]
 name = "north-graph-change"
@@ -895,8 +895,8 @@ may_use = ["crate-roots", "lifecycle"]
 [[module]]
 name = "graph_ingest"
 paths = ["crates/north-graph-ingest/src/**"]
-responsibility = "Loading what north already records into the fact graph: the GitHub mirror, ledger, push log, corrections, coverage map, workspace manifests and recorded test reads, each told as a set by its own writer."
-may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "threads", "lifecycle", "platform.harness", "platform.process", "platform.store", "platform.records", "verdict_cache"]
+responsibility = "Loading what north already records into the fact graph: the coverage map, workspace manifests and recorded test reads, each told as a set by its own writer."
+may_use = ["coverage", "crate-roots", "foundation", "graph", "lifecycle", "platform.harness", "platform.process", "platform.store", "platform.records", "verdict_cache"]
 
 [[module]]
 name = "graph_change"
@@ -1360,7 +1360,7 @@ may_use = ["north-base", "north-calibration", "north-dispatch", "north-github-mi
 name = "north-reclaim"
 layer = 6
 paths = ["crates/north-reclaim/src/**"]
-may_use = ["north-base", "north-capacity-host", "north-fleet", "north-lanes", "north-threads"]
+may_use = ["north-base", "north-capacity-host", "north-lanes"]
 [[crate_dag.crate]]
 name = "north-ci"
 layer = 6
@@ -1376,7 +1376,7 @@ may_use = ["north-fleet-supervisor"]
 name = "north-remote-serve"
 layer = 6
 paths = ["crates/north-remote-serve/src/**"]
-may_use = ["north-base", "north-calibration", "north-fleet-supervisor"]
+may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-trusted-mirror"

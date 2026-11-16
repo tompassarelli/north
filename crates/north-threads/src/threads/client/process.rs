@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use north_foundation::error::NorthResult;
 use north_base::platform::process::child_within;
+pub use north_base::platform::ssh_session::shell_quote;
 use crate::threads::outside;
 
 /// Waits on a child for up to a limit, `None` once it outlasted it and was killed; a stalled-host test swaps the clock for an event.
@@ -148,16 +149,6 @@ pub(super) fn has_usage(data: &[u8]) -> NorthResult<bool> {
         }
     }
     Ok(false)
-}
-
-pub fn shell_quote(word: &str) -> String {
-    if word.is_empty() {
-        return "''".into();
-    }
-    if word.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte)) {
-        return word.into();
-    }
-    format!("'{}'", word.replace('\'', "'\"'\"'"))
 }
 
 pub(super) fn python_json(items: &[String]) -> String {

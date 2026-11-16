@@ -4,17 +4,14 @@
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+use north_base::platform::repo_names::{ALIASES, NATIVE, OWNER, REPOS};
+
 pub struct Catalog {
     pub owner: String,
     pub repos: Vec<String>,
     pub native: Vec<String>,
     aliases: BTreeMap<String, String>,
 }
-
-const OWNER: &str = "tompassarelli";
-const REPOS: [&str; 11] = ["makgora", "makgora-client", "padbridge", "wisp", "firn", "north", "south", "gjoa", "fram", "wake", "battlecraft"];
-const ALIASES: [(&str, &str); 4] = [("nixos-config", "firn"), ("smashcraft", "makgora"), ("smashcraft-client", "makgora-client"), ("smashcraft-dev", "makgora")];
-const NATIVE: [&str; 4] = ["life", "accounts", "travel", "ops"];
 
 pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog {
     owner: OWNER.to_owned(),

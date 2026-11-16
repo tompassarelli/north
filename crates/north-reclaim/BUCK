@@ -25,9 +25,7 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-capacity-host:north-capacity-host",
-        "//crates/north-fleet:north-fleet",
         "//crates/north-lanes:north-lanes",
-        "//crates/north-threads:north-threads",
         "//third-party:rustix",
         "//third-party:serde_json",
         "//third-party:sha2",
@@ -47,9 +45,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-capacity-host:north-capacity-host",
-        "//crates/north-fleet:north-fleet",
         "//crates/north-lanes:north-lanes",
-        "//crates/north-threads:north-threads",
         "//third-party:rustix",
         "//third-party:serde_json",
         "//third-party:sha2",

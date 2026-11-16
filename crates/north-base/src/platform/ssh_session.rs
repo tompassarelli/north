@@ -89,6 +89,16 @@ fn program(remote: &str) -> String {
     words.next().map_or_else(String::new, |word| word.rsplit('/').next().unwrap_or_default().to_owned())
 }
 
+pub fn shell_quote(word: &str) -> String {
+    if word.is_empty() {
+        return "''".into();
+    }
+    if word.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte)) {
+        return word.into();
+    }
+    format!("'{}'", word.replace('\'', "'\"'\"'"))
+}
+
 /// The words of a remote command whose only quoting is the single quotes `shell_quote` writes.
 fn words(remote: &str) -> Vec<String> {
     let (mut words, mut word, mut quoted, mut started) = (Vec::new(), String::new(), false, false);

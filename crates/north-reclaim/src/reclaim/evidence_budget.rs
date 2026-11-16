@@ -85,7 +85,7 @@ const ISSUE_READ_PAUSE: Duration = Duration::from_secs(5);
 
 /// The bodies and comments of the open issues in every catalogued repository that writes or cites Mak'gora evidence.
 pub(super) fn open_issue_text() -> Result<String, String> {
-    let owner = &north_threads::threads::catalog::CATALOG.owner;
+    let owner = north_base::platform::repo_names::OWNER;
     ["makgora", "north", "wisp"]
         .iter()
         .map(|repo| {

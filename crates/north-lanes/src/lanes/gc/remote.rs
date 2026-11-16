@@ -111,7 +111,8 @@ impl Gc {
 
     fn branch_facts<'a>(&self, name: &str, main: &Path, tip: &'a Tip) -> Branch<'a> {
         let landing = tip.name.starts_with(LANDING);
-        let seen_ms = if landing { tip.committed_ms.max(reflog_ms(&main.join(".git/logs/refs/remotes/origin").join(&tip.name)) as i64) } else { tip.committed_ms };
+        let common = std::path::PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).out);
+        let seen_ms = if landing { tip.committed_ms.max(reflog_ms(&common.join("logs/refs/remotes/origin").join(&tip.name)) as i64) } else { tip.committed_ms };
         Branch {
             name: &tip.name,
             tip: &tip.oid,

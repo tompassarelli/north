@@ -1701,7 +1701,7 @@ allowed = { min_len = 1 }
 unit = "the issue that owns each harness cause class of docs/rationale/attribution.md, as CLASS=ISSUE: the 24 h usage `north ledger flow` charges a class counts toward its owner's rank in `north graph ready`"
 source = "coordinator: the fact graph ranks the ready list by the measured usage an issue's fix would remove per dollar of its box (north#734, 2026-11-07); each class goes to the open issue whose boxes fix it: placement, waits and compaction to north#706's placement, staffing and attribution boxes, access to the GitHub gateway (north#638), capacity to measured capacity (north#259), false revert and landing refusal to no queue waits behind work that cannot start (north#1247), duplicate to one coordinator and no queue override (north#636), gate refusal to measured false refusals (north#715)"
 fallback = "a class with no owner here counts toward no issue's rank"
-consumers = ["crates/north-graph-ingest/src/losses.rs"]
+consumers = ["crates/north-unblocks/src/review.rs"]
 
 [landing_refusals]
 value = "shadow"
@@ -1807,10 +1807,10 @@ fallback = "none: a seat naming a listed provider is refused when the chain is r
 consumers = ["src/cli/fleet/coordinator_chain.rs"]
 
 [graph_retired_writers]
-value = ["decision-log"]
+value = ["decision-log", "mirror", "ranking", "ledger", "threads", "push-log", "corrections"]
 allowed = { min_len = 0 }
 unit = "fact-graph writers whose source is gone: north graph ingest retracts what they still hold live, and north graph retain deletes their whole dead history"
-source = "coordinator: decision-log was 57% of live assertions with no reader and north#882's ingest tax lane retired it in dceadd4cea (2026-11-08); its retraction grew graph.db from 531 MB to 574 MB until north graph retain deletes the pairs (docs/rationale/world-model.md decision 6)"
+source = "coordinator: decision-log was 57% of live assertions with no reader and north#882's ingest tax lane retired it in dceadd4cea (2026-11-08); its retraction grew graph.db from 531 MB to 574 MB until north graph retain deletes the pairs (docs/rationale/world-model.md decision 6); the mirror, ranking, ledger, threads, push-log and corrections loaders left north graph ingest in the core cut of north#1650 (2026-11-16)"
 fallback = "an empty list retires no writer and retain deletes only withdrawn history below its horizon"
 consumers = ["crates/north-graph-ingest/src/run.rs"]
 

@@ -43,7 +43,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             let deadline = std::env::var("NORTH_HOOK_DEADLINE_MS").ok().and_then(|ms| ms.parse().ok()).map_or(GUARD_DEADLINE, std::time::Duration::from_millis);
             let worked = move || {
                 let mut answer = Vec::new();
-                let outcome = hook::run(&arguments, &request, &mut answer).map(|evidence| evidence.iter().for_each(crate::record_evidence));
+                let outcome = hook::run(&arguments, &request, &mut answer).map(drop);
                 (outcome, answer)
             };
             match foundation::hook_deadline::within(started + deadline, worked) {

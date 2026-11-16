@@ -1,12 +1,10 @@
 mod build_output;
 mod capture_batches;
 mod cache_cap;
-mod ended_lanes;
 mod evidence_budget;
 mod held;
 mod lan_clients;
 mod lan_residue;
-mod scratch;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -32,12 +30,11 @@ pub(super) fn setting(name: &str) -> f64 {
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
-const USAGE: &str = "usage: north lane reclaim [--dry-run] [--idle-hours H] [--only scratch]";
+const USAGE: &str = "usage: north lane reclaim [--dry-run] [--idle-hours H]";
 const DEFAULT_IDLE_HOURS: u64 = 24;
 const KEPT_PAIRS: [u32; 2] = [0, 1];
 
 pub(super) struct Inputs {
-    tmp: PathBuf,
     proc_root: PathBuf,
     code: PathBuf,
     buck_daemons: PathBuf,
@@ -49,9 +46,7 @@ pub(super) struct Inputs {
     evidence: PathBuf,
     capture_queue: PathBuf,
     disk_budget: DiskBudget,
-    host: String,
     open_issue_text: fn() -> Result<String, String>,
-    uid: u32,
     now: SystemTime,
 }
 
@@ -62,7 +57,6 @@ impl Inputs {
         let data = set("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
         let state = set("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state"));
         Self {
-            tmp: PathBuf::from("/tmp"),
             proc_root: PathBuf::from("/proc"),
             code: home.join("code"),
             buck_daemons: home.join(".buck/buckd"),
@@ -74,41 +68,21 @@ impl Inputs {
             evidence: state.join("makgora/evidence"),
             capture_queue: state.join("makgora/capture-queue"),
             disk_budget: DiskBudget::local(),
-            host: north_base::platform::land_queue::local_host(),
             open_issue_text: evidence_budget::open_issue_text,
-            uid: rustix::process::getuid().as_raw(),
             now: SystemTime::now(),
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub(super) enum Scope {
-    Everything,
-    Scratch,
-}
-
 pub(super) struct Policy {
     idle: Duration,
     dry_run: bool,
-    scope: Scope,
 }
 
 impl Policy {
     pub(super) fn everything(idle: Duration) -> Self {
-        Self { idle, dry_run: false, scope: Scope::Everything }
+        Self { idle, dry_run: false }
     }
-}
-
-pub(super) struct Left {
-    pub(super) path: PathBuf,
-    pub(super) why: String,
-}
-
-#[derive(Default)]
-pub(super) struct Reclaimed {
-    pub(super) removals: Vec<Removal>,
-    pub(super) left: Vec<Left>,
 }
 
 pub(super) struct Removal {
@@ -123,8 +97,8 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let inputs = Inputs::from_env();
-    let Reclaimed { removals, left } = match reclaim(&inputs, &policy) {
-        Ok(reclaimed) => reclaimed,
+    let removals = match reclaim(&inputs, &policy) {
+        Ok(removals) => removals,
         Err(error) => {
             eprintln!("north lane reclaim: {error}");
             return 1;
@@ -133,9 +107,6 @@ pub fn run(arguments: &[String]) -> u8 {
     let verb = if policy.dry_run { "would remove" } else { "removed" };
     for removal in &removals {
         println!("{verb} {}: {}", removal.path.display(), removal.reason);
-    }
-    for left in &left {
-        println!("left: {} ({})", left.path.display(), left.why);
     }
     println!("{}", summary(&removals, policy.dry_run));
     0
@@ -147,7 +118,6 @@ fn policy(arguments: &[String]) -> Option<Policy> {
     while let Some(argument) = rest.next() {
         match argument.as_str() {
             "--dry-run" => policy.dry_run = true,
-            "--only" if rest.next()? == "scratch" => policy.scope = Scope::Scratch,
             "--idle-hours" => policy.idle = Duration::from_secs(rest.next()?.parse::<u64>().ok()?.checked_mul(3600)?),
             _ => return None,
         }
@@ -155,22 +125,17 @@ fn policy(arguments: &[String]) -> Option<Policy> {
     Some(policy)
 }
 
-pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Reclaimed> {
+pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Removal>> {
     let held = held::paths(&inputs.proc_root);
-    let Reclaimed { mut removals, left } = scratch::sweep(inputs, policy, &held)?;
-    if policy.scope == Scope::Scratch {
-        return Ok(Reclaimed { removals, left });
-    }
-    removals.extend(lan_clients::sweep(inputs, policy, &held)?);
+    let mut removals = lan_clients::sweep(inputs, policy, &held)?;
     removals.extend(lan_residue::sweep(inputs, policy, &held)?);
-    removals.extend(ended_lanes::sweep(inputs, policy, &held));
     removals.extend(build_output::sweep(inputs, policy, &held)?);
     removals.extend(cache_cap::sweep(inputs, policy, &held)?);
     if let Some(budget) = evidence_budget::Budget::of(&inputs.disk_budget) {
         removals.extend(evidence_budget::sweep(inputs, policy, &held, &budget, 0)?);
     }
     removals.extend(capture_batches::sweep(inputs, policy, &held)?);
-    Ok(Reclaimed { removals, left })
+    Ok(removals)
 }
 
 /// `north evidence start RUN`: brings the evidence store under its budget, then creates and prints the run's folder.
@@ -215,7 +180,7 @@ pub fn sweep_here() {
     }
     let policy = Policy::everything(Duration::from_secs(DEFAULT_IDLE_HOURS * 3600));
     match reclaim(&Inputs::from_env(), &policy) {
-        Ok(reclaimed) => eprintln!("north capacity: disk pass reclaimed idle build output: {}", summary(&reclaimed.removals, false)),
+        Ok(removals) => eprintln!("north capacity: disk pass reclaimed idle build output: {}", summary(&removals, false)),
         Err(error) => eprintln!("north capacity: disk pass reclaim failed: {error}"),
     }
 }
@@ -231,7 +196,7 @@ fn before_disk_defer(stamp: &Path, free_gib: fn() -> Option<f64>) -> Option<f64>
     fs::write(stamp, b"").ok()?;
     let policy = Policy::everything(Duration::from_secs(DEFAULT_IDLE_HOURS * 3600));
     match reclaim(&Inputs::from_env(), &policy) {
-        Ok(reclaimed) => eprintln!("north capacity: disk under the floor, so reclaimed first: {}", summary(&reclaimed.removals, false)),
+        Ok(removals) => eprintln!("north capacity: disk under the floor, so reclaimed first: {}", summary(&removals, false)),
         Err(error) => eprintln!("north capacity: disk under the floor; reclaim failed: {error}"),
     }
     free_gib()

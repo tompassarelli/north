@@ -6,13 +6,11 @@ use north_base::platform::harness::{DEFAULTS, document};
 use north_graph::{Atom, Graph, Retained, Retention, Synced, Telling, Term, default_path};
 
 use crate::places::Places;
-use crate::shas::Shas;
-use crate::observations;
 use crate::source::Source;
 use crate::crates;
 use crate::facts::{Facts, Sourced, text};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE... | crates@COMMIT...]\n       north graph retain [--db PATH]\nsources: mirror ranking ledger losses pushes touches corrections coverage crates reads observations (all when none is named); crates@COMMIT adds one commit's crates beside the head's";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE... | crates@COMMIT...]\n       north graph retain [--db PATH]\nsources: coverage crates reads (all when none is named); crates@COMMIT adds one commit's crates beside the head's";
 
 const RETAIN_PATIENCE: Duration = Duration::from_secs(10 * 60);
 const WRITER: &str = "graph-ingest";
@@ -27,7 +25,6 @@ pub struct Report {
 }
 
 pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report {
-    let shas = Shas::read(places);
     let mut report = Report::default();
     for writer in retired_writers() {
         match graph.retire(&writer) {
@@ -42,11 +39,7 @@ pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report 
     let mut replaced: HashMap<Term, &'static str> = HashMap::new();
     let mut outcomes: Vec<(&'static str, String)> = Vec::new();
     for source in sources {
-        if *source == Source::Observations {
-            outcomes.push((source.name(), observe(graph, places, &mut report)));
-            continue;
-        }
-        let outcome = source.read(places, &shas).and_then(|Sourced { telling, notes }| {
+        let outcome = source.read(places).and_then(|Sourced { telling, notes }| {
             if let Some((predicate, other)) = telling.replaces.iter().find_map(|predicate| replaced.get(predicate).map(|other| (predicate, other))) {
                 return Err(format!("it replaces {predicate}, which {other} already replaces in this run"));
             }
@@ -112,7 +105,7 @@ fn record(graph: &mut Graph, outcomes: &[(&'static str, String)]) -> Result<(), 
 pub fn run(arguments: &[String]) -> u8 {
     let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok();
     match arguments.split_first() {
-        Some((verb, rest)) if verb == "ingest" => ingest_command(rest, cgroup.as_deref()),
+        Some((verb, rest)) if verb == "ingest" => ingest_command(rest),
         Some((verb, rest)) if verb == "retain" => retain_command(rest),
         _ => north_graph::run_guarded(arguments, &|verb, writer| crate::trusted_writers::refusal(verb, writer, cgroup.as_deref())),
     }
@@ -145,26 +138,11 @@ fn ingest_arguments(arguments: &[String]) -> Result<IngestArguments, String> {
     Ok(parsed)
 }
 
-fn refusals(parsed: &IngestArguments, cgroup: Option<&str>) -> Vec<String> {
-    let mut refused: Vec<String> = parsed.sources.iter().filter_map(|source| crate::trusted_writers::ingest_refusal(source.name(), source.writers(), cgroup)).collect();
-    if !parsed.commits.is_empty() {
-        refused.extend(crate::trusted_writers::ingest_refusal(Source::Crates.name(), Source::Crates.writers(), cgroup));
-    }
-    refused
-}
-
-fn ingest_command(arguments: &[String], cgroup: Option<&str>) -> u8 {
+fn ingest_command(arguments: &[String]) -> u8 {
     let parsed = match ingest_arguments(arguments) {
         Ok(parsed) => parsed,
         Err(why) => return usage(&why),
     };
-    let refused = refusals(&parsed, cgroup);
-    if !refused.is_empty() {
-        for why in &refused {
-            eprintln!("north graph ingest: {why}");
-        }
-        return 1;
-    }
     let IngestArguments { db, sources, commits } = parsed;
     let mut graph = match Graph::open(&db) {
         Ok(graph) => graph,
@@ -241,19 +219,4 @@ fn alone(db: &std::path::Path) -> Option<std::fs::File> {
 fn usage(why: &str) -> u8 {
     eprintln!("north graph ingest: {why}\n{USAGE}");
     2
-}
-
-fn observe(graph: &mut Graph, places: &Places, report: &mut Report) -> String {
-    match observations::append(graph, places) {
-        Ok(observations::Appended { asserted, unchanged, notes }) => {
-            report.lines.push(format!("observations: {asserted} asserted, 0 retracted, {unchanged} unchanged"));
-            report.lines.extend(notes.into_iter().map(|note| format!("observations: {note}")));
-            format!("{} facts", asserted + unchanged)
-        }
-        Err(why) => {
-            report.failed = true;
-            report.lines.push(format!("observations: skipped: {why}"));
-            format!("refused: {why}")
-        }
-    }
 }

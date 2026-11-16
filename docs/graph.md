@@ -119,7 +119,7 @@ computation, and exits non-zero unless the median of 20 runs is under 50 ms.
 short command for a timer or hook: it reads the local copies (never the GitHub API), compares them with the live assertions
 and tells only the difference, so a rerun over unchanged sources asserts and retracts nothing. A source that cannot be read
 is skipped with its reason and the exit code is 1; the others still load.
-From a fleet session's scope an ingest of `mirror`, `ledger`, `touches` or `observations` is refused before the database is opened, since those sources tell under `checker`, `mirror`, `lander` or `git`, and an ingest with no source named is refused there for the same reason. The runs that own those writers are `north land follow --work` (on the host `post_landing_host` places it) and the ledger host's ingest timer.
+The sources are `coverage`, `crates` and `reads`, the code loaders; the mirror, ranking, ledger, losses, push-log, touches, corrections and observations loaders left the core cut of north#1650 (2026-11-16), and `graph_retired_writers` in harness/defaults.toml retracts what the dropped writers still hold.
 
 Facts are told by the writer that would know them. A worker's Done claim is a quoted triple asserted by that worker, never a
 bare fact; a checker's observation is an assertion by `checker`. `assertion(writer, t1, t2, t3)` has a row per live
@@ -202,25 +202,9 @@ deletes its history (see Retention).
 
 ### Which host ingests what
 
-The graph is per host. A landing's `north land follow` ingests every source on the host `post_landing_host` in harness/defaults.toml places its post-landing work: the lander's host when that is a build host, else a build host, so the laptop's lander ingests nothing (north#1553). The ledger host
-(nexus) keeps its own, built every five minutes by south's `north-graph-ingest` timer
-(`modules/north-graph-ingest.nix`), so `north graph ready`, dispatch's backlog read and the learning loops that read the graph
-run where the ledger, the mirror and the threads database are. It runs
-`north graph ingest mirror ranking ledger losses observations` and no other source, each read from a copy the ledger host
-already holds: `mirror` from its own `github-mirror.db`, `ranking` from the `~/code/north/main` checkout that checkout-sync
-keeps current, `ledger` from its `ledger.db`, `losses` from its threads database, and `observations` from the threads
-database's `landings`, which the lander writes there, and `done_checks`, which each host's threads spool carries there, with
-the ancestry of claimed commits from the `~/code/REPO/main` checkouts checkout-sync keeps; a repository with no checkout there
-leaves a note and no ancestry. A named source that cannot be read fails the unit, which notifies through `update-notify`.
+The graph is per host. A landing's `north land follow` ingests every source on the host `post_landing_host` in harness/defaults.toml places its post-landing work: the lander's host when that is a build host, else a build host, so the laptop's lander ingests nothing (north#1553). South's `north-graph-ingest` timer on the ledger host passed the dropped sources (`mirror ranking ledger losses observations`); a named source north no longer has is refused as an unknown argument, so that module needs its argument list cut to the sources above.
 
-The rest stay laptop-only, so a ledger-host graph holds no fact from them:
-
-- `pushes` and `touches`: the push log (`safe-push/pushes.tsv`) is written where `safe-push` runs, the lander is the laptop,
-  and `records-mirror` does not carry it. `:landed-as` and `:works-on` reach the ledger host's graph through `ledger`.
-- `corrections`: `grounding/ledger.jsonl` is written and read on the laptop, and no copy is mirrored to the ledger host.
-- `coverage`: the coverage map is built on the laptop and no copy is mirrored to the ledger host.
-- `crates`: the change graph is read by landings, which run on the laptop, and the ledger host's timer does not name it.
-- `reads`: the shadow log and the path sets are written by the laptop's landings, and the ledger host holds no copy.
+`coverage`, `crates` and `reads` read files the laptop's landings write, so a ledger-host graph holds no fact from them.
 
 Which Done claims on north#634 have no checker observation, as one `ask` (`claim` joins each worker's quoted claim to the boxes
 of the issue; `observed` is a commit `checker` passed):
