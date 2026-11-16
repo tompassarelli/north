@@ -19,19 +19,19 @@ pub(super) struct Reads {
 pub(super) fn read(cfg: &DocumentMut, projects: &Projects, here: &str, at: f64, notes: &mut Vec<String>) -> Reads {
     let repos = projects.repos();
     std::thread::scope(|scope| {
-        let fleet_lists = spawn(scope, |notes| fleets::everywhere(cfg, here, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
-        let gates = spawn(scope, |notes| fleets::everywhere(cfg, here, &["gate", "list", "--json"], "gates", at, PROBE, notes));
-        let issues = spawn(scope, |notes| github::open_issues(repos, at, notes));
-        let claim_lists = spawn(scope, |notes| claim_listings(cfg, here, at, notes));
-        let evidence = spawn(scope, |notes| {
+        let fleet_lists = spawn(scope, "read fleet lists", |notes| fleets::everywhere(cfg, here, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
+        let gates = spawn(scope, "read gate lists", |notes| fleets::everywhere(cfg, here, &["gate", "list", "--json"], "gates", at, PROBE, notes));
+        let issues = spawn(scope, "read issues", |notes| github::open_issues(repos, at, notes));
+        let claim_lists = spawn(scope, "read claim lists", |notes| claim_listings(cfg, here, at, notes));
+        let evidence = spawn(scope, "read closed report", |notes| {
             let report = closed(notes);
             let ledger = evidence_from(&tier::evidenced(), report.as_ref());
             (report, ledger)
         });
-        let remote_arms = spawn(scope, |notes| remote_arm_boxes(cfg, here, notes));
-        let grounds = spawn(scope, Ledger::read);
-        let strands = spawn(scope, |notes| strands::read(cfg, here, at, notes));
-        let jobs = spawn(scope, |notes| remote_json(None, &["threads", "queue", "--json"]).unwrap_or_else(|why| {
+        let remote_arms = spawn(scope, "read remote arms", |notes| remote_arm_boxes(cfg, here, notes));
+        let grounds = spawn(scope, "read ledger", Ledger::read);
+        let strands = spawn(scope, "read strands", |notes| strands::read(cfg, here, at, notes));
+        let jobs = spawn(scope, "read threads queue", |notes| remote_json(None, &["threads", "queue", "--json"]).unwrap_or_else(|why| {
             notes.push(format!("threads queue unread, so a laptop launch waiting there over {:.0} min reads as forgotten: {why}", record::LAPTOP_SHOW_S / 60.0));
             Value::Null
         }));
@@ -48,10 +48,11 @@ pub(super) fn read(cfg: &DocumentMut, projects: &Projects, here: &str, at: f64, 
     })
 }
 
-fn spawn<'scope, T: Send + 'scope>(scope: &'scope std::thread::Scope<'scope, '_>, reader: impl FnOnce(&mut Vec<String>) -> T + Send + 'scope) -> std::thread::ScopedJoinHandle<'scope, (T, Vec<String>)> {
+fn spawn<'scope, T: Send + 'scope>(scope: &'scope std::thread::Scope<'scope, '_>, name: &'static str, reader: impl FnOnce(&mut Vec<String>) -> T + Send + 'scope) -> std::thread::ScopedJoinHandle<'scope, (T, Vec<String>)> {
     scope.spawn(move || {
         let mut notes = Vec::new();
-        (reader(&mut notes), notes)
+        let value = super::super::phase::timed(name, || reader(&mut notes));
+        (value, notes)
     })
 }
 

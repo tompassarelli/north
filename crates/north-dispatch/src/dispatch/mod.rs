@@ -20,6 +20,8 @@ pub use survey::github::recheck as work_gone;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes, floored_p90};
 pub use manual::{Ask, Start, begin as start_hand, draw_untasked_window, issue_text, picked_tier, tier_reason, untasked};
 pub use pause::{check_passes as pause_check_passes, recorded as recorded_pause, review as review_pause, standing as paused};
+pub use home::elsewhere as dispatch_host_elsewhere;
+pub use host_report::{LIMIT_BYTES as HOST_RECORD_BYTES, RECORD as HOST_RECORD, republish as republish_host_record, write_tick as record_tick};
 pub use record::{Record as LaunchRecord, directory as launch_directory, read as launch_records};
 pub use tier::{ARM_WINDOW, Effort, Evidence, Rung, Tier, evidenced, seed_cell};
 
@@ -282,7 +284,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     let round = round::Round::of(&outcome, &stopped, placement::now());
     phase::enter("record");
     if !dry_run {
-        record_round(&survey, &round);
+        record_round(&round);
     }
     phase::enter("lead stops and drafting");
     print_lines(leads::stop_all(&outcome.tree.stops, dry_run, |lead| effects::stop_lead(&survey, lead)));
@@ -290,7 +292,12 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     phase::enter("review queue");
     print_lines(deepseek::review::queue(&survey.deepseek.review, &survey.here, survey.laptop.as_deref(), &|host, words| effects::north_on(&survey, host, words), dry_run));
     print_lines(survey.deepseek.limit.release(&record::directory(), &mut |host, words| effects::north_on(&survey, host, words), dry_run));
-    alerts_and_disk(&survey, &outcome, &stopped, dry_run)
+    let code = alerts_and_disk(&survey, &outcome, &stopped, dry_run);
+    println!("{}", phase::line());
+    if !dry_run && let Err(why) = host_report::write(&survey, &round, round.at) {
+        eprintln!("north fleet dispatch: host record not written: {why}");
+    }
+    code
 }
 
 /// The round's freeze alert, its failure reports and its disk reading, and the exit code they make.
@@ -316,12 +323,9 @@ fn alerts_and_disk(survey: &Survey, outcome: &Outcome, stopped: &[(IssueRef, Str
     exit(told, reported, watched)
 }
 
-fn record_round(survey: &Survey, round: &round::Round) {
+fn record_round(round: &round::Round) {
     if let Err(why) = round.save() {
         eprintln!("north fleet dispatch: round not recorded: {why}");
-    }
-    if let Err(why) = host_report::write(survey, round, round.at) {
-        eprintln!("north fleet dispatch: host record not written: {why}");
     }
 }
 

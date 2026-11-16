@@ -4,7 +4,7 @@ use north_pacing::pacing::placement::gate;
 use toml_edit::{DocumentMut, Item};
 
 /// The dispatch host and the ssh destination that reaches it, when it is not `here`.
-pub(super) fn elsewhere(cfg: &DocumentMut, here: &str) -> Option<(String, String)> {
+pub fn elsewhere(cfg: &DocumentMut, here: &str) -> Option<(String, String)> {
     let host = cfg.get("placement")?.get("dispatch_host").and_then(Item::as_str)?;
     (host != here).then(|| {
         let ssh = gate::machines(cfg).into_iter().find(|machine| machine.name == host).map_or_else(|| host.to_owned(), |machine| machine.ssh);

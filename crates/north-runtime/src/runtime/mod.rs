@@ -27,6 +27,7 @@ mod pull;
 mod north_processes;
 mod probe;
 mod remote;
+mod dispatch_record;
 pub mod mirror;
 mod replay;
 mod reuse;

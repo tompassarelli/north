@@ -393,6 +393,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let at = placement::now();
     let mut notes = Vec::new();
     let laptop = fleets::laptop(&cfg, &here);
+    super::phase::enter("survey reads");
     let mut reads = inputs::read(&cfg, &projects, &here, at, &mut notes);
     let mut fleet = fleet::sessions(&reads);
     let laptop_reports = laptop.as_deref().map_or(Value::Null, |host| fleets::mirrored_reports(&record::directory(), host, &mut notes));
@@ -407,6 +408,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&fleet.sessions, name, record::recent_on(&fleet.records, name, &reads.open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, fleet.elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
+    super::phase::enter("survey accounts and spend");
     let accounts = accounts(&cfg, roster, &here, at, &mut notes);
     let line_held = north_pacing::pacing::placement::line_held(&cfg, &here);
     if accounts.is_empty() {
@@ -416,6 +418,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let spend = spend_view(&cfg, roster, &here, &rules, &fleet.sessions, at);
     stopped(&fleet.records, &mut reads.issues, |launch| shown(launch, laptop_registry.as_ref()), north_fleet_supervisor::fleet::registry::retired_report_here, &reads.grounds, &mut notes);
     let launches = super::stops::last_launches(&fleet.records);
+    super::phase::enter("survey landings per issue");
     let learned = super::host_needs::read(&record::directory());
     for issue in &mut reads.issues {
         issue.needs = super::host_needs::of(issue, &learned, at);
@@ -425,6 +428,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
             issue.landings = landings::since(issue);
         }
     }
+    super::phase::enter("survey mainline");
     let mainline = mainline::read(&reads.issues, at, &mut notes);
     let history = History::new(&fleet.records);
     let arm_boxes: Vec<ArmBox> = reads.report.iter().flat_map(|report| report.arms.iter().cloned()).chain(reads.remote_arms).collect();
@@ -434,7 +438,9 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
+    super::phase::enter("survey deepseek");
     let deepseek = super::deepseek::Seen::read(&cfg, &here, laptop.as_deref(), &reads.fleet_lists, &laptop_reports, &fleet.records, &reads.issues, at, &mut notes);
+    super::phase::enter("survey backlog");
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
     Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues: reads.issues, open: reads.open, holds: fleet.holds, box_holds: fleet.box_holds, predicted: fleet.predicted, box_tries: fleet.box_tries, mainline, live: fleet.live, listed: fleet.listed, sessions: fleet.sessions, laptop, notes, frozen, history, ledger: reads.ledger, grounds: reads.grounds, strands, saturated, line_held, revived, backlog, deepseek, learned, at })
 }

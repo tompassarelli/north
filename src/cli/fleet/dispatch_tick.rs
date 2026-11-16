@@ -96,6 +96,11 @@ fn freed(directory: &Path, since: f64, resident: &impl Fn() -> Option<i64>) -> b
     matches!((before, resident()), (Some(before), Some(now)) if now < before)
 }
 
+/// Whether `host` is the dispatch host `cfg` names.
+pub(super) fn home(host: &str, cfg: Option<&DocumentMut>) -> bool {
+    elsewhere(host, cfg).is_none()
+}
+
 fn elsewhere(host: &str, cfg: Option<&DocumentMut>) -> Option<String> {
     let named = cfg.and_then(|cfg| cfg.get("placement")).and_then(|placement| placement.get("dispatch_host")).and_then(toml_edit::Item::as_str);
     match named {

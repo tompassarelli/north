@@ -70,10 +70,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ticked.lines().iter().for_each(|line| println!("{line}"));
         drain_queue(fleet, began)?.0.iter().for_each(|line| println!("{line}"));
         kept_fresh(fleet, &refreshing, began).0.iter().for_each(|line| println!("{line}"));
-        println!("{}", ticked.timing());
-        if let Some(line) = dispatch_line(&dispatch_beside(fleet).0) {
-            println!("{line}");
-        }
+        report_tick(fleet, &ticked, &dispatch_beside(fleet).0, began);
         return Ok(());
     }
     let spending = {
@@ -126,11 +123,27 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     ticked.wall = began.elapsed();
     ticked.cpu = spent.spent();
     ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).chain(&refreshed).for_each(|line| println!("{line}"));
+    report_tick(fleet, &ticked, &dispatched, began);
+    revived
+}
+
+/// Prints the tick's timing and the dispatch line, and on the dispatch host writes the seconds each step took into the host record the laptop's records mirror carries.
+fn report_tick(fleet: &Fleet, ticked: &Ticked, dispatched: &dispatch_tick::Pass, began: Instant) {
     println!("{}", ticked.timing());
-    if let Some(line) = dispatch_line(&dispatched) {
+    if let Some(line) = dispatch_line(dispatched) {
         println!("{line}");
     }
-    revived
+    if !dispatch_tick::home(fleet.host(), config().ok().as_ref()) {
+        return;
+    }
+    let mut steps = std::collections::BTreeMap::new();
+    for step in &ticked.steps {
+        *steps.entry(step.name.to_owned()).or_insert(0.0) += step.took.as_secs_f64();
+    }
+    let wall = began.elapsed().as_secs_f64();
+    if let Err(why) = crate::dispatch::record_tick(now_ms() as f64 / 1000.0 - wall, wall, steps) {
+        println!("dispatch host record: {why}");
+    }
 }
 
 /// Why the issue or box a queued launch was for no longer needs a worker, by GitHub's own copy of it.

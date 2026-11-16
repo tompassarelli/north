@@ -62,8 +62,9 @@ pub(super) fn run() -> Result<(), Failure> {
         return Ok(());
     }
     let destinations = land_offload::other_destinations();
+    let carried = super::dispatch_record::carry(&state, &destinations);
     let (copied, failures) = publish_from(&state, &destinations)?;
-    fs::write(state.join(LAST), failures.join("\n"))?;
+    fs::write(state.join(LAST), failures.iter().chain(&carried).cloned().collect::<Vec<_>>().join("\n"))?;
     if !failures.is_empty() {
         return Err(failed(1, failures.join("; ")));
     }
