@@ -3,8 +3,7 @@ use std::path::Path;
 
 use north_graph::{Graph, Term, Triple};
 
-use crate::cells;
-use crate::rules::{ask, open_read_only, open_writable, tell_set, ticks_from};
+use north_landing_gates::landing::graph_facts::{ask, open_read_only, open_writable, tell_set, text, ticks_from, value};
 
 pub const WRITER: &str = "code-health";
 const RULE: &str = "harness/graph-rules/code-health-review.json";
@@ -44,7 +43,7 @@ fn facts(repo: &str, review: &Review) -> BTreeSet<Triple> {
 pub fn read_from(graph: &Graph) -> Result<Told, String> {
     let mut reviews: BTreeMap<String, Review> = BTreeMap::new();
     for row in ask(graph, RULE)? {
-        let (Some(repo), Some(Term::Atom(north_graph::Atom::Keyword(predicate))), Some(value)) = (row.first().and_then(cells::text).and_then(|subject| subject.strip_prefix("review:")), row.get(1), row.get(2).and_then(cells::value)) else { continue };
+        let (Some(repo), Some(Term::Atom(north_graph::Atom::Keyword(predicate))), Some(value)) = (row.first().and_then(text).and_then(|subject| subject.strip_prefix("review:")), row.get(1), row.get(2).and_then(value)) else { continue };
         let review = reviews.entry(repo.to_owned()).or_default();
         match (predicate.as_str(), value.as_f64(), value.as_str()) {
             (HAND_FILES, Some(figure), _) => review.hand_files_median = Some(figure),

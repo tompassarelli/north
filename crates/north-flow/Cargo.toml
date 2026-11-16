@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-capacity-host = { path = "../north-capacity-host" }
+north-code-health = { path = "../north-code-health" }
 north-dispatch = { path = "../north-dispatch" }
 north-fleet = { path = "../north-fleet" }
 north-graph-loops = { path = "../north-graph-loops" }

@@ -2,5 +2,5 @@
 name = "north-flow"
 layer = 6
 paths = ["crates/north-flow/src/**"]
-may_use = ["north-base", "north-capacity-host", "north-dispatch", "north-fleet", "north-graph-loops", "north-pace", "north-providers", "north-threads", "north-health"]
+may_use = ["north-base", "north-capacity-host", "north-code-health", "north-dispatch", "north-fleet", "north-graph-loops", "north-pace", "north-providers", "north-threads", "north-health"]
 

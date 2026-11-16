@@ -4,8 +4,6 @@
 //! `(cell:<category>:<family> :cell/<measure> value)`, and a tick is `(loop:<writer> :loop/tick-at instant)`.
 mod capacity_estimate;
 mod cells;
-mod check_deadline;
-pub mod code_health;
 pub mod corrections;
 mod facts;
 mod fleet;
@@ -17,7 +15,6 @@ pub mod slow_test;
 
 pub use capacity_estimate::{Estimate, MEASURES as CAPACITY_MEASURES, WRITER as CAPACITY_WRITER, estimate, estimate_from, tell_estimate, tell_estimate_to};
 pub use cells::{Cells, Learned, Measure};
-pub use check_deadline::{CheckDeadline, WRITER as CHECK_WRITER, check_deadline, check_deadline_from, check_key, tell_check_deadline, tell_check_deadline_to};
 pub use fleet::{Retirement, WRITER as FLEET_WRITER, retirement, retirement_from, tell_retirement, tell_retirement_to};
 pub use lander_doctor::{DOCTOR_WRITER, Held, Remembered, remembered, remembered_from, tell_remembered, tell_remembered_to};
 pub use rules::{closed_issues, closed_issues_from, read, read_from, tell, tell_to, ticks, ticks_from};

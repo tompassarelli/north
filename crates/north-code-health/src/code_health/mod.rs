@@ -29,6 +29,7 @@ pub use layers::{Placement, placement};
 mod over_budget;
 mod report;
 mod resolver;
+pub mod review_facts;
 mod rust_lines;
 mod rust_modules;
 mod rust_text;

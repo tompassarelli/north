@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use north_graph::default_path as graph_path;
-use north_graph_loops::{CheckDeadline, check_deadline, check_key, tell_check_deadline};
+use super::check_deadline::{CheckDeadline, check_deadline, check_key, tell_check_deadline};
 
 pub const CEILING: u64 = north_foundation::foundation::offload::RUN_SECONDS_CEILING;
 const FLOOR: u64 = 300;

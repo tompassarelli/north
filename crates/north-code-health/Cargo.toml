@@ -16,8 +16,8 @@ doctest = false
 north-registries = { path = "../north-registries" }
 north-base = { path = "../north-base" }
 north-build-system = { path = "../north-build-system" }
-north-graph-loops = { path = "../north-graph-loops" }
 north-implicit-state = { path = "../north-implicit-state" }
+north-landing-gates = { path = "../north-landing-gates" }
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true

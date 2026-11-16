@@ -57,7 +57,7 @@ impl Gatherer<'_> {
         let wait = default_number("detector_code_health_read_minutes") * 60.0;
         let path = self.places.flow().join(READINGS);
         let mut saved: BTreeMap<String, Read> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
-        let told = north_graph_loops::code_health::read(&self.places.graph).unwrap_or_default();
+        let told = north_code_health::code_health::review_facts::read(&self.places.graph).unwrap_or_default();
         let mut readings = Vec::new();
         for repo in self.code_health_repos() {
             let since = marker(&self.places.state, &repo);

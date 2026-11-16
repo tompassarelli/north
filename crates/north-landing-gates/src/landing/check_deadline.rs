@@ -5,8 +5,7 @@ use std::time::Duration;
 
 use north_graph::{Atom, Graph, Term};
 
-use crate::cells;
-use crate::facts::{Fact, tell_facts_to};
+use super::graph_facts::{self, Fact, tell_facts_to};
 
 pub const WRITER: &str = "land";
 const SUBJECT: &str = "check:";
@@ -59,7 +58,7 @@ fn own_facts(graph: &Graph, key: &str) -> Result<Vec<Fact>, String> {
 pub fn check_deadline_from(graph: &Graph, key: &str) -> Result<Option<CheckDeadline>, String> {
     let mut learned = None::<CheckDeadline>;
     for (_, predicate, value) in own_facts(graph, key)? {
-        let (Some(measure), Some(value)) = (predicate.strip_prefix(PREDICATE), cells::value(&value).and_then(|value| value.as_u64())) else { continue };
+        let (Some(measure), Some(value)) = (predicate.strip_prefix(PREDICATE), graph_facts::value(&value).and_then(|value| value.as_u64())) else { continue };
         let learned = learned.get_or_insert_default();
         let slot = match measure {
             "deadline-s" => &mut learned.seconds,

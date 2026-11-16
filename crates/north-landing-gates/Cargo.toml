@@ -13,7 +13,6 @@ doctest = false
 north-base = { path = "../north-base" }
 north-build-system = { path = "../north-build-system" }
 north-diff-gates = { path = "../north-diff-gates" }
-north-graph-loops = { path = "../north-graph-loops" }
 regex.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
