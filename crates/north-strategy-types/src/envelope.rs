@@ -48,12 +48,10 @@ pub enum Kind {
     LandJudge,
     #[serde(rename = "land.wave")]
     LandWave,
-    #[serde(rename = "land.sheriff")]
-    LandSheriff,
 }
 
 impl Kind {
-    pub const ALL: [Self; 7] = [Self::Placement, Self::Admission, Self::LandPick, Self::LandBatch, Self::LandJudge, Self::LandWave, Self::LandSheriff];
+    pub const ALL: [Self; 6] = [Self::Placement, Self::Admission, Self::LandPick, Self::LandBatch, Self::LandJudge, Self::LandWave];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -63,7 +61,6 @@ impl Kind {
             Self::LandBatch => "land.batch",
             Self::LandJudge => "land.judge",
             Self::LandWave => "land.wave",
-            Self::LandSheriff => "land.sheriff",
         }
     }
 
@@ -72,7 +69,7 @@ impl Kind {
         match self {
             Self::Placement => &["launch-refusals-per-hour"],
             Self::Admission => &["laptop-load-15m", "launch-refusals-per-hour"],
-            Self::LandPick | Self::LandBatch | Self::LandJudge | Self::LandWave | Self::LandSheriff => &["landing-p90", "landing-projected", "verification-p50"],
+            Self::LandPick | Self::LandBatch | Self::LandJudge | Self::LandWave => &["landing-p90", "landing-projected", "verification-p50"],
         }
     }
 }

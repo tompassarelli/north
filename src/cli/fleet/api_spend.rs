@@ -12,16 +12,15 @@ use crate::fleet::runtime::now_ms;
 use crate::fleet::store::OverSsh;
 use crate::foundation::clock::Timestamp;
 use crate::pacing::placement::{config, gate};
-use crate::watch;
 
 type Marks = BTreeMap<String, String>;
 
 fn ledger() -> PathBuf {
-    watch::state_home().join("north/ledger.db")
+    crate::platform::records_mirror::state_home().join("north/ledger.db")
 }
 
 fn marks_dir() -> PathBuf {
-    watch::state_home().join("north/api-exhausted")
+    crate::platform::records_mirror::state_home().join("north/api-exhausted")
 }
 
 pub(super) fn take(fleet: &Fleet) -> NorthResult<Snapshot> {

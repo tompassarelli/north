@@ -11,17 +11,14 @@ Commands:
   infra [--json]                                 List each live paid resource with its monthly price and a total
   home move [--dry-run] PLAN.tsv                 Apply a move plan at the top of home outside the worker sandbox: one rename per row, logged to moves.tsv, never copying or deleting
   check calls [--tree DIR] [--live DIR]         Read every north call on this host (unit Exec lines and the scripts they run, hooks, ssh hops in the --tree source) against this runtime, exit 1 naming each unparsable one; runtime update runs it from the incoming runtime before each swap
-  check citations [--root DIR] [--list]         Fail on a doc, skill or hook that cites a north subcommand the CLI does not define
   check experiments [--root DIR]                Check that every review rule and footgun card has an experiment registry entry
   check experiments judge [--root DIR] [--today YYYY-MM-DD] [--file]  Judge the declared experiments due for review
   check experiments defer ISSUE BOX --check CMD --by DATE  Defer a box to a dated check in the experiment registry
   check concerns [--root DIR] [PROJECT...]      Check each project's declared concerns
   check issue-boxes [REPO#N...] [--repo REPO]   Check issue acceptance boxes
-  check machines [--write | --registry | --fixes [--days N] | --replay [--days N]] [--root DIR]  Check every modelled lifecycle machine over every ordering of its scope, its chart and that the landing selects it; --registry checks only that every machine is named; --fixes reports machines whose code a landed incident fix changed; --replay scores that trigger over history beside calendar and churn sweeps
   check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
   check provenance check BASE HEAD              List each new gating bar, hook or policy line with no Provenance record
   check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers
-  work review PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
   code-health domains [--repo DIR] [--rev REV]  Exit 1 for each crate whose top-level modules span more unrelated domains than structure.toml [domains] allows, unless a [[domains.allow]] entry names it
@@ -79,7 +76,6 @@ Commands:
   land machinery-replay BASE..HEAD [--repo DIR]...  Replay the last recorded landing rounds through a landing-path lane's own build and refuse it for a verdict its change moves
   land withdraw TICKET --reason TEXT [--repo DIR]  Move a queued ticket out of the landing queue, tell its session why and record the incident
   land clear-withdrawal TICKET --reason TEXT [--repo DIR]  Let the withdrawn ticket's session queue the same head again; enqueue refuses it until then or a changed head
-  land gate-stats [--since 7d|48h]                 Each land gate's refusals in the window, the worker time to the lane's next ticket, lanes that later landed unchanged, after-landing gate failures and enqueue refusals, and any gate proposed for deletion
   land scan dep-gate BASE..HEAD                 Run the dependency gate on an outgoing range
   land scan tool-removal BASE..HEAD             Refuse a removed bin tool that callers still name
   land scan test-integrity BASE..HEAD           Refuse an added mutation marker, a test skip or a lost assertion
@@ -141,8 +137,6 @@ Commands:
   graph split [--repo DIR] [--record FILE] [--plan FILE | --prompt FILE] --base SHA (--task FILE | -)  Split a task into a first box of shared signatures, parts that share no file and a last box, from the base tree and one planning call
   graph split --check ID --parts N [--record FILE]  Check that every part of a split landed and no stub of its first box remains on origin/main
   graph validate [--db PATH]  Check the graph is sound
-  work brief pack [--issue REF]... PATH...   Print, in at most 3,000 characters, each path's public items with lines, its structure.toml module and what it may use, the files that changed with it most in 90 days with any revert within 48 h, and the nextest filter for the tests that reach it
-  work split TASKFILE --task ID --out PLAN [--root REPO]   Split one frozen large task into a first box (the shared interface) and parts along module edges whose file sets are pairwise disjoint, from the base checkout, its structure.toml modules, the context pack of the paths the task names and one planning call, written to PLAN as TOML; an overlapping answer is retried once naming the overlap, then exits 1; a tightly coupled task yields an interface and zero parts
   config coordinator calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   config coordinator role                              Print the coordinator role table of harness/defaults.toml: what the coordinator does itself and what it launches a worker for
   check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
@@ -181,14 +175,7 @@ Commands:
   dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]  One screen over the window: the readiness bars failing first, each Claude account's week and the spend by model and effort, and per task category the model mix, first-try success and cost per closed box; --closed prints the closed-box report dispatch decides on as JSON, the other flags the scoreboard's reports, and losses lists each first try lost to the harness with its class and boundary record
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   policy off | policy on                         Take north's hooks, skills, instructions and the git checks on your own commits and pushes away on this host, or put back exactly what policy off took; stops nothing. Runs as north-switch, without the runtime
-  fleet                                         Open the fleet screen; north fleet --help lists each verb
   glance                                        One line (layer 0): whether anything is broken, whether money is all right and whether any gate waits on Tom
-  desktop private start [--port PORT] [--resolution WIDTHxHEIGHT] [--render-node PATH] [--seconds SECONDS] [-- COMMAND ARG...]  Start an isolated private desktop
-  desktop private control RUN_DIRECTORY VNC_ACTION...  Send VNC actions to a private desktop
-  desktop private type RUN_DIRECTORY < TEXT     Type text into a private desktop
-  desktop private capture RUN_DIRECTORY ABSOLUTE_PNG_PATH  Screenshot a private desktop
-  desktop private clipboard RUN_DIRECTORY MIME_TYPE < DATA  Set a private desktop's clipboard
-  desktop private reap [--dry-run]              Stop private desktops whose owner is gone
   ledger runs [--json]                          Fleet turn records
   fleet orders list                             List Tom's standing orders, rendered into every fleet launch and revive
   fleet orders add TEXT...                      Add a standing order
@@ -243,7 +230,7 @@ Commands:
   fleet laptop observe SAMPLE                   Record an idle and battery sample from the laptop
   laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
   agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
-  ops watch --once [--quiet]                    Run the landing and GitHub probes, raise their alerts to the coordinator and the lane lead (--quiet prints none), then run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
+  ops watch                                       Run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
   job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers
   outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the coordinator inbox, mark our own notifications read
   outside-watch status                          Show the last run and its log line
@@ -288,10 +275,7 @@ Commands:
   runtime pi [VERSION]                       Install a checksum-verified Pi runtime from the newest stable earendil-works/pi release and select it
   runtime opencode [VERSION]                 Install a checksum-verified OpenCode runtime from the newest stable anomalyco/opencode release and select it
   capacity nexus [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
-  desktop warcraft close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
-  desktop warcraft login-field PRIVATE_RUN a|b|c|d FIELD [--owner-authorized]  Type one stored account field into the verified private login window
   ops credentials check [--json] | renew [--dry-run] | import-cookies SITE [--from CHROME_PROFILE]  List every credential the fleet uses with its kind (machine or human-session), expiry and renewal path and exit 1 on any human-session, expired or undeclared one; renew runs machine renewals before expiry, batches what needs Tom into one notice 30 days ahead and writes the loop record (daily timer); import-cookies copies a declared site's sign-in from Tom's Chrome profile into the automation-chrome profile on the same machine and refuses an undeclared site
-  desktop capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant
   runtime accept FULL-SHA  Record the calling fleet session's accept of the patch of a commit named by its full sha (40 hex digits, as north runtime review-fetch prints it) over its merge-base with origin/main, which a lane that changes a trust_boundary_paths file needs from one reviewer session before it lands; the session is the one the caller's cgroup scope names and only one launched with --role reviewer accepts, and the accept is read on the host that settles the fleet
   runtime hold COMMIT [--host HOST] [--until LANE] --why TEXT | runtime hold --lift COMMIT --why TEXT  Place the calling fleet session's hold on a commit, which `runtime order` and the slot and Live-fix promotions refuse any head containing until that session lifts it or, with --until LANE, until a head containing a landing of LANE that changes a file of the held commit and whose patch that session accepted (runtime accept) is screened, both read in the trusted mirror, or lift it; the session is the one the caller's cgroup scope names and is never in the coordinator role, and the hold is read on the host that settles the fleet
@@ -361,8 +345,6 @@ Commands:
   issue convert [OWNER/]REPO#N --dry-run [--manifest FILE]  Write a manifest with one row per unticked checkbox of the issue (leaf, third-level issue, prose, gate or held by a live claim, with its title, type, labels and body), creating nothing; exits 1 when the rows do not add up to the open boxes or a row has no title, a title over 80 characters or equal to an open issue's, a leaf without a runnable Done when or declared class, or a deny-listed word
   issue convert [OWNER/]REPO --closed-boxes     List every unticked checkbox on a closed issue of the repository with the open issue that holds the same text, or `no copy`; it edits nothing
   land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]  Print each landing's wall time split by category from the span traces, the same split summed with p50 and p90, and the longest leaf spans, then each hand-in refused before its ticket with the seconds from hand-in to the refusal
-  land doctor [--dry-run]                       Read every lander health bound, apply each known remedy and page the coordinator once per unknown state
-  land drill [FAULT]...                         Inject each lander stuck state into a scratch lander and require its remedy to clear it within the doctor's patience, nobody paged
   land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket to the front of the urgent tickets (the latest mark goes first) and print the place the lander gives it
   land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason
   land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]  Land one queued ticket onto main without a lander round, only under a recorded approval, after the secret and privacy scans
@@ -370,7 +352,6 @@ Commands:
   land reuse report [--since DURATION]          Count the land-check units answered from a cache, from the north-reuse lines the lander harvests
   land reuse observe -- COMMAND...              Run a buck2 test line and print one north-reuse unit per test binary, with the action key when Buck2 answered it from its cache
   land follow                                   Run after each landing: ingest the fact graph from every source on this host
-  land host-gate --switch | --repo DIR --host NAME --fact FILE  Decide whether a delivery-liveness floor builds the host's whole system now: wait for every landing queue on this host to empty unless the fact is over 45 min old, then reuse the fact when host-diff.sh finds the toplevel unchanged; exit 3 skips the build, and --switch prints the laptop_system_check_gate switch
   land static-gates [--repo DIR]                Judge the lane's committed changes against every refusal that reads only the diff (generated registry, language, build-cache, dependency, stub-exec, commit trailers, test admission, code health, policy sweep, dependency age and advisory, guard suite, revert guard), the same function the hand-in runs before its checks take a build-host slot, and print the first refusal with its seconds
   depbox fetch|run -- COMMAND [ARGS...]         Run a command in the dependency sandbox: home masked except the checkout, no sudo, and under run no network; fetch may reach the network
   fleet need HOST REASON [--item REPO#N]         Record that a session needs a host or local need (laptop, native) that only another host can satisfy
@@ -391,7 +372,7 @@ Commands:
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
   finish --brief-trailers SESSION               Keep the brief's Item, Box and Check lines read from standard input for the session's commit messages
   finish --judge-message SESSION                Judge a commit message read from standard input for the session
-  coordinator [--interactive]                         Open the fleet screen on the coordinator session, attaching, reviving or launching it; --interactive resumes its conversation in claude
+  coordinator [--interactive]                         Attach to the coordinator session, reviving or launching it; --interactive resumes its conversation in claude
   coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the coordinator session to an account with headroom
   spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
   control-plane where                           Print the host that holds the control plane's lease, with its epoch

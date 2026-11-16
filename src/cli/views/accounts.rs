@@ -135,7 +135,7 @@ pub fn read(at: Timestamp, detail: bool) -> Result<Accounts, String> {
     let places = crate::usage::Places::from_env();
     let roster = crate::cli::fleet::roster().map_err(|error| error.user_message())?;
     let verdicts = crate::pacing::placement::case::accounts(&roster)?;
-    let credit = north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), at).orgs;
+    let credit = north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::platform::records_mirror::state_home(), at).orgs;
     let placement = placements(&verdicts);
     let held = crate::spend::hold::at(&crate::platform::orchestration::path());
     let grants: Vec<ApiGrant> = credit.iter().map(|org| grant(org, held.as_ref())).collect();

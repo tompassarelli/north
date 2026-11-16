@@ -14,13 +14,13 @@ pub struct Health {
     pub ok: bool,
 }
 
-pub fn run(arguments: &[String], citations: fn(&std::path::Path) -> Result<(), String>) -> std::process::ExitCode {
+pub fn run(arguments: &[String]) -> std::process::ExitCode {
     let (dry_run, json) = match arguments {
         [] => (false, false),
         [flag] if flag == "--dry-run" => (true, false),
         [flag] if flag == "--json" => (false, true),
         [first, second] if (first == "--dry-run" && second == "--json") || (first == "--json" && second == "--dry-run") => (true, true),
-        [verb] if verb == "facts" => return crate::health::run(arguments, citations, RETIRE),
+        [verb] if verb == "facts" => return crate::health::run(arguments, RETIRE),
         _ => {
             eprintln!("Usage: north health [--dry-run] [--json] | facts");
             return std::process::ExitCode::from(2);
@@ -47,7 +47,7 @@ pub fn read(dry_run: bool) -> Result<Health, String> {
     let now = Timestamp::now().unix_seconds();
     let bars = crate::cli::scoreboard::ready::run(now, crate::cli::scoreboard::ready::View::default())?;
     let concerns = north_concerns::tick::latest(now);
-    let (invariants_ok, invariants) = crate::health::report(dry_run, |repo| crate::citation_check::verdict(repo, crate::cli::tools::defines))?;
+    let (invariants_ok, invariants) = crate::health::report(dry_run)?;
     let mut text = String::from("Health\n\nReadiness bars:\n");
     text.push_str(&bars);
     text.push_str(&format!("\nConcerns: {} rows, {} red, measured {} min ago\n", concerns.rows, concerns.red, (now - concerns.at).max(0) / 60));

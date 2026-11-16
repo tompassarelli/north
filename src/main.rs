@@ -16,15 +16,12 @@ use north_code_health::code_health;
 use north_guard::{guard, hook, nix_explain};
 use north_lanes::lanes;
 use north_lander::land;
-use north_land_watch::watch;
 use north_landing::{landing};
 use north_diff_gates::{build_cache_gate, dep_gate, language_gate, provenance};
 use north_landing_gates::{follows_release, issue_box_lint, land_abandon};
 use north_github_mirror as github_mirror;
-use north_tui::tui;
 use north_ci::private_check;
 use north_github_broker::gh_broker;
-use north_desktop::{agent_capture, private_desktop, warcraft_close, wc3_login_field};
 use north_runtime::{agent_contain, laptop_runner, runtime, worker_sandbox};
 use north_dispatch::{dispatch};
 use north_pacing::{laptop, pacing, resident_cap};
@@ -34,7 +31,6 @@ use north_flow::{agents, experiments, flow, tempo, tool_mine};
 use north_convo::{context_audit, convo, policy_replay};
 use north_timers::{runtime_access, timers};
 use north_issue_boxes::{cargo_boxes, done_when_boxes, issue_child, issue_convert, observation_boxes};
-use north_claims::{citation_check, review_items};
 use north_credentials::credentials;
 use north_remote_serve::remote_serve;
 
@@ -58,10 +54,7 @@ fn main() -> std::process::ExitCode {
         if let Some(code) = worker_sandbox::tool_server::enter(&arguments, command_refusal) {
             return code;
         }
-        arguments
-            .first()
-            .filter(|argument| *argument == "desktop" && arguments.get(1).is_some_and(|verb| verb == "private") && !cli::answers_help(&arguments))
-            .map_or_else(cli::main, |_| private_desktop::run(&arguments[2..]))
+        cli::main()
     })
 }
 

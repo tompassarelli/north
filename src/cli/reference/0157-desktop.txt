@@ -1,1 +1,0 @@
-  desktop private start [--port PORT] [--resolution WIDTHxHEIGHT] [--render-node PATH] [--seconds SECONDS] [-- COMMAND ARG...]  Start an isolated private desktop

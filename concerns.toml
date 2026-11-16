@@ -102,15 +102,6 @@ class = "contract"
 reads = "commit"
 
 [[concern]]
-name = "fleet-screen-in-tui"
-source = "AGENTS.md: keep fleet screen state and rendering in crates/north-tui/src/tui/fleet"
-oracle = "{ rg -l ratatui src crates --glob '*.rs' --glob '!crates/north-tui/**' || [ $? -eq 1 ]; } | wc -l"
-unit = "files"
-max = 0
-class = "contract"
-reads = "commit"
-
-[[concern]]
 name = "ready-landing-p90"
 source = "north#641: the harness is ready for production work when a lane's queue-to-main p90 is at most 60 s, over the newest 1 h"
 unit = "s"

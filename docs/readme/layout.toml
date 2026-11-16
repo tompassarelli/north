@@ -67,8 +67,3 @@ purpose = "chooses what runs next, where, and on which build"
 layer = 6
 name = "operations"
 purpose = "watches, measures, tunes, reports and repairs; nothing below depends on it"
-
-[[family]]
-layer = 7
-name = "command"
-purpose = "the terminal screens"

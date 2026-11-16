@@ -32,7 +32,6 @@ north-pace = { path = "../north-pace" }
 test-support = ["north-fleet/test-support"]
 
 [dev-dependencies]
-north-machine-model = { path = "../north-machine-model" }
 
 [lints]
 workspace = true

@@ -1,5 +1,0 @@
-[[crate_dag.crate]]
-name = "north-claims"
-layer = 6
-paths = ["crates/north-claims/src/**"]
-may_use = ["north-fleet-supervisor"]

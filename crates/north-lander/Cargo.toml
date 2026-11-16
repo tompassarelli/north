@@ -36,7 +36,6 @@ workspace = true
 
 [dev-dependencies]
 landlock = "0.4.7"
-north-machine-model = { path = "../north-machine-model" }
 
 [[package.metadata.north.buck.host-cases]]
 name = "land::shadow::run::tests::a_queued_check_line_starts_detached_and_is_recorded_once_it_ends"

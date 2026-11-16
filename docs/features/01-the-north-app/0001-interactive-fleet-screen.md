@@ -1,1 +1,0 @@
-- Interactive fleet screen: `north` or `north fleet` opens the fleet list, transcript and digest.

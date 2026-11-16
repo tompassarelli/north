@@ -32,7 +32,6 @@ mod hook_verb;
 mod ledger;
 mod ledger_duplicate;
 mod ledger_show;
-mod machines;
 mod moved;
 mod nix;
 mod operator;
@@ -119,7 +118,7 @@ const CLI_REFERENCE: &str = include_str!("reference.txt");
 fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Command> {
     let arguments = arguments.into_iter().collect::<Vec<_>>();
     if arguments.is_empty() {
-        return Ok(Command::Fleet(Vec::new()));
+        return Ok(Command::Help);
     }
     if answers_help(&arguments) {
         return Ok(Command::VerbHelp(verb_help::path(&arguments)));
@@ -170,7 +169,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("task", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
     ("gate", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
     ("work", |_, rest| match rest.first().map(String::as_str) {
-        Some("brief" | "review" | "split") => Command::Tool(Tool::Work, rest),
+        Some("split") => Command::Tool(Tool::Work, rest),
         _ => Command::Work(rest),
     }),
     ("accounts", |_, rest| Command::Accounts(rest)),
@@ -268,7 +267,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
-        Command::Health(arguments) => views::health::run(&arguments, |repo| crate::citation_check::verdict(repo, tools::defines)),
+        Command::Health(arguments) => views::health::run(&arguments),
         Command::Glance(arguments) => match glance::run(&arguments) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure(error),

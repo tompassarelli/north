@@ -1,0 +1,1 @@
+- Safe-push events: safe-push appends one JSON line per stage end, known wait, retry, failure, refusal and landing to `~/.local/state/safe-push/events.jsonl` and starts `north ops watch --once` on any failure or refusal.

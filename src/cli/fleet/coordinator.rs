@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
@@ -6,7 +5,6 @@ use crate::fleet::model::Surface;
 use crate::fleet::registry::{Fleet, backlog_line};
 use crate::fleet::runtime::{COORDINATOR, now_ms};
 use crate::fleet::store::Addressee;
-use crate::tui;
 
 use super::interactive;
 use super::placement::Overrides;
@@ -48,10 +46,7 @@ fn attach(fleet: Fleet) -> NorthResult<()> {
         }
         None => launch(&fleet, surface(&fleet))?,
     }
-    if !std::io::stdout().is_terminal() {
-        return Ok(());
-    }
-    tui::fleet::run_on(fleet, COORDINATOR, super::reads::reads())
+    Ok(())
 }
 
 fn surface(fleet: &Fleet) -> Surface {

@@ -98,11 +98,7 @@ const LAND: &[(&str, Run)] = &[
 pub(super) fn land(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if let Some(run) = runner(LAND, verb) => return run(rest),
-        Some((verb, rest)) if verb == "doctor" => return north_lander_doctor::run(rest, &review_holds),
-        Some((verb, rest)) if verb == "drill" => return north_lander_doctor::drill::run(rest),
         Some((verb, rest)) if verb == "withdraw" => return outside_the_sandbox("land", "withdraw", crate::land::withdraw::run, rest),
-        Some((verb, rest)) if verb == "gate-stats" => return north_lander_doctor::gate_stats::run(rest),
-        Some((verb, rest)) if verb == "host-gate" => return north_lander_doctor::host_gate::run(rest),
         _ => {}
     }
     crate::land::run(arguments)
@@ -222,18 +218,8 @@ fn ops_github(arguments: &[String]) -> u8 {
     crate::gh_broker::github(arguments)
 }
 
-fn ops_watch(arguments: &[String]) -> u8 {
-    match crate::watch::run(arguments) {
-        0 => north_expectations::watch::run(&["--once".to_owned()]),
-        refused => refused,
-    }
-}
-
-fn review_holds() -> Vec<north_lander_doctor::facts::ReviewHold> {
-    let environment: Vec<(String, String)> = ["NORTH_VERDICT_CACHE_DIR", "XDG_STATE_HOME"].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
-    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let standing = north_runtime_records::hold_ledger::standing(&environment, &home).unwrap_or_default();
-    standing.into_iter().map(|hold| north_lander_doctor::facts::ReviewHold { commit: hold.commit, session: hold.session, why: hold.why }).collect()
+fn ops_watch(_: &[String]) -> u8 {
+    north_expectations::watch::run(&["--once".to_owned()])
 }
 
 fn review_fetch_forwarded(words: &[String]) -> Result<String, String> {

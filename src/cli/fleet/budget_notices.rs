@@ -11,13 +11,12 @@ use crate::fleet::model::{Delivery, Role, SessionRecord};
 use crate::fleet::registry::Fleet;
 use crate::fleet::sender::Sender;
 use crate::usage::budget::{Estimate, Event, Spending, State, judge};
-use crate::watch;
 
 const STATE: &str = "agents/usage/budget.json";
 const LEDGER: &str = "agents/usage/budget.jsonl";
 
 pub(super) fn watch(fleet: &Fleet, tell_tom: &dyn Fn(&str) -> Result<(), String>, now_ms: u64) -> Vec<String> {
-    let home = watch::state_home();
+    let home = crate::platform::records_mirror::state_home();
     let (state_path, ledger_path) = (home.join(STATE), home.join(LEDGER));
     let previous = match State::read(&state_path) {
         Ok(state) => state,

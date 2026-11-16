@@ -44,7 +44,7 @@ impl<'a> MergeBases<'a> {
 
 impl MergeBases<'static> {
     pub(super) fn here() -> Self {
-        Self::new(&reaper::Here, &origin_main, crate::watch::state_home().join(FILE))
+        Self::new(&reaper::Here, &origin_main, crate::platform::records_mirror::state_home().join(FILE))
     }
 }
 

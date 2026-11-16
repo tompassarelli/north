@@ -90,7 +90,6 @@ const DIRECT: &[(&str, Run)] = &[
     ("runtime", runtime),
     ("tune", crate::tune::run),
     ("loops", crate::loops::run),
-    ("desktop", desktop),
     ("code-health", code_health),
     ("dash", super::dash::run),
     ("infra", super::views::infra::run),
@@ -197,10 +196,6 @@ fn call_check(arguments: &[String]) -> u8 {
     super::call_check::run(arguments, defines)
 }
 
-fn citation_check(arguments: &[String]) -> u8 {
-    crate::citation_check::run(arguments, defines)
-}
-
 /// Whether one more worker session may start on the subscription account `account` now, by the spend view pace admission reads.
 fn subscription_admitted(account: &str) -> Result<(), String> {
     let fleet = super::fleet::open_fleet().map_err(|error| error.user_message())?;
@@ -210,14 +205,12 @@ fn subscription_admitted(account: &str) -> Result<(), String> {
 
 const CHECK: &[(&str, Run)] = &[
     ("calls", call_check),
-    ("citations", citation_check),
     ("concerns", concerns),
     ("harness", agent_config_check::run),
     ("disclosure", disclosure_judge),
     ("oneshot", |arguments| crate::timers::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
     ("experiments", crate::experiments::run),
     ("issue-boxes", issue_box_lint::run),
-    ("machines", super::machines::run),
     ("nix", super::nix::doctor),
     ("provenance", provenance::run),
 ];
@@ -242,10 +235,6 @@ fn check(arguments: &[String]) -> u8 {
             2
         }
     }
-}
-
-fn review_items(arguments: &[String]) -> u8 {
-    crate::review_items::run(arguments, defines)
 }
 
 pub(super) const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help"];
@@ -279,31 +268,8 @@ const TEST: &[(&str, Run)] = &[
 
 fn work(arguments: &[String]) -> u8 {
     match arguments.split_first() {
-        Some((verb, rest)) if verb == "brief" => match rest.split_first() {
-            Some((noun, paths)) if noun == "pack" => north_context_pack::run(paths),
-            _ => 2,
-        },
         Some((verb, rest)) if verb == "split" => work_split(rest),
-        Some((_, rest)) => review_items(rest),
-        None => 2,
-    }
-}
-
-fn desktop(arguments: &[String]) -> u8 {
-    match arguments.split_first() {
-        Some((verb, rest)) if verb == "capture" => crate::agent_capture::run(rest),
-        Some((verb, rest)) if verb == "warcraft" => match rest.split_first() {
-            Some((action, tail)) if action == "close" => crate::warcraft_close::run(tail),
-            Some((action, tail)) if action == "login-field" => crate::wc3_login_field::run(tail),
-            _ => {
-                eprintln!("usage: north desktop warcraft (close|login-field) ...");
-                2
-            }
-        },
-        _ => {
-            eprintln!("usage: north desktop (capture|private) ...; north desktop --help lists each");
-            2
-        }
+        _ => 2,
     }
 }
 

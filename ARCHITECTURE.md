@@ -26,16 +26,15 @@ Every top-level directory and every crate, by layer; `north docs readme` renders
 
 The crates under [crates/](crates/), by the layer each sits in; a crate depends only on layers below it, and [the crates table](#the-crates) gives each crate's purpose:
 
-- **1 platform**, touches the outside world (git, GitHub, processes, SQLite, ssh, Nix) and holds base values: [north-agent-starts](crates/north-agent-starts/), [north-base](crates/north-base/), [north-broker](crates/north-broker/), [north-buck](crates/north-buck/), [north-build-system](crates/north-build-system/), [north-cli-reference](crates/north-cli-reference/), [north-control-plane](crates/north-control-plane/), [north-foundation](crates/north-foundation/), [north-git-locks](crates/north-git-locks/), [north-github-broker](crates/north-github-broker/), [north-machine-model](crates/north-machine-model/), [north-publish](crates/north-publish/), [north-registries](crates/north-registries/), [north-runtime-follow](crates/north-runtime-follow/), [north-runtime-records](crates/north-runtime-records/), [north-shared-config](crates/north-shared-config/), [north-ssh-spare](crates/north-ssh-spare/), [north-strategy-types](crates/north-strategy-types/), [north-switch](crates/north-switch/), [north-test-cases](crates/north-test-cases/), [north-trusted-mirror](crates/north-trusted-mirror/), [north-warm-spares](crates/north-warm-spares/)
+- **1 platform**, touches the outside world (git, GitHub, processes, SQLite, ssh, Nix) and holds base values: [north-agent-starts](crates/north-agent-starts/), [north-base](crates/north-base/), [north-broker](crates/north-broker/), [north-buck](crates/north-buck/), [north-build-system](crates/north-build-system/), [north-cli-reference](crates/north-cli-reference/), [north-control-plane](crates/north-control-plane/), [north-foundation](crates/north-foundation/), [north-git-locks](crates/north-git-locks/), [north-github-broker](crates/north-github-broker/), [north-publish](crates/north-publish/), [north-registries](crates/north-registries/), [north-runtime-follow](crates/north-runtime-follow/), [north-runtime-records](crates/north-runtime-records/), [north-shared-config](crates/north-shared-config/), [north-ssh-spare](crates/north-ssh-spare/), [north-strategy-types](crates/north-strategy-types/), [north-switch](crates/north-switch/), [north-test-cases](crates/north-test-cases/), [north-trusted-mirror](crates/north-trusted-mirror/), [north-warm-spares](crates/north-warm-spares/)
 - **2 records**, remembers: one crate per durable store, with its schema, its one writer and its typed readers: [north-coverage](crates/north-coverage/), [north-fleet-store](crates/north-fleet-store/), [north-github-mirror](crates/north-github-mirror/), [north-graph](crates/north-graph/), [north-graph-change](crates/north-graph-change/), [north-graph-ground](crates/north-graph-ground/), [north-graph-loops](crates/north-graph-loops/), [north-threads](crates/north-threads/)
-- **3 rules**, decides: a verdict from records, a diff, a tree or a tool call, with no effect beyond reading: [north-agent-policy](crates/north-agent-policy/), [north-calibration](crates/north-calibration/), [north-capacity](crates/north-capacity/), [north-check-environment](crates/north-check-environment/), [north-code-health](crates/north-code-health/), [north-concerns](crates/north-concerns/), [north-context-pack](crates/north-context-pack/), [north-diff-gates](crates/north-diff-gates/), [north-guard](crates/north-guard/), [north-implicit-state](crates/north-implicit-state/), [north-land-scans](crates/north-land-scans/), [north-landing-gates](crates/north-landing-gates/), [north-mutants](crates/north-mutants/), [north-pace](crates/north-pace/), [north-unblocks](crates/north-unblocks/)
+- **3 rules**, decides: a verdict from records, a diff, a tree or a tool call, with no effect beyond reading: [north-agent-policy](crates/north-agent-policy/), [north-calibration](crates/north-calibration/), [north-capacity](crates/north-capacity/), [north-check-environment](crates/north-check-environment/), [north-code-health](crates/north-code-health/), [north-concerns](crates/north-concerns/), [north-diff-gates](crates/north-diff-gates/), [north-guard](crates/north-guard/), [north-implicit-state](crates/north-implicit-state/), [north-land-scans](crates/north-land-scans/), [north-landing-gates](crates/north-landing-gates/), [north-mutants](crates/north-mutants/), [north-pace](crates/north-pace/), [north-unblocks](crates/north-unblocks/)
 - **4 sessions**, runs agent sessions on each provider's command-line client: [north-claude-stream](crates/north-claude-stream/), [north-fleet](crates/north-fleet/), [north-fleet-supervisor](crates/north-fleet-supervisor/), [north-providers](crates/north-providers/), [north-resume](crates/north-resume/), [north-session-host](crates/north-session-host/)
 - **4 workspace**, makes and reaps the worktree each change is written in: [north-lanes](crates/north-lanes/)
 - **4 landing**, checks a handed-in change and lands it on main, or refuses it with the reason: [north-land-checks](crates/north-land-checks/), [north-land-sandbox](crates/north-land-sandbox/), [north-lander](crates/north-lander/), [north-landing](crates/north-landing/), [north-safe-push](crates/north-safe-push/)
 - **4 capacity**, leases machine room to builds and sessions: [north-capacity-host](crates/north-capacity-host/)
 - **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/)
-- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-claims](crates/north-claims/), [north-convo](crates/north-convo/), [north-core](crates/north-core/), [north-credentials](crates/north-credentials/), [north-desktop](crates/north-desktop/), [north-docs](crates/north-docs/), [north-expectations](crates/north-expectations/), [north-flow](crates/north-flow/), [north-graph-ingest](crates/north-graph-ingest/), [north-health](crates/north-health/), [north-issue-boxes](crates/north-issue-boxes/), [north-land-watch](crates/north-land-watch/), [north-lander-doctor](crates/north-lander-doctor/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/), [north-timers](crates/north-timers/), [north-tune](crates/north-tune/)
-- **7 command**, the terminal screens: [north-monitor](crates/north-tui/monitor/), [north-tui](crates/north-tui/)
+- **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-convo](crates/north-convo/), [north-core](crates/north-core/), [north-credentials](crates/north-credentials/), [north-docs](crates/north-docs/), [north-expectations](crates/north-expectations/), [north-flow](crates/north-flow/), [north-graph-ingest](crates/north-graph-ingest/), [north-health](crates/north-health/), [north-issue-boxes](crates/north-issue-boxes/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/), [north-timers](crates/north-timers/), [north-tune](crates/north-tune/)
 <!-- end layout -->
 
 ## The layers
@@ -73,7 +72,6 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 1 platform | north-buck | The Buck2 targets of the workspace crates, written from cargo metadata. |
 | 1 platform | north-test-cases | Run one libtest binary's cases one process each and print a status line per case. |
 | 1 platform | north-broker | The credential broker: a policy ceiling per user and scoped tokens swapped into allowlisted calls. |
-| 1 platform | north-machine-model | Model checking of lifecycle machines against the real lifecycle store. |
 | 2 records | north-threads | The threads ledger (items, holders, runs, messages, jobs) and the board read from GitHub. |
 | 2 records | north-fleet-store | The fleet's stored rows: alarms, gates, held messages, pages and the session store. |
 | 2 records | north-graph | The fact graph: terms, assertions with their writers, the five verbs and the Datalog engine. |
@@ -94,7 +92,6 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 3 rules | north-concerns | Each project's concerns as named checks with a bound judged on each measured value. |
 | 3 rules | north-mutants | Mutation testing of a repository's tests: recorded mutants and the runs that verify them. |
 | 3 rules | north-guard | Tool-call policy: every guard and the hook that dispatches a tool call to them. |
-| 3 rules | north-context-pack | The context pack a brief may carry for each file a box names. |
 | 3 rules | north-agent-policy | The agent catalog and its activation generations, the policy contract and the policy checks that gate publishing policy. |
 | 4 sessions | north-claude-stream | Claude Code's stream-json wire format: encoders and the event decoder. |
 | 4 sessions | north-session-host | The process that hosts one session: its pipes, sent log and frames. |
@@ -117,31 +114,25 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 6 operations | north-tune | Tuned values and the learning-loop checks. |
 | 6 operations | north-flow | The flow report and the satellites that read it: agents, detectors, experiments, tempo and tool mining. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
-| 6 operations | north-desktop | The desktops agents drive: an isolated private desktop, screenshots off the owner's screen, and the game client a playtest opens. |
 | 6 operations | north-ci | The CI north runs and watches: private checks posted as commit statuses. |
 | 6 operations | north-issue-boxes | An issue's checkboxes as work: converted into child issues, and ticked when their check passes. |
-| 6 operations | north-claims | Claims a written text makes about the tree, checked against it: cited commands, flags, paths and keys, and a design review's facts. |
 | 6 operations | north-credentials | Every credential the fleet uses, with its kind, expiry and renewal path, and the renewals themselves. |
 | 6 operations | north-remote-serve | The command a trusted ssh peer runs on this host: its plan, guards, audit and log. |
 | 6 operations | north-expectations | Declared expectations judged on a timer, each alerting once per breach and once per clear. |
 | 6 operations | north-reclaim | Disk room on the fleet's hosts: what may be deleted or archived, under which budget, and when. |
 | 6 operations | north-health | Health facts: failed starts, flows, issues, loops, red main, rework. |
 | 6 operations | north-convo | Search and audit of agent transcripts, with replays of the policy over them. |
-| 6 operations | north-lander-doctor | The lander doctor: each health bound read live and the remedy for each stuck state. |
-| 6 operations | north-land-watch | The watch on landings and their GitHub checks. |
 | 6 operations | north-graph-ingest | Load what north already records into the fact graph. |
 | 6 operations | north-core | Grounding, the crate-split tool, build time, Nix upkeep and the contract probe and coordinator calls move out before the crate is removed (docs/rationale/architecture-layers.md). |
-| 7 command | north-tui | The fleet terminal screen, input, transcript and digest views. |
-| 7 command | north-monitor | One live terminal screen of fleet, landing queue, runtime versions and health. |
 | 7 command | north | The `north` command: argument routing and the composition root. The dash report, the eval runner and launch placement move out (L07, L45, L46, docs/rationale/architecture-layers.md); verify-north has no planned owner yet. |
 
 ## Owning boundary
 
-A keystroke in the fleet screen reaches a session by one path: terminal input, fleet screen state, an authorized fleet operation, the session runtime, transcript and usage events, and back to the screen as a projection. `crates/north-fleet/src/fleet/` owns sessions, delivery, decisions and the runtime boundary. `crates/north-tui/src/tui/fleet/` owns the terminal loop, transcript, launch form and fleet digest. `crates/north-providers/src/providers/` adapts provider protocols behind the fleet runtime. `src/cli/` wires commands and provider implementations. The run ledger records session outcomes and task verdicts; it is not a second session authority. A bare `north` follows the same path as `north fleet`.
+A fleet command reaches a session by one path: an authorized fleet operation, the session runtime, transcript and usage events. `crates/north-fleet/src/fleet/` owns sessions, delivery, decisions and the runtime boundary. `crates/north-providers/src/providers/` adapts provider protocols behind the fleet runtime. `src/cli/` wires commands and provider implementations. The run ledger records session outcomes and task verdicts; it is not a second session authority.
 
 ## The life of a task
 
-1. **Brief.** `north work brief` composes the text in north-dispatch from the vocabulary in north-pace and the pack in north-context-pack, over the board in north-threads.
+1. **Brief.** The text is composed in north-dispatch from the vocabulary in north-pace, over the board in north-threads.
 2. **Launch.** `north fleet launch` is parsed in `src/cli/fleet/launch.rs`. north-pacing admits and places it. north-fleet-supervisor records the start, north-providers builds the provider's command and north-session-host holds the process.
 3. **Lane.** north-lanes creates the worktree and the worker sandbox confines the session to it.
 4. **Tool calls.** north-guard judges each tool call before it runs (`crates/north-guard/src/hook.rs`).

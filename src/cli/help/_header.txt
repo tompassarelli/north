@@ -2,4 +2,4 @@ North — fleet session console
 
 Usage: north [COMMAND]
 
-Run north with no arguments to open the fleet screen.
+Run north with no arguments to print this help.

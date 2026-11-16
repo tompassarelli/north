@@ -14,7 +14,6 @@ const USAGE: &str = "usage: north work split TASKFILE --task ID --out PLAN [--ro
 const STRUCTURE: &str = "structure.toml";
 const SPEC_FILE: usize = 4_000;
 
-pub type Pack<'p> = &'p dyn Fn(&Path, &[String]) -> String;
 
 struct Options {
     taskfile: PathBuf,
@@ -44,9 +43,9 @@ fn options(arguments: &[String]) -> Result<Option<Options>, String> {
     Ok(Some(Options { taskfile: taskfile.into(), id, out: out.into(), root: root.map_or_else(|| PathBuf::from("."), PathBuf::from) }))
 }
 
-pub fn run(arguments: &[String], planner: &Planner, pack: Pack) -> u8 {
+pub fn run(arguments: &[String], planner: &Planner) -> u8 {
     let outcome = options(arguments).and_then(|parsed| match parsed {
-        Some(parsed) => split(&parsed, planner, pack),
+        Some(parsed) => split(&parsed, planner),
         None => {
             println!("{USAGE}");
             Ok(0)
@@ -103,24 +102,6 @@ fn spec_files(directory: &Path) -> Vec<(String, String)> {
     found
 }
 
-fn named_paths(text: &str, spec: &[(String, String)], tree: &Tree) -> Vec<String> {
-    let words = text.split(|c: char| c.is_whitespace() || "`'\"(),;".contains(c)).map(|word| word.trim_end_matches(['.', ':']).to_owned()).filter(|word| word.contains('/'));
-    let mut paths = BTreeSet::new();
-    for path in words.chain(spec.iter().map(|(path, _)| path.clone())) {
-        let mut candidate = path.trim_end_matches('/').to_owned();
-        loop {
-            if let Some(found) = [candidate.clone(), format!("{candidate}.rs"), format!("{candidate}/mod.rs")].into_iter().find(|file| tree.tracked(file)) {
-                paths.insert(found);
-                break;
-            }
-            match candidate.rsplit_once('/') {
-                Some((parent, _)) if parent.contains('/') => candidate = parent.to_owned(),
-                _ => break,
-            }
-        }
-    }
-    paths.into_iter().collect()
-}
 
 fn modules(root: &Path, commit: &str) -> String {
     let shown = git(root, &["show", &format!("{commit}:{STRUCTURE}")]).unwrap_or_default();
@@ -186,26 +167,22 @@ fn rendered(split: &Split, task: &str, named: &Named) -> String {
     out
 }
 
-fn split(options: &Options, planner: &Planner, pack: Pack) -> Result<u8, String> {
+fn split(options: &Options, planner: &Planner) -> Result<u8, String> {
     let task = read_task(&options.taskfile, &options.id)?;
     let graph = graph()?;
     let facts = facts_of(&graph, &options.root)?;
     let tree = Tree::read(&options.root, &task.base, &facts)?;
     let head = git(&options.root, &["rev-parse", "HEAD"]).unwrap_or_default();
     if head.trim() != tree.commit {
-        return Err(format!("{} is checked out at {}, not at the task's base {}, and the context pack reads the checkout", options.root.display(), head.trim(), tree.commit));
+        return Err(format!("{} is checked out at {}, not at the task's base {}", options.root.display(), head.trim(), tree.commit));
     }
     if !(planner.admits)(&task.repository) {
         return Err(format!("the planning call sends the task and the repository's paths to the model provider, which only a public repository may do, and {} is not one", task.repository));
     }
     let spec = spec_files(&task.spec);
-    let paths = named_paths(&task.text, &spec, &tree);
     let mut described = task.text.clone();
     for (path, text) in &spec {
         described.push_str(&format!("\n\nSpec file {path} (copied over the tree before the check runs):\n{text}"));
-    }
-    if !paths.is_empty() {
-        described.push_str(&format!("\n\nContext pack of the files the task names:\n{}", pack(&options.root, &paths)));
     }
     let mut asked = prompt::first(&described, &format!("{}{}", tree.map(), modules(&options.root, &tree.commit)));
     let mut refusal = String::new();

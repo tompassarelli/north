@@ -204,16 +204,6 @@ pub struct CheckRun<'a> {
 }
 
 impl Ledger {
-    pub fn record_native_solo(&self, session: &str, reason: &str, command: &str) -> NorthResult<()> {
-        let payload = serde_json::json!({"reason": reason, "command": command});
-        self.write(|conn| {
-            conn.execute(
-                "INSERT INTO events(session, kind, payload, recorded_ms) VALUES(?1, 'native-solo', ?2, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
-                params![session, payload.to_string()],
-            ).map(drop)
-        })
-    }
-
     /// Records one model call a session asked for, charged to the account that answered it, as a run of that session.
     pub fn record_call(&self, call: &Call) -> NorthResult<()> {
         self.write(|conn| {

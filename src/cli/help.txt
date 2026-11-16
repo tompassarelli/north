@@ -2,7 +2,7 @@ North — fleet session console
 
 Usage: north [COMMAND]
 
-Run north with no arguments to open the fleet screen.
+Run north with no arguments to print this help.
 
 Operator console:
   glance                One line: anything broken, the money, and what waits on Tom
@@ -12,7 +12,6 @@ Operator console:
   ledger                Fleet runs and cost; worker tiers, flow, tempo and incidents
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
-  desktop               Run a private desktop or take a screenshot off the clipboard
   convo                 Search and read past agent transcripts
 
 Work and knowledge:

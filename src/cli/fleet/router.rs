@@ -20,7 +20,6 @@ use crate::providers::opencode::Deepseek;
 use crate::providers::pi::PI;
 use crate::providers::standin::Standin;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
-use crate::tui;
 
 use super::placement::Overrides;
 use super::{admission, desktop, gated, spend_queue, tier};
@@ -123,7 +122,7 @@ pub fn host_watch(config: &HostConfig) -> Option<FrameWatch> {
 fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        [] => tui::fleet::run(fleet, super::reads::reads()),
+        [] => Err(super::usage::usage()),
         ["need", rest @ ..] => need::run(rest),
         ["break-glass", rest @ ..] => break_glass::run(rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),

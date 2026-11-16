@@ -2,7 +2,6 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
 use crate::dispatch::{IssueRef, work_gone};
 use crate::fleet::launch_queue::{Admission, QueuedLaunch};
 use crate::fleet::model::Delivery;
@@ -112,9 +111,6 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let queueing = Instant::now();
     let (queued, queueing_cpu) = drain_queue(fleet, began)?;
     ticked.steps.push(Step { name: "launch_queue", began: queueing - began, took: queueing.elapsed(), cpu: queueing_cpu });
-    let expiring = Instant::now();
-    let (expired, expiring_cpu) = metered(|| crate::cli::machines::expire(Timestamp::now()));
-    ticked.steps.push(Step { name: "expire", began: expiring - began, took: expiring.elapsed(), cpu: Some(expiring_cpu) });
     let (refreshed, ended, refreshing_cpu) = kept_fresh(fleet, &refreshing, began);
     ticked.steps.push(Step { name: "shared_config", began: Duration::ZERO, took: ended - began, cpu: refreshing_cpu });
     let dispatching = Instant::now();
@@ -122,7 +118,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed(), cpu: dispatching_cpu });
     ticked.wall = began.elapsed();
     ticked.cpu = spent.spent();
-    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&expired).chain(&refreshed).for_each(|line| println!("{line}"));
+    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).chain(&refreshed).for_each(|line| println!("{line}"));
     report_tick(fleet, &ticked, &dispatched, began);
     revived
 }

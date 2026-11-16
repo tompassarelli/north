@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use super::scoreboard::{self, ready, workers};
-use crate::fleet::board::Board;
 use crate::fleet::registry::Fleet;
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, Handovers, Ledger, WindowRun};
@@ -163,14 +162,6 @@ pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Scr
     Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, graded, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work, waiting, hosts })
 }
 
-/// The Board the fleet screen reads: the same snapshot `north dash` prints, over the board's day window.
-pub(crate) fn for_fleet(fleet: &Fleet) -> Board {
-    match read_with_fleet(DEFAULT_WINDOW, Some(fleet)) {
-        Ok(screen) => board::of(&screen),
-        Err(why) => Board::unread(why),
-    }
-}
-
 /// Colour only for a person at a terminal: never into a pipe or file, under NO_COLOR, or on a dumb terminal.
 fn colored() -> bool {
     use std::io::IsTerminal;
@@ -178,7 +169,7 @@ fn colored() -> bool {
 }
 
 fn credit() -> Vec<north_pace::credit::Standing> {
-    north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), Timestamp::now()).orgs
+    north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::platform::records_mirror::state_home(), Timestamp::now()).orgs
 }
 
 fn accounts() -> Result<Vec<AccountOutlook>, String> {

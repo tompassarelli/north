@@ -1,10 +1,8 @@
 [workspace]
-members = ["crates/north-strategy-types", "crates/north-base", "crates/north-build-system", "crates/north-foundation", "crates/north-pace", "crates/north-session-host", "crates/north-resume", "crates/north-fleet", "crates/north-fleet-store", "crates/north-fleet-supervisor", "crates/north-claude-stream", "crates/north-threads", "crates/north-calibration", "crates/north-core", "crates/north-agent-policy", "crates/north-providers", "crates/north-health", "crates/north-diff-gates", "crates/north-landing", "crates/north-lander", "crates/north-land-sandbox", "crates/north-land-watch", "crates/north-landing-gates", "crates/north-land-checks", "crates/north-land-scans", "crates/north-safe-push", "crates/north-tui", "crates/north-guard", "crates/north-lanes", "crates/north-code-health", "crates/north-check-environment", "crates/north-machine-model", "crates/north-flow", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-pacing", "crates/north-tune", "crates/north-github-mirror", "crates/north-concerns", "crates/north-mutants", "crates/north-coverage", "crates/north-context-pack", "crates/north-graph", "crates/north-graph-ingest", "crates/north-graph-change", "crates/north-graph-ground", "crates/north-graph-loops", "crates/north-lander-doctor", "crates/north-implicit-state", "crates/north-convo", "crates/north-git-locks", "crates/north-broker", "crates/north-runtime-follow", "crates/north-runtime-records", "crates/north-buck", "crates/north-publish", "crates/north-ssh-spare", "crates/north-warm-spares", "crates/north-registries", "crates/north-shared-config", "crates/north-cli-reference", "crates/north-test-cases", "crates/north-tui/monitor", "crates/north-agent-starts", "crates/north-docs", "crates/north-offload", "crates/north-timers", "crates/north-claims", "crates/north-expectations", "crates/north-issue-boxes", "crates/north-ci", "crates/north-desktop", "crates/north-github-broker", "crates/north-reclaim", "crates/north-trusted-mirror", "crates/north-credentials", "crates/north-remote-serve", "crates/north-unblocks", "crates/north-control-plane", "crates/north-switch"]
-default-members = [".", "crates/north-strategy-types", "crates/north-base", "crates/north-build-system", "crates/north-foundation", "crates/north-pace", "crates/north-session-host", "crates/north-resume", "crates/north-fleet", "crates/north-fleet-store", "crates/north-fleet-supervisor", "crates/north-claude-stream", "crates/north-threads", "crates/north-calibration", "crates/north-core", "crates/north-agent-policy", "crates/north-providers", "crates/north-health", "crates/north-diff-gates", "crates/north-landing", "crates/north-lander", "crates/north-land-sandbox", "crates/north-land-watch", "crates/north-landing-gates", "crates/north-land-checks", "crates/north-land-scans", "crates/north-safe-push", "crates/north-tui", "crates/north-guard", "crates/north-lanes", "crates/north-code-health", "crates/north-check-environment", "crates/north-machine-model", "crates/north-flow", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-pacing", "crates/north-tune", "crates/north-github-mirror", "crates/north-concerns", "crates/north-mutants", "crates/north-coverage", "crates/north-context-pack", "crates/north-graph", "crates/north-graph-ingest", "crates/north-graph-change", "crates/north-graph-ground", "crates/north-graph-loops", "crates/north-lander-doctor", "crates/north-implicit-state", "crates/north-convo", "crates/north-git-locks", "crates/north-broker", "crates/north-runtime-follow", "crates/north-runtime-records", "crates/north-buck", "crates/north-publish", "crates/north-ssh-spare", "crates/north-warm-spares", "crates/north-registries", "crates/north-shared-config", "crates/north-cli-reference", "crates/north-test-cases", "crates/north-tui/monitor", "crates/north-agent-starts", "crates/north-docs", "crates/north-offload", "crates/north-timers", "crates/north-claims", "crates/north-expectations", "crates/north-issue-boxes", "crates/north-ci", "crates/north-desktop", "crates/north-github-broker", "crates/north-reclaim", "crates/north-trusted-mirror", "crates/north-credentials", "crates/north-remote-serve", "crates/north-unblocks", "crates/north-control-plane", "crates/north-switch"]
+members = ["crates/north-strategy-types", "crates/north-base", "crates/north-build-system", "crates/north-foundation", "crates/north-pace", "crates/north-session-host", "crates/north-resume", "crates/north-fleet", "crates/north-fleet-store", "crates/north-fleet-supervisor", "crates/north-claude-stream", "crates/north-threads", "crates/north-calibration", "crates/north-core", "crates/north-agent-policy", "crates/north-providers", "crates/north-health", "crates/north-diff-gates", "crates/north-landing", "crates/north-lander", "crates/north-land-sandbox", "crates/north-landing-gates", "crates/north-land-checks", "crates/north-land-scans", "crates/north-safe-push", "crates/north-guard", "crates/north-lanes", "crates/north-code-health", "crates/north-check-environment", "crates/north-flow", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-pacing", "crates/north-tune", "crates/north-github-mirror", "crates/north-concerns", "crates/north-mutants", "crates/north-coverage", "crates/north-graph", "crates/north-graph-ingest", "crates/north-graph-change", "crates/north-graph-ground", "crates/north-graph-loops", "crates/north-implicit-state", "crates/north-convo", "crates/north-git-locks", "crates/north-broker", "crates/north-runtime-follow", "crates/north-runtime-records", "crates/north-buck", "crates/north-publish", "crates/north-ssh-spare", "crates/north-registries", "crates/north-shared-config", "crates/north-cli-reference", "crates/north-test-cases", "crates/north-agent-starts", "crates/north-docs", "crates/north-offload", "crates/north-timers", "crates/north-expectations", "crates/north-issue-boxes", "crates/north-ci", "crates/north-github-broker", "crates/north-reclaim", "crates/north-trusted-mirror", "crates/north-credentials", "crates/north-remote-serve", "crates/north-unblocks", "crates/north-control-plane", "crates/north-switch", "crates/north-warm-spares"]
+default-members = [".", "crates/north-strategy-types", "crates/north-base", "crates/north-build-system", "crates/north-foundation", "crates/north-pace", "crates/north-session-host", "crates/north-resume", "crates/north-fleet", "crates/north-fleet-store", "crates/north-fleet-supervisor", "crates/north-claude-stream", "crates/north-threads", "crates/north-calibration", "crates/north-core", "crates/north-agent-policy", "crates/north-providers", "crates/north-health", "crates/north-diff-gates", "crates/north-landing", "crates/north-lander", "crates/north-land-sandbox", "crates/north-landing-gates", "crates/north-land-checks", "crates/north-land-scans", "crates/north-safe-push", "crates/north-guard", "crates/north-lanes", "crates/north-code-health", "crates/north-check-environment", "crates/north-flow", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-pacing", "crates/north-tune", "crates/north-github-mirror", "crates/north-concerns", "crates/north-mutants", "crates/north-coverage", "crates/north-graph", "crates/north-graph-ingest", "crates/north-graph-change", "crates/north-graph-ground", "crates/north-graph-loops", "crates/north-implicit-state", "crates/north-convo", "crates/north-git-locks", "crates/north-broker", "crates/north-runtime-follow", "crates/north-runtime-records", "crates/north-buck", "crates/north-publish", "crates/north-ssh-spare", "crates/north-registries", "crates/north-shared-config", "crates/north-cli-reference", "crates/north-test-cases", "crates/north-agent-starts", "crates/north-docs", "crates/north-offload", "crates/north-timers", "crates/north-expectations", "crates/north-issue-boxes", "crates/north-ci", "crates/north-github-broker", "crates/north-reclaim", "crates/north-trusted-mirror", "crates/north-credentials", "crates/north-remote-serve", "crates/north-unblocks", "crates/north-control-plane", "crates/north-switch", "crates/north-warm-spares"]
 
 [workspace.dependencies]
-crossterm = "0.28.1"
-ratatui = "0.30.0"
 fancy-regex = "=0.11.0"
 regex = "=1.13.1"
 percent-encoding = "2.3.2"
@@ -28,8 +26,6 @@ time = "=0.3.55"
 thiserror = "2"
 toml_edit = { version = "=0.25.13", default-features = false, features = ["parse"] }
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tui-markdown = { version = "0.3.9", default-features = false }
-tui-textarea-2 = { version = "0.13.2", default-features = false, features = ["crossterm_0_28"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -66,8 +62,6 @@ north-calibration = { path = "crates/north-calibration" }
 north-health = { path = "crates/north-health" }
 north-providers = { path = "crates/north-providers" }
 north-capacity-host = { path = "crates/north-capacity-host" }
-north-claims = { path = "crates/north-claims" }
-north-desktop = { path = "crates/north-desktop" }
 north-expectations = { path = "crates/north-expectations" }
 north-issue-boxes = { path = "crates/north-issue-boxes" }
 north-reclaim = { path = "crates/north-reclaim" }
@@ -79,7 +73,6 @@ north-docs = { path = "crates/north-docs" }
 north-broker = { path = "crates/north-broker" }
 north-convo = { path = "crates/north-convo" }
 north-flow = { path = "crates/north-flow" }
-north-lander-doctor = { path = "crates/north-lander-doctor" }
 north-dispatch = { path = "crates/north-dispatch" }
 north-tune = { path = "crates/north-tune" }
 north-runtime-records = { path = "crates/north-runtime-records" }
@@ -87,7 +80,6 @@ north-github-mirror = { path = "crates/north-github-mirror" }
 north-concerns = { path = "crates/north-concerns" }
 north-mutants = { path = "crates/north-mutants" }
 north-coverage = { path = "crates/north-coverage" }
-north-context-pack = { path = "crates/north-context-pack" }
 north-graph-ground = { path = "crates/north-graph-ground" }
 north-graph-ingest = { path = "crates/north-graph-ingest" }
 north-graph-loops = { path = "crates/north-graph-loops" }
@@ -101,13 +93,10 @@ north-guard = { path = "crates/north-guard" }
 north-lanes = { path = "crates/north-lanes" }
 north-code-health = { path = "crates/north-code-health" }
 north-check-environment = { path = "crates/north-check-environment" }
-north-machine-model = { path = "crates/north-machine-model" }
 north-session-host = { path = "crates/north-session-host" }
 north-capacity = { path = "crates/north-capacity" }
 north-fleet-store = { path = "crates/north-fleet-store" }
 north-threads = { path = "crates/north-threads" }
-north-tui = { path = "crates/north-tui" }
-north-land-watch = { path = "crates/north-land-watch" }
 north-lander = { path = "crates/north-lander" }
 north-landing = { path = "crates/north-landing" }
 north-landing-gates = { path = "crates/north-landing-gates" }
@@ -116,8 +105,6 @@ north-strategy-types = { path = "crates/north-strategy-types" }
 north-shared-config = { path = "crates/north-shared-config" }
 north-cli-reference = { path = "crates/north-cli-reference" }
 north-buck = { path = "crates/north-buck" }
-crossterm.workspace = true
-ratatui.workspace = true
 fancy-regex.workspace = true
 regex.workspace = true
 percent-encoding.workspace = true
@@ -131,8 +118,6 @@ tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
-tui-markdown.workspace = true
-tui-textarea-2.workspace = true
 north-diff-gates = { path = "crates/north-diff-gates" }
 north-fleet-supervisor = { path = "crates/north-fleet-supervisor" }
 north-warm-spares = { path = "crates/north-warm-spares" }

@@ -1,4 +1,3 @@
 crates/north-convo/src/convo/tests.rs	1
 crates/north-graph/examples/ask_scale.rs	3
-crates/north-lander-doctor/src/tests.rs	2
 src/bin/fake_claude.rs	1

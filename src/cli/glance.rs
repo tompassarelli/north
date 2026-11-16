@@ -99,7 +99,7 @@ fn accounts(now: Timestamp) -> Result<Vec<outlook::AccountOutlook>, String> {
 }
 
 fn credit(now: Timestamp) -> Vec<north_pace::credit::Standing> {
-    north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), now).orgs
+    north_pace::credit::standing(&crate::platform::orchestration::path(), &crate::platform::records_mirror::state_home(), now).orgs
 }
 
 fn gates(now: Timestamp) -> Result<usize, String> {
