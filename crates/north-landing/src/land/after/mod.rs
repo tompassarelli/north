@@ -3,6 +3,7 @@ pub mod cleanup;
 pub mod follow;
 pub use follow::{send, send_condition};
 pub mod gates;
+pub mod ingest_gate;
 pub mod concerns;
 pub mod leaf;
 pub mod owner;

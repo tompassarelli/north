@@ -7,6 +7,7 @@ use std::time::Duration;
 use north_base::platform::process::child_within;
 
 use crate::land::telemetry::epoch;
+use super::ingest_gate::{self, Turn};
 use super::route;
 use north_base::platform::land_notice;
 use crate::land::trace::{self, AFTER, Category, PHASE, Span};
@@ -85,12 +86,21 @@ pub fn run(arguments: &[String]) -> u8 {
         step(&north, arguments);
         Span::new(head, name, category, start, epoch()).on(&host).with(PHASE, AFTER)
     };
-    let spans = [
+    let mut spans = vec![
         timed("runtime follow", Category::Follow, &[os("runtime"), os("follow"), os("--repo-dir"), os(repo)]),
         timed("after-landing gates", Category::Ci, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head)]),
         timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), os(repo)]),
-        timed("graph ingest", Category::Follow, &[os("graph"), os("ingest")]),
     ];
+    match ingest_gate::take(Path::new(git_dir), head) {
+        (Turn::Ingest { heads }, _held) => {
+            spans.push(timed("graph ingest", Category::Follow, &[os("graph"), os("ingest")]));
+            let commits: Vec<String> = heads.iter().map(|head| format!("crates@{head}")).collect();
+            let mut arguments = vec![os("graph"), os("ingest")];
+            arguments.extend(commits.iter().map(|commit| os(commit)));
+            spans.push(timed("graph ingest crates", Category::Follow, &arguments));
+        }
+        (Turn::Covered { by }, _) => println!("north land follow: graph ingest: {head} is covered by the ingest of {by}, which waits and reads main as it stands when it starts, and tells the crate facts of {head}"),
+    }
     trace::record(&spans);
     0
 }
