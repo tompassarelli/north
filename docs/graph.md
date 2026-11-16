@@ -310,7 +310,7 @@ neighborhood two hops out, and the hook shows it among its live lines inside its
   the issue each served; corrections made in those sessions.
 
 The reader opens the graph read-only and never ingests, so a missing, locked or older graph costs the hook nothing but the
-lines. `north land follow` runs `north graph ingest` after each landing, and follows coalesce: one ingest runs and at most one waits, which starts when the running one ends, reads main as it stands then and tells the `crates@COMMIT` facts of every head that was covered meanwhile and of its own, so every landed head keeps its crate facts; a follow that finds one waiting logs which head covers its own and exits. Started 2026-11-06: the week of ungrounded-design corrections and the scoreboard's rework rate are compared with the
+lines. `north land follow` runs `north graph ingest` after each landing, and follows coalesce: one ingest runs and at most one waits, which starts when the running one ends, reads main as it stands then and tells the `crates@COMMIT` facts of every head that was covered meanwhile and of its own, so every landed head keeps its crate facts; a follow that finds one waiting logs which head covers its own and exits. A full ingest also tells the crate facts of every first-parent commit between the crates commit it last told and the one it tells now, so a covered head keeps them when the waiting follow dies before telling them. Started 2026-11-06: the week of ungrounded-design corrections and the scoreboard's rework rate are compared with the
 week before once a week of data exists.
 
 ## Change queries

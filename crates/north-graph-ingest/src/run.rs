@@ -175,8 +175,16 @@ fn ingest_command(arguments: &[String], cgroup: Option<&str>) -> u8 {
     };
     let Some(_alone) = alone(&db) else { return 1 };
     let places = Places::local();
+    let before = sources.contains(&Source::Crates).then(|| crates::told(&graph)).flatten();
     let mut report = ingest(&mut graph, &places, &sources);
-    for revision in &commits {
+    let skipped = match (before, crates::told(&graph)) {
+        (Some(before), Some(after)) if before != after => crates::since(&places, &before, &after).unwrap_or_else(|why| {
+            report.lines.push(format!("crates: commits since {before} not told: {why}"));
+            Vec::new()
+        }),
+        _ => Vec::new(),
+    };
+    for revision in skipped.iter().chain(&commits) {
         ingest_at(&mut graph, &places, revision, &mut report);
     }
     for line in &report.lines {

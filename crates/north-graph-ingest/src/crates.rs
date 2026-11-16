@@ -165,3 +165,17 @@ fn git(checkout: &Path, arguments: &[&str]) -> Result<String, String> {
     }
     String::from_utf8(output.stdout).map_err(|why| format!("{}: git {}: {why}", checkout.display(), arguments.first().copied().unwrap_or_default()))
 }
+
+pub fn told(graph: &north_graph::Graph) -> Option<String> {
+    let rule = serde_json::json!({"head": {"rel": "told", "args": [{"var": "o"}]}, "body": [{"rel": "triple", "args": ["crates:north", ["keyword", "crates-commit"], {"var": "o"}]}]});
+    let query = north_graph::parse_query(&serde_json::json!({"find": "told", "rules": [rule]}).to_string()).ok()?;
+    graph.ask(&query).ok()?.rows.into_iter().flatten().find_map(|term| match term {
+        north_graph::Term::Atom(north_graph::Atom::String(rev)) => Some(rev),
+        _ => None,
+    })
+}
+
+pub fn since(places: &Places, before: &str, after: &str) -> Result<Vec<String>, String> {
+    let range = format!("{before}..{after}^");
+    Ok(git(&places.code.join("north/main"), &["rev-list", "--first-parent", "--reverse", &range])?.lines().map(str::to_owned).collect())
+}
