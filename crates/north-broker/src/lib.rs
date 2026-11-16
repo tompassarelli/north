@@ -10,6 +10,9 @@ mod server;
 mod threads;
 
 pub use cli::run;
+pub use credentials::Source;
+pub use policy::Policy;
+pub use server::{Broker, Surface};
 
 #[cfg(test)]
 mod tests;

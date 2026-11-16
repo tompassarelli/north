@@ -42,6 +42,7 @@ north-pacing = { path = "../north-pacing" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 
 [dev-dependencies]
+north-broker = { path = "../north-broker" }
 north-control-plane = { path = "../north-control-plane" }
 north-pacing = { path = "../north-pacing", features = ["test-support"] }
 north-fleet-supervisor = { path = "../north-fleet-supervisor", features = ["test-support"] }

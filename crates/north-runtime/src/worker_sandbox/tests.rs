@@ -25,6 +25,8 @@ mod withdraw_request;
 mod landed_request;
 #[path = "sockets_tests.rs"]
 mod sockets;
+#[path = "kept_socket_tests.rs"]
+mod kept_socket;
 
 fn locks(under: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();

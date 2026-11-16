@@ -2151,6 +2151,7 @@ dependencies = [
  "clap",
  "landlock",
  "north-base",
+ "north-broker",
  "north-build-system",
  "north-calibration",
  "north-capacity-host",
