@@ -16,6 +16,7 @@ pub mod host;
 pub mod hops;
 pub mod jobs;
 pub mod landings;
+pub mod lane_hosts;
 pub mod lane_probe;
 pub mod prompt;
 pub mod proposal;

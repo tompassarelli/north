@@ -100,6 +100,7 @@ impl LaunchFlags {
             return Err(NorthError::Usage("--container-dir goes with --container-shell".to_owned()));
         }
         let (cwd, machine) = placement::working_directory(self.cwd)?;
+        crate::fleet::lane_hosts::check(&prompt, &cwd, machine.as_ref())?;
         let name = match (self.name, self.role) {
             (Some(name), Some(Role::Coordinator)) if name != COORDINATOR => return Err(NorthError::Usage(format!("the coordinator is named {COORDINATOR}, not {name}"))),
             (Some(name), _) => name,
