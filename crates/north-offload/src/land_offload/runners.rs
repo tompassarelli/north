@@ -1,4 +1,4 @@
-use north_pacing::pacing::placement::gate::ssh_destination;
+use north_capacity::capacity::host_table::ssh_destination;
 use toml_edit::{DocumentMut, Item};
 
 use north_base::platform::orchestration::runners;

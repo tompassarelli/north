@@ -499,7 +499,7 @@ constants = [
   "crates/north-dispatch/src/dispatch/effects.rs::REPEAT_ALERT_S",
   "crates/north-dispatch/src/dispatch/fleets.rs::MIRROR_FRESH_S",
   "crates/north-dispatch/src/dispatch/fleets.rs::PROBE",
-  "crates/north-dispatch/src/dispatch/measure.rs::LIMIT",
+  "crates/north-capacity/src/capacity/measure.rs::LIMIT",
   "crates/north-dispatch/src/dispatch/record.rs::CLOUD_HOLD_S",
   "crates/north-dispatch/src/dispatch/record.rs::FAILED_HOLD_S",
   "crates/north-dispatch/src/dispatch/record.rs::HOLD_S",

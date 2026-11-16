@@ -56,7 +56,6 @@ mod manual;
 mod nearest;
 mod pause;
 mod queued;
-pub mod measure;
 mod pack;
 pub mod phase;
 mod plan;

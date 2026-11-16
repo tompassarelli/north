@@ -6,10 +6,7 @@ use std::collections::BTreeMap;
 use storage::{load, number, rows, save};
 
 pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
-    std::fs::read_to_string(north_base::platform::orchestration::path())
-        .map_err(|e| e.to_string())?
-        .parse()
-        .map_err(|e: toml_edit::TomlError| e.to_string())
+    north_capacity::capacity::host_table::config()
 }
 pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
 

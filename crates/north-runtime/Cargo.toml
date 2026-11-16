@@ -18,7 +18,6 @@ north-base = { path = "../north-base" }
 north-unblocks = { path = "../north-unblocks" }
 north-lanes = { path = "../north-lanes" }
 north-providers = { path = "../north-providers" }
-north-dispatch = { path = "../north-dispatch" }
 north-trusted-mirror = { path = "../north-trusted-mirror" }
 north-landing = { path = "../north-landing" }
 regex.workspace = true

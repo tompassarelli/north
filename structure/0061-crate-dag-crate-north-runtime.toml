@@ -2,5 +2,5 @@
 name = "north-runtime"
 layer = 5
 paths = ["crates/north-runtime/src/**"]
-may_use = ["north-broker", "north-build-system", "north-capacity", "north-capacity-host", "north-dispatch", "north-landing", "north-lanes", "north-offload", "north-providers", "north-runtime-follow", "north-runtime-records", "north-trusted-mirror", "north-unblocks"]
+may_use = ["north-broker", "north-build-system", "north-capacity", "north-capacity-host", "north-landing", "north-lanes", "north-offload", "north-pacing", "north-providers", "north-runtime-follow", "north-runtime-records", "north-trusted-mirror", "north-unblocks"]
 

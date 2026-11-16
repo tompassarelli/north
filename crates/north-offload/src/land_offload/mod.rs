@@ -1,5 +1,5 @@
 use north_capacity::capacity::{agent_load, laptop_auto, mode};
-use north_pacing::pacing::placement::{config, gate};
+use north_capacity::capacity::host_table::{self, config};
 use ship::CommitId;
 use std::path::Path;
 
@@ -65,7 +65,7 @@ fn closed_runners() -> u8 {
         return 0;
     }
     let live: std::collections::BTreeSet<String> = std::thread::scope(|scope| {
-        let probes: Vec<_> = gate::machines(&cfg).into_iter().filter(|machine| machine.name != here).map(|machine| scope.spawn(|| runners::answers(&cfg, &machine.name).then_some(machine.name))).collect();
+        let probes: Vec<_> = host_table::machines(&cfg).into_iter().filter(|machine| machine.name != here).map(|machine| scope.spawn(|| runners::answers(&cfg, &machine.name).then_some(machine.name))).collect();
         probes.into_iter().filter_map(|probe| probe.join().ok().flatten()).collect()
     });
     match runners::closure(&cfg, &here, |name| live.contains(name)) {
@@ -172,8 +172,8 @@ fn usage() -> u8 {
     2
 }
 
-fn machines() -> Vec<gate::Machine> {
-    config().map(|cfg| gate::machines(&cfg)).unwrap_or_default()
+fn machines() -> Vec<host_table::Machine> {
+    config().map(|cfg| host_table::machines(&cfg)).unwrap_or_default()
 }
 
 pub fn build_hosts() -> Vec<(String, String)> {
@@ -190,7 +190,7 @@ pub fn closed_build_hosts() -> Vec<String> {
     config().map(|cfg| destinations::closed_build_hosts(&cfg, &north_base::platform::host::name())).unwrap_or_default()
 }
 
-fn check_login(machine: &gate::Machine) -> Option<String> {
+fn check_login(machine: &host_table::Machine) -> Option<String> {
     config().ok().and_then(|cfg| destinations::check_login(&cfg, machine))
 }
 
@@ -400,7 +400,7 @@ struct Survey {
     reserved: bool,
     holds_here: bool,
     standing: room::Standing,
-    others: Vec<gate::Machine>,
+    others: Vec<host_table::Machine>,
     remotes: Vec<(String, Option<room::Room>)>,
 }
 
@@ -416,7 +416,7 @@ fn survey(in_reserve: bool, placement: &Placement) -> Survey {
     let reached = |name: &str| config().is_ok_and(|cfg| north_base::platform::orchestration::reaches(&cfg, &here, name));
     let standing = standing(reserved, on_battery(), config().ok().as_ref(), &here);
     let takes = |name: &str| config().is_ok_and(|cfg| destinations::takes_land_checks(&cfg, standing, name));
-    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && reached(&machine.name) && placement.admits(&machine.name) && takes(&machine.name)).collect();
+    let others: Vec<host_table::Machine> = machines().into_iter().filter(|machine| machine.name != here && reached(&machine.name) && placement.admits(&machine.name) && takes(&machine.name)).collect();
     let remotes = std::thread::scope(|scope| {
         let reads: Vec<_> = others.iter().map(|machine| (machine.name.clone(), scope.spawn(|| room::read(&machine.ssh)), scope.spawn(|| check_login(machine).is_some_and(|login| readiness::admits(&needs, &machine.name, &login))))).collect();
         reads.into_iter().map(|(name, room, ready)| (name, room.join().ok().flatten().filter(|_| ready.join().unwrap_or(false)))).collect::<Vec<_>>()

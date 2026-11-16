@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-shared-config = { path = "../north-shared-config" }
+north-capacity = { path = "../north-capacity" }
 north-capacity-host = { path = "../north-capacity-host" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }

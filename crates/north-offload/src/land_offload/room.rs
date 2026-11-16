@@ -1,7 +1,7 @@
 use north_capacity::capacity::admission::{Class, dispatch_request_mib, memory_short, offload_room};
 use north_capacity::capacity::build_offload::Admission;
 use north_capacity::capacity::job_admission;
-use north_dispatch::dispatch::measure::{self, Measure};
+use north_capacity::capacity::measure::{self, Measure};
 use north_base::platform::process::run_within;
 use std::time::Duration;
 

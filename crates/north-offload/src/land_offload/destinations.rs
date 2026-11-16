@@ -1,4 +1,4 @@
-use north_pacing::pacing::placement::gate::ssh_destination;
+use north_capacity::capacity::host_table::ssh_destination;
 use north_base::platform::orchestration::reaches;
 use toml_edit::{DocumentMut, Item};
 
@@ -110,7 +110,7 @@ pub(super) fn warms_slots(cfg: &DocumentMut, here: &str) -> bool {
 }
 
 /// The login a lane's offloaded check runs as on `machine`: its agent login once `[hosts.NAME] agent_offload = true` enables it, else its ssh destination; none when agent_offload is set on a host that declares no agent login, so its checks run nowhere rather than as the operator.
-pub(super) fn check_login(cfg: &DocumentMut, machine: &north_pacing::pacing::placement::gate::Machine) -> Option<String> {
+pub(super) fn check_login(cfg: &DocumentMut, machine: &north_capacity::capacity::host_table::Machine) -> Option<String> {
     let enabled = cfg.get("hosts").and_then(|hosts| hosts.get(&machine.name)).and_then(|host| host.get("agent_offload")).and_then(Item::as_bool) == Some(true);
     let login = if enabled { machine.agent_ssh.clone() } else { Some(machine.ssh.clone()) };
     if login.is_none() {
@@ -121,12 +121,12 @@ pub(super) fn check_login(cfg: &DocumentMut, machine: &north_pacing::pacing::pla
 
 /// Whether `login` is the agent login of `host`, so the check runs confined (land_offload/ship/fill.sh confine).
 pub(super) fn runs_as_agent(cfg: &DocumentMut, host: &str, login: &str) -> bool {
-    north_pacing::pacing::placement::gate::machines(cfg).iter().any(|machine| machine.name == host && machine.agent_ssh.as_deref() == Some(login) && machine.ssh != login)
+    north_capacity::capacity::host_table::machines(cfg).iter().any(|machine| machine.name == host && machine.agent_ssh.as_deref() == Some(login) && machine.ssh != login)
 }
 
 /// Each build host `here` reaches, with the login a lane's check runs as there (check_login); a host whose agent login does not parse, or that sets agent_offload with no agent login, is left out rather than dialed as the operator.
 pub(super) fn check_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
-    let machines = north_pacing::pacing::placement::gate::machines(cfg);
+    let machines = north_capacity::capacity::host_table::machines(cfg);
     build_hosts(cfg, here).into_iter().filter_map(|(name, _)| machines.iter().find(|machine| machine.name == name).and_then(|machine| check_login(cfg, machine)).map(|login| (name, login))).collect()
 }
 
@@ -154,7 +154,7 @@ pub(super) fn reached_destinations(cfg: &DocumentMut, here: &str) -> Vec<(String
 pub(super) fn reached_destination(cfg: &DocumentMut, here: &str, host: &str) -> Result<String, String> {
     let reached = reached_destinations(cfg, here);
     if reached.iter().any(|(name, _)| name == host) {
-        let machines = north_pacing::pacing::placement::gate::machines(cfg);
+        let machines = north_capacity::capacity::host_table::machines(cfg);
         return machines.iter().find(|machine| machine.name == host).and_then(|machine| check_login(cfg, machine)).ok_or_else(|| format!("{host} has no login a check may run as, so no offload is dialed for it"));
     }
     let names: Vec<&str> = reached.iter().map(|(name, _)| name.as_str()).collect();

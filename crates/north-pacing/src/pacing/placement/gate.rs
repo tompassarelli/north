@@ -23,6 +23,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use north_strategy_types::placement as record;
 use toml_edit::{DocumentMut, Item};
+use north_capacity::capacity::host_table;
+pub use north_capacity::capacity::host_table::{job_source, ssh_destination};
 
 const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "makgora"];
 const GAMING_NEEDS: [&str; 2] = ["native", "private"];
@@ -377,26 +379,13 @@ pub fn public(repo: &str, cfg: &DocumentMut) -> bool {
     !repo.is_empty() && !strings(rules.and_then(|p| p.get("private_repos"))).iter().any(|name| name == repo) && public.iter().any(|name| name == repo)
 }
 
-pub fn ssh_destination(value: &str) -> Option<&str> {
-    let plain = value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._@-".contains(&byte));
-    (plain && !value.is_empty() && !value.starts_with('-')).then_some(value)
-}
-
 /// Machines in `[placement] order`, then any other `[hosts.NAME]` naming an `ssh` destination, unprobed.
 pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
-    let order = strings(cfg.get("placement").and_then(|p| p.get("order")));
-    let rest: Vec<String> = hosts.iter().map(|(name, _)| name.to_owned()).filter(|name| !order.contains(name)).collect();
-    order
+    host_table::machines(cfg)
         .into_iter()
-        .chain(rest)
-        .filter_map(|name| {
+        .filter_map(|host_table::Machine { name, ssh, agent_ssh }| {
             let host = hosts.get(&name)?;
-            let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
-            let agent_ssh = match host.get("agent_ssh") {
-                Some(login) => Some(ssh_destination(login.as_str()?)?.to_owned()),
-                None => None,
-            };
             let cap = host.get("resident_cap").and_then(Item::as_integer);
             Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, agent_ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None, stale_age_s: None, placed_recently: 0 })
         })
@@ -415,10 +404,6 @@ pub fn spool_pulled(cfg: &DocumentMut, host: &str) -> bool {
 /// Whether this host's fleet tick computes the fleet-wide reports (goals, scoreboard, corrections): every `[hosts.NAME]` does unless it sets `fleet_reports = false`.
 pub fn fleet_reports(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("fleet_reports")).and_then(Item::as_bool) != Some(false)
-}
-
-pub fn job_source(cfg: &DocumentMut, host: &str) -> bool {
-    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("job_source")).and_then(Item::as_bool) == Some(true)
 }
 
 pub fn serving(cfg: &DocumentMut, needs: &str, here: &str) -> Option<String> {

@@ -85,14 +85,6 @@ pub fn job_refusal() -> Option<String> {
     crate::capacity::job_admission::refusal(&load, job_peak_mib())
 }
 
-pub fn lease_waiting(except: Option<u64>) -> bool {
-    lease_waiting_under(&runtime_root(), except)
-}
-
-fn lease_waiting_under(root: &Path, except: Option<u64>) -> bool {
-    root.join("queue").is_dir() && state::read_queue(root).iter().any(|ticket| ticket.get("wrapperPid").and_then(Value::as_u64) != except)
-}
-
 /// Why this host takes no other land check into an offload slot now: the land checks it leases or queues already charge so many of its cores that another's lease would wait for theirs while holding a slot another job could build in; None while none is charged, so a lone check always starts.
 pub fn landing_refusal() -> Option<String> {
     landing_refusal_under(&runtime_root(), land_check_charge(), cpu_limit())

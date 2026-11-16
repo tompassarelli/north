@@ -61,3 +61,5 @@ pub mod gate;
 mod gate_tests;
 pub mod seat_stall;
 pub mod window;
+pub mod host_table;
+pub mod measure;

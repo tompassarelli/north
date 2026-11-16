@@ -1,7 +1,7 @@
+use north_capacity::capacity::host_table::strings;
 use super::{sampling, storage};
 use serde_json::Value;
 use std::collections::BTreeSet;
-use toml_edit::Item;
 
 pub mod admit;
 #[cfg(test)]
@@ -78,15 +78,6 @@ fn facets(text: &str) -> (String, bool, BTreeSet<String>) {
         || needs.contains("native")
         || needs.contains("sign-ins");
     (field(text, "Item").into(), native, needs)
-}
-fn strings(item: Option<&Item>) -> Vec<String> {
-    item.and_then(Item::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 pub fn serving_host(needs: &str) -> Option<String> {
     gate::serving(&sampling::config().ok()?, needs, &local())

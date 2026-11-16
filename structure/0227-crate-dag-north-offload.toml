@@ -2,5 +2,5 @@
 name = "north-offload"
 layer = 5
 paths = ["crates/north-offload/src/**"]
-may_use = ["north-base", "north-build-system", "north-capacity", "north-capacity-host", "north-dispatch", "north-lanes", "north-pacing", "north-runtime-follow"]
+may_use = ["north-base", "north-build-system", "north-capacity", "north-capacity-host", "north-lanes", "north-runtime-follow"]
 

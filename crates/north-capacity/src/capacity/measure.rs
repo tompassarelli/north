@@ -8,9 +8,8 @@ const LIMIT: Duration = Duration::from_secs(15);
 const TICK_MICROSECONDS: f64 = 10_000.0;
 const YIELDING_USAGE: &str = "usage_usec ";
 
-/// The probe: the yielding slice's CPU time is read beside each `/proc/stat` line, so its share of the window is measured on the same 2 s.
-pub fn probe() -> String {
-    let yielding = north_capacity_host::capacity::host::yielding_cgroup();
+/// The probe: the yielding slice's CPU time, under its cgroup directory `yielding`, is read beside each `/proc/stat` line, so its share of the window is measured on the same 2 s.
+pub fn probe(yielding: &str) -> String {
     format!("y=\"/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/{yielding}/cpu.stat\"; nproc; cat /proc/loadavg /proc/meminfo; head -n1 /proc/stat; grep -s '^{YIELDING_USAGE}' \"$y\"; sleep 2; head -n1 /proc/stat; grep -s '^{YIELDING_USAGE}' \"$y\"; cat /proc/pressure/cpu 2>/dev/null; true")
 }
 
@@ -40,8 +39,8 @@ pub fn parse(text: &str) -> Option<Measure> {
 }
 
 /// This host's measure when `here`, else the one its ssh destination reports, if it has one.
-pub fn read(here: bool, ssh: Option<&str>) -> Option<Measure> {
-    let probe = probe();
+pub fn read(here: bool, ssh: Option<&str>, yielding: &str) -> Option<Measure> {
+    let probe = probe(yielding);
     let output = match (here, ssh) {
         (true, _) => run_within("sh", &["-c", &probe], LIMIT),
         (false, Some(destination)) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, &probe], LIMIT),

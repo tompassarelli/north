@@ -36,7 +36,7 @@ fn the_laptop_in_any_capacity_mode_competes_for_no_land_check_beside_the_build_h
 #[test]
 fn a_host_that_declares_an_agent_login_runs_offloaded_checks_as_the_operator_until_agent_offload_enables_it_north_1041() {
     let cfg: DocumentMut = "[hosts.far]\nssh = \"tom@far\"\nagent_ssh = \"agent@far\"\n\n[hosts.on]\nssh = \"tom@on\"\nagent_ssh = \"agent@on\"\nagent_offload = true\n\n[hosts.bare]\nssh = \"tom@bare\"\nagent_offload = true\n".parse().unwrap();
-    let login = |name: &str| check_login(&cfg, &north_pacing::pacing::placement::gate::machines(&cfg).into_iter().find(|machine| machine.name == name).unwrap());
+    let login = |name: &str| check_login(&cfg, &north_capacity::capacity::host_table::machines(&cfg).into_iter().find(|machine| machine.name == name).unwrap());
     assert_eq!(login("far").as_deref(), Some("tom@far"), "order 45 dialed agent@cpx62 for every check before the agent held a checkout there, and every check failed from 4:10 AM on 2026-11-13");
     assert_eq!(login("on").as_deref(), Some("agent@on"));
     assert_eq!(login("bare"), None, "a host set to run checks as its agent but naming no agent login must not run them as the operator");

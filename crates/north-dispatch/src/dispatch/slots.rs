@@ -22,7 +22,7 @@ pub struct Host {
     /// Running resident sessions, or why the host takes nothing now.
     pub running: Result<i64, String>,
     /// Its live load, when dispatch reaches it.
-    pub measure: Option<super::measure::Measure>,
+    pub measure: Option<north_capacity::capacity::measure::Measure>,
     /// Builds its capacity admission takes before its queue reaches the limit placement skips it at,
     /// None without a backlog reading; each launch this run is expected to queue one.
     pub builds: Option<i64>,

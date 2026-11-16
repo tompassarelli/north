@@ -1,10 +1,10 @@
 //! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
-//! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue or a lease in the capacity queue, the lease reaper (the laptop-auto tick on the laptop) starts
+//! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue, the lease reaper (the laptop-auto tick on the laptop) starts
 //! one warm job: it takes the unlocked slot not warmed at its repository's origin/main whose checkout is nearest that head, by files changed, so the warm build is short enough to finish between queued checks and the next check finds a slot near main (a land check that left a
 //! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line and the slots their
 //! land_offload budget with one more of the largest target here, the lander's reserved one among them (its pick-time rebase compile and revert runs build there), checks it out at
 //! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
-//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since. A land check that queues for a slot, or a lease that queues in the capacity queue, stops the warm job, which holds a slot or cores the check could take.
+//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since. A land check that queues for a slot stops the warm job, which holds a slot the check could take.
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -52,8 +52,6 @@ fn take(lock: &Path) -> Option<File> {
 fn refusal(root: &Path) -> Option<String> {
     if checks_waiting(root) {
         Some("a land check waits for a slot".to_owned())
-    } else if north_capacity_host::capacity::host::lease_waiting(None) {
-        Some("a lease waits in the capacity queue".to_owned())
     } else {
         north_capacity_host::capacity::host::job_refusal()
     }
@@ -209,8 +207,6 @@ fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
                 Some(format!("killed after {} s", DEADLINE.as_secs()))
             } else if checks_waiting(root) {
                 Some("stopped for a queued land check".to_owned())
-            } else if north_capacity_host::capacity::host::lease_waiting(Some(u64::from(running.id()))) {
-                Some("stopped for a lease waiting in the capacity queue".to_owned())
             } else {
                 None
             };

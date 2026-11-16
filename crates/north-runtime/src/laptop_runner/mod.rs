@@ -15,7 +15,7 @@ use serde_json::Value;
 use toml_edit::DocumentMut;
 
 use crate::agent_contain;
-use north_pacing::pacing::placement::{config, gate};
+use north_capacity::capacity::host_table::{self, config};
 use north_base::platform::ssh;
 use north_base::platform::ssh_session::shell_quote;
 use north_base::platform::process::run_within;
@@ -46,11 +46,11 @@ impl Ledger {
 }
 
 pub fn ledgers(local: Vec<String>, cfg: Option<&DocumentMut>, here: &str, ssh_program: &str, env: &BTreeMap<String, String>) -> Vec<Ledger> {
-    let machines = cfg.map(|cfg| gate::machines(cfg).into_iter().filter(|machine| gate::job_source(cfg, &machine.name)).collect()).unwrap_or_default();
+    let machines = cfg.map(|cfg| host_table::machines(cfg).into_iter().filter(|machine| host_table::job_source(cfg, &machine.name)).collect()).unwrap_or_default();
     ledgers_among(local, machines, here, ssh_program, env)
 }
 
-fn ledgers_among(local: Vec<String>, machines: Vec<gate::Machine>, here: &str, ssh_program: &str, env: &BTreeMap<String, String>) -> Vec<Ledger> {
+fn ledgers_among(local: Vec<String>, machines: Vec<host_table::Machine>, here: &str, ssh_program: &str, env: &BTreeMap<String, String>) -> Vec<Ledger> {
     let remote = machines.into_iter().filter(|machine| machine.name != here).map(|machine| {
         let command = ssh::argv(&[ssh_program.into()], env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", &machine.ssh, "north", "threads"]);
         Ledger { host: Some(machine.name), command: command.into_iter().map(|word| word.to_string_lossy().into_owned()).collect() }

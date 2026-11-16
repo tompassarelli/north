@@ -76,7 +76,7 @@ pub(super) fn every_build_hosts_line_over_the_wait_bar_holds_each_box_with_its_e
     assert_eq!(outcome.skipped.len(), 2);
 }
 
-fn laptop_at_the_0631z_round(measure: Option<super::measure::Measure>, reading: Option<&Saturation>) -> Host {
+fn laptop_at_the_0631z_round(measure: Option<north_capacity::capacity::measure::Measure>, reading: Option<&Saturation>) -> Host {
     Host { name: "whiterabbit".into(), cap: Some(200), room: None, running: Ok(16), measure, builds: None }.read(reading)
 }
 
@@ -84,7 +84,7 @@ fn laptop_at_the_0631z_round(measure: Option<super::measure::Measure>, reading: 
 fn one_round_charges_its_own_launches_against_host_headroom() {
     let accounts = vec![account("claude:a", &["whiterabbit"])];
     let probe = "24\n31.20 30.10 29.00 5/900 1\nMemTotal: 67108864 kB\nMemAvailable: 50331648 kB\ncpu  0 0 0 0 0 0 0 0 0 0\ncpu  100 0 0 200 100 0 0 0 0 0\nsome avg10=95.00 avg60=90.00 avg300=60.00 total=1\n";
-    let idle = super::measure::parse(probe).expect("the probe parses");
+    let idle = north_capacity::capacity::measure::parse(probe).expect("the probe parses");
     let measured = laptop_at_the_0631z_round(Some(idle), Some(&Saturation { backlog: None, ..reading(900.0, 936.0, 0) }));
     assert_eq!(measured.free(), Ok(4), "53 sessions of 768 MiB fit above the memory floor, and the 18 cores idle in the last 2 s would take 36, but a minute at 90% pressure leaves 2.4 of 24 cores, which take 4 at half a core each, under the 184 the cap leaves");
     let mut pools = super::slots::Pools::new(&[measured], &accounts);
