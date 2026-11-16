@@ -11,10 +11,11 @@ use north_base::platform::trust_boundary;
 use regex::Regex;
 use toml_edit::DocumentMut;
 
-use crate::{Range, git, holdlist};
+use crate::{Range, added_dependencies, git, holdlist, ring_zero_defaults};
 
 const SELF: &str = "review-accept";
 const DELETIONS: &str = "review-accept-deletions";
+const DEPENDENCY_SOURCES: &str = "dependency_source_paths";
 const REVERTS: [&str; 2] = ["This reverts commit ", "Reverts: "];
 
 fn changed(directory: &Path, fork: &str, head: &str) -> Option<Vec<String>> {
@@ -64,7 +65,7 @@ pub(crate) fn reviewers(directory: &Path, fork: &str, head: &str, accepts: &Acce
     Ok((patch, accepted))
 }
 
-/// `Err` is a lane that changes a `trust_boundary_paths` file of the harness/defaults.toml at its landing `base` and holds no accept of its patch id from a reviewer session that did not author the lane.
+/// `Err` is a lane that changes a `ring_zero_paths` file of the harness/defaults.toml at its landing `base` or adds a dependency, and holds no accept of its patch id from a reviewer session that did not author the lane.
 pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     check_listed(directory, base, base, head, accepts, finished)
 }
@@ -72,10 +73,9 @@ pub fn check(directory: &Path, base: &str, head: &str, accepts: &Accepts, finish
 fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accepts: &Accepts, finished: &[Finished]) -> Result<(), String> {
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
-    let lists = lists_at(directory, listed_at)?;
-    let crossing = trust_boundary::crossing(&lists, &files).ok_or_else(|| format!("{DEFAULTS} at {listed_at} lists no trust_boundary_paths, so no change can be told to cross one"))?;
+    let crossing = needing_review(directory, listed_at, &fork, head, &files)?;
     let unreviewed = reverts_unreviewed(directory, &fork, head, accepts, finished);
-    let crossing: Vec<String> = crossing.into_iter().filter(|_| !unreviewed).map(str::to_owned).collect();
+    let crossing: Vec<String> = crossing.into_iter().filter(|_| !unreviewed).collect();
     if crossing.is_empty() {
         return Ok(());
     }
@@ -83,7 +83,23 @@ fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accep
     if !accepted.is_empty() {
         return Ok(());
     }
-    Err(format!("the lane changes {} of trust_boundary_paths and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
+    Err(format!("the lane changes ring-0 paths or adds dependencies, {}, and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
+}
+
+/// The review a lane `fork..head` needs, read from the harness/defaults.toml at `listed_at`: each file it changes under ring_zero_paths,
+/// each defaults key ring-0 code reads that it changes, each dependency-source file it adds a line to, and each dependency it adds;
+/// `Err` when the file lists no boundary.
+fn needing_review(directory: &Path, listed_at: &str, fork: &str, head: &str, files: &[String]) -> Result<Vec<String>, String> {
+    let lists = lists_at(directory, listed_at)?;
+    let ring = trust_boundary::ring_zero(&lists, files).ok_or_else(|| format!("{DEFAULTS} at {listed_at} lists no trust_boundary_paths, so no change can be told to cross one"))?;
+    let mut needed: Vec<String> = ring.into_iter().map(str::to_owned).collect();
+    if let Some(ring) = trust_boundary::listed_in(&lists, trust_boundary::RING_ZERO).filter(|_| files.iter().any(|file| file == DEFAULTS)) {
+        needed.extend(ring_zero_defaults::changed(directory, fork, head, &ring));
+    }
+    let sources = trust_boundary::listed_in(&lists, DEPENDENCY_SOURCES).unwrap_or_default();
+    needed.extend(added_dependencies::added_lines(directory, fork, head, &trust_boundary::crossing_in(&sources, files)));
+    needed.extend(added_dependencies::added(directory, fork, head, files));
+    Ok(needed)
 }
 
 /// Whether the lane `fork..head` is an exact revert of commits that each landed unreviewed across a trust-boundary path, so the revert removes only content no reviewer read and needs no accept of its own.

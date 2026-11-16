@@ -1,5 +1,6 @@
 use north_diff_gates::language_gate::EMPTY_TREE;
 
+mod added_dependencies;
 pub mod alarm_definitions;
 pub mod doc_links;
 mod doc_paths;
@@ -25,6 +26,7 @@ pub mod policy;
 pub mod push_jobs;
 pub mod review;
 pub mod review_accept;
+mod ring_zero_defaults;
 pub mod rule_owners;
 pub mod safe_push_keys;
 pub mod safe_push_verbs;

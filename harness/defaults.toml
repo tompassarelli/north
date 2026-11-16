@@ -1999,6 +1999,22 @@ source = "red-main profile of 2026-11-10 to 2026-11-15 (north#1537): landing-mac
 fallback = "a missing list replays no lane, so every landing-path lane is judged by main's machinery alone"
 consumers = ["crates/north-base/src/platform/trust_boundary.rs", "crates/north-lander/src/land/promote/machinery_lane.rs"]
 
+[ring_zero_paths]
+value = [".safe-push", "crates/north-safe-push/", "crates/north-lander/", "crates/north-landing/", "crates/north-land-sandbox/", "crates/north-runtime/src/worker_sandbox/", "crates/north-broker/", "crates/north-github-broker/", "crates/north-credentials/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-land-scans/src/review_accept.rs", "crates/north-land-scans/src/added_dependencies.rs", "crates/north-land-scans/src/ring_zero_defaults.rs", "crates/north-land-scans/src/git.rs", "crates/north-land-scans/src/lib.rs", "crates/north-land-scans/src/holdlist.rs", "harness/holdlist.toml", "crates/north-base/src/platform/harness.rs", "crates/north-base/src/platform/finish_record.rs", "crates/north-runtime/src/runtime/review_accept.rs", "crates/north-runtime/src/runtime/review_hold.rs", "crates/north-trusted-mirror/", "harness/worker-tools.toml", "harness/claude/", "crates/north-agent-starts/", "crates/north-base/src/platform/session_scope.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-providers/src/providers/claude/session_env.rs", "crates/north-providers/src/providers/claude/tool_server.rs", "crates/north-providers/src/providers/claude/api_pool.rs", "crates/north-remote-serve/", "src/cli/operator.rs", "src/cli/operator/", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-base/src/platform/login.rs", "src/bin/verify_north/login.rs", "crates/north-check-environment/src/credential.rs", "crates/north-pace/src/spend/"]
+allowed = { min_len = 1 }
+unit = "paths from the repository root, written as in trust_boundary_paths, that stay ring-0: the worker sandbox and what widens a worker's reach, the credential broker, logins and API spend, the lander and .safe-push, and the review-accept scan with the accept records it rests on; the review-accept scan asks a review accept of a lane only when it changes one of these, changes a harness/defaults.toml key one of these reads (a key it removes passes once its ring-0 readers are gone), adds a line to a dependency_source_paths file, or adds a Cargo.toml dependency or a Cargo.lock package, so a change to any other trust_boundary_paths file lands on the deterministic checks"
+source = "north#1650 (2026-11-16): the core cut plan found all 34 Phase 2 lanes touch Cargo.toml or Cargo.lock, so each removal would wait on a reviewer; the owner kept a mandatory review only for the sandbox, the broker, the lander and .safe-push"
+fallback = "a missing list asks an accept of every change to trust_boundary_paths and landing_path_paths, as before north#1650"
+consumers = ["crates/north-base/src/platform/trust_boundary.rs", "crates/north-land-scans/src/review_accept.rs"]
+
+[dependency_source_paths]
+value = [".cargo/", "rust-toolchain.toml", "toolchains/", "third-party/", "build/", "flake.nix", "flake.lock"]
+allowed = { min_len = 1 }
+unit = "paths from the repository root, written as in trust_boundary_paths, of files beside Cargo.toml and Cargo.lock that choose what code a build fetches or runs: cargo source replacement and wrappers, the toolchain, the Buck third-party and build rules and the flake; the review-accept scan asks a review accept of a lane that adds a line to one, and lets a pure deletion pass"
+source = "commit-reviewer refusal of the first north#1650 lane (2026-11-16): a ring-0 list that left these out let a lane add a dependency outside Cargo with no reviewer"
+fallback = "a missing list asks no accept for a change to these files beyond what ring_zero_paths asks"
+consumers = ["crates/north-land-scans/src/review_accept.rs"]
+
 [review_call_models]
 value = ["claude-opus-5-5:high"]
 allowed = { min_len = 1 }

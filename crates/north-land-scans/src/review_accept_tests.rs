@@ -92,17 +92,47 @@ fn a_live_fix_lane_that_changes_verify_north_login_with_no_review_accepts_is_ref
 }
 
 #[test]
-fn a_change_to_a_path_the_two_accept_list_named_lands_on_one_accept_from_either_reviewer_north_1422() {
+fn a_lane_that_only_removes_a_crate_lands_with_no_accept_and_one_that_adds_a_dependency_still_needs_one_north_1650() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     let accepts = Accepts(root.path().join("accepts"));
     git_in(&repo, &["init", "-q", "-b", "main"]);
-    let base = commit(&repo, &[("crates/north-fleet/src/fleet/claims.rs", "a\n"), (DEFAULTS, north_lists())], "base");
-    let claims = commit(&repo, &[("crates/north-fleet/src/fleet/claims.rs", "b\n")], "a claims change\n\nLive-fix: landing p90");
-    assert!(check(&repo, &base, &claims, &accepts, &[]).unwrap_err().contains("holds no review accept"), "a claims change needs an accept, Live-fix or not");
-    accept(&accepts, &repo, &base, &claims, "reviewer-b");
-    assert_eq!(check(&repo, &base, &claims, &accepts, &[]), Ok(()), "one accept from one reviewer session lands a claims change");
+    let package = |name: &str, extra: &str| format!("[[package]]\nname = \"{name}\"\nversion = \"0.1.0\"\n{extra}\n");
+    let serde = "[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+    let base = commit(&repo, &[
+        (DEFAULTS, north_lists()),
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\n"),
+        ("crates/a/Cargo.toml", "[package]\nname = \"a\"\n\n[dependencies]\nb = { path = \"../b\" }\nserde = \"1\"\n"),
+        ("crates/b/Cargo.toml", "[package]\nname = \"b\"\n"),
+        ("crates/b/src/lib.rs", "pub fn b() {}\n"),
+        ("Cargo.lock", &format!("version = 4\n\n{}\n{}\n{serde}", package("a", "dependencies = [\"b\", \"serde\"]"), package("b", ""))),
+    ], "base");
+
+    git_in(&repo, &["rm", "-rq", "crates/b"]);
+    let removal = commit(&repo, &[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/a\"]\n"),
+        ("crates/a/Cargo.toml", "[package]\nname = \"a\"\n\n[dependencies]\nserde = \"1\"\n"),
+        ("Cargo.lock", &format!("version = 4\n\n{}\n{serde}", package("a", "dependencies = [\"serde\"]"))),
+    ], "Remove crate b");
+    assert_eq!(check(&repo, &base, &removal, &accepts, &[]), Ok(()), "a lane that deletes a crate and its manifest and lock entries waited on a reviewer");
+
+    git_in(&repo, &["reset", "-q", "--hard", &base]);
+    git_in(&repo, &["rm", "-rq", "crates/b"]);
+    let widened = north_lists().replacen("\"north-clean-install.service\"]", "\"north-clean-install.service\", \"sshd.service\"]", 1);
+    assert_ne!(widened, north_lists());
+    let reach = commit(&repo, &[(DEFAULTS, &widened)], "Remove crate b and widen host_op_units");
+    let refusal = check(&repo, &base, &reach, &accepts, &[]).unwrap_err();
+    assert!(refusal.contains("key host_op_units"), "a removal lane that also widens a worker's reach landed with no reviewer: {refusal}");
+
+    git_in(&repo, &["reset", "-q", "--hard", &base]);
+    let regex = "[[package]]\nname = \"regex\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+    let addition = commit(&repo, &[
+        ("crates/a/Cargo.toml", "[package]\nname = \"a\"\n\n[dependencies]\nb = { path = \"../b\" }\nregex = \"1\"\nserde = \"1\"\n"),
+        ("Cargo.lock", &format!("version = 4\n\n{}\n{}\n{regex}\n{serde}", package("a", "dependencies = [\"b\", \"regex\", \"serde\"]"), package("b", ""))),
+    ], "Add regex");
+    let refusal = check(&repo, &base, &addition, &accepts, &[]).unwrap_err();
+    assert!(refusal.contains("crates/a/Cargo.toml adds dependencies.regex") && refusal.contains("Cargo.lock adds regex 1.0.0"), "{refusal}");
 }
 
 #[test]

@@ -1,8 +1,9 @@
-//! The files whose change crosses a host's trust boundary, read from `trust_boundary_paths` and `landing_path_paths` in harness/defaults.toml: the one reading behind the test line a hand-in keeps before queueing and the review accepts a landing asks for (north#1036, north#1492).
+//! The files whose change crosses a host's trust boundary, read from `trust_boundary_paths`, `landing_path_paths` and `ring_zero_paths` in harness/defaults.toml: the one reading behind the test line a hand-in keeps before queueing and the review accepts a landing asks for (north#1036, north#1492).
 use crate::platform::harness::{DEFAULTS, document};
 
 const KEY: &str = "trust_boundary_paths";
 pub const LANDING_PATH: &str = "landing_path_paths";
+pub const RING_ZERO: &str = "ring_zero_paths";
 
 fn names(boundary: &[&str], file: &str) -> bool {
     boundary.iter().any(|path| match path.strip_prefix("**/") {
@@ -22,7 +23,7 @@ pub fn listed(key: &str) -> Option<Vec<&'static str>> {
     listed_in(document(DEFAULTS), key)
 }
 
-fn listed_in<'a>(document: &'a toml_edit::DocumentMut, key: &str) -> Option<Vec<&'a str>> {
+pub fn listed_in<'a>(document: &'a toml_edit::DocumentMut, key: &str) -> Option<Vec<&'a str>> {
     let list = document.get(key).and_then(|entry| entry.get("value")).and_then(toml_edit::Item::as_array)?;
     Some(list.iter().filter_map(toml_edit::Value::as_str).collect())
 }
@@ -31,4 +32,12 @@ fn listed_in<'a>(document: &'a toml_edit::DocumentMut, key: &str) -> Option<Vec<
 pub fn crossing<'a>(document: &toml_edit::DocumentMut, files: &'a [String]) -> Option<Vec<&'a str>> {
     let boundary: Vec<&str> = listed_in(document, KEY)?.into_iter().chain(listed_in(document, LANDING_PATH).unwrap_or_default()).collect();
     Some(crossing_in(&boundary, files))
+}
+
+/// The files of `files` under the `ring_zero_paths` a harness/defaults.toml `document` lists, whose every change needs a review accept, or under its whole boundary as [`crossing`] reads it when it lists none; `None` when it lists neither.
+pub fn ring_zero<'a>(document: &toml_edit::DocumentMut, files: &'a [String]) -> Option<Vec<&'a str>> {
+    match listed_in(document, RING_ZERO) {
+        Some(ring) => Some(crossing_in(&ring, files)),
+        None => crossing(document, files),
+    }
 }
