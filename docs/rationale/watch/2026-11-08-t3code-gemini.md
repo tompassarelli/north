@@ -115,7 +115,15 @@ it).
   8 classes that reproduced in E1 plus 4 controls. It waits on north#855's headline. Left out on purpose: API-envelope
   capture (the fork already replays the real request), hooks inside a replay, Codex, and the review's 20 cases.
 - **The comment rule.** North#865 adds a code-health report for an added comment that names no determinism, engine,
-  Lua or external-format constraint, shadow first.
+  Lua or external-format constraint, shadow first. Its **north#865 verdict, read 2026-11-16, is revert**: the rule
+  never held the 7 days it is judged on, because it enforced only from 2026-11-09 20:33 UTC (eac50ed921) to
+  2026-11-10 05:41 UTC (f82ac2927f), when the owner's decision made the habit advisory (north#970), and the
+  `[gate.code-comment]` entry no check read was deleted on 2026-11-14 (2ba9aa1933). Over the 101 Rust commits of
+  that window, 8 added `//` lines net 17, 16.8 per 100 commits against the 2 bar; from enforcement start to
+  2026-11-16 main's 2694 Rust commits add 45 net over 28 of them (1.7 per 100), but main's `//` lines outside doc
+  comments rose from 45 at eac50ed921 to 54, 9 higher than when it started enforcing. Nothing refuses on the rule
+  now: `north code-health habits --base REV --head REV` still names the comments, and `.safe-push` runs it only as
+  an advisory and as after-landing debt.
 - **Landing to live everywhere.** North#863 owns the bar furthest from its target, diagnosis first. Pushing prebuilt
   runtimes, the review's fix, is one candidate.
 - **North#716.** Folded into the reopened issue as a comment: the revert is confirmed, e8610bb5a5 covers the clock half,
@@ -174,5 +182,7 @@ git log origin/main --since='2 days ago' --no-merges -p --format='@@COMMIT %h' -
          END{for (x in a) {d=a[x]-r[x]; if (d>0) {n++; s+=d}} print n" commits, "s" net lines"}'
 ```
 
-Guard counts come from `north hook stats --since 7d` and `--since 48h`; bars from `north dash`; the
+The standing `//` count excludes doc comments:
+`git archive REV -- crates src | tar -xO --wildcards '*.rs' | grep -cE '^[[:space:]]*//[^/!]'` (45 at eac50ed921,
+54 on 2026-11-16). Guard counts come from `north hook stats --since 7d` and `--since 48h`; bars from `north dash`; the
 harness-loss pareto and landing refusals from `north ledger flow`. The measured basis of the Phase 6 call is in south agents/decisions/harness/t3code-gemini-phase6-2026-11-08.md.
