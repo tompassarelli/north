@@ -1,3 +1,3 @@
-# libfaketime shifts CLOCK_MONOTONIC and stat mtimes but not utimensat unless told, which hangs timed waits and double-shifts set_modified, and find reads unshifted mtimes against a shifted clock
+# run preloads libfaketime without the faketime wrapper, which waits for every descendant such as a spare a test leaves running, and runs the tests' rustc outside it, since rustc's jemalloc deadlocks in libfaketime's constructor; it fakes utimensat so set_modified is not shifted twice, leaves CLOCK_MONOTONIC and shared memory alone so timed waits and sandbox records hold, and skips find, which compares unshifted mtimes
 [target.x86_64-unknown-linux-gnu]
-runner = ["env", "FAKE_UTIME=1", "FAKETIME_DONT_FAKE_MONOTONIC=1", "FAKETIME_SKIP_CMDS=find", "faketime", "--disable-shm", "+400 days"]
+runner = ["shifted-clock/run", "+400d"]

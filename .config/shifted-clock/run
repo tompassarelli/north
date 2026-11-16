@@ -1,0 +1,16 @@
+#!/bin/sh
+case $1 in
+  +*)
+    offset=$1
+    shift
+    lib=$(dirname "$(command -v faketime)")/../lib/libfaketime.so.1
+    here=$(cd "${0%/*}" && pwd)
+    export RUSTC_WRAPPER="$here/run" LD_PRELOAD="$lib${LD_PRELOAD:+:$LD_PRELOAD}" FAKETIME="$offset"
+    export FAKE_UTIME=1 FAKETIME_DONT_FAKE_MONOTONIC=1 FAKETIME_DISABLE_SHM=1 FAKETIME_SKIP_CMDS=find
+    exec "$@"
+    ;;
+  *)
+    unset LD_PRELOAD
+    exec "$@"
+    ;;
+esac
