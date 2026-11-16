@@ -7,6 +7,7 @@ use std::sync::{Mutex, OnceLock};
 use north_base::build_inputs::runtime_input;
 use north_base::platform::harness::{DEFAULTS, document};
 
+use crate::land::after::follow;
 use crate::land::candidate::git;
 use crate::land::lander::{Lander, state_home};
 use crate::land::queue::Ticket;
@@ -53,6 +54,9 @@ pub(super) fn queued(lander: &Lander, tickets: &[(PathBuf, Ticket)]) {
 }
 
 fn ask(lander: &Lander, head: &str, kind: &str, lane: &str) {
+    if !follow::post_landing_here() {
+        return;
+    }
     if north_base::platform::orchestration::read().is_ok_and(|cfg| !north_base::platform::orchestration::builds_ahead(&cfg, &north_base::platform::host::name())) {
         return;
     }

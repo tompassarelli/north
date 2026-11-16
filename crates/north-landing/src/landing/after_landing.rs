@@ -6,10 +6,10 @@ use std::process::Command;
 use crate::issue_body::Ledger;
 use north_base::platform::rolling_issue::{self, Tracker};
 
-const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD
+const USAGE: &str = "usage: north after-landing [--only records|gates] --git-dir DIR --base BASE --head HEAD
 
-Run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
-in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then file a child issue under the repository's open After-landing gate debt issue for each gate that failed on HEAD; a gate whose child is open already is not filed again.";
+Run each landed box's Done-when command, tick the landed boxes and drain the issue-body outbox (the records), then run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
+in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then file a child issue under the repository's open After-landing gate debt issue for each gate that failed on HEAD; a gate whose child is open already is not filed again. `--only records` or `--only gates` runs one part: the lander's follow keeps the records on the lander's host and runs the gates where `post_landing_host` places them.";
 
 const ADVISORY_FROM: &str = "north-after-landing-advisory-base";
 const TAIL_LINES: usize = 15;
@@ -61,19 +61,23 @@ struct Args {
     git_dir: PathBuf,
     base: String,
     head: String,
+    only: Option<String>,
 }
 
 fn parse(arguments: &[String]) -> Option<Args> {
-    let mut found: [Option<&String>; 4] = [None; 4];
+    let mut found: [Option<&String>; 5] = [None; 5];
     let mut rest = arguments.iter();
     while let Some(flag) = rest.next() {
-        let slot = ["--git-dir", "--base", "--head", "--safe-push"].iter().position(|name| name == flag)?;
+        let slot = ["--git-dir", "--base", "--head", "--safe-push", "--only"].iter().position(|name| name == flag)?;
         found[slot] = Some(rest.next()?);
     }
-    let [Some(git_dir), Some(base), Some(head), _] = found else {
+    let [Some(git_dir), Some(base), Some(head), _, only] = found else {
         return None;
     };
-    Some(Args { git_dir: git_dir.into(), base: base.clone(), head: head.clone() })
+    if only.is_some_and(|only| only != "records" && only != "gates") {
+        return None;
+    }
+    Some(Args { git_dir: git_dir.into(), base: base.clone(), head: head.clone(), only: only.cloned() })
 }
 
 pub fn run(arguments: &[String], ledger: &dyn Ledger) -> u8 {
@@ -87,8 +91,13 @@ pub fn run(arguments: &[String], ledger: &dyn Ledger) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
-    for line in check_boxes(&args).into_iter().chain(tick_boxes(&args, ledger)) {
-        println!("after-landing: {line}");
+    if args.only.as_deref() != Some("gates") {
+        for line in check_boxes(&args).into_iter().chain(tick_boxes(&args, ledger)) {
+            println!("after-landing: {line}");
+        }
+    }
+    if args.only.as_deref() == Some("records") {
+        return 0;
     }
     match gate_and_file(&args) {
         Ok(line) => {

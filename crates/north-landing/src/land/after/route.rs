@@ -60,7 +60,7 @@ fn within(root: &Path, home: &Path) -> bool {
     root.components().all(|part| matches!(part, Component::RootDir | Component::Normal(_))) && root.starts_with(home)
 }
 
-fn fleet() -> Option<DocumentMut> {
+pub(super) fn fleet() -> Option<DocumentMut> {
     land_queue::confined(&orchestration::snapshot_path()).ok().and_then(|()| orchestration::snapshot().ok())
 }
 
