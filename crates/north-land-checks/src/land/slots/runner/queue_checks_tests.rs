@@ -18,9 +18,10 @@ fn a_trust_boundary_lane_with_no_accept_is_judged_before_landing() {
     fs::create_dir_all(repo.join("crates/north-runtime/src/worker_sandbox")).unwrap();
     fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
     let head = commit(repo, "widen a worker sandbox grant");
-    let queued = super::queue_commands(repo, &base, &head).unwrap();
+    let config = super::judged::config(repo, &base, &head);
+    let landing = config.commands(repo, &base, &head).unwrap();
     for scan in ["land scan review-accept", "land scan safe-push-keys"] {
-        assert!(queued.iter().any(|command| command.contains(scan)), "a trust-boundary lane runs `{scan}` among its checks before queueing, which every road to the lander runs: {queued:#?}");
+        assert!(landing.iter().any(|command| command.contains(scan) && config.lane_scoped(command)), "a trust-boundary lane runs `{scan}` on its own head among the lander's candidate checks, so its held ticket lands only with its accept: {landing:#?}");
     }
 }
 
