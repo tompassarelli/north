@@ -9,7 +9,7 @@ use std::time::Duration;
 use rustix::fs::{FlockOperation, flock};
 
 use super::bounded;
-use north_runtime_records::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 use super::scope::own_scope;
 use super::layout::{self, Layout};
 use super::remote::ssh;

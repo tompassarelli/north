@@ -150,21 +150,21 @@ format with rustfmt at each crate's edition from `rust-project.json` (2024 for e
 ## Worker sandbox
 
 A Buck2 daemon outlives the command that starts it and keeps that command's Landlock domain. The worker sandbox
-grants Execute entry by entry at a lane's root, around `target/` (crates/north-runtime/src/worker_sandbox/executable.rs),
+grants Execute entry by entry at a lane's root, around `target/` (crates/north-worker-sandbox/src/worker_sandbox/executable.rs),
 so a `buck-out/` created after the daemon's domain was built is never executable for that daemon, and `~/.buck` is
 not among the trees a worker command may remove from, so a second daemon start fails to clean its directory. Until
 north#1116 a worker created `buck-out/` before its first `buck2` command; the sandbox now prepares a Buck2 lane's
-`buck-out/` before it builds a command's domain (crates/north-runtime/src/worker_sandbox/buck.rs), and
+`buck-out/` before it builds a command's domain (crates/north-worker-sandbox/src/worker_sandbox/buck.rs), and
 `north lane remove`, `reap` and `gc` count `buck-out/` and `.buckconfig.flake` as disposable, as they do `target/`.
 
 Reads fail the same way: the sandbox fixes what a domain may read when it builds the domain
-(`crates/north-runtime/src/worker_sandbox/readable.rs`), so a directory created later is unreadable inside it. On gex45
+(`crates/north-worker-sandbox/src/worker_sandbox/readable.rs`), so a directory created later is unreadable inside it. On gex45
 on 2026-11-11, a worker's first `buck2 build` on the host created `~/.buck` inside a domain built before `~/.buck`
 existed. The daemon could not read its own `buckd.pid` and shut itself down at its 60 s self-check. The client gave
 up after 803 attempts over 89.8 s. The next start in that lane stopped at
 `remove_dir_all(~/.buck/buckd/<lane>/v2/prev): Permission denied`.
 north#1116 also prepares the lane's own daemon directory under `~/.buck/buckd/` before it builds a command's domain
-(crates/north-runtime/src/worker_sandbox/buck.rs). Buck2 places `~/.buck` from HOME alone (`home_buck_dir` in Buck2's
+(crates/north-worker-sandbox/src/worker_sandbox/buck.rs). Buck2 places `~/.buck` from HOME alone (`home_buck_dir` in Buck2's
 app/buck2_common/src/invocation_roots.rs at 7600cb80070a) and has no setting to move it, and pointing HOME into the
 lane for `buck2` would hand that HOME to every program the daemon and `buck2 run` start.
 

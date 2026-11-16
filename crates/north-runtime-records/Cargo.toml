@@ -10,8 +10,6 @@ publish = false
 north-base = { path = "../north-base" }
 serde.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
-north-foundation = { path = "../north-foundation" }
 
 
 [lints]

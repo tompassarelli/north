@@ -9,7 +9,7 @@ use super::broker::{self, SOCKET_ENV};
 use super::broker_served::{PEERS, Served};
 use super::lane_grant::Host;
 use super::peer::Peer;
-use super::{BROKER, CODE, FLAG, USAGE};
+use super::{BROKER, CODE, Carry, FLAG, USAGE};
 
 const DETACHED: &str = "--detached";
 
@@ -19,11 +19,11 @@ pub fn words(code: &str) -> [&str; 5] {
 }
 
 /// Runs `north --worker-sandbox --broker SERVED`.
-pub(super) fn run(served: &[String]) -> ExitCode {
+pub(super) fn run(served: &[String], carry: Carry) -> ExitCode {
     match served.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-        [] => serve(Served::default()),
-        [CODE, directory] => serve(Served { code: Some(PathBuf::from(directory)), peers: None }),
-        [CODE, directory, PEERS, peers] => serve(Served { code: Some(PathBuf::from(directory)), peers: Some(peers.trim().to_owned()) }),
+        [] => serve(Served::default(), carry),
+        [CODE, directory] => serve(Served { code: Some(PathBuf::from(directory)), peers: None }, carry),
+        [CODE, directory, PEERS, peers] => serve(Served { code: Some(PathBuf::from(directory)), peers: Some(peers.trim().to_owned()) }, carry),
         [CODE, directory, DETACHED] => detached(Path::new(directory)),
         _ => {
             eprintln!("{USAGE}");
@@ -33,12 +33,12 @@ pub(super) fn run(served: &[String]) -> ExitCode {
 }
 
 /// Serves `served` until the broker's socket is replaced or removed (`broker::serve`).
-fn serve(served: Served) -> ExitCode {
-    broker::serve(served.words(), std::sync::Arc::new(move |north: &Path, stream: &UnixStream, peer: &Peer| answer(north, stream, peer, &served)))
+fn serve(served: Served, carry: Carry) -> ExitCode {
+    broker::serve(served.words(), std::sync::Arc::new(move |north: &Path, stream: &UnixStream, peer: &Peer| answer(north, stream, peer, &served, carry)))
 }
 
 /// Answers the one request on `stream` as a broker that serves `served`, from the caller `peer`: a caller the broker does not answer is told so and started nothing, and its refusal is returned for the broker's log.
-pub(super) fn answer(north: &Path, stream: &UnixStream, peer: &Peer, served: &Served) -> Result<(), String> {
+pub(super) fn answer(north: &Path, stream: &UnixStream, peer: &Peer, served: &Served, carry: Carry) -> Result<(), String> {
     if let Some(why) = served.refusal(peer) {
         let Some((_, streams)) = broker::receive(stream)? else { return Ok(()) };
         let why = broker::refuse(streams, why);
@@ -47,7 +47,7 @@ pub(super) fn answer(north: &Path, stream: &UnixStream, peer: &Peer, served: &Se
     }
     let mut host = Host::own();
     host.code.extend(served.code.clone());
-    broker::answer(north, stream, peer, &host)
+    broker::answer(north, stream, peer, &host, carry)
 }
 
 /// Starts this north as a broker that also serves the projects under `code` and answers this process's cgroup alone, in a transient user service as `broker::ensure` starts the host's, on the socket [`SOCKET_ENV`] names; whether one listens there. The host's own socket is never given such a broker. Removing the socket ends it.

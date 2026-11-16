@@ -33,7 +33,7 @@ The crates under [crates/](crates/), by the layer each sits in; a crate depends 
 - **4 workspace**, makes and reaps the worktree each change is written in: [north-lanes](crates/north-lanes/)
 - **4 landing**, checks a handed-in change and lands it on main, or refuses it with the reason: [north-land-checks](crates/north-land-checks/), [north-land-sandbox](crates/north-land-sandbox/), [north-lander](crates/north-lander/), [north-landing](crates/north-landing/), [north-safe-push](crates/north-safe-push/)
 - **4 capacity**, leases machine room to builds and sessions: [north-capacity-host](crates/north-capacity-host/)
-- **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/)
+- **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/), [north-worker-sandbox](crates/north-worker-sandbox/)
 - **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-credentials](crates/north-credentials/), [north-docs](crates/north-docs/), [north-graph-ingest](crates/north-graph-ingest/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/)
 <!-- end layout -->
 

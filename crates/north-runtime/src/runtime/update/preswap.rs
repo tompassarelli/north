@@ -1,4 +1,4 @@
-use north_runtime_records::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 use super::super::layout::{self, Layout, TREE};
 use north_base::platform::{host, process};
 use std::fs;

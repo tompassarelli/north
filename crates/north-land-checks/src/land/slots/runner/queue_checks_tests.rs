@@ -15,8 +15,8 @@ fn a_trust_boundary_lane_with_no_accept_is_judged_before_landing() {
     git(repo, &["init", "-q", "-b", "main"]);
     fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.safe-push"), repo.join(".safe-push")).unwrap();
     let base = commit(repo, "main carries north's land lines");
-    fs::create_dir_all(repo.join("crates/north-runtime/src/worker_sandbox")).unwrap();
-    fs::write(repo.join("crates/north-runtime/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
+    fs::create_dir_all(repo.join("crates/north-worker-sandbox/src/worker_sandbox")).unwrap();
+    fs::write(repo.join("crates/north-worker-sandbox/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
     let head = commit(repo, "widen a worker sandbox grant");
     let config = super::judged::config(repo, &base, &head);
     let landing = config.commands(repo, &base, &head).unwrap();

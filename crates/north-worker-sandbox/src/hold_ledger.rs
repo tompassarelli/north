@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use north_base::platform::finish_record::verdict_store;
 use serde::{Deserialize, Serialize};
 
-use crate::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 
 pub const VERB: &str = "review-hold";
 pub const COORDINATOR: &str = "coordinator";

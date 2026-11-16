@@ -2,8 +2,9 @@
 
 use north_base::platform::review_accept::{Accept as Record, Accepts, is_patch_id, patch_id};
 
-use north_runtime_records::failure::{Failure, failed};
-use north_runtime_records::hold_ledger::{Caller, full_sha, git};
+use north_foundation::foundation::failure::{Failure, failed};
+use crate::hold_ledger::{Caller, full_sha, git};
+use crate::worker_sandbox::Carry;
 
 pub(crate) const VERB: &str = "review-accept";
 const WITHDRAW: &str = "--withdraw";
@@ -92,9 +93,9 @@ fn resolved(named: &str) -> Option<String> {
     })
 }
 
-/// The line `line` of an accept recorded or withdrawn in `accepts`, said once the records mirror of every build host holds the change, so a scan there counts what the reviewer is told; it names each host the change did not reach.
-pub(crate) fn carried(accepts: &Accepts, line: String) -> String {
-    let missed = super::mirror::carry_accepts(&accepts.0);
+/// The line `line` of an accept recorded or withdrawn in `accepts`, said once `carry` put the change in the records mirror of every build host, so a scan there counts what the reviewer is told; it names each host the change did not reach.
+pub(crate) fn carried(accepts: &Accepts, line: String, carry: Carry) -> String {
+    let missed = carry(&accepts.0);
     match missed.is_empty() {
         true => line,
         false => format!("{line}; a build host that was not reached counts it only after the next records mirror run: {}", missed.join("; ")),

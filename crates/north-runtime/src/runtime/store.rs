@@ -1,4 +1,4 @@
-use north_runtime_records::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 use super::layout::PROGRAMS;
 use std::collections::BTreeSet;
 use std::fs;

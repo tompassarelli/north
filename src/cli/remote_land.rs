@@ -9,12 +9,12 @@ use north_safe_push::entry::{self, HostFacts};
 const LANDING_MESSAGE: &str = "north-landing-message";
 
 pub fn safe_push(arguments: &[String]) -> u8 {
-    if let Some(refusal) = north_runtime::worker_sandbox::lane_only_safe_push_refusal() {
+    if let Some(refusal) = north_worker_sandbox::worker_sandbox::lane_only_safe_push_refusal() {
         eprintln!("{refusal}");
         return 1;
     }
     let request: Vec<String> = std::iter::once("safe-push".to_owned()).chain(arguments.iter().cloned()).collect();
-    if let Some(code) = north_runtime::worker_sandbox::reenter_outside(&request) {
+    if let Some(code) = north_worker_sandbox::worker_sandbox::reenter_outside(&request) {
         return code;
     }
     entry::safe_push(arguments, &host_facts())
@@ -37,7 +37,7 @@ pub(super) fn check_through_broker(root: &Path, check: &str, head: Option<&str>)
         return None;
     }
     let mut log = tempfile::tempfile().ok()?;
-    let ran = north_runtime::worker_sandbox::finish_check(root, check, head.unwrap_or_default(), &log)?;
+    let ran = north_worker_sandbox::worker_sandbox::finish_check(root, check, head.unwrap_or_default(), &log)?;
     let mut output = String::new();
     let _ = std::io::Seek::rewind(&mut log).and_then(|()| std::io::Read::read_to_string(&mut log, &mut output));
     Some(match ran {
@@ -57,7 +57,7 @@ struct SafePush {
 
 impl Road for SafePush {
     fn writable(&self, root: &Path) -> Result<(), String> {
-        north_runtime::worker_sandbox::stranded_git_locks(root).map_or(Ok(()), Err)
+        north_worker_sandbox::worker_sandbox::stranded_git_locks(root).map_or(Ok(()), Err)
     }
 
     fn check(&self, root: &Path, check: &str, head: Option<&str>) -> Option<Result<(), (String, String)>> {
@@ -65,7 +65,7 @@ impl Road for SafePush {
     }
 
     fn writes_finish_records(&self) -> bool {
-        !north_runtime::worker_sandbox::confined()
+        !north_worker_sandbox::worker_sandbox::confined()
     }
 
     fn take(self, lane: &Lane) -> u8 {

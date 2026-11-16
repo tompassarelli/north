@@ -1,6 +1,6 @@
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Canarying, Canary};
-use north_runtime_records::failure::DEFERRED;
+use north_foundation::foundation::failure::DEFERRED;
 use super::pin::{self, Event};
 use super::update;
 use north_foundation::foundation::exit::NO_VERDICT;
@@ -19,12 +19,6 @@ pub(super) use launch::probe as launch_probe;
 pub(super) use listing::print as list_probes;
 pub(super) use services::{probe as services_probe, retire as retire_services};
 pub(super) use probes::{CoreLoop, Landers, Probe};
-
-/// The scripts of the two probes that ask a broker from a scratch project they make, for the test of the broker that serves them (worker_sandbox/offload_request_tests.rs).
-#[cfg(test)]
-pub(crate) fn scratch_project_probes(north: &str) -> [String; 2] {
-    [probes::depbox_run(north), probes::scratch_landing(north)]
-}
 
 const TAIL_LINES: usize = 12;
 const TAIL_BYTES: usize = 1200;

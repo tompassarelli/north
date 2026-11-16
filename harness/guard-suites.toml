@@ -9,11 +9,11 @@
 [[suite]]
 name = "worker sandbox"
 paths = [
-    "crates/north-runtime/src/worker_sandbox/",
+    "crates/north-worker-sandbox/src/worker_sandbox/",
     "crates/north-land-sandbox/",
     "tests/it/worker_sandbox.rs",
 ]
-tests = ["north-runtime worker_sandbox::", "north-land-sandbox"]
+tests = ["north-worker-sandbox worker_sandbox::", "north-land-sandbox"]
 it = ["worker_sandbox"]
 
 [[suite]]

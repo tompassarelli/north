@@ -2,7 +2,7 @@
 //! promotion asks the runtime it judges for this list, so a probe a commit retires stops judging that commit and the
 //! ones after it, and a probe a commit adds judges it from its own promotion on. A runtime too old to print the list
 //! is judged by the list of the runtime judging it.
-use north_runtime_records::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 use super::super::layout::{self, Layout};
 use super::super::probe::Shell;
 use super::probes::{CoreLoop, Probe};

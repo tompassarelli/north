@@ -22,9 +22,9 @@ const MARKED_LINES: usize = 12;
 const LINE_CHARS: usize = 300;
 const REPORT_WORDS: [&str; 4] = ["Done:", "Not done:", "Split:", "Blocked:"];
 
-pub fn enter(arguments: &[String], screen: super::Screen) -> Option<std::process::ExitCode> {
+pub fn enter(arguments: &[String], screen: super::Screen, runtime: super::Runtime) -> Option<std::process::ExitCode> {
     match arguments.split_first() {
-        Some((flag, rest)) if flag == super::FLAG => Some(super::run(rest, screen)),
+        Some((flag, rest)) if flag == super::FLAG => Some(super::run(rest, screen, runtime)),
         Some((flag, rest)) if flag == FLAG => Some(run(rest)),
         _ => None,
     }

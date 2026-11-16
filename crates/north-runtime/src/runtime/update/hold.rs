@@ -1,4 +1,4 @@
-use north_runtime_records::failure::Failure;
+use north_foundation::foundation::failure::Failure;
 use super::super::layout::Layout;
 use super::super::lifecycle::{self, Promoting, Promotion};
 use north_foundation::foundation::clock::Timestamp;

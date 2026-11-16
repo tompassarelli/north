@@ -1,4 +1,4 @@
-use north_runtime_records::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 use super::super::layout::Layout;
 use super::PIN;
 use super::super::remote::output;

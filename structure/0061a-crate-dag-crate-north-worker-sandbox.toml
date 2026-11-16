@@ -1,0 +1,6 @@
+[[crate_dag.crate]]
+name = "north-worker-sandbox"
+layer = 5
+paths = ["crates/north-worker-sandbox/src/**"]
+may_use = ["north-base", "north-broker", "north-capacity", "north-capacity-host", "north-lanes", "north-offload", "north-runtime-follow", "north-trusted-mirror"]
+

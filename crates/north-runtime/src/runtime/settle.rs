@@ -1,6 +1,6 @@
 use super::canary::{self, Verdict};
 use super::deploy;
-use north_runtime_records::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 use super::growth::{Growth, print_north};
 use super::history::History;
 use super::layout::{self, Layout};
@@ -310,7 +310,7 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::outcome;
-    use north_runtime_records::failure::failed;
+    use north_foundation::foundation::failure::failed;
 
     #[test]
     fn a_host_held_behind_a_trip_or_a_reviewer_does_not_fail_the_follower_but_a_failed_update_here_does() {

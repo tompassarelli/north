@@ -24,10 +24,8 @@ rust_library(
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-foundation:north-foundation",
         "//third-party:serde",
         "//third-party:serde_json",
-        "//third-party:tempfile",
     ],
     visibility = ["PUBLIC"],
 )
@@ -42,10 +40,8 @@ north_rust_test(
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-base:north-base",
-        "//crates/north-foundation:north-foundation",
         "//third-party:serde",
         "//third-party:serde_json",
-        "//third-party:tempfile",
     ],
     visibility = ["PUBLIC"],
 )

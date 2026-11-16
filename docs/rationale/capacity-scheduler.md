@@ -110,7 +110,7 @@ Today one landed change takes three kinds of admission.
 
 1. **The finish call's acceptance command.** It runs through `passes` in the worker's lane
    (`crates/north-lander/src/land/hand_in.rs`), or in the broker for a sandboxed session
-   (`crates/north-runtime/src/worker_sandbox/finish_request.rs`). Its cargo goes to a build host through the
+   (`crates/north-worker-sandbox/src/worker_sandbox/finish_request.rs`). Its cargo goes to a build host through the
    build offload, in a per-lane checkout. It proves that the worker's named command passes on the would-be
    head's tree. The broker records the verdict where the worker cannot write. north#1230 already folds it into
    the pre-queue run, but only when the command equals a `.safe-push` check.

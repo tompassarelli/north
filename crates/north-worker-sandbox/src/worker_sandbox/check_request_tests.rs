@@ -61,7 +61,7 @@ impl Fixture {
         let stdin = File::open("/dev/null").unwrap();
         let environment = vec![("PATH".to_owned(), format!("{}:{}", self.lane.display(), std::env::var("PATH").unwrap())), ("FROM_THE_LANE".to_owned(), "1".to_owned())];
         let code = std::thread::scope(|scope| {
-            scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host));
+            scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host, |_| Vec::new()));
             let request = Request { arguments: arguments.iter().map(|word| (*word).to_owned()).collect(), directory: directory.to_owned(), environment };
             broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap()
         });

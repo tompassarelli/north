@@ -1,4 +1,4 @@
-use north_runtime_records::failure::{DEFERRED, Failure, failed};
+use north_foundation::foundation::failure::{DEFERRED, Failure, failed};
 use north_base::platform::process;
 use north_calibration::threads::{client, schema, verb::Failure as LedgerFailure};
 use north_providers::providers::opencode::Shared;

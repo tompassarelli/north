@@ -1,4 +1,4 @@
-use north_runtime_records::failure::Failure;
+use north_foundation::foundation::failure::Failure;
 use super::layout::{self, BUILT_FROM, BUILT_ON, Layout, PROGRAMS};
 use super::pin::{self, Event};
 use super::pull;
@@ -71,13 +71,13 @@ pub(super) fn note(layout: &Layout, target: &str, built: Built) {
 /// Asks `host` to build `target` with its own runtime under its capacity admission, then copies the programs and their built-from stamp here and realises their store closure.
 pub(super) fn build_on(host: &BuildHost, target: &str, runtime: &Path) -> Result<(), Failure> {
     build_there(host, target, &|| false)?;
-    pull::fetch(&host.ssh, target, runtime, &[BUILT_FROM]).map_err(|why| north_runtime_records::failure::failed(1, format!("taking the build from {}: {why}", host.name)))
+    pull::fetch(&host.ssh, target, runtime, &[BUILT_FROM]).map_err(|why| north_foundation::foundation::failure::failed(1, format!("taking the build from {}: {why}", host.name)))
 }
 
 /// Asks `host` to build `target` as `build_on` does, then copies only its built-from stamp into `into`: the programs stay on `host` until the promotion of the landing that carries them pulls them (north#1362).
 pub(super) fn build_held(host: &BuildHost, target: &str, into: &Path, stop: &dyn Fn() -> bool) -> Result<(), Failure> {
     build_there(host, target, stop)?;
-    pull::copy(&host.ssh, target, into, &[BUILT_FROM]).map_err(|why| north_runtime_records::failure::failed(1, format!("reading the build's stamp on {}: {why}", host.name)))
+    pull::copy(&host.ssh, target, into, &[BUILT_FROM]).map_err(|why| north_foundation::foundation::failure::failed(1, format!("reading the build's stamp on {}: {why}", host.name)))
 }
 
 fn build_there(host: &BuildHost, target: &str, stop: &dyn Fn() -> bool) -> Result<(), Failure> {

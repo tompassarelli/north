@@ -13,7 +13,7 @@ use north_fleet_supervisor::fleet::model::{EntryKind, Transcript};
 use north_fleet_supervisor::fleet::runtime::Runtime;
 use north_providers::providers::claude::fleet::Claude;
 use north_providers::providers::claude::{shell_prefix, tool_server_args};
-use north_runtime::worker_sandbox::BROKER_SOCKET_ENV;
+use north_worker_sandbox::worker_sandbox::BROKER_SOCKET_ENV;
 use serde_json::{Value, json};
 
 const OLDER_RUNTIME: &str = "4068cfe1d1a0000000000000000000000000000a";

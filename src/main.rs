@@ -21,7 +21,8 @@ use north_landing_gates::{follows_release, issue_box_lint, land_abandon};
 use north_github_mirror as github_mirror;
 use north_ci::private_check;
 use north_github_broker::gh_broker;
-use north_runtime::{agent_contain, laptop_runner, runtime, worker_sandbox};
+use north_runtime::{laptop_runner, runtime};
+use north_worker_sandbox::{agent_contain, worker_sandbox};
 use north_dispatch::{dispatch};
 use north_pacing::{laptop, pacing, resident_cap};
 use north_pace::{spend};
@@ -43,7 +44,7 @@ fn main() -> std::process::ExitCode {
         if let Some(point) = std::env::args_os().next().and_then(|argv0| entry_points::named(&argv0)) {
             return enter(point, &arguments);
         }
-        if let Some(code) = worker_sandbox::tool_server::enter(&arguments, command_refusal) {
+        if let Some(code) = worker_sandbox::tool_server::enter(&arguments, command_refusal, runtime::SANDBOX) {
             return code;
         }
         cli::main()
@@ -56,7 +57,7 @@ fn enter(point: EntryPoint, arguments: &[String]) -> std::process::ExitCode {
     }
     match point {
         EntryPoint::SafePush => std::process::ExitCode::from(cli::remote_land::safe_push(arguments)),
-        EntryPoint::WorkerSandbox => worker_sandbox::run(arguments, command_refusal),
+        EntryPoint::WorkerSandbox => worker_sandbox::run(arguments, command_refusal, runtime::SANDBOX),
     }
 }
 

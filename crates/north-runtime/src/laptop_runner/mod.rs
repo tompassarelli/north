@@ -14,7 +14,7 @@ use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
 use toml_edit::DocumentMut;
 
-use crate::agent_contain;
+use north_worker_sandbox::agent_contain;
 use north_capacity::capacity::host_table::{self, config};
 use north_base::platform::ssh;
 use north_base::platform::ssh_session::shell_quote;

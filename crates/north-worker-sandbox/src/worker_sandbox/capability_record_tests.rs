@@ -66,7 +66,7 @@ impl Fixture {
         let stdin = File::open("/dev/null").unwrap();
         let environment = vec![("NORTH_FLEET_ROLE".to_owned(), forged.to_owned()), ("NORTH_WORKER_SANDBOX".to_owned(), "0".to_owned())];
         std::thread::scope(|scope| {
-            let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host));
+            let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host, |_| Vec::new()));
             let request = Request { arguments: words.split(' ').map(str::to_owned).collect(), directory: self.lane.clone(), environment };
             broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap();
             served.join().unwrap().unwrap_or_else(|why| panic!("{words} from {cgroup}: {why}"));

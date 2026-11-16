@@ -25,7 +25,7 @@ impl Road for Draft {
     }
 
     fn writes_finish_records(&self) -> bool {
-        !north_runtime::worker_sandbox::confined()
+        !north_worker_sandbox::worker_sandbox::confined()
     }
 
     fn take(self, lane: &Lane) -> u8 {

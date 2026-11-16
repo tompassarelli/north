@@ -7,6 +7,7 @@ pub mod check_log;
 pub mod clock;
 pub mod convo_index;
 pub mod exit;
+pub mod failure;
 pub mod hook_deadline;
 pub mod limit_clock;
 pub mod main_run_verdict;

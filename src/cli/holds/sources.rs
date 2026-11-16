@@ -78,11 +78,11 @@ pub(super) fn session_holds(now: i64) -> Vec<Hold> {
 
 pub(super) fn review_holds(home: &Path) -> Vec<Hold> {
     let environment: Vec<(String, String)> = ["NORTH_VERDICT_CACHE_DIR", "XDG_STATE_HOME"].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
-    let Ok(standing) = north_runtime_records::hold_ledger::standing(&environment, home) else { return Vec::new() };
+    let Ok(standing) = north_worker_sandbox::hold_ledger::standing(&environment, home) else { return Vec::new() };
     standing.into_iter().map(review_hold).collect()
 }
 
-fn review_hold(hold: north_runtime_records::hold_ledger::Standing) -> Hold {
+fn review_hold(hold: north_worker_sandbox::hold_ledger::Standing) -> Hold {
     let on = hold.host.as_deref().map_or(String::new(), |host| format!(", on {host}"));
     Hold {
         host: String::new(),

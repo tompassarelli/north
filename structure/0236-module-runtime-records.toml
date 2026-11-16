@@ -1,5 +1,5 @@
 [[module]]
 name = "runtime_records"
 paths = ["crates/north-runtime-records/src/**"]
-responsibility = "The runtime tree's records a worker sandbox reads without the runtime: the review hold ledger, the after-landing verdicts and the failure type."
+responsibility = "The after-landing verdicts of the runtime tree, read without the runtime."
 may_use = ["crate-roots", "foundation", "platform.harness", "platform.process", "platform.records"]

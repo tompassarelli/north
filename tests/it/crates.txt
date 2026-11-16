@@ -13,8 +13,8 @@ capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
 lane_gc_journeys north-guard
 runtime_update north-runtime
-worker_sandbox north-runtime north
-hand_in_tool north-runtime north-providers north-lander north-safe-push north
+worker_sandbox north-worker-sandbox north-runtime north
+hand_in_tool north-worker-sandbox north-runtime north-providers north-lander north-safe-push north
 refusal_wake north-lander north-landing north-base north-resume north-fleet-supervisor north
 support north
 threads_ledger north-threads

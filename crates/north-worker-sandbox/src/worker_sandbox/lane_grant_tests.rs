@@ -53,7 +53,7 @@ impl Fixture {
         let north = root.path().join("north");
         let log = root.path().join("ran");
         write_executable(&north, format!("#!/bin/sh\n[ -z \"$NORTH_WORKER_SESSION_SCOPE\" ] || printf '%s' \"$NORTH_WORKER_SESSION_SCOPE\" > {}\nprintf '%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" >> {}\n[ \"$1\" != safe-push ] || {{ sleep 8 </dev/null >/dev/null 2>&1 & }}\nprintf 'out %s\\n' \"$GH_TOKEN\"\nprintf 'err %s\\n' \"$GH_TOKEN\" >&2\n", root.path().join("scope").display(), log.display()));
-        let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), "/run/current-system/sw/bin:/usr/bin:/bin".to_owned()), ("GH_TOKEN".to_owned(), HELD.to_owned())];
+        let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), std::env::var("PATH").unwrap_or_default()), ("GH_TOKEN".to_owned(), HELD.to_owned())];
         let cgroups = root.path().join("cgroup");
         Self { host: Host { fleet, code: vec![home.join("code")], home, environment, cgroups }, root, north, lane, other }
     }
@@ -76,7 +76,7 @@ impl Fixture {
         let (mut err, err_writer) = std::io::pipe().unwrap();
         let stdin = File::open("/dev/null").unwrap();
         let logged = std::thread::scope(|scope| {
-            let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host));
+            let served = scope.spawn(|| broker::answer(&self.north, &server, &Peer::from(Some(cgroup)), &self.host, |_| Vec::new()));
             let request = Request { arguments: arguments.iter().map(|word| (*word).to_owned()).collect(), directory: directory.to_owned(), environment };
             let code = broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap();
             (code, served.join().unwrap())
@@ -162,7 +162,7 @@ fn no_token_reaches_the_lane_only_process_after_it_lands_and_comments() {
         .unwrap();
     for _ in 0..2 {
         let (stream, _) = listener.accept().unwrap();
-        broker::answer(&fixture.north, &stream, &Peer::from(Some(cgroup().as_str())), &fixture.host).unwrap();
+        broker::answer(&fixture.north, &stream, &Peer::from(Some(cgroup().as_str())), &fixture.host, |_| Vec::new()).unwrap();
     }
     let output = client.wait_with_output().unwrap();
     let seen = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));

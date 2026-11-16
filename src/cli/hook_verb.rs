@@ -30,7 +30,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             {
                 return ExitCode::SUCCESS;
             }
-            guard::host::install(guard::host::Host { account_home: fleet::account_home, status_verb, file_tool_refusal: north_runtime::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_runtime::worker_sandbox::unreadable_by_file_tool });
+            guard::host::install(guard::host::Host { account_home: fleet::account_home, status_verb, file_tool_refusal: north_worker_sandbox::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_worker_sandbox::worker_sandbox::unreadable_by_file_tool });
             let started = std::time::Instant::now();
             let mut request = Vec::new();
             let _ = std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut request);

@@ -1,5 +1,5 @@
 use clap::Parser;
-use north_runtime_records::failure::{Failure, failed};
+use north_foundation::foundation::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS, install};
 use north_base::platform::process;
 use north_base::build_inputs::rust_build_input;

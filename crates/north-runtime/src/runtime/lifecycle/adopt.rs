@@ -1,7 +1,7 @@
 //! One-time adoption of the marker files the promotion machines replace: `runtime-failed` and its causes,
 //! `runtime-previous`, `runtime-canary` and `runtime-settle-judged`, with `current` for the live runtime.
 use super::{Canary, Canarying, Judge, Judgement, Promoting, Promotion};
-use north_runtime_records::failure::Failure;
+use north_foundation::foundation::failure::Failure;
 use crate::runtime::layout::{Layout, is_sha, linked_sha};
 use north_foundation::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, State, Store};

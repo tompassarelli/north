@@ -207,7 +207,7 @@ pub(super) fn ask(north: &Path, host: &Host, cgroup: &str, arguments: &[String],
     let stdin = File::open("/dev/null").unwrap();
     let request = Request { arguments: arguments.to_vec(), directory: directory.to_owned(), environment: Vec::new() };
     let code = std::thread::scope(|scope| {
-        scope.spawn(|| broker::answer(north, &server, &Peer::from(Some(cgroup)), host));
+        scope.spawn(|| broker::answer(north, &server, &Peer::from(Some(cgroup)), host, |_| Vec::new()));
         broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap()
     });
     drop((out_writer, err_writer));

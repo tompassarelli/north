@@ -34,6 +34,7 @@ mod removable;
 mod hook_screen;
 mod sockets;
 mod state;
+pub mod scratch_probes;
 mod sweep;
 mod withdraw_request;
 mod writable;
@@ -57,6 +58,19 @@ pub use broker::SOCKET_ENV as BROKER_SOCKET_ENV;
 pub use broker_start::words as broker_for;
 pub use sockets::runtime;
 use writable::writable;
+
+/// What the sandbox asks of the north runtime, which depends on this crate, as the binary hands it in (src/main.rs).
+#[derive(Clone, Copy)]
+pub struct Runtime {
+    pub pull_held: PullHeld,
+    pub carry_accepts: Carry,
+}
+
+/// Pulls the north built ahead for a tree into its artifact from the build host that holds it (runtime/update/ahead.rs).
+pub type PullHeld = fn(&Path, &str) -> Result<(), north_foundation::foundation::failure::Failure>;
+
+/// Copies the accepts store into the records mirror of every build host; why each host was not reached (runtime/mirror.rs).
+pub type Carry = fn(&Path) -> Vec<String>;
 
 pub const FLAG: &str = "--worker-sandbox";
 const OUTSIDE: &str = "--outside";
@@ -116,20 +130,20 @@ pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Opti
     ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
 }
 
-pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
+pub fn run(arguments: &[String], screen: Screen, runtime: Runtime) -> std::process::ExitCode {
     let bound = north_base::platform::session_binding::unapplied();
     if !bound.is_empty() {
         return bind(arguments, bound);
     }
     let (worker, arguments) = capability::worker_word(arguments);
     match arguments.as_slice() {
-        [broker, served @ ..] if broker == BROKER => broker_start::run(served),
+        [broker, served @ ..] if broker == BROKER => broker_start::run(served, runtime.carry_accepts),
         [maker, runtime, paths @ ..] if maker == MAKER => sockets::make(Path::new(runtime), &paths.iter().map(PathBuf::from).collect::<Vec<_>>()),
         [outside, separator, north, words @ ..] if outside == OUTSIDE && separator == "--" && !north.is_empty() => self::outside(north, words),
         [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true, worker, screen),
         [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program, screen),
         [hand, separator, program @ ..] if hand == HAND_OFF && separator == "--" && !program.is_empty() => self::hand_off(program),
-        [flag, separator, program @ ..] if flag == CANDIDATE && separator == "--" && !program.is_empty() => candidate::run(program),
+        [flag, separator, program @ ..] if flag == CANDIDATE && separator == "--" && !program.is_empty() => candidate::run(program, runtime.pull_held),
         [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false, worker, screen),
         [flag, separator, program @ ..] if flag == CHECKED && separator == "--" && !program.is_empty() => in_domain(program, false, true),
         [command] => shell(command, worker, screen),

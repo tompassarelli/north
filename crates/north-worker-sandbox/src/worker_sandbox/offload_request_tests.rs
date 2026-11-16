@@ -287,7 +287,7 @@ fn a_request_from_an_offload_slot_is_served_only_as_the_project_the_offload_reco
     }
 }
 
-/// The case of the two canary probes that ask for a verb from a scratch project they make under a temporary directory (runtime/canary/probes.rs), run as an order issued from a session's window runs them, inside a domain: each starts a broker of the judged north for its scratch root on a socket there and asks on that socket, and a broker that serves that root serves the request in the probe's directory. The host's own broker refuses it, as it refused both probes of the order of 2026-11-12, which asked it.
+/// The case of the two canary probes that ask for a verb from a scratch project they make under a temporary directory (scratch_probes.rs), run as an order issued from a session's window runs them, inside a domain: each starts a broker of the judged north for its scratch root on a socket there and asks on that socket, and a broker that serves that root serves the request in the probe's directory. The host's own broker refuses it, as it refused both probes of the order of 2026-11-12, which asked it.
 fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for_it(root: &Path, north: &Path, worker: &[(String, String)], failures: &mut Vec<String>) {
     const CASE: &str = "a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for_it";
     let (stub, temporary, judged) = (root.join("canary"), root.join("canary-tmp"), root.join("judged-north"));
@@ -305,7 +305,7 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
             broker::SOCKET_ENV
         ),
     );
-    for (script, verb) in crate::runtime::scratch_project_probes(&judged.to_string_lossy()).into_iter().zip(["depbox run -- true", "safe-push --to main"]) {
+    for (script, verb) in [super::super::scratch_probes::depbox_run(&judged.to_string_lossy()), super::super::scratch_probes::scratch_landing(&judged.to_string_lossy())].into_iter().zip(["depbox run -- true", "safe-push --to main"]) {
         for file in ["code", "socket", "words", "directory", "asked", "answer"] {
             let _ = std::fs::remove_file(stub.join(file));
         }
@@ -337,7 +337,7 @@ fn a_canary_probe_s_scratch_project_is_served_by_the_broker_the_probe_starts_for
 fn answers_of_a_probe_s_broker(root: &Path, north: &Path, code: Option<PathBuf>, verb: &str, directory: &Path, worker: &[(String, String)]) -> (u8, String, bool, Option<String>) {
     let started = || std::fs::read_to_string(root.join("seen")).unwrap_or_default();
     let serving = Served { code, peers: Some(OPEN_SCOPE.trim().to_owned()) };
-    let from = |cgroup: &str| asked(|server| broker_start::answer(north, server, &Peer::from(Some(cgroup)), &serving), verb, directory, worker);
+    let from = |cgroup: &str| asked(|server| broker_start::answer(north, server, &Peer::from(Some(cgroup)), &serving, |_| Vec::new()), verb, directory, worker);
     let seen = started();
     let (exit, told) = from(OPEN_SCOPE);
     let served = started().strip_prefix(&seen).and_then(|new| new.lines().next_back()).and_then(|line| line.split('|').next()) == Some(&*directory.to_string_lossy());
@@ -403,7 +403,7 @@ fn offload(root: &Path) {
 }
 
 fn ask(north: &Path, host: &Host, words: &str, directory: &Path, environment: &[(String, String)]) -> (u8, String) {
-    asked(|server| broker::answer(north, server, &Peer::from(Some(OPEN_SCOPE)), host), words, directory, environment)
+    asked(|server| broker::answer(north, server, &Peer::from(Some(OPEN_SCOPE)), host, |_| Vec::new()), words, directory, environment)
 }
 
 /// What a caller that asks for `words` from `directory` gets from the broker `answer` plays on the other end of its socket: its exit code, and what it was told with what the broker logged.

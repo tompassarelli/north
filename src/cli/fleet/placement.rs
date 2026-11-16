@@ -16,7 +16,7 @@ use crate::spend::{Starter, View};
 pub(super) fn operator_launcher(fleet: &Fleet, caller: Option<&str>, queued: Option<&str>) -> bool {
     let Ok(cgroup) = std::fs::read_to_string("/proc/self/cgroup") else { return false };
     let spooled = std::env::var_os(crate::fleet::runtime::SPOOLED_ENV).is_some();
-    operator_launch(queued.is_some(), spooled, north_runtime::worker_sandbox::confined(), || fleet.operator_caller(caller, &cgroup))
+    operator_launch(queued.is_some(), spooled, north_worker_sandbox::worker_sandbox::confined(), || fleet.operator_caller(caller, &cgroup))
 }
 
 fn operator_launch(queued: bool, spooled: bool, confined: bool, outside_every_scope: impl FnOnce() -> bool) -> bool {

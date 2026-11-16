@@ -46,7 +46,7 @@ fn a_lane_touching_a_guarded_path_runs_its_guard_suite() {
     assert!(embedded.arguments().contains("(binary_id(north::it)&test(/^(land_checks)::/))"), "a lane changing only .safe-push runs the land_checks it module: {}", embedded.arguments());
 
     let renamed = |from: &str, to: Option<&str>| vec![(from.to_owned(), to.map(str::to_owned))];
-    assert!(suites.moved_out(&renamed("crates/north-runtime/src/worker_sandbox/readable.rs", Some("crates/north-runtime/src/worker_sandbox/paths/readable.rs")), &[]).is_empty(), "a move inside the suite's paths passes");
+    assert!(suites.moved_out(&renamed("crates/north-worker-sandbox/src/worker_sandbox/readable.rs", Some("crates/north-worker-sandbox/src/worker_sandbox/paths/readable.rs")), &[]).is_empty(), "a move inside the suite's paths passes");
     assert_eq!(suites.moved_out(&renamed("crates/north-land-scans/src/disclosure_judge/judge.rs", None), &["crates/north-core/src/judge.rs".to_owned()]).len(), 1, "deleting a guarded file while adding Rust outside the suite is refused");
     assert!(suites.moved_out(&renamed("crates/north-land-scans/src/disclosure_judge/judge.rs", None), &["docs/privacy.md".to_owned()]).is_empty(), "a deletion that adds no Rust elsewhere passes");
 

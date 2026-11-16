@@ -5,7 +5,7 @@ use std::process::{Command, ExitCode};
 
 use north_capacity::capacity::depbox;
 use north_runtime_follow::layout;
-use crate::runtime::update::pull_held;
+use super::PullHeld;
 
 use super::removable::git_dirs;
 
@@ -109,7 +109,7 @@ impl Words {
 }
 
 /// Makes the caches and records a land check writes where missing, since a bind needs its source, and returns the candidate this process's working directory is.
-fn here(scratch: &Path) -> Result<Candidate, String> {
+fn here(scratch: &Path, pull_held: PullHeld) -> Result<Candidate, String> {
     let named = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or("HOME is not set")?;
     let home = std::fs::canonicalize(&named).map_err(|error| format!("HOME {}: {error}", named.to_string_lossy()))?;
     let checkout = std::env::current_dir().and_then(std::fs::canonicalize).map_err(|error| format!("the working directory: {error}"))?;
@@ -120,13 +120,13 @@ fn here(scratch: &Path) -> Result<Candidate, String> {
         std::fs::create_dir_all(&written).map_err(|error| format!("{}: {error}", written.display()))?;
     }
     let _ = std::fs::create_dir_all(home.join(depbox::TRUSTED_BUILDS));
-    prepared(&home.join(".local/state/north"), &checkout);
+    prepared(&home.join(".local/state/north"), &checkout, pull_held);
     let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
     Ok(Candidate { home, checkout, runtime, scratch: scratch.to_owned() })
 }
 
 /// Leaves on this host, before the check is confined, what it needs under the north state it reads only: a lease file in every runtime, which `bin/head-north` takes shared before it runs one and cannot create through the read-only bind, and the north built ahead for the checkout's tree, pulled from the build host that holds it over the ssh the confinement hides (north#1578).
-fn prepared(state: &Path, checkout: &Path) {
+fn prepared(state: &Path, checkout: &Path, pull_held: PullHeld) {
     for runtime in std::fs::read_dir(state.join("runtimes")).into_iter().flatten().flatten().map(|entry| entry.path()) {
         if runtime.file_name().and_then(|name| name.to_str()).is_some_and(layout::is_sha) && runtime.is_dir() {
             let _ = std::fs::OpenOptions::new().create(true).append(true).open(runtime.join(layout::LEASE));
@@ -145,7 +145,7 @@ fn prepared(state: &Path, checkout: &Path) {
 }
 
 /// Runs `program` confined to the candidate checkout of the working directory, in a scratch directory of its own that is removed when it ends; its exit code.
-pub(super) fn run(program: &[String]) -> ExitCode {
+pub(super) fn run(program: &[String], pull_held: PullHeld) -> ExitCode {
     let scratch = match tempfile::Builder::new().prefix("north-candidate-").tempdir() {
         Ok(scratch) => scratch,
         Err(error) => {
@@ -153,7 +153,7 @@ pub(super) fn run(program: &[String]) -> ExitCode {
             return ExitCode::from(126);
         }
     };
-    let candidate = match here(scratch.path()) {
+    let candidate = match here(scratch.path(), pull_held) {
         Ok(candidate) => candidate,
         Err(why) => {
             eprintln!("north worker-sandbox: a candidate check did not run: {why}");

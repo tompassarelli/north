@@ -1,5 +1,5 @@
 use super::bounded;
-use north_runtime_records::failure::{Failure, code, failed};
+use north_foundation::foundation::failure::{Failure, code, failed};
 use north_base::platform::ssh_retry::{Link, Reply, Rerun, retried};
 use std::io::ErrorKind;
 use std::process::Command;

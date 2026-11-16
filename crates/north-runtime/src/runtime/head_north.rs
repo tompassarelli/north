@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-use north_runtime_records::failure::{self, Failure};
+use north_foundation::foundation::failure::{self, Failure};
 use rustix::fs::{FlockOperation, flock};
 use rustix::io::{FdFlags, fcntl_setfd};
 

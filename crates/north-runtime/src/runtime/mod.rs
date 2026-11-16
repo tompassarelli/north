@@ -31,7 +31,6 @@ pub mod mirror;
 mod replay;
 mod reuse;
 mod scope;
-pub(crate) mod review_accept;
 pub mod review_hold;
 #[cfg(test)]
 mod after_landing_tests;
@@ -42,12 +41,13 @@ pub(crate) mod update;
 mod verdict;
 mod walk;
 mod watch;
-#[cfg(test)]
-pub(crate) use canary::scratch_project_probes;
 
 use north_offload::land_offload;
-use north_runtime_records::failure;
+use north_foundation::foundation::failure;
 use std::path::Path;
+
+/// What the worker sandbox asks of this runtime: the build-ahead pull of a candidate's north and the carry of the accepts store to the build hosts.
+pub const SANDBOX: north_worker_sandbox::worker_sandbox::Runtime = north_worker_sandbox::worker_sandbox::Runtime { pull_held: update::pull_held, carry_accepts: mirror::carry_accepts };
 
 const USAGE: &str = "usage: north runtime update [--sha SHA [--ordered]] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime build SHA | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime order --reason REASON [--commit REV] [--except HOST]... | north runtime order-here canary|go-live SHA | north runtime hold COMMIT [--host HOST] [--until LANE] --why TEXT | north runtime accept [--withdraw] COMMIT | north runtime hold --lift COMMIT --why TEXT | north runtime mirror | north runtime checkouts | north runtime lag --processes|--json | north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR] | north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR] | north runtime follow --repo-dir DIR | north runtime agents|claude|agy|pi|opencode [VERSION] | north runtime probe services | north runtime probe list HOST | north runtime walk | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
 covers [--head REV] [--from REV] [--code PATH,...] | north runtime tree-build | north runtime head-north ROOT [--code PATH] [--no-build] [--build] [ARG...]

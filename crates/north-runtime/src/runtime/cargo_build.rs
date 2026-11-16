@@ -1,4 +1,4 @@
-use north_runtime_records::failure::{DEFERRED, Failure, code, failed};
+use north_foundation::foundation::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, Layout};
 use north_capacity::capacity::game_reserve::Confinement;
 use north_build_system::{Build, Profile, Resolution, Shell};
