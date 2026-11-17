@@ -1,7 +1,7 @@
 //! `north fleet off`: on every fleet host at once, freeze landing and stop the units that start work (dispatch,
 //! the tick and every other fleet timer), give working sessions until the grace runs out to finish their step,
 //! then stop the fleet's sessions and units and kill whatever still runs at the deadline. `--force` kills them at
-//! once. It disables each enabled unit it stops, so a restart of the user manager or the host leaves it stopped. It records what it stopped for `north fleet on` and parks the stopped sessions in the cached fleet table.
+//! once. It pauses dispatch where no pause stands, so a deploy that re-enables a timer still launches nothing. It disables each enabled unit it stops, so a restart of the user manager or the host leaves it stopped. It records what it stopped for `north fleet on` and parks the stopped sessions in the cached fleet table.
 
 use std::collections::BTreeSet;
 use std::env;
@@ -138,6 +138,11 @@ impl Fleet<'_> {
             Ok(_) => {}
             Err(error) => reach.problems.push(format!("landing not frozen: {error}")),
         }
+        match host.run(&pause_script(&self.caller_host)) {
+            Ok(said) if said.trim() == "placed" => reach.stopped.push(Entry::Pause { host: host.name.clone() }),
+            Ok(_) => {}
+            Err(error) => reach.problems.push(format!("dispatch not paused: {error}")),
+        }
         let triggers: Vec<String> = listing.active.into_iter().filter(|unit| units::is_trigger(unit) && self.ours(host, unit)).collect();
         self.stop(host, &triggers, &mut reach);
         reach
@@ -247,10 +252,21 @@ fn freeze_script(caller_host: &str) -> String {
     )
 }
 
+fn pause_script(caller_host: &str) -> String {
+    let pause = serde_json::json!({ "reason": format!("north fleet off from {caller_host}"), "set_by": "north fleet off", "since": "%s", "check": "false" });
+    format!(
+        "d=\"$HOME/.local/state/north\"; f=\"$d/dispatch-paused\"; if [ -e \"$f\" ]; then echo held; else mkdir -p \"$d\" && printf {} \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > \"$f.new\" && mv \"$f.new\" \"$f\" && echo placed; fi",
+        host::quote(&format!("{pause}\n"))
+    )
+}
+
 fn report(name: &str, reach: &Reach) {
     let host = if reach.hostname.is_empty() || reach.hostname == name { name.to_owned() } else { format!("{name} ({})", reach.hostname) };
     if reach.froze {
         println!("north fleet off: {host}: landing frozen");
+    }
+    if reach.stopped.iter().any(|entry| matches!(entry, Entry::Pause { .. })) {
+        println!("north fleet off: {host}: dispatch paused");
     }
     let stopped: Vec<&str> = reach.stopped.iter().filter_map(|entry| if let Entry::Unit { name, .. } = entry { Some(name.as_str()) } else { None }).collect();
     let disabled = reach.stopped.iter().filter(|entry| matches!(entry, Entry::Unit { disabled: true, .. })).count();

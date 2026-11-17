@@ -1,5 +1,5 @@
 //! What `north fleet off` stopped, one line each in `$XDG_STATE_HOME/north/fleet-off`: `unit HOST NAME
-//! transient|kept|disabled` (`disabled`: kept, and enabled until `off` disabled it) or `freeze HOST`. A second
+//! transient|kept|disabled` (`disabled`: kept, and enabled until `off` disabled it) `freeze HOST` or `pause HOST`. A second
 //! `off` adds to it, and `north fleet on` enables and starts what it lists and keeps only the lines it could not put back.
 
 use std::collections::BTreeSet;
@@ -13,6 +13,7 @@ use crate::units::Unit;
 pub enum Entry {
     Unit { host: String, name: String, transient: bool, disabled: bool },
     Freeze { host: String },
+    Pause { host: String },
 }
 
 impl Entry {
@@ -22,7 +23,7 @@ impl Entry {
 
     pub fn host(&self) -> &str {
         match self {
-            Self::Unit { host, .. } | Self::Freeze { host } => host,
+            Self::Unit { host, .. } | Self::Freeze { host } | Self::Pause { host } => host,
         }
     }
 
@@ -30,6 +31,7 @@ impl Entry {
         match self {
             Self::Unit { host, name, transient, disabled } => format!("unit {host} {name} {}", if *transient { "transient" } else if *disabled { "disabled" } else { "kept" }),
             Self::Freeze { host } => format!("freeze {host}"),
+            Self::Pause { host } => format!("pause {host}"),
         }
     }
 
@@ -37,6 +39,7 @@ impl Entry {
         match line.split_whitespace().collect::<Vec<_>>().as_slice() {
             ["unit", host, name, kind] if valid_name(host) => Some(Self::Unit { host: (*host).to_owned(), name: (*name).to_owned(), transient: *kind == "transient", disabled: *kind == "disabled" }),
             ["freeze", host] if valid_name(host) => Some(Self::Freeze { host: (*host).to_owned() }),
+            ["pause", host] if valid_name(host) => Some(Self::Pause { host: (*host).to_owned() }),
             _ => None,
         }
     }

@@ -1,5 +1,5 @@
 //! `north fleet on`: enables the units `north fleet off` disabled, then starts on each host exactly what `north fleet off` recorded stopping there and lifts the landing
-//! freeze it placed. A service its recorded timer starts is left to that timer; a transient unit, a session among
+//! freeze and the dispatch pause it placed. A service its recorded timer starts is left to that timer; a transient unit, a session among
 //! them, is gone once stopped, so it is named and not restarted. Only lines it could not put back stay recorded.
 
 use std::process::ExitCode;
@@ -12,10 +12,13 @@ use crate::units::{self, Unit};
 
 const LIFT: &str = "f=\"${XDG_STATE_HOME:-$HOME/.local/state}/north/land-freeze.json\"; if grep -q '\"cause\":\"north fleet off' \"$f\" 2>/dev/null; then rm -f \"$f\"; fi";
 
+const UNPAUSE: &str = "f=\"$HOME/.local/state/north/dispatch-paused\"; if grep -q '\"set_by\":\"north fleet off\"' \"$f\" 2>/dev/null; then rm -f \"$f\"; fi";
+
 struct Restore {
     started: Vec<String>,
     gone: Vec<String>,
     unfrozen: bool,
+    unpaused: bool,
     kept: Vec<Entry>,
     problems: Vec<String>,
 }
@@ -59,7 +62,7 @@ fn restore(host: &Host, entries: Vec<Entry>) -> Restore {
     let stopped: Vec<Unit> = entries.iter().filter_map(|entry| if let Entry::Unit { name, transient, disabled, .. } = entry { Some(Unit { name: name.clone(), transient: *transient, enabled: *disabled }) } else { None }).collect();
     let gone: Vec<String> = stopped.iter().filter(|unit| unit.transient).map(|unit| unit.name.clone()).collect();
     let startable: Vec<String> = stopped.iter().filter(|unit| !unit.transient && units::triggered_by(&unit.name, &stopped).is_none()).map(|unit| unit.name.clone()).collect();
-    let mut restore = Restore { started: Vec::new(), gone, unfrozen: false, kept: Vec::new(), problems: Vec::new() };
+    let mut restore = Restore { started: Vec::new(), gone, unfrozen: false, unpaused: false, kept: Vec::new(), problems: Vec::new() };
     let disabled: Vec<String> = stopped.iter().filter(|unit| unit.enabled).map(|unit| unit.name.clone()).collect();
     if let Err(error) = units::enable(host, &disabled) {
         restore.problems.push(format!("enable: {error}"));
@@ -80,6 +83,15 @@ fn restore(host: &Host, entries: Vec<Entry>) -> Restore {
             }
         }
     }
+    if entries.iter().any(|entry| matches!(entry, Entry::Pause { .. })) {
+        match host.run(UNPAUSE) {
+            Ok(_) => restore.unpaused = true,
+            Err(error) => {
+                restore.problems.push(format!("dispatch pause not lifted: {error}"));
+                restore.kept.push(Entry::Pause { host: host.name.clone() });
+            }
+        }
+    }
     restore
 }
 
@@ -92,6 +104,9 @@ fn report(host: &str, restore: &Restore) {
     }
     if restore.unfrozen {
         println!("north fleet on: {host}: landing freeze lifted");
+    }
+    if restore.unpaused {
+        println!("north fleet on: {host}: dispatch pause lifted");
     }
     for problem in &restore.problems {
         println!("north fleet on: {host}: {problem}");
