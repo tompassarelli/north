@@ -4,7 +4,7 @@ This page is the reading order after the [README](../README.md)'s quickstart: wh
 
 1. [Terms](terms.md): the four layer terms.
 2. [Architecture](../ARCHITECTURE.md): the seven layers, every crate, the life of a task and the rules.
-3. [Onboarding](onboarding.md), [briefing](briefing.md), [landing](landing.md) and [the operator repository](operator-repository.md): how north is installed, how a worker is staffed and how its change lands.
+3. [Onboarding](onboarding.md), [landing](landing.md) and [the operator repository](operator-repository.md): how north is installed and how a change lands.
 4. [Commands](../README.md): `north --help` lists the operator and agent commands, `north --help-all` every command with its contract, and `north COMMAND --help` one command.
 5. [Feature records](features/): one record per behaviour, grouped by job in the order `north --help` groups its commands; `north docs features-index` writes them as one untracked page, the features index.
 6. [The fact graph](graph.md): the terms, the ask query, ingest, retention and the ready set behind `north graph`.

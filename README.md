@@ -28,8 +28,7 @@ Then put `~/code/north/main/target/debug` on your `PATH` and run `north` to open
 
 ## How a change lands
 
-1. **Brief.** An issue's box carries a `Done when:` line with a command. North writes the brief and
-   picks the tier, the account and the machine from the live usage of each ([docs/briefing.md](docs/briefing.md)).
+1. **Box.** An issue's box carries a `Done when:` line with a command, the check that closes it.
 2. **Work.** A worker session runs in its own worktree. Every tool call passes north's guards first, which
    keep it out of the main checkout, other lanes and secrets.
 3. **Hand-in.** The worker calls the finish tool. North runs the box's check, commits only the paths

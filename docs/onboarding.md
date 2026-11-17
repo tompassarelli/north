@@ -76,8 +76,8 @@ CLI that serves it. The **agent** is the worker session north launched with the 
 is the whole run: the account, the worker, the lander and the ledger that records the landing. The
 four words and the rule that a model is never called an agent are in [terms.md](terms.md).
 
-The lane, the brief and the hand-in tool are the same path every later change takes; they are
-described in [briefing.md](briefing.md) and [landing.md](landing.md).
+The lane and the hand-in tool are the same path every later change takes; they are described in
+[landing.md](landing.md).
 
 ## Install north on a host
 
@@ -129,8 +129,8 @@ instead, so every north command and every scheduled job share one commit.
    guard file edits that `path` and nothing in the operator repository.
 
 To try only the `north` app, follow the [README](../README.md#quickstart); it needs neither the operator
-repository nor the machine configuration. Once the check above passes, [briefing.md](briefing.md) and
-[landing.md](landing.md) show how work moves.
+repository nor the machine configuration. Once the check above passes, [landing.md](landing.md)
+shows how work moves.
 
 ## If the check fails
 

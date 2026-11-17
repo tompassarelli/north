@@ -1,6 +1,6 @@
 # Landing a change
 
-A change reaches main through the lander, which checks the exact tree it pushes. Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land with `safe-push --to main` (the north binary entered through its `safe-push` link, [crates/north-safe-push](../crates/north-safe-push); `safe-push --help` is the full contract; the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). The "Landing and lanes" entries in [features/04-landing-and-lanes/](features/04-landing-and-lanes/) describe each gate. A worker is briefed first: [briefing.md](briefing.md).
+A change reaches main through the lander, which checks the exact tree it pushes. Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land with `safe-push --to main` (the north binary entered through its `safe-push` link, [crates/north-safe-push](../crates/north-safe-push); `safe-push --help` is the full contract; the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). The "Landing and lanes" entries in [features/04-landing-and-lanes/](features/04-landing-and-lanes/) describe each gate.
 
 ## The path
 
