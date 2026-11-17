@@ -105,12 +105,12 @@ fn step_sample(value: &Value) -> Result<(), String> {
     let state: State = std::fs::read_to_string(&state_path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let north = north_binary();
-    let mut live = owners::Live::new(home, north.clone());
+    let mut live = owners::Live::new(home, north);
     let (state, actions) = detect::step(&Settings::bundled(cpus()), &mut live, state, &sample);
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let staged = state_path.with_extension("json.tmp");
     std::fs::write(&staged, serde_json::to_vec(&state).map_err(|error| error.to_string())?).and_then(|()| std::fs::rename(&staged, &state_path)).map_err(|error| format!("{}: {error}", state_path.display()))?;
-    act::perform(&actions, &dir.join(INCIDENTS_FILE), &north);
+    act::perform(&actions, &dir.join(INCIDENTS_FILE));
     Ok(())
 }
 

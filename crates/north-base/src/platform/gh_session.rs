@@ -161,11 +161,8 @@ fn budget_notices(session: &str, ledger: &Path, before: u32, units: u32, budget:
 }
 
 fn send(notices: Vec<(String, String)>) {
-    let Ok(program) = std::env::current_exe() else {
-        return;
-    };
     for (recipient, message) in notices {
-        let _ = Command::new(&program).args(["fleet", "send", "--from", "service:north-gh-budget", &recipient, &message]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn();
+        eprintln!("{message} (for {recipient})");
     }
 }
 

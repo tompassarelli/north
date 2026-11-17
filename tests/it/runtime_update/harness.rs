@@ -64,12 +64,6 @@ impl Host {
             "[[ $1 == sync && \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_TARGET\" ]] || exit 91\n\
              printf 'fixture sync error: Authorization: Bearer %s\\n' \"$TEST_SECRET\"\nexit \"$TEST_SYNC_STATUS\"\n",
         );
-        script(
-            &dir.path().join("bin/north"),
-            "[[ \"$1 $2 $3 $4 $5\" == 'fleet send --from service:north-runtime-update coordinator' ]] || exit 94\n\
-             case \"$(readlink \"$XDG_STATE_HOME/north/current\")\" in runtimes/$TEST_PREVIOUS|runtimes/$TEST_TARGET) ;; *) exit 92 ;; esac\n\
-             printf '%s\\n' \"$@\" >>\"$TEST_ALERTS\"\nexit \"$TEST_EVENT_STATUS\"\n",
-        );
         Self { dir, target }
     }
 
@@ -111,15 +105,15 @@ impl Host {
         fs::read_link(self.path("state/north/current")).unwrap()
     }
 
-    pub fn update(&self, sync_status: u8, alert_status: u8) -> Output {
-        self.north(&["runtime", "update"], sync_status, alert_status)
+    pub fn update(&self, sync_status: u8) -> Output {
+        self.north(&["runtime", "update"], sync_status)
     }
 
-    pub fn north(&self, args: &[&str], sync_status: u8, alert_status: u8) -> Output {
-        self.run(args, sync_status, alert_status, &[])
+    pub fn north(&self, args: &[&str], sync_status: u8) -> Output {
+        self.run(args, sync_status, &[])
     }
 
-    pub fn run(&self, args: &[&str], sync_status: u8, alert_status: u8, environment: &[(&str, &str)]) -> Output {
+    pub fn run(&self, args: &[&str], sync_status: u8, environment: &[(&str, &str)]) -> Output {
         let isolated = !self.path("bin/agents").exists();
         let path = match isolated {
             true => self.path("bin").display().to_string(),
@@ -138,10 +132,8 @@ impl Host {
             .env("TEST_TARGET", &self.target)
             .env("TEST_PREVIOUS", PREVIOUS)
             .env("TEST_SECRET", SECRET)
-            .env("TEST_ALERTS", self.path("alerts"))
             .env("TEST_SYNCED", self.path("synced"))
             .env("TEST_SYNC_STATUS", sync_status.to_string())
-            .env("TEST_EVENT_STATUS", alert_status.to_string())
             .envs(environment.iter().copied())
             .output()
             .unwrap()
