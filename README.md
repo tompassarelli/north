@@ -33,7 +33,8 @@ Then put `~/code/north/main/target/debug` on your `PATH` and run `north --help` 
 3. **Hand-in.** The session checks the lane against the repository's pre-queue gates, commits only
    the named paths and queues a ticket for the lander.
 4. **Landing.** The lander rebases the lane on main, runs the checks the change touches and pushes it,
-   then runs the full suite once per batch and reverts a lane that breaks main ([docs/landing.md](docs/landing.md)).
+   then runs the after-landing tests the batch reaches, every test when it reaches every crate,
+   and reverts a lane that breaks main ([docs/landing.md](docs/landing.md)).
 
 The words follow [docs/terms.md](docs/terms.md): a **model** is the weights, the **harness** turns a
 model into an **agent**, and a **fleet** is many agents with roles, staffing and policy.
