@@ -8,7 +8,6 @@ use super::exec;
 pub const PREFIX: &str = "verify-north-";
 pub const BRANCH: &str = "worker";
 const QUERY_WAIT: Duration = Duration::from_secs(30);
-const USAGE_GATE: &str = "agents/usage-gate.json";
 const IDENTITY: [(&str, &str); 3] = [("user.name", "verify-north"), ("user.email", "verify-north@example.invalid"), ("commit.gpgsign", "false")];
 
 pub struct Scratch {
@@ -22,20 +21,7 @@ pub struct Scratch {
 
 pub fn state_root() -> Result<PathBuf, String> {
     let directory = tempfile::Builder::new().prefix(PREFIX).tempdir().map_err(|error| format!("state directory: {error}"))?;
-    let state = directory.keep().canonicalize().map_err(|error| format!("state directory: {error}"))?;
-    seed_usage_gate(&live_state()?, &state)?;
-    Ok(state)
-}
-
-/// Copies the host's live usage gate into the walk's state, so its worker is placed on the plan account the host would pick: with no gate there every plan account read as held for want of a usage sample, and the walk sat in placement past the canary's limit (north#1273). A copy, so nothing the walk writes reaches the host's state.
-fn seed_usage_gate(live: &Path, state: &Path) -> Result<(), String> {
-    let from = live.join(USAGE_GATE);
-    if !from.is_file() {
-        return Ok(());
-    }
-    let agents = state.join("agents");
-    fs::create_dir_all(&agents).map_err(|error| format!("{}: {error}", agents.display()))?;
-    fs::copy(&from, state.join(USAGE_GATE)).map(drop).map_err(|error| format!("{}: {error}", from.display()))
+    directory.keep().canonicalize().map_err(|error| format!("state directory: {error}"))
 }
 
 fn live_state() -> Result<PathBuf, String> {
@@ -84,11 +70,11 @@ impl Scratch {
 
 const KEPT_FILE_BYTES: u64 = 1 << 20;
 
-pub fn keep_ledger(root: &Path, queues: &Path, waiting: &str, stamp: u64) -> Result<PathBuf, String> {
+pub fn keep_evidence(root: &Path, queues: &Path, waiting: &str, stamp: u64) -> Result<PathBuf, String> {
     let state = live_state()?;
     let kept = state.join("north/verify-north/failed").join(stamp.to_string());
     fs::create_dir_all(&kept).map_err(|error| format!("{}: {error}", kept.display()))?;
-    for name in ["threads.db", "threads.db-wal", "threads.db-shm", "pushes.tsv", "lander.log", "broker.log"] {
+    for name in ["pushes.tsv", "lander.log", "broker.log"] {
         let from = root.join(name);
         if from.exists() {
             fs::copy(&from, kept.join(name)).map_err(|error| format!("{}: {error}", from.display()))?;

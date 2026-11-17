@@ -8,7 +8,6 @@ mod processes;
 mod product;
 mod report;
 mod scratch;
-mod transcript;
 
 use std::env;
 use std::fs;
@@ -23,9 +22,8 @@ use notes::{Note, Notes};
 const USAGE: &str = "usage: verify-north [--north PATH] [--claude-account A [--from-claude-login]]
 Builds north from the checkout around the current directory, or uses --north PATH (a bare name is
 looked up on PATH), then walks the spine end to end: `north land serve` serves a scratch repository,
-a Claude haiku worker writes its change there and hands it in with one `hand-in` tool call,
-the lander lands it on the scratch origin, and `north ledger worker` records the run; then it cleans up. Exits nonzero on any failure.
-Defaults: the Claude account `north config agents plan --roomiest` names, the one with the most headroom that no reservation holds.
+a confined worker command runs `safe-push --check-only` and `north hand-in` through the judged outside broker,
+and the lander lands the commit on the scratch origin; then it cleans up. Exits nonzero on any failure.
 --from-claude-login makes account A's profile under ~/.local/state/north/profiles/claude-A from Claude Code's login in ~/.claude when it has none.";
 
 struct Options {
@@ -93,18 +91,18 @@ fn verify(options: &Options) -> ExitCode {
     let notes = janitor.notes();
     notes.note(&Note::State(state.clone()));
     let failed = match prepare(options, &notes, &state) {
-        Some(north) => journey::walk(north, notes, plan(options, state)),
+        Some(north) => journey::walk(north, notes, plan(state)),
         None => Some("0"),
     };
     let swept = janitor.finish();
-    let failed = failed.or((!swept).then_some("7"));
+    let failed = failed.or((!swept).then_some("4"));
     report::total(failed, started.elapsed());
     if failed.is_none() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
 
-fn plan(options: &Options, state: std::path::PathBuf) -> Plan {
+fn plan(state: std::path::PathBuf) -> Plan {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    Plan { stamp, claude_account: options.claude_account.clone(), state }
+    Plan { stamp, state }
 }
 
 fn prepare(options: &Options, notes: &Notes, state: &std::path::Path) -> Option<North> {
@@ -133,7 +131,5 @@ fn locate(options: &Options, notes: &Notes, state: &std::path::Path) -> Result<N
     };
     notes.note(&Note::North(program.clone()));
     notes.note(&Note::Directory(directory.clone()));
-    let north = North::new(program, directory, state.to_path_buf(), Some(notes.clone()));
-    north.create_ledger()?;
-    Ok(north)
+    Ok(North::new(program, directory, state.to_path_buf(), Some(notes.clone())))
 }

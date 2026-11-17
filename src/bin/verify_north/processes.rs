@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -56,14 +56,6 @@ impl Process {
         let (pid, start) = text.split_once(' ')?;
         Some(Self { pid: pid.parse().ok()?, start: start.parse().ok()? })
     }
-}
-
-pub fn session_hosts() -> BTreeSet<Process> {
-    every()
-        .into_iter()
-        .filter(|(pid, _)| arguments(*pid).get(1).is_some_and(|word| word == "session-host"))
-        .filter_map(|(pid, stat)| (!stat.zombie).then_some(Process { pid, start: stat.start }))
-        .collect()
 }
 
 pub fn descendants(roots: &[Process]) -> Vec<Process> {
