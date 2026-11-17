@@ -125,9 +125,10 @@ fn a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_rec
 const RED: &str = "safe-push: the Rust checks cover -p north -p north-base\n        FAIL [   0.006s] ( 97/668) north-base error::tests::drill\n    test error::tests::drill ... FAILED\n";
 const NARROW: &str = "safe-push: the Rust checks cover -p north -p north-safe-push\n        PASS [   0.633s] ( 21/140) north::it land_checks::other\n";
 const FULL: &str = "safe-push: the Rust checks cover -p north -p north-base\n        PASS [   0.006s] ( 97/668) north-base error::tests::drill\n";
+const WHOLE: &str = "safe-push: the Rust checks cover --workspace\n        PASS [   0.633s] ( 21/638) north::it land_checks::other\n";
 
 #[test]
-fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert() {
+fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_every_test_of_the_workspace_at_a_descendant_or_on_the_sheriffs_revert() {
     a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_records_a_red_main();
     let scratch = tempfile::tempdir().unwrap();
     let repo = scratch.path().join("repo");
@@ -182,6 +183,25 @@ fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_on
     at(&commit("docs"), NARROW, Verdict::Green);
     assert_eq!(sent.borrow().len(), 4, "the sheriff's revert landing green sends exactly one green message: {:?}", sent.borrow());
     assert!(green_again(3), "{:?}", sent.borrow());
+
+    let culprit = commit("drill once more");
+    at(&culprit, RED, red());
+    let selected = |head: &str, every: bool| std::fs::write(&episode.outcome, format!("selected\tbase\t{head}\t{{\"tests\":[],\"added\":[],\"modules\":[],\"every\":{every}}}\n")).unwrap();
+    let side = String::from_utf8_lossy(&std::process::Command::new("git").arg("-C").arg(&repo).args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit-tree", "-p", &format!("{culprit}^"), "-m", "side", "HEAD^{tree}"]).output().unwrap().stdout).trim().to_owned();
+    let between = commit("docs");
+    let still = commit("still red");
+    at(&still, RED, red());
+    for (head, log, every) in [(commit("docs"), NARROW, true), (commit("docs"), WHOLE, false), (side, WHOLE, true), (still, WHOLE, true), (between, WHOLE, true)] {
+        selected(&head, every);
+        at(&head, log, Verdict::Green);
+    }
+    assert!(marker.exists() && sent.borrow().len() == 5, "only every test of the whole workspace at a descendant ends an episode by its scope: {:?}", sent.borrow());
+    let whole = commit("docs");
+    let harness = crate::land::red_episode::Episode { head: culprit, scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Harness("harness/a.test.sh".to_owned())]), reds: Default::default() };
+    assert!(!harness.ended_by(WHOLE, true, &repo, &whole), "a harness failure still needs a pass by name");
+    selected(&whole, true);
+    at(&whole, WHOLE, Verdict::Green);
+    assert!(sent.borrow().len() == 6 && green_again(5), "{:?}", sent.borrow());
 }
 
 #[test]
@@ -257,7 +277,7 @@ fn a_rerun_command_is_composed_for_the_host_that_runs_it() {
     green.store = scratch.path().join("ledger.db");
     let marker = scratch.path().join("post-land-red-owner_repo");
     let failing = std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]);
-    crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing }.write(&marker).unwrap();
+    crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing, reds: Default::default() }.write(&marker).unwrap();
     let mut landed = landed(&[&head]);
     landed.repo = repo;
     let sent = std::cell::RefCell::new(Vec::new());
@@ -279,7 +299,7 @@ fn a_rerun_command_is_composed_for_the_host_that_runs_it() {
     };
     assert_eq!(super::settle::settle_from(&landed, &green, north_base::platform::wait::after(Duration::ZERO), Verdict::Green.into(), alarm, host, rerun), Verdict::Green);
     assert_eq!(chosen.get(), 1, "the rerun's host is chosen once");
-    let episode = crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]) };
+    let episode = crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]), reds: Default::default() };
     assert_eq!(Some(asked.borrow().clone()), episode.rerun_command("build-host"), "the command is composed for the host that runs it");
     assert!(asked.borrow().contains("--exact 'drill'") && asked.borrow().contains("land tests 'harness/a.test.sh'"), "{}", asked.borrow());
     assert!(!marker.exists(), "the red record outlived a green rerun of its tests: {:?}", sent.borrow());

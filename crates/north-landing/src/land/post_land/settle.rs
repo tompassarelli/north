@@ -12,6 +12,7 @@ use crate::landing::red_check::Failure;
 use crate::land::after::follow;
 use crate::land::checks::Verdict;
 use crate::land::red_episode::Episode;
+use crate::land::slots::graph_selection::{SELECTED, Selected};
 use crate::land::after_landing_lifecycle::{self as lifecycle, Main, RedMain};
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
@@ -74,10 +75,23 @@ fn episode_state(run: &Run, landed: &Landed) -> Option<(Store, Option<Main>)> {
     Some((store, state))
 }
 
+fn ran_every_test(run: &Run, landed: &Landed) -> bool {
+    let text = fs::read_to_string(&run.outcome).unwrap_or_default();
+    let every: Vec<bool> = text
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.strip_prefix(SELECTED)?.strip_prefix('\t')?.splitn(3, '\t');
+            let (_, head, json) = (fields.next()?, fields.next()?, fields.next()?);
+            (head == landed.head).then(|| serde_json::from_str::<Selected>(json).is_ok_and(|selected| selected.every))
+        })
+        .collect();
+    !every.is_empty() && every.iter().all(|every| *every)
+}
+
 pub(super) fn rerun_red(landed: &Landed, run: &Run, host: impl FnOnce() -> Option<String>, rerun: impl FnOnce(&str, &str) -> String) {
     let Some((_, Some(Main::Opened | Main::Red))) = episode_state(run, landed) else { return };
     let Some(episode) = Episode::read(&episode_marker(run, landed)) else { return };
-    if episode.ended_by(&fs::read_to_string(&run.log).unwrap_or_default(), &landed.repo, &landed.head) {
+    if episode.ended_by(&fs::read_to_string(&run.log).unwrap_or_default(), ran_every_test(run, landed), &landed.repo, &landed.head) {
         return;
     }
     let Some(host) = host() else {
@@ -136,6 +150,7 @@ pub(super) fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: imp
         Verdict::RedMain(_) if matches!(state, Some(Main::Opened | Main::Red)) => {
             if let Some(mut episode) = Episode::read(&marker) {
                 episode.failing.extend(failing(&run.log, &run.outcome));
+                episode.reds.insert(landed.head.clone());
                 let _ = episode.write(&marker);
             }
             state
@@ -146,7 +161,7 @@ pub(super) fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: imp
         }
         Verdict::Green if matches!(state, Some(Main::Opened | Main::Red)) => {
             let episode = Episode::read(&marker);
-            if episode.as_ref().is_some_and(|episode| !episode.ended_by(&log, &landed.repo, &landed.head)) {
+            if episode.as_ref().is_some_and(|episode| !episode.ended_by(&log, ran_every_test(run, landed), &landed.repo, &landed.head)) {
                 println!("north land: the green after-landing run of {} did not rerun the checks that turned main red, so main stays red", landed.head);
                 return;
             }

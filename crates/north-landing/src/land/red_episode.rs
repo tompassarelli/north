@@ -7,17 +7,19 @@ use super::candidate::git;
 
 const SCOPE: &str = "safe-push: the Rust checks cover ";
 const CHECK: &str = "safe-push: land check";
+const WORKSPACE: &str = "--workspace";
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Episode {
     pub head: String,
     pub scope: BTreeSet<String>,
     pub failing: BTreeSet<Failure>,
+    pub reds: BTreeSet<String>,
 }
 
 impl Episode {
     pub fn opened(head: &str, log: &str, failing: BTreeSet<Failure>) -> Self {
-        Self { head: head.to_owned(), scope: scope(log), failing }
+        Self { head: head.to_owned(), scope: scope(log), failing, reds: BTreeSet::new() }
     }
 
     pub fn read(marker: &Path) -> Option<Self> {
@@ -30,6 +32,9 @@ impl Episode {
                     episode.scope.insert(package.to_owned());
                 }
                 Some(("failure", key)) => episode.failing.extend(Failure::from_key(key)),
+                Some(("red", red)) => {
+                    episode.reds.insert(red.to_owned());
+                }
                 _ => {}
             }
         }
@@ -40,6 +45,7 @@ impl Episode {
         let mut text = format!("head\t{}\n", self.head);
         self.scope.iter().for_each(|package| text.push_str(&format!("scope\t{package}\n")));
         self.failing.iter().for_each(|failure| text.push_str(&format!("failure\t{}\n", failure.key())));
+        self.reds.iter().for_each(|red| text.push_str(&format!("red\t{red}\n")));
         fs::write(marker, text)
     }
 
@@ -55,8 +61,10 @@ impl Episode {
         by.is_some_and(|by| by != red && failing.is_subset(&episode.failing) && git(repo, &["merge-base", "--is-ancestor", red, &by]).is_ok())
     }
 
-    pub fn ended_by(&self, green_log: &str, repo: &Path, head: &str) -> bool {
-        self.covered_by(green_log) || reverted_since(repo, &self.head, head)
+    pub fn ended_by(&self, green_log: &str, every: bool, repo: &Path, head: &str) -> bool {
+        let descends = |red: &String| red != head && git(repo, &["merge-base", "--is-ancestor", red, head]).is_ok();
+        let whole = every && scope(green_log) == BTreeSet::from([WORKSPACE.to_owned()]) && std::iter::once(&self.head).chain(&self.reds).all(descends);
+        self.covered_by(green_log, whole) || reverted_since(repo, &self.head, head)
     }
 
     pub fn rerun_command(&self, host: &str) -> Option<String> {
@@ -67,11 +75,11 @@ impl Episode {
         self.failing.iter().filter(|failure| matches!(failure, Failure::Cargo(_) | Failure::Harness(_))).collect()
     }
 
-    fn covered_by(&self, green_log: &str) -> bool {
+    fn covered_by(&self, green_log: &str, whole: bool) -> bool {
         let named = self.named();
         if !named.is_empty() {
             let passed = passed(green_log);
-            return named.iter().all(|failure| passed.contains(*failure));
+            return named.iter().all(|failure| passed.contains(*failure) || (whole && matches!(failure, Failure::Cargo(_))));
         }
         let ran = |command: &str| green_log.lines().map(red_check::log_text).any(|line| line.starts_with(CHECK) && line.contains(&format!(": {command} (")));
         let steps_ran = self.failing.iter().all(|failure| !matches!(failure, Failure::Step(command) if !ran(command)));
