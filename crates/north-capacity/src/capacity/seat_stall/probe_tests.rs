@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use super::Sample;
 use super::probe::{Breaker, Seat, watch};
+use super::report::resume_stopped;
 
 struct Held(Receiver<()>);
 
@@ -38,4 +39,12 @@ fn a_sync_still_out_past_the_trip_time_trips_the_breaker_before_it_returns() {
     release.send(()).unwrap();
     probe.join().unwrap();
     assert!(trips.try_recv().is_err(), "the sync that tripped trips no second time when it returns");
+    let stopped = vec!["north-land-adopt.service".to_owned(), "north-land@north.service".to_owned()];
+    let mut ran = Vec::new();
+    let started = resume_stopped(&stopped, |unit| unit != "north-land-adopt.service", |kept| {
+        ran = kept.to_vec();
+        Ok(())
+    }).unwrap();
+    assert_eq!(started, vec!["north-land@north.service".to_owned()]);
+    assert_eq!(ran, started);
 }

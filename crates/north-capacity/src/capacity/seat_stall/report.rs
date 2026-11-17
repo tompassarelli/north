@@ -97,6 +97,30 @@ fn unstopped_verdict(log: &Log, at: u64, length: u64, units: &[String], trip: u6
     }
 }
 
+pub(super) fn resume_stopped(units: &[String], loaded: impl Fn(&str) -> bool, start: impl FnOnce(&[String]) -> Result<(), String>) -> Result<Vec<String>, String> {
+    let kept: Vec<String> = units.iter().filter(|unit| loaded(unit)).cloned().collect();
+    if !kept.is_empty() {
+        start(&kept)?;
+    }
+    Ok(kept)
+}
+
+fn unit_loaded(unit: &str) -> bool {
+    Command::new("systemctl")
+        .args(["--user", "show", "--property=LoadState", "--value", "--", unit])
+        .stdin(Stdio::null())
+        .output()
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() != "not-found")
+}
+
+fn start_units(units: &[String]) -> Result<(), String> {
+    match Command::new("systemctl").args(["--user", "start", "--"]).args(units).stdin(Stdio::null()).status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!("systemctl start exited {status}")),
+        Err(error) => Err(format!("systemctl start: {error}")),
+    }
+}
+
 fn resume() -> u8 {
     let log = match read() {
         Ok(log) => log,
@@ -115,22 +139,18 @@ fn resume() -> u8 {
         println!("north capacity seat-stall resume: the breaker holds no unit stopped");
         return 0;
     };
-    match Command::new("systemctl").args(["--user", "start", "--"]).args(units).stdin(Stdio::null()).status() {
-        Ok(status) if status.success() => {}
-        Ok(status) => {
-            eprintln!("north capacity seat-stall resume: systemctl start exited {status}");
-            return 1;
-        }
+    let started = match resume_stopped(units, unit_loaded, start_units) {
+        Ok(started) => started,
         Err(error) => {
-            eprintln!("north capacity seat-stall resume: systemctl start: {error}");
+            eprintln!("north capacity seat-stall resume: {error}");
             return 1;
         }
-    }
-    let resumed = serde_json::to_string(&Event::Resume { at_ms: now_ms(), units: units.clone() }).map_err(|error| error.to_string()).and_then(|line| append(&dir(), EVENTS, &line));
+    };
+    let resumed = serde_json::to_string(&Event::Resume { at_ms: now_ms(), units: started.clone() }).map_err(|error| error.to_string()).and_then(|line| append(&dir(), EVENTS, &line));
     if let Err(error) = resumed {
         eprintln!("north capacity seat-stall resume: the units started, but the resume was not recorded: {error}");
         return 1;
     }
-    println!("north capacity seat-stall resume: started the {} units the breaker stopped at {}: {}", units.len(), clock(*at_ms), units.join(", "));
+    println!("north capacity seat-stall resume: started the {} units the breaker stopped at {}: {}", started.len(), clock(*at_ms), started.join(", "));
     0
 }
