@@ -20,7 +20,6 @@ crates_before = [
   "north-broker",
   "north-buck",
   "north-build-system",
-  "north-calibration",
   "north-capacity",
   "north-capacity-host",
   "north-check-environment",
@@ -28,26 +27,15 @@ crates_before = [
   "north-cli-reference",
   "north-code-health",
   "north-concerns",
-  "north-convo",
-  "north-core",
   "north-coverage",
   "north-diff-gates",
-  "north-dispatch",
   "north-docs",
-  "north-fleet",
-  "north-fleet-store",
-  "north-fleet-supervisor",
-  "north-flow",
   "north-foundation",
-  "north-github-mirror",
   "north-git-locks",
   "north-graph",
   "north-graph-change",
-  "north-graph-ground",
   "north-graph-ingest",
-  "north-graph-loops",
   "north-guard",
-  "north-health",
   "north-implicit-state",
   "north-land-checks",
   "north-lander",
@@ -58,9 +46,6 @@ crates_before = [
   "north-lanes",
   "north-mutants",
   "north-offload",
-  "north-pace",
-  "north-pacing",
-  "north-providers",
   "north-publish",
   "north-reclaim",
   "north-registries",
@@ -73,9 +58,6 @@ crates_before = [
   "north-ssh-spare",
   "north-strategy-types",
   "north-test-cases",
-  "north-threads",
-  "north-timers",
-  "north-tune",
 ]
 
 [[experiment]]
@@ -864,7 +846,7 @@ owner = "tompassarelli/north#1039"
 id = "north-ops-split"
 change = "north-ops' verb families move to the crates that own their domains, nine of them new, per docs/rationale/north-ops-split.md"
 landed = "dc8003249f"
-crates = ["north-github-broker", "north-ci", "north-issue-boxes", "north-claims", "north-desktop", "north-reclaim", "north-credentials", "north-remote-serve", "north-expectations", "north-nix"]
+crates = ["north-github-broker", "north-ci", "north-reclaim", "north-credentials", "north-remote-serve"]
 metric = "none"
 measure = "git log on origin/main over the 28 days after the last move: commits that merge one of these crates back into another or move a module between two of them; keep the split when there are none, and record the count in docs/rationale/north-ops-split.md"
 direction = "down"
@@ -940,20 +922,6 @@ owner = "tompassarelli/north#1247"
 lead = "f-buck-side-4"
 
 [[experiment]]
-id = "north-unblocks"
-change = "the coordinator's manual unblocks are counted by class in the new crate north-unblocks, which refuses the second of one class within a day unless it names an owned class-fix issue, and holds the coordinator's turn while an hourly harness-loss class seen twice has no owner (north#1577)"
-landed = "be0ff18529"
-crates = ["north-unblocks"]
-metric = "none"
-measure = "the unblock ledger ~/.local/state/north/unblocks.jsonl over the 14 days after landing: classes with three or more unblocks in one day, each of which got past the refusal by naming an issue; keep the refusal when fewer than one such class a week shows, and record the count on north#1577"
-direction = "down"
-bar = 2.0
-min_n = 0
-after = ["2026-11-15", "2026-11-29"]
-review = "2026-12-01"
-owner = "tompassarelli/north#1577"
-
-[[experiment]]
 id = "north-runtime-records"
 change = "the hold ledger, the after-landing record and the failure type move out of north-runtime into the new leaf crate north-runtime-records, so the worker sandbox reads them without the runtime tree (north#1487)"
 landed = "69fb5c5be0"
@@ -966,20 +934,6 @@ min_n = 0
 after = ["2026-11-15", "2026-12-13"]
 review = "2026-12-15"
 owner = "tompassarelli/north#1487"
-
-[[experiment]]
-id = "north-control-plane"
-landed = "617f4a28ac"
-change = "the control plane's lease and its break-glass move live in the new crate north-control-plane, which the lander, the threads verb and the operator command each read (north#1572)"
-crates = ["north-control-plane"]
-metric = "none"
-measure = "the lander's refusals to push to main with the lease messages ('the control plane is held by' and 'the control-plane lease could not be read') in the 14 days after landing, counted from the lander's journal; keep the crate when none occur outside a move, and record the count on north#1572"
-direction = "down"
-bar = 0.0
-min_n = 0
-after = ["2026-11-15", "2026-11-29"]
-review = "2026-12-01"
-owner = "tompassarelli/north#1572"
 
 [[experiment]]
 id = "north-agent-policy"
@@ -1011,11 +965,11 @@ owner = "tompassarelli/north#1648"
 
 [[experiment]]
 id = "north-warm-spares"
-change = "the warm spares and the host types they read (machine, host spec, held-unit launch script, spool names) leave north-fleet for the new bucket 1 crate north-warm-spares, which north-fleet-store and north-fleet re-export, so the proven core holds the spares without the fleet (north#1650)"
+change = "the warm spares and the host types they read (machine, host spec, held-unit launch script, spool names) live in the bucket 1 crate north-warm-spares, so the proven core holds the spares without the evicted fleet crates (north#1650)"
 landed = "9767f221cc"
 crates = ["north-warm-spares"]
 metric = "none"
-measure = "git log on origin/main over the 28 days after this move: commits that fold north-warm-spares back into north-fleet or move one of its modules elsewhere; keep the crate when there are none, and record the count on north#1650"
+measure = "git log on origin/main over the 28 days after this move: commits that fold north-warm-spares into another crate or move one of its modules elsewhere; keep the crate when there are none, and record the count on north#1650"
 direction = "down"
 bar = 0.0
 min_n = 0

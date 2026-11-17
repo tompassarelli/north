@@ -327,9 +327,6 @@ One row per first word of the verb registry (`src/cli/verbs/`), 108 in all, plus
 |---|---|---|---|
 | `help` | 1 Execution primitives | keep | help |
 | `lane` | 1 Execution primitives | keep | collect, reap, rescue, seed, squash, audit lanes |
-| `session-attach` | 1 Execution primitives | keep | attach to a hosted session |
-| `session-host` | 1 Execution primitives | keep | hosts a session process |
-| `session-link` | 1 Execution primitives | keep | link a remote session unit |
 | `session-unit` | 1 Execution primitives | keep | systemd-run in the session's scope |
 | `ssh-argv` | 1 Execution primitives | keep | attributed ssh argv |
 | `ssh-session` | 1 Execution primitives | keep | refuses ssh from confined workers, points at offload |
@@ -415,6 +412,9 @@ One row per first word of the verb registry (`src/cli/verbs/`), 108 in all, plus
 | `provider-capacity` | 4 Fleet governance | mothball | provider capacity |
 | `red-main-notify` | 4 Fleet governance | mothball | tells culprit sessions about red main |
 | `resident-cap` | 4 Fleet governance | mothball | resident session cap |
+| `session-attach` | 4 Fleet governance | mothball | attach to a hosted session (evicted with fleet sessions in lane E6) |
+| `session-host` | 4 Fleet governance | mothball | hosts a session process (CLI verb evicted with fleet sessions in lane E6) |
+| `session-link` | 4 Fleet governance | mothball | link a remote session unit (evicted with fleet sessions in lane E6) |
 | `spend` | 4 Fleet governance | mothball | API-equivalent spend |
 | `standin-host` | 4 Fleet governance | mothball | no reference line |
 | `task` | 4 Fleet governance | mothball | verdicts and box ticks |

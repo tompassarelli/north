@@ -79,8 +79,7 @@ fixes in each machine's code from history.
    runtime's commits live (`live.rs:64-75`). Shapes: link-read, mtime-read, phase-suffix (`SHA.staging`).
    Converted (`crates/north-runtime/src/runtime/lifecycle.rs`): `runtime-promotion` keeps one record per runtime
    (building, installing, live, superseded, build-failed, install-failed, rolled-back, unfinished) and replaces
-   `runtime-failed`, `runtime-failed-causes` and `runtime-previous`; `runtime-canary` keeps one per host and runtime
-   and replaces `runtime-canary`; `runtime-landing-judgement` replaces `runtime-settle-judged`, set only after its
+   `runtime-failed`, `runtime-failed-causes` and `runtime-previous`; `runtime-landing-judgement` replaces `runtime-settle-judged`, set only after its
    alarm is delivered. The swap log now notes a runtime only once it is live, and a failed first install removes
    `current`. Not converted: the `SHA.staging` copies shipped to other hosts (written over ssh by `deploy.rs`) and
    the `agents-sync-unpublished` marker, which belongs to policy publication.
