@@ -1,6 +1,5 @@
 use north_foundation::foundation::failure::DEFERRED;
 use super::layout::{self, Layout};
-use super::lifecycle::{self, Canarying, Canary};
 use super::live::Swap;
 use super::pin::{Event, note, now};
 use super::update;
@@ -121,8 +120,7 @@ pub(super) enum Verdict {
 /// Judges, at `at`, the first `WATCH_S` after the newest swap to `live` in `swaps` on the host `name`: rolls back when launch failures, session-host exits or land refusals rose over the hour before the swap, unless a rollback made that swap.
 pub(super) fn judge(layout: &Layout, live: &str, swaps: &[Swap], at: i64, name: &str) -> Verdict {
     let Some(swap) = swaps.iter().rev().find(|swap| swap.runtime == live) else { return Verdict::Quiet };
-    let trusted = lifecycle::state_of::<Canarying>(layout, &format!("{name}/{live}")).ok().flatten() == Some(Canary::Trusted);
-    if at - swap.at > WATCH_S || trusted {
+    if at - swap.at > WATCH_S {
         return Verdict::Quiet;
     }
     let (since, prior) = (Window::read(layout, swap.at, at, at, swap.at + RATE_S), Window::read(layout, swap.at - PRIOR_S, swap.at, at, swap.at - PRIOR_S));

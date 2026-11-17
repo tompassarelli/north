@@ -1,4 +1,3 @@
-use super::canary::{self, Verdict};
 use super::deploy;
 use north_foundation::foundation::failure::{Failure, failed};
 use super::growth::{Growth, print_north};
@@ -8,7 +7,7 @@ use super::lifecycle::{self, Judge, Judgement};
 use super::pin;
 use super::verdict;
 use super::review_hold::Screen;
-use super::walk;
+use super::ship;
 use super::watch;
 use super::follow;
 use super::probe::{self, Shell};
@@ -57,8 +56,8 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut growth = Growth::load(layout);
     let mut incidents = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&store).is_some_and(|head| head != landing.sha));
-    let here = walk_and_ship(layout, &hosts, &store);
-    let others = if canaries_at_once() { judged_at_once(layout, &hosts[1..]) } else { hosts[1..].iter().map(|host| probed(layout, host).0).collect() };
+    let here = ship_here(layout, &hosts, &store);
+    let others = facts_at_once(&hosts[1..]);
     for mut facts in std::iter::once(here).chain(others) {
         let (problems, window) = judged_problems(&mut facts, landing.as_ref(), &store, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict::verdict(&facts, &problems, landing.is_some()));
@@ -97,7 +96,7 @@ fn outcome(promoted: Result<(), Failure>, failing: &[String]) -> Result<(), Fail
     promoted
 }
 
-/// Brings this host to the pinned runtime, then walks its canary and follows the lander link from `walk_and_ship` when it passed, and watches a fresh swap for rising failures.
+/// Brings this host to the pinned runtime, then follows the lander link and ships from `ship_here`, and watches a fresh swap for rising failures.
 fn promote_here(layout: &Layout) -> Result<(), Failure> {
     let follow::Followed { here: updated, .. } = follow::update_following_lander(layout, false, false);
     watch::watch(layout);
@@ -110,15 +109,14 @@ fn fleet_hosts() -> Vec<Shell> {
     hosts
 }
 
-/// Probes this host first, so its canary walks the spine on the live runtime, and ships that runtime to the hosts behind it only when it passed; the lander link follows the runtime as soon as that canary passed, while the ship runs.
-fn walk_and_ship(layout: &Layout, hosts: &[Shell], store: &Path) -> probe::Facts {
-    let (facts, judged) = probed(layout, &hosts[0]);
-    let live = layout.live_sha();
-    let walk = walk::walk_of(layout, &facts.host, live.as_deref(), judged.as_ref().map(|(sha, verdict)| (sha.as_str(), verdict)));
-    let follow = walk.is_ok();
+/// Reads this host first, ships its live runtime to the hosts behind it and follows the lander link to it while the ship runs.
+fn ship_here(layout: &Layout, hosts: &[Shell], store: &Path) -> probe::Facts {
+    let facts = probe::facts(&hosts[0]);
+    let live = ship::live_here(layout);
+    let follow = live.is_ok();
     let shipped = std::thread::scope(|scope| {
         let following = follow.then(|| scope.spawn(|| follow::follow_lander(layout)));
-        let shipped = walk::ship_if_walked(layout, walk, &Screen::here(store), |here, kept| {
+        let shipped = ship::ship_screened(layout, live, &Screen::here(store), |here, kept| {
             let behind: Vec<&Shell> = hosts[1..].iter().filter(|host| kept.iter().any(|destination| destination == host.name())).collect();
             ship_behind(&behind, here, &layout.runtime(here), store);
             Ok(())
@@ -138,16 +136,12 @@ fn walk_and_ship(layout: &Layout, hosts: &[Shell], store: &Path) -> probe::Facts
     facts
 }
 
-/// Every other host on its own thread, its canary and then its facts, once every ship has returned: the hosts' canaries probe the hub, so none starts while another host's update is still swapping its runtime. Every thread is joined before this returns, and one that panicked comes back as that host unreachable, never as a host left out of the report.
-fn judged_at_once(layout: &Layout, hosts: &[Shell]) -> Vec<probe::Facts> {
+/// Every other host's facts, each on a thread of its own. Every thread is joined before this returns, and one that panicked comes back as that host unreachable, never as a host left out of the report.
+fn facts_at_once(hosts: &[Shell]) -> Vec<probe::Facts> {
     std::thread::scope(|scope| {
-        let judging: Vec<_> = hosts.iter().map(|host| scope.spawn(move || probed(layout, host).0)).collect();
+        let judging: Vec<_> = hosts.iter().map(|host| scope.spawn(move || probe::facts(host))).collect();
         judging.into_iter().zip(hosts).map(|(judged, host)| judged.join().unwrap_or_else(|_| probe::Facts { host: host.name().to_owned(), unreachable: Some("its settle probe panicked".to_owned()), ..probe::Facts::default() })).collect()
     })
-}
-
-fn canaries_at_once() -> bool {
-    north_base::platform::harness::document(north_base::platform::harness::DEFAULTS).get("settle_remote_canaries_at_once").and_then(|entry| entry.get("value")).and_then(|value| value.as_bool()).unwrap_or(true)
 }
 
 fn ship_behind(hosts: &[&Shell], here: &str, runtime: &Path, store: &Path) {
@@ -164,18 +158,6 @@ fn ship_behind(hosts: &[&Shell], here: &str, runtime: &Path, store: &Path) {
             });
         }
     });
-}
-
-/// The host's facts after its canary, and the runtime the canary judged with its verdict, which the pin journal records when it walked or rolled back.
-fn probed(layout: &Layout, host: &Shell) -> (probe::Facts, Option<(String, Verdict)>) {
-    let facts = probe::facts(host);
-    let Some(runtime) = facts.runtime.clone().filter(|_| facts.unreachable.is_none()) else {
-        return (facts, None);
-    };
-    let verdict = canary::check(layout, &facts.host, &runtime, &canary::Live { layout, host });
-    walk::judged(layout, &facts.host, &runtime, &verdict, &facts.swaps);
-    let facts = if verdict == Verdict::RolledBack { probe::facts(host) } else { facts };
-    (facts, Some((runtime, verdict)))
 }
 
 fn handed_to_live(layout: &Layout) -> Option<String> {

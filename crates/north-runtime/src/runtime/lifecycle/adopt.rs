@@ -1,6 +1,6 @@
 //! One-time adoption of the marker files the promotion machines replace: `runtime-failed` and its causes,
-//! `runtime-previous`, `runtime-canary` and `runtime-settle-judged`, with `current` for the live runtime.
-use super::{Canary, Canarying, Judge, Judgement, Promoting, Promotion};
+//! `runtime-previous` and `runtime-settle-judged`, with `current` for the live runtime.
+use super::{Judge, Judgement, Promoting, Promotion};
 use north_foundation::foundation::failure::Failure;
 use crate::runtime::layout::{Layout, is_sha, linked_sha};
 use north_foundation::foundation::clock::Timestamp;
@@ -13,11 +13,10 @@ const HOLD: Duration = Duration::from_secs(60 * 60);
 const FAILED: &str = "runtime-failed";
 const CAUSES: &str = "runtime-failed-causes";
 const PREVIOUS: &str = "runtime-previous";
-const CANARIED: &str = "runtime-canary";
 const JUDGED: &str = "runtime-settle-judged";
 
-pub(super) fn files(layout: &Layout) -> [PathBuf; 5] {
-    [FAILED, CAUSES, PREVIOUS, CANARIED, JUDGED].map(|name| layout.state.join(name))
+pub(super) fn files(layout: &Layout) -> [PathBuf; 4] {
+    [FAILED, CAUSES, PREVIOUS, JUDGED].map(|name| layout.state.join(name))
 }
 
 pub(super) struct Old {
@@ -25,13 +24,11 @@ pub(super) struct Old {
     previous: Option<String>,
     failed: Vec<(String, Promotion, String)>,
     held_at: Option<SystemTime>,
-    canaried: Vec<(String, String)>,
     judged: Option<String>,
 }
 
 pub(super) enum Adopted {
     Promotion(String, Promotion, String),
-    Canary(String, Canary, String),
     Judgement(String, Judgement, String),
 }
 
@@ -54,7 +51,6 @@ impl Old {
             previous: Some(read(PREVIOUS).trim().to_owned()).filter(|sha| is_sha(sha)),
             failed,
             held_at,
-            canaried: read(CANARIED).lines().filter_map(|line| line.split_once(' ')).filter(|(_, sha)| is_sha(sha)).map(|(host, sha)| (host.to_owned(), sha.to_owned())).collect(),
             judged: Some(read(JUDGED).trim().to_owned()).filter(|sha| is_sha(sha)),
         }
     }
@@ -92,7 +88,6 @@ pub(super) fn classify(old: &Old) -> Vec<Result<Adopted, Impossible>> {
             false => Ok(Adopted::Promotion(sha.clone(), *state, format!("adopted from {FAILED}: {reason}"))),
         });
     }
-    adopted.extend(old.canaried.iter().map(|(host, sha)| Ok(Adopted::Canary(format!("{host}/{sha}"), Canary::Passed, format!("adopted from {CANARIED}")))));
     adopted.extend(old.judged.iter().map(|sha| Ok(Adopted::Judgement(sha.clone(), Judgement::Judged, format!("adopted from {JUDGED}")))));
     adopted
 }
@@ -114,7 +109,6 @@ pub(super) fn adopt(layout: &Layout, store: &mut Store) -> Result<(), Failure> {
         };
         match adoption {
             Adopted::Promotion(sha, state, cause) => take::<Promoting>(store, &sha, state, &cause, if state.holds_back() { held_at } else { Timestamp::now() })?,
-            Adopted::Canary(instance, state, cause) => take::<Canarying>(store, &instance, state, &cause, Timestamp::now())?,
             Adopted::Judgement(sha, state, cause) => take::<Judge>(store, &sha, state, &cause, Timestamp::now())?,
         }
     }

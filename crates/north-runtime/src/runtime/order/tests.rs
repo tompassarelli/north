@@ -1,7 +1,5 @@
-use super::super::canary::{self, Machine, Ran, Rollback};
 use north_foundation::foundation::failure::Failure;
 use super::super::layout::{self, Layout};
-use super::super::lifecycle::{self, Canarying};
 use north_runtime_records::after_landing::Landing;
 use super::super::review_hold::{Screen, answered_in, landed_in};
 use north_worker_sandbox::hold_ledger::{self, Ask, Caller, Holds, lane_of, now};
@@ -21,78 +19,12 @@ const NEW: &str = "2222222222222222222222222222222222222222";
 const REVIEWED: &str = "4444444444444444444444444444444444444444";
 const SQUASHED: &str = "5555555555555555555555555555555555555555";
 
-struct Probes {
-    failing: Option<&'static str>,
-    retired: Option<&'static str>,
-}
-
-impl Machine for Probes {
-    fn listed_by(&self, host: &str, sha: &str) -> Result<canary::CoreLoop, String> {
-        let mut list = canary::compiled(host, sha, self);
-        if sha == NEW {
-            list.probes.retain(|probe| !self.retired.is_some_and(|retired| probe.name.contains(retired)));
-        }
-        Ok(list)
-    }
-
-    fn probe(&self, probe: &canary::Probe) -> Ran {
-        match self.failing.is_some_and(|failing| probe.name.contains(failing)) {
-            true => Ran::Exited { code: 1, log: "the probe failed".to_owned() },
-            false => Ran::Exited { code: 0, log: String::new() },
-        }
-    }
-
-    fn roll_back(&self, _sha: &str) -> Rollback {
-        panic!("a runtime that is not live is never rolled back")
-    }
-
-    fn alarm(&self, text: &str) {
-        panic!("an ordered promotion alarms nothing before it is live: {text}")
-    }
-
-    fn page(&self, key: &str, _text: &str) {
-        panic!("an ordered promotion pages nothing before it is live: {key}")
-    }
-
-    fn rollback_target(&self, _sha: &str) -> Option<String> {
-        None
-    }
-
-    fn launchable_providers(&self) -> Vec<String> {
-        vec!["claude".to_owned()]
-    }
-
-    fn sessions_reach_hub(&self, _host: &str) -> bool {
-        true
-    }
-
-    fn offloads_to_hub(&self, _host: &str) -> bool {
-        true
-    }
-
-    fn settles_fleet(&self, _host: &str) -> bool {
-        false
-    }
-
-    fn takes_land_checks(&self, _host: &str) -> bool {
-        false
-    }
-
-    fn lander_repositories(&self) -> Option<canary::Landers> {
-        None
-    }
-}
-
 struct Rehearsal<'a> {
-    layout: &'a Layout,
     name: &'static str,
-    failing: Option<&'static str>,
-    retired: Option<&'static str>,
     live: Mutex<String>,
     pin: Mutex<Option<String>>,
     steps: &'a Mutex<Vec<String>>,
     stays: bool,
-    waits: Option<&'static str>,
 }
 
 impl Rehearsal<'_> {
@@ -115,15 +47,6 @@ impl Host for Rehearsal<'_> {
         Ok(())
     }
 
-    fn canary(&self, sha: &str) -> Result<(), String> {
-        self.step("canary");
-        if let Some(other) = self.waits {
-            let staged = format!("{other} staged");
-            assert!(north_base::platform::wait::until(std::time::Duration::from_secs(3600), || self.steps.lock().unwrap().contains(&staged)), "{} judged {} before {other} was shipped it", self.name, layout::short(sha));
-        }
-        canary::preflight(self.layout, self.name, sha, self.live().as_deref(), &Probes { failing: self.failing, retired: self.retired })
-    }
-
     fn go_live(&self, sha: &str) -> Result<(), Failure> {
         self.step("live");
         if !self.stays {
@@ -140,28 +63,6 @@ impl Host for Rehearsal<'_> {
         *self.pin.lock().unwrap() = Some(sha.to_owned());
         Ok(())
     }
-}
-
-#[test]
-fn an_order_promotes_a_candidate_failing_only_a_probe_it_retired_and_refuses_one_failing_a_probe_it_kept() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().to_path_buf() };
-    for sha in [OLD, NEW] {
-        fs::create_dir_all(layout.runtime(sha)).unwrap();
-    }
-    symlink(layout::link(OLD), layout.current()).unwrap();
-    let steps = Mutex::new(Vec::new());
-    let host = |name, failing| Rehearsal { layout: &layout, name, failing, retired: Some("depbox"), live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false, waits: None };
-    let (settling, builder) = (host("whiterabbit", Some("depbox")), host("gex45", Some("ssh reaches no host")));
-    let order = Order { sha: NEW.to_owned(), reason: "the depbox probe is retired".to_owned(), orderer: "f-canary-chain".to_owned() };
-
-    let refused = run(&layout, &order, &settling, &[&builder], &[], || Ok(()), |()| Ok(false)).unwrap_err();
-
-    assert_eq!(settling.live.lock().unwrap().as_str(), NEW, "the order's own list still held the depbox probe, which the candidate retired and would fail");
-    let judged = lifecycle::record_of::<Canarying>(&layout, &format!("whiterabbit/{NEW}")).unwrap().unwrap().cause;
-    assert!(judged.contains("probes added: none; probes removed: `a worker command's depbox run execs the judged north`"), "{judged}");
-    assert_eq!(builder.live.lock().unwrap().as_str(), OLD);
-    assert!(refused.message.contains("gex45 stays on its old runtime") && refused.message.contains("ssh reaches no host"), "{}", refused.message);
 }
 
 fn squashed(commit: &str, head: &str) -> Result<bool, String> {
@@ -193,7 +94,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     }
     symlink(layout::link(OLD), layout.current()).unwrap();
     let steps = Mutex::new(Vec::new());
-    let settling = Rehearsal { layout: &layout, name: "whiterabbit", failing: None, retired: None, live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false, waits: None };
+    let settling = Rehearsal { name: "whiterabbit", live: Mutex::new(OLD.to_owned()), pin: Mutex::new(None), steps: &steps, stays: false };
     let checkout = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| std::process::Command::new("git").current_dir(checkout.path()).args(arguments).output().unwrap();
     git(&["init", "-q"]);
@@ -206,7 +107,7 @@ fn holds_and_trips_refuse_a_head_until_lifted_or_cleared_and_a_trip_naming_its_f
     let ordered = || Order::cleared(NEW.to_owned(), "a reviewed pipeline fix".to_owned(), "f-flow-lead".to_owned(), cleared);
     let session = |name: &str| Caller { session: name.to_owned(), coordinator: false, reviewer: false };
     let (reviewer, author) = (session("f-review"), session("f-holds"));
-    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the canary reads the wrong lock".to_owned() }, caller, now());
+    let place = |caller: &Caller| screen.holds.serve(Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: None, until: None, why: "the build reads the wrong lock".to_owned() }, caller, now());
     let lift = |caller: &Caller| screen.holds.serve(Ask::Lift { commit: held.to_owned(), why: "the fix is reviewed".to_owned() }, caller, now());
     place(&reviewer).unwrap();
     let environment = [("NORTH_VERDICT_CACHE_DIR".to_owned(), state.path().display().to_string())];
@@ -379,7 +280,7 @@ fn accepted(state: &Path, checkout: &Path, commit: &str, session: &str) {
 
 fn until_screen(state: &Path, checkout: &Path, held: &str) -> Screen {
     let screen = Screen { holds: Holds(state.join("holds")), contains: Box::new(|_, _| Ok(true)), landed: landed_in(state.join("pushes.tsv")), answered: answered_in(Mirror::open(checkout).unwrap().git_dir().to_path_buf(), Accepts(state.join("accepts"))), after_landing: Some(Box::new(|_| Landing::Green)), trips: Trips(PathBuf::from(NO_TRIPS)), runs: MainRuns::none(), revert: Box::new(|_| Ok(())), replay: crate::runtime::replay::regressing() };
-    let ask = Ask::Place { commit: held.to_owned(), lane: "f-broken".to_owned(), host: None, until: Some("f-cure".to_owned()), why: "the canary reads the wrong lock until f-cure lands".to_owned() };
+    let ask = Ask::Place { commit: held.to_owned(), lane: "f-broken".to_owned(), host: None, until: Some("f-cure".to_owned()), why: "the build reads the wrong lock until f-cure lands".to_owned() };
     screen.holds.serve(ask, &Caller { session: PLACER.to_owned(), coordinator: false, reviewer: true }, now()).unwrap();
     screen
 }
@@ -445,19 +346,3 @@ fn a_red_ancestor_run_is_recorded_paged_and_reverted_while_a_descendant_that_pas
     assert_eq!(asked.borrow().as_slice(), [SQUASHED.to_owned()], "8e6ec0eaed stopped the sheriff revert of a red hosted run on an ancestor of a passing head");
 }
 
-#[test]
-fn an_order_from_a_confined_seat_runs_this_hosts_canary_in_a_unit_of_the_user_manager_not_in_its_own_process_tree() {
-    let root = tempfile::tempdir().unwrap();
-    let layout = Layout { state: root.path().to_path_buf() };
-    fs::create_dir_all(layout.runtime(OLD)).unwrap();
-    fs::write(layout.runtime(OLD).join("north"), "").unwrap();
-    symlink(layout::link(OLD), layout.current()).unwrap();
-    let command = super::seat::one_shot(&layout, super::seat::CANARY, NEW).unwrap();
-    let args: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
-    let runtime = layout.runtime(OLD).canonicalize().unwrap().display().to_string();
-    let firn = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share/firn/bin");
-    assert_eq!(command.get_program(), "systemd-run");
-    assert!(args.iter().any(|arg| arg == "--user") && args.iter().any(|arg| arg == "--slice=control.slice") && !args.iter().any(|arg| arg == "--scope"), "{args:?}");
-    assert!(args.contains(&format!("--setenv=PATH={runtime}:{runtime}/tree/bin:{}:{}", super::seat::SYSTEM_BINS.join(":"), firn.display())), "{args:?}");
-    assert_eq!(args[args.len() - 5..], [format!("{runtime}/north"), "runtime".to_owned(), "order-here".to_owned(), "canary".to_owned(), NEW.to_owned()]);
-}

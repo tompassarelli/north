@@ -108,7 +108,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 4 capacity | north-capacity-host | Host leases, the dependency box, the watchdog and the PATH gate. |
 | 5 orchestration | north-pacing | Placement of work on hosts and accounts, laptop state and the resident cap. |
 | 5 orchestration | north-dispatch | The dispatch decision: which box runs next, on which tier, with which brief. |
-| 5 orchestration | north-runtime | Runtime update: the canary, the order and the pin of the build each host runs. The worker sandbox, the offload and the timers move out (L18 to L22, docs/rationale/architecture-layers.md); agent containment and the laptop runner have no planned owner yet. |
+| 5 orchestration | north-runtime | Runtime update: the order and the pin of the build each host runs. The worker sandbox, the offload and the timers move out (L18 to L22, docs/rationale/architecture-layers.md); agent containment and the laptop runner have no planned owner yet. |
 | 5 orchestration | north-offload | Running a land check, a session's build and the compiler cache on another host: which host has room, the slot a run holds and the script that ships and starts it. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
 | 6 operations | north-ci | The CI north runs and watches: private checks posted as commit statuses. |
@@ -131,7 +131,7 @@ A fleet command reaches a session by one path: an authorized fleet operation, th
 5. **Finish call.** The finish tool reaches `src/cli/remote_land.rs`, which wires the road into north-lander's hand-in (`crates/north-lander/src/land/hand_in.rs`) and north-safe-push.
 6. **Land check.** north-safe-push runs the rules over the lane (north-land-scans, north-diff-gates, north-landing-gates, north-code-health); north-land-checks runs the check slots inside north-land-sandbox.
 7. **Lander.** north-lander queues the lane, lands batches and promotes; north-landing holds the queue and the steps after a landing.
-8. **Runtime order.** north-runtime builds the landed commit, runs the canary, writes the pin and goes live (`crates/north-runtime/src/runtime/order.rs`); long-lived processes follow through north-runtime-follow.
+8. **Runtime order.** north-runtime builds the landed commit, writes the pin and goes live (`crates/north-runtime/src/runtime/order.rs`); long-lived processes follow through north-runtime-follow.
 9. **Records.** The run's ledger row, its thread and its facts are written by the records layer and read by operations and by the next dispatch.
 
 ## Session scopes

@@ -26,19 +26,17 @@ pub enum Event {
     Landed { sha: String, at: i64 },
     Due { sha: String, reason: Reason, at: i64 },
     Promoted { sha: String, at: i64 },
-    Walked { sha: String, host: String, at: i64 },
     RolledBack { sha: String, host: String, at: i64, seconds: i64, walker: bool },
     Built { sha: String, host: String, at: i64, seconds: i64, binary: String },
     /// The coordinator was paged about a due promotion not live `LIVE_PAGE` after it fell due.
     Paged { sha: String, at: i64 },
-    /// One host of an ordered promotion: who ordered the commit and why, what that host's canary said before it went live, and whether it did.
-    Ordered { sha: String, host: String, orderer: String, reason: String, canary: String, live: bool, at: i64 },
-    /// A host an order left out: it was shipped nothing, ran no canary and stays on the runtime it had, held on it until an order includes it again.
+    /// One host of an ordered promotion: who ordered the commit and why, how that host's order ended, and whether it went live.
+    Ordered { sha: String, host: String, orderer: String, reason: String, #[serde(alias = "canary")] outcome: String, live: bool, at: i64 },
+    /// A host an order left out: it was shipped nothing and stays on the runtime it had, held on it until an order includes it again.
     LeftOut { sha: String, host: String, orderer: String, reason: String, at: i64 },
     /// How long a landing waited for its release runtime after the lander pushed: 0 s when the lander built the tree ahead while the lane queued.
     #[serde(rename = "artifact-ready")]
     ArtifactReady { sha: String, tree: String, seconds: i64, at: i64 },
-    Canaried { sha: String, host: String, at: i64, seconds: i64 },
     Shipped { sha: String, host: String, at: i64, seconds: i64 },
     Slotted { slot: i64, outcome: Outcome, at: i64 },
 }
@@ -48,7 +46,6 @@ pub enum Event {
 pub enum Outcome {
     Promoted,
     Refused { reason: String },
-    Failed { probe: String },
 }
 
 impl std::fmt::Display for Outcome {
@@ -56,7 +53,6 @@ impl std::fmt::Display for Outcome {
         match self {
             Self::Promoted => write!(out, "promoted"),
             Self::Refused { reason } => write!(out, "refused: {reason}"),
-            Self::Failed { probe } => write!(out, "failed: {probe}"),
         }
     }
 }
@@ -64,7 +60,7 @@ impl std::fmt::Display for Outcome {
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::LeftOut { at, .. } | Self::ArtifactReady { at, .. } | Self::Canaried { at, .. } | Self::Shipped { at, .. } | Self::Slotted { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Due { at, .. } | Self::Promoted { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::Ordered { at, .. } | Self::LeftOut { at, .. } | Self::ArtifactReady { at, .. } | Self::Shipped { at, .. } | Self::Slotted { at, .. } => *at,
         }
     }
 }
@@ -205,7 +201,7 @@ pub(super) fn held(events: &[Event]) -> Vec<&Event> {
     let mut held: Vec<&Event> = Vec::new();
     for event in events {
         match event {
-            Event::Ordered { host: moved, .. } | Event::Shipped { host: moved, .. } | Event::Canaried { host: moved, .. } => held.retain(|held| !matches!(held, Event::LeftOut { host, .. } if host == moved)),
+            Event::Ordered { host: moved, .. } | Event::Shipped { host: moved, .. } => held.retain(|held| !matches!(held, Event::LeftOut { host, .. } if host == moved)),
             Event::LeftOut { host: left, .. } => {
                 held.retain(|held| !matches!(held, Event::LeftOut { host, .. } if host == left));
                 held.push(event);
@@ -229,15 +225,13 @@ pub fn status(state: &Path, live: Option<&str>) -> String {
         Event::Promoted { sha, at } if sha == live => Some(*at),
         _ => None,
     }));
-    let walked = live.is_some_and(|live| events.iter().any(|event| matches!(event, Event::Walked { sha, .. } if sha == live)));
     let waiting = waiting_since(&events).map_or_else(|| "landings waiting since: none\n".to_owned(), |since| format!("landings waiting since: {} (unix {since})\n", iso(since)));
-    let walked = format!("spine walked: {}\n", if walked { "yes" } else { "no" });
     let held = held_lines(&events);
     let body = match (live, promoted) {
         (None, _) => "pinned: none (no live runtime on this host)\n".to_owned(),
-        (Some(live), Some(at)) => format!("pinned: {live}\npromoted at: {} (unix {at})\n{walked}{waiting}", iso(at)),
+        (Some(live), Some(at)) => format!("pinned: {live}\npromoted at: {} (unix {at})\n{waiting}", iso(at)),
         (Some(live), None) => match recorded_promotion(state, live) {
-            Some(at) => format!("pinned: {live}\npromoted at: {} (unix {at}, recorded on this host)\n{walked}{waiting}", iso(at)),
+            Some(at) => format!("pinned: {live}\npromoted at: {} (unix {at}, recorded on this host)\n{waiting}", iso(at)),
             None => format!("pinned: {live}\npromoted at: unrecorded on this host (the settling host records promotions)\n{waiting}"),
         },
     };
@@ -258,7 +252,6 @@ pub struct Bars {
     pub due_to_live_seconds: Vec<f64>,
     /// How long the oldest landing still waiting for a promotion had waited at the window's end: 0 when none waits.
     pub runtime_age_hours: Option<f64>,
-    pub canary_seconds: Vec<f64>,
     pub ship_seconds: Vec<f64>,
 }
 
@@ -292,10 +285,6 @@ pub fn bars(events: &[Event], start: i64, end: i64) -> Bars {
         rollbacks: rollbacks.len(),
         due_to_live_seconds: due_to_live(&before, end).into_iter().filter(|(due, _)| inside(*due)).map(|(due, live)| (live - due) as f64).collect(),
         runtime_age_hours: (!before.is_empty()).then_some(age),
-        canary_seconds: events.iter().filter_map(|event| match event {
-            Event::Canaried { at, seconds, .. } if inside(*at) => Some(*seconds as f64),
-            _ => None,
-        }).collect(),
         ship_seconds: events.iter().filter_map(|event| match event {
             Event::Shipped { at, seconds, .. } if inside(*at) => Some(*seconds as f64),
             _ => None,

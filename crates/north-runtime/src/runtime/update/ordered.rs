@@ -33,7 +33,7 @@ pub(in crate::runtime) fn update_ordered_to(layout: &Layout, target: &str) -> Re
     move_to_ordered(layout, target)
 }
 
-/// An ordered promotion's go-live on this host: the runtime was built and passed its canary before this, so only the swap is left, and a pass that left `current` elsewhere (held back, rolled back, or moved) is a failure, not a quiet success.
+/// An ordered promotion's go-live on this host: the runtime was built before this, so only the swap is left, and a pass that left `current` elsewhere (held back, rolled back, or moved) is a failure, not a quiet success.
 pub(in crate::runtime) fn go_live_ordered(layout: &Layout, target: &str) -> Result<(), Failure> {
     move_to_ordered(layout, target)?;
     pin::promoted(layout, target);
@@ -66,11 +66,6 @@ pub(in crate::runtime) fn order_handed_over(layout: &Layout) {
     while started.elapsed() < ORDER_HANDOVER && !matches!(named_lock(layout, PROMOTE_LOCK, FlockOperation::NonBlockingLockExclusive), Ok(None)) {
         std::thread::sleep(Duration::from_millis(50));
     }
-}
-
-/// Whether a `north runtime order` holds its mark here, so `north runtime order-here` runs only as that order's own step.
-pub(in crate::runtime) fn order_running(layout: &Layout) -> Result<bool, Failure> {
-    Ok(named_lock(layout, ORDER_LOCK, FlockOperation::NonBlockingLockShared)?.is_none())
 }
 
 pub(in crate::runtime) fn order_waiting(layout: &Layout) -> Result<File, Failure> {

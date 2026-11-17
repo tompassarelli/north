@@ -1,6 +1,5 @@
 //! The runtime promotion machines on this host (docs/rationale/state-machines.md, entry 5), each kept in `ledger.db`
-//! through `north_base::lifecycle`: a runtime's journey to `current` and back, the core-loop probes that judge it on a
-//! host, and the one judgement settle makes of each landing.
+//! through `north_base::lifecycle`: a runtime's journey to `current` and back and the one judgement settle makes of each landing.
 use north_foundation::foundation::failure::{Failure, failed};
 use super::layout::Layout;
 use north_foundation::foundation::clock::Timestamp;
@@ -13,7 +12,6 @@ mod promotion_lifecycle;
 
 const BUILD_DWELL: Duration = Duration::from_secs(35 * 60);
 const INSTALL_DWELL: Duration = Duration::from_secs(30 * 60);
-const CANARY_DWELL: Duration = Duration::from_secs(8 * 60);
 const JUDGEMENT_DWELL: Duration = Duration::from_secs(15 * 60);
 
 /// One runtime, by its commit, on this host.
@@ -74,60 +72,6 @@ impl Lifecycle for Promoting {
 
     fn orphan(state: Promotion) -> Option<Promotion> {
         matches!(state, Promotion::Building | Promotion::Installing).then_some(Promotion::Unfinished)
-    }
-}
-
-/// The core-loop probes run for a runtime on a host, by `HOST/SHA`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Canary {
-    Judging,
-    Passed,
-    RolledBack,
-    Stuck,
-    Unjudged,
-    Trusted,
-    Kept,
-}
-
-impl State for Canary {
-    const ALL: &'static [Self] = &[Self::Judging, Self::Passed, Self::RolledBack, Self::Stuck, Self::Unjudged, Self::Trusted, Self::Kept];
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Judging => "judging",
-            Self::Passed => "passed",
-            Self::RolledBack => "rolled-back",
-            Self::Stuck => "stuck",
-            Self::Unjudged => "unjudged",
-            Self::Trusted => "trusted",
-            Self::Kept => "kept",
-        }
-    }
-}
-
-impl Canary {
-    pub(super) fn judged(self) -> bool {
-        matches!(self, Self::Passed | Self::Stuck | Self::Trusted | Self::Kept)
-    }
-}
-
-pub struct Canarying;
-
-impl Lifecycle for Canarying {
-    const NAME: &'static str = "runtime-canary";
-    type State = Canary;
-
-    fn legal(from: Option<Canary>, to: Canary) -> bool {
-        use Canary::*;
-        matches!((from, to), (None, _) | (Some(Judging), Passed | RolledBack | Stuck | Unjudged | Kept) | (Some(RolledBack | Unjudged | Trusted), Judging))
-    }
-
-    fn dwell(state: Canary) -> Option<Duration> {
-        (state == Canary::Judging).then_some(CANARY_DWELL)
-    }
-
-    fn orphan(state: Canary) -> Option<Canary> {
-        (state == Canary::Judging).then_some(Canary::Unjudged)
     }
 }
 
@@ -201,14 +145,10 @@ pub(super) fn state_of<L: Lifecycle>(layout: &Layout, instance: &str) -> Result<
     Ok(record_of::<L>(layout, instance)?.map(|record| record.state))
 }
 
-/// The runtime a rollback of `failed_sha` returns to: the newest one a promotion replaced whose canary passed, or failed only where the runtime before it failed too, in this ledger; a `trusted` row, written by rollbacks before north#1103 with no walk behind it, is still a target, and the canary walks it before it decides.
-/// A host whose ledger holds no passed canary at all never walked the spine, so it takes the newest replaced runtime.
+/// The runtime a rollback of `failed_sha` returns to: the newest one a promotion replaced that `usable` accepts, in this ledger.
 pub(super) fn previous(layout: &Layout, failed_sha: &str, usable: impl Fn(&str) -> bool) -> Result<Option<String>, Failure> {
-    let store = store(layout)?;
-    let judged: Vec<String> = store.instances::<Canarying>().map_err(unreadable)?.into_iter().filter(|record| matches!(record.state, Canary::Passed | Canary::Trusted | Canary::Kept)).filter_map(|record| record.instance.rsplit_once('/').map(|(_, sha)| sha.to_owned())).collect();
-    let walked = !judged.is_empty();
-    let records = store.instances::<Promoting>().map_err(unreadable)?;
-    Ok(records.into_iter().rev().find(|record| record.state == Promotion::Superseded && record.instance != failed_sha && usable(&record.instance) && (!walked || judged.contains(&record.instance))).map(|record| record.instance))
+    let records = store(layout)?.instances::<Promoting>().map_err(unreadable)?;
+    Ok(records.into_iter().rev().find(|record| record.state == Promotion::Superseded && record.instance != failed_sha && usable(&record.instance)).map(|record| record.instance))
 }
 
 /// Makes the runtime `current` points at a live one, adopting it when it has no record; whether it was already live.
@@ -231,9 +171,3 @@ pub(super) fn went_live(layout: &Layout, target: &str, replaced: Option<&str>) -
     Ok(())
 }
 
-/// Moves each held record of `L` under `prefix` whose holder is gone to its orphan state: an instance no move touches again kept a dead canary's judging for hours, which the state-machines flow read as a live hold (north#1096).
-pub(super) fn settle_orphans<L: Lifecycle>(layout: &Layout, prefix: &str) -> Result<(), Failure> {
-    let mut store = store(layout)?;
-    let held: Vec<String> = store.instances_under::<L>(prefix).map_err(unreadable)?.into_iter().filter(|record| record.owner.is_some()).map(|record| record.instance).collect();
-    held.iter().try_for_each(|instance| store.settle::<L>(instance, Timestamp::now()).map(drop).map_err(unreadable))
-}

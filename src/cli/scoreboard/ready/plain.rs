@@ -1,7 +1,7 @@
 //! Each bar's name in words a reader needs no statistics for, as `north dash` prints it.
 use super::bar::Bar;
 
-const PLAIN: [(Bar, &str); 22] = [
+const PLAIN: [(Bar, &str); 21] = [
     (Bar::LandingP90, "landing wait, slowest 1 in 10"),
     (Bar::VerificationP50, "checks after landing, typical"),
     (Bar::VerificationP90, "checks after landing, slowest 1 in 10"),
@@ -15,7 +15,6 @@ const PLAIN: [(Bar, &str); 22] = [
     (Bar::RuntimeBreaks, "broken runtimes that reached a second host"),
     (Bar::RuntimeRollback, "slowest rollback of a broken runtime"),
     (Bar::RuntimeLive, "how long a due promotion took to go live on the fleet's runtime"),
-    (Bar::RuntimeCanary, "how long the canary took to judge a runtime on one host"),
     (Bar::RuntimeShip, "how long a runtime took to copy to a host"),
     (Bar::RuntimeAge, "how long the oldest landing has waited for the fleet's runtime"),
     (Bar::RuntimeLag, "how far the slowest process on any host ran behind the newest landing"),

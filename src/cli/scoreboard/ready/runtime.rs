@@ -16,7 +16,6 @@ impl Records {
             Bar::RuntimeBreaks => pins.breaks(),
             Bar::RuntimeRollback => pins.rollback(),
             Bar::RuntimeAge => pins.age(),
-            Bar::RuntimeCanary => p90(&pins.canary_seconds),
             Bar::RuntimeShip => p90(&pins.ship_seconds),
             _ => p90(&pins.due_to_live_seconds),
         };

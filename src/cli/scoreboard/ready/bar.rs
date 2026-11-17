@@ -24,7 +24,6 @@ pub(super) enum Bar {
     RuntimeBreaks,
     RuntimeRollback,
     RuntimeLive,
-    RuntimeCanary,
     RuntimeShip,
     RuntimeAge,
     RuntimeLag,
@@ -41,7 +40,7 @@ struct Names {
     label: &'static str,
 }
 
-const NAMES: [Names; 22] = [
+const NAMES: [Names; 21] = [
     Names { bar: Bar::LandingP90, goal: "ready-landing-p90", label: "landing queue p90" },
     Names { bar: Bar::VerificationP50, goal: "ready-verification-p50", label: "verification p50" },
     Names { bar: Bar::VerificationP90, goal: "ready-verification-p90", label: "verification p90" },
@@ -55,7 +54,6 @@ const NAMES: [Names; 22] = [
     Names { bar: Bar::RuntimeBreaks, goal: "ready-runtime-breaks", label: "runtime breaks reaching a 2nd host (all)" },
     Names { bar: Bar::RuntimeRollback, goal: "ready-runtime-rollback", label: "runtime rollback after swap, slowest (all)" },
     Names { bar: Bar::RuntimeLive, goal: "ready-runtime-live-p90", label: "promotion due to live p90, 24 h (all)" },
-    Names { bar: Bar::RuntimeCanary, goal: "ready-runtime-canary-p90", label: "runtime canary p90 (all)" },
     Names { bar: Bar::RuntimeShip, goal: "ready-runtime-ship-p90", label: "runtime ship p90 (all)" },
     Names { bar: Bar::RuntimeAge, goal: "ready-runtime-age", label: "oldest landing waiting for a promotion (all)" },
     Names { bar: Bar::RuntimeLag, goal: "ready-runtime-lag", label: "runtime lag, worst process (all)" },
@@ -67,7 +65,7 @@ const NAMES: [Names; 22] = [
 ];
 
 impl Bar {
-    pub(super) const ALL: [Self; 22] = [
+    pub(super) const ALL: [Self; 21] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -81,7 +79,6 @@ impl Bar {
         Self::RuntimeBreaks,
         Self::RuntimeRollback,
         Self::RuntimeLive,
-        Self::RuntimeCanary,
         Self::RuntimeShip,
         Self::RuntimeAge,
         Self::RuntimeLag,
@@ -104,9 +101,9 @@ impl Bar {
         self.names().label
     }
 
-    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback, no promotion that fell due, or no canary or ship has none to time.
+    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback, no promotion that fell due, or no ship has none to time.
     pub(super) fn quiet_passes(self) -> bool {
-        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback | Self::RuntimeLive | Self::RuntimeCanary | Self::RuntimeShip | Self::FirnClosureLive)
+        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback | Self::RuntimeLive | Self::RuntimeShip | Self::FirnClosureLive)
     }
 }
 

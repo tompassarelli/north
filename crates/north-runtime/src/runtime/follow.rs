@@ -2,7 +2,7 @@ use north_foundation::foundation::failure::{Failure, failed};
 use super::layout::{Layout, TREE};
 use super::review_hold::Screen;
 use super::scope::own_scope;
-use super::{deploy, update, walk};
+use super::{deploy, ship, update};
 use north_offload::land_offload;
 use north_base::platform::{host, process};
 use std::fs::{self, File, OpenOptions};
@@ -49,19 +49,19 @@ pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
     }
 }
 
-/// The other hosts take the runtime only after it walked the spine here, so a runtime that breaks the core loop is rolled back on this host and reaches no second one; a promotion that found another running leaves its landing, the shipping and the lander to that one.
+/// A promotion that found another running leaves its landing, the shipping and the lander to that one.
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
-    let walks = land_offload::settles_fleet_here();
-    let Followed { here, replayed, walked } = update_following_lander(layout, walks, true);
+    let ships = land_offload::settles_fleet_here();
+    let Followed { here, replayed, shipped } = update_following_lander(layout, ships, true);
     if matches!(here, Ok(update::Flight::Joined)) {
         return Ok(());
     }
-    let elsewhere = match walks {
-        true => walked.unwrap_or_else(|| walk_and_ship(layout)),
+    let elsewhere = match ships {
+        true => shipped.unwrap_or_else(|| ship_live(layout)),
         false => Ok(()),
     };
-    // The settling host follows from walk_and_ship once its canary passed, so the link moves after the canary and before the replay that judges it.
-    let lander = match (walks, replayed) {
+    // The settling host follows from ship_live, so the link moves before the replay that judges it.
+    let lander = match (ships, replayed) {
         (true, _) => Ok(()),
         (false, Some(result)) => result,
         (false, None) => follow_lander(layout),
@@ -69,25 +69,12 @@ pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
     here.map(|_| ()).and(elsewhere).and(lander)
 }
 
-fn walk_and_ship(layout: &Layout) -> Result<(), Failure> {
-    let own = super::own_runtime().map(|(sha, _)| sha);
-    walk::handed_to_live(layout, own.as_deref()).unwrap_or_else(|| walked_and_shipped(layout))
-}
-
-/// `north runtime walk`: the walk a promotion left to this runtime, which hands it no further.
-pub(super) fn walk(layout: &Layout) -> Result<(), Failure> {
-    match land_offload::settles_fleet_here() {
-        true => walked_and_shipped(layout),
-        false => Err(failed(1, "this host does not settle the fleet, so it walks no runtime and ships none; run it on the host that does")),
-    }
-}
-
-fn walked_and_shipped(layout: &Layout) -> Result<(), Failure> {
-    let walked = walk::walked_here(layout);
-    let follow = walked.is_ok();
+fn ship_live(layout: &Layout) -> Result<(), Failure> {
+    let live = ship::live_here(layout);
+    let follow = live.is_ok();
     std::thread::scope(|scope| {
         let following = follow.then(|| scope.spawn(|| follow_lander(layout)));
-        let shipped = walk::ship_if_walked(layout, walked, &Screen::here(&update::trusted_store()?), |_, kept| deploy::deploy_live(layout, kept)).map(|_| ());
+        let shipped = ship::ship_screened(layout, live, &Screen::here(&update::trusted_store()?), |_, kept| deploy::deploy_live(layout, kept)).map(|_| ());
         let followed = following.map(|handle| handle.join().unwrap_or_else(|_| Err(failed(1, "the lander link follow panicked"))));
         match followed {
             Some(result) => shipped.and(result),
@@ -99,21 +86,21 @@ fn walked_and_shipped(layout: &Layout) -> Result<(), Failure> {
 pub(super) struct Followed {
     pub here: Result<update::Flight, Failure>,
     pub replayed: Option<Result<(), Failure>>,
-    pub walked: Option<Result<(), Failure>>,
+    pub shipped: Option<Result<(), Failure>>,
 }
 
-/// Each swap moves the lander link after it once the runtime's canary passed (`walks`, on the settling host) or at once elsewhere, where the runtime only arrives after its canary passed on the settling host; `follow` starts the link on a host that does not walk here, since `north runtime settle` walks and follows from its own `walk_and_ship`. The walk runs on a thread of its own, so the lander follows a runtime the moment its canary passes while the promotion builds its next pass, and, given `walks`, ships it once it passed: a promotion that swapped several runtimes in while origin/main kept moving walked only the last, so on 2026-11-10 whiterabbit promoted 8fa62d19, 5e483bd4, 120e03ae and 5f943553 with no canary verdict (north#1096). `replayed` and `walked` are none when nothing was swapped.
-pub(super) fn update_following_lander(layout: &Layout, walks: bool, follow: bool) -> Followed {
+/// Each swap moves the lander link after it (`ships`, on the settling host, which also ships the runtime to the other hosts) or, elsewhere, when `follow` asks; `north runtime settle` follows from its own `ship_live`. The ship runs on a thread of its own while the promotion builds its next pass. `replayed` and `shipped` are none when nothing was swapped.
+pub(super) fn update_following_lander(layout: &Layout, ships: bool, follow: bool) -> Followed {
     std::thread::scope(|scope| {
-        let (mut replays, mut walking) = (Vec::new(), Vec::new());
+        let (mut replays, mut shipping) = (Vec::new(), Vec::new());
         let here = update::update(layout, &mut || {
-            if walks {
-                walking.push(scope.spawn(|| walk_and_ship(layout)));
+            if ships {
+                shipping.push(scope.spawn(|| ship_live(layout)));
             } else if follow {
                 replays.push(scope.spawn(|| follow_lander(layout)));
             }
         });
-        Followed { here, replayed: joined(replays, "lander link held: its replay panicked"), walked: joined(walking, "the spine walk panicked") }
+        Followed { here, replayed: joined(replays, "lander link held: its replay panicked"), shipped: joined(shipping, "the runtime ship panicked") }
     })
 }
 
@@ -121,7 +108,7 @@ fn joined(threads: Vec<ScopedJoinHandle<'_, Result<(), Failure>>>, panicked: &st
     (!threads.is_empty()).then(|| threads.into_iter().map(|thread| thread.join().unwrap_or_else(|_| Err(failed(1, panicked)))).fold(Ok(()), Result::and))
 }
 
-/// A promotion whose runtime passed its canary asks the replay of an older runtime to stop, so the link follows the newest runtime within seconds rather than after a replay of up to `LANDER_REPLAY_LIMIT`: the promotion holding `LANDER_LOCK` kills that replay and runs the newest next.
+/// A promotion asks the replay of an older runtime to stop, so the link follows the newest runtime within seconds rather than after a replay of up to `LANDER_REPLAY_LIMIT`: the promotion holding `LANDER_LOCK` kills that replay and runs the newest next.
 pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
     if fs::symlink_metadata(layout.lander()).is_err() {
         return Ok(());
@@ -188,7 +175,7 @@ fn lander_verdict(binary: &Path, checkout: &Path, superseded: &mut dyn FnMut() -
         process::Ended::Finished(ran) => ran,
         process::Ended::Stalled(stalled) => return Err(failed(1, format!("lander link held: north land promote ran past {} min and was killed{stalled}", LANDER_REPLAY_LIMIT.as_secs() / 60))),
         process::Ended::Stopped => {
-            println!("north runtime lander: the replay was stopped, a newer runtime passed its canary");
+            println!("north runtime lander: the replay was stopped, a newer runtime is live");
             return Ok(());
         }
     };

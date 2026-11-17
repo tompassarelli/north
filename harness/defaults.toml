@@ -1717,18 +1717,10 @@ consumers = ["crates/north-lander/src/land/enqueue/static_first.rs"]
 [order_stage_early]
 value = true
 allowed = {}
-unit = "whether `north runtime order` ships every other host the settling host's build as soon as it exists, alongside the settling host's canary, so a host is shipped early but goes live never before the settling host passed; false ships each host only after the settling host passed"
+unit = "whether `north runtime order` ships every other host the settling host's build as soon as it exists, alongside the settling host's go-live, so a host is shipped early but goes live never before the settling host did; false ships each host only after the settling host went live"
 source = "measured: a ship to the slowest deploy host sent 27.3 MB over a laptop upload of about 1.5 MB/s and took 28 s with four hosts shipping at once, after the settling host's canary of about 16 s (north#1036, 2026-11-13)"
 fallback = "an unreadable value reads as true"
 consumers = ["crates/north-runtime/src/runtime/order.rs"]
-
-[settle_remote_canaries_at_once]
-value = true
-allowed = {}
-unit = "whether a promotion's settle, once every ship to the other hosts has returned, runs their canaries side by side, each host on its own thread; false judges them one after another"
-source = "measured: the promotion of cd052409c8 on 2026-11-13 took 129 s; the remote hosts went live 9 to 30 s after the laptop, but their canaries of 1 to 13 s each ended 65 to 108 s after it, one after another (north#1036)"
-fallback = "an unreadable value reads as true"
-consumers = ["crates/north-runtime/src/runtime/settle.rs"]
 
 [build_ahead_at_hand_in]
 value = true

@@ -17,7 +17,6 @@ north-offload = { path = "../north-offload" }
 north-build-system = { path = "../north-build-system" }
 north-base = { path = "../north-base" }
 north-unblocks = { path = "../north-unblocks" }
-north-providers = { path = "../north-providers" }
 north-trusted-mirror = { path = "../north-trusted-mirror" }
 regex.workspace = true
 percent-encoding.workspace = true
@@ -31,7 +30,6 @@ tempfile.workspace = true
 base64.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
-north-calibration = { path = "../north-calibration" }
 north-capacity = { path = "../north-capacity" }
 north-foundation = { path = "../north-foundation" }
 north-pacing = { path = "../north-pacing" }

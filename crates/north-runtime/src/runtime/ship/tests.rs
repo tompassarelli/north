@@ -4,7 +4,7 @@ use super::super::main_runs::{Kept, MainRun, MainRuns};
 use super::super::review_hold::Screen;
 use north_worker_sandbox::hold_ledger::{Ask, Caller, Holds, now};
 use super::super::trip::Trips;
-use super::{held_out, ship_if_walked};
+use super::{held_out, ship_screened};
 use north_base::platform::host;
 use north_offload::land_offload::Deployment;
 use std::fs;
@@ -31,7 +31,7 @@ fn a_hold_naming_one_host_leaves_only_that_host_out_of_the_ship_and_a_hold_namin
 
     let scoped = tempfile::tempdir().unwrap();
     let screen = screen_holding(scoped.path());
-    let place = |host: Option<&str>| Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), until: None, why: "the elsewhere canary reads the wrong lock".to_owned() };
+    let place = |host: Option<&str>| Ask::Place { commit: held.to_owned(), lane: "f-fix".to_owned(), host: host.map(str::to_owned), until: None, why: "the elsewhere build reads the wrong lock".to_owned() };
     screen.holds.serve(place(Some("elsewhere")), &caller, now()).unwrap();
     assert!(screen.order(MAIN, &[here.as_str()], now()).is_ok(), "a hold naming another host refused this host's own ship");
     let (kept, left_out) = held_out(&plan, &screen, MAIN, now());
@@ -64,7 +64,7 @@ fn a_shipped_runtime_is_swapped_in_on_every_unheld_host_when_a_red_run_on_its_an
         shipped.set(sha == MAIN);
         Ok(())
     };
-    assert_eq!(ship_if_walked(&layout, Ok(MAIN.to_owned()), &screen, ship).unwrap(), Some(()), "on 2026-11-15 whiterabbit took 4c4d4309 live, the hosted run of its ancestor c00b4ec9 ended red before its walk, and the walk shipped it to no other host, so gex45 and cpx62b kept 2091ad27 with 4c4d4309 unpacked beside it");
+    assert_eq!(ship_screened(&layout, Ok(MAIN.to_owned()), &screen, ship).unwrap(), Some(()), "on 2026-11-15 whiterabbit took 4c4d4309 live, the hosted run of its ancestor c00b4ec9 ended red before its walk, and the walk shipped it to no other host, so gex45 and cpx62b kept 2091ad27 with 4c4d4309 unpacked beside it");
     assert!(shipped.get());
     assert!(super::super::follow::lander_cleared(&layout, &screen).is_ok(), "the lander link follows the runtime live here");
 }

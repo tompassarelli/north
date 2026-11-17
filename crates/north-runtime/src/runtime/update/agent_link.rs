@@ -92,7 +92,7 @@ pub(super) fn stage(runtime: &Path, staging: &Path) -> Result<(), Failure> {
     copy_tree(&runtime.join(TREE).join(HARNESS), &staging.join(TREE).join(HARNESS))
 }
 
-/// The version of Claude Code the operator's managed install names as current when this runtime is installed, which its own updater may have moved since the canary launched one.
+/// The version of Claude Code the operator's managed install names as current when this runtime is installed, which its own updater may have moved since.
 fn operator_claude() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
     fs::canonicalize(Path::new(&home).join(CLAUDE_INSTALL)).ok()

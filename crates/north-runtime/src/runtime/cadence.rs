@@ -161,11 +161,7 @@ pub(super) fn hand_pinned(state: &Path) -> bool {
 }
 
 pub(super) fn note_outcome(layout: &Layout, now: i64, outcome: Outcome) {
-    record(layout, Schedule::declared(), now, outcome, None);
-}
-
-pub(super) fn note_failure(layout: &Layout, now: i64, sha: &str, probe: &str) {
-    record(layout, Schedule::declared(), now, Outcome::Failed { probe: probe.to_owned() }, Some(sha));
+    record(layout, Schedule::declared(), now, outcome);
 }
 
 const WORDS_MAX: usize = 200;
@@ -174,10 +170,9 @@ fn one_line(text: String) -> String {
     text.lines().next().unwrap_or_default().chars().take(WORDS_MAX).collect()
 }
 
-fn record(layout: &Layout, schedule: Schedule, now: i64, outcome: Outcome, failed_sha: Option<&str>) {
+fn record(layout: &Layout, schedule: Schedule, now: i64, outcome: Outcome) {
     let outcome = match outcome {
         Outcome::Refused { reason } => Outcome::Refused { reason: one_line(reason) },
-        Outcome::Failed { probe } => Outcome::Failed { probe: one_line(probe) },
         promoted => promoted,
     };
     let events = pin::read(&layout.state);
@@ -185,11 +180,6 @@ fn record(layout: &Layout, schedule: Schedule, now: i64, outcome: Outcome, faile
     let slot = match outcome {
         Outcome::Promoted => due(),
         Outcome::Refused { .. } => due().or_else(|| pin::waiting_since(&events).filter(|&landed| landed <= schedule.slot(now)).map(|_| schedule.slot(now))),
-        Outcome::Failed { .. } => events.iter().rev().find_map(|event| match event {
-            Event::Due { reason: Reason::Slot, at, sha } => Some((failed_sha == Some(sha.as_str())).then_some(*at)),
-            Event::Due { .. } => Some(None),
-            _ => None,
-        }).flatten(),
     };
     let Some(slot) = slot else { return };
     if last_slot(&events).is_some_and(|(held, _, last)| held == slot && *last == outcome) {

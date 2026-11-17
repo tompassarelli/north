@@ -1,5 +1,4 @@
 use super::cadence;
-use super::canary;
 use super::bounded;
 use super::host_facts;
 use north_foundation::foundation::failure::{DEFERRED, Failure, code, failed};
@@ -8,7 +7,6 @@ use super::lifecycle::{self, Promoting, Promotion};
 use super::peers;
 use super::pin::{self, Outcome};
 use super::pull;
-use super::probe::Shell;
 use super::remote;
 use super::reuse;
 use super::review_hold;
@@ -53,7 +51,7 @@ use build::{build, export_tree};
 use collect::collect;
 use hold::Verdict;
 use ordered::unordered;
-pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_running, order_waiting, update_ordered_to};
+pub(super) use ordered::{build_ordered, go_live_ordered, order_handed_over, order_marked, order_waiting, update_ordered_to};
 use shipped::{Shipped, shipped};
 use sync::{relink, republish_if_unpublished, swap_back, sync};
 pub(super) use sync::{alert_coordinator, page_coordinator};
@@ -245,10 +243,6 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     let was = previous.and_then(layout::linked_sha);
     if let Some(was) = was {
         lifecycle::confirm_current(layout, was)?;
-        let host = host::name();
-        if land_offload::settles_fleet_here() && layout.live_sha().as_deref() == Some(was) && judge_outgoing(layout, &host, was, &canary::Live { layout, host: &Shell::Here(host.clone()) }) {
-            return Ok(Pass::Settled);
-        }
     }
     let verdict = hold::verdict(layout, target, usable(&layout.runtime(target)))?;
     if let Some(notice) = verdict.notice(short, was.unwrap_or("none")) {
@@ -269,14 +263,8 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     note_promotion(layout, target, "live");
     println!("{synced}north runtime promoted: {short} (was {})", was.unwrap_or("none"));
     host_facts::record_after_promotion(layout, target);
-    canary::retire_services(layout, target);
     collect(layout, target, previous).map_err(|error| failed(1, format!("collecting old runtimes: {error}")))?;
     Ok(Pass::Promoted)
-}
-
-/// Judges the runtime a promotion on the walking host is about to replace when no canary has, as when its own walk died or ran no probes: it is the rollback target should the next one fail. A rollback leaves another runtime live, so the promotion waits for the next pass.
-pub(super) fn judge_outgoing(layout: &Layout, host: &str, was: &str, machine: &impl canary::Machine) -> bool {
-    canary::check(layout, host, was, machine) == canary::Verdict::RolledBack
 }
 
 fn catch_up(layout: &Layout, checkout: &Path, main: &str, previous: Option<&Path>) -> Result<Option<Pass>, Failure> {

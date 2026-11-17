@@ -34,7 +34,6 @@ mod removable;
 mod hook_screen;
 mod sockets;
 mod state;
-pub mod scratch_probes;
 mod sweep;
 mod withdraw_request;
 mod writable;
@@ -55,7 +54,6 @@ pub use readable::{Reader, readable};
 pub use removable::{Context, removable};
 pub use hook_screen::Screen;
 pub use broker::SOCKET_ENV as BROKER_SOCKET_ENV;
-pub use broker_start::words as broker_for;
 pub use sockets::runtime;
 use writable::writable;
 

@@ -148,7 +148,7 @@ impl Records {
             Bar::LandingP90 | Bar::VerificationP50 | Bar::VerificationP90 => self.timed(bar, repo, window),
             Bar::Rework | Bar::FirstTry | Bar::HarnessLoss => self.attempted(bar, repo, window),
             Bar::AskToLanding | Bar::Corrections | Bar::PriorityNow => self.told(bar, repo, window),
-            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive | Bar::RuntimeCanary | Bar::RuntimeShip | Bar::RuntimeAge => self.runtime(bar, window),
+            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive | Bar::RuntimeShip | Bar::RuntimeAge => self.runtime(bar, window),
             Bar::FirnClosureLive | Bar::RuntimeLag => self.propagation_held(bar, window),
             Bar::MainGreenLander | Bar::MainGreenCi => self.main_green(bar, repo, window),
             Bar::UsagePerLanding | Bar::StrandedUsage | Bar::IdleAccount => self.usage(bar, window),
