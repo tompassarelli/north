@@ -83,22 +83,14 @@ fn active() -> bool {
 fn parent_of_self() -> Option<u32> {
     Some(stat_fields("/proc/self/stat")?.0)
 }
-fn stat_fields(path: &str) -> Option<(u32, String)> {
+fn stat_fields(path: &str) -> Option<(u32, String, String)> {
     let stat = std::fs::read_to_string(path).ok()?;
-    let fields: Vec<_> = stat.rsplit_once(')')?.1.split_whitespace().collect();
-    Some((fields.get(1)?.parse().ok()?, fields.get(19)?.to_string()))
+    let (name, rest) = stat.split_once(" (")?.1.rsplit_once(')')?;
+    let fields: Vec<_> = rest.split_whitespace().collect();
+    Some((fields.get(1)?.parse().ok()?, fields.get(19)?.to_string(), name.to_owned()))
 }
 fn process(pid: u32) -> Option<(u32, String, String)> {
-    let (parent, started) = stat_fields(&format!("/proc/{pid}/stat"))?;
-    Some((
-        parent,
-        started,
-        std::fs::canonicalize(format!("/proc/{pid}/exe"))
-            .ok()?
-            .file_name()?
-            .to_str()?
-            .to_owned(),
-    ))
+    stat_fields(&format!("/proc/{pid}/stat"))
 }
 pub fn record_idle(idle: bool) -> std::io::Result<()> {
     use std::io::Write;
