@@ -54,9 +54,6 @@ north_rust_test(
     crate_root = "src/lib.rs",
     edition = "2024",
     rustc_flags = RUSTC_FLAGS,
-    skip = [
-        "land::shadow::run::tests::a_queued_check_line_starts_detached_and_is_recorded_once_it_ends",
-    ],
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-check-environment:north-check-environment",
@@ -130,7 +127,6 @@ north_files(
 north_host_cases(
     name = "host-cases",
     targets = [
-        ":north-lander-unittest",
         ":north-lander-test-it",
     ],
     visibility = ["PUBLIC"],

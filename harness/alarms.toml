@@ -31,11 +31,6 @@ action = "read the failing probe the rollback page names and fix or revert the c
 owner = "coordinator"
 
 [[alarm]]
-source = "north-runtime-lag"
-action = "restart the process the page names on the host it names, so it runs the runtime its host's link names"
-owner = "coordinator"
-
-[[alarm]]
 source = "north-runtime-update"
 action = "read the update failure the page quotes and rerun the host's runtime update once its cause is fixed"
 owner = "coordinator"

@@ -1287,7 +1287,6 @@ dependencies = [
  "north-runtime-follow",
  "north-runtime-records",
  "north-trusted-mirror",
- "north-unblocks",
  "north-worker-sandbox",
  "percent-encoding",
  "regex",

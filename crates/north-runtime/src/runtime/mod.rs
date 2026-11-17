@@ -17,7 +17,6 @@ pub mod lifecycle;
 mod health;
 mod history;
 mod host_facts;
-pub mod lag;
 pub use north_runtime_follow::{layout, own_runtime};
 pub mod live;
 mod peers;
@@ -39,7 +38,6 @@ mod tree_build;
 pub(crate) mod update;
 mod verdict;
 mod ship;
-mod watch;
 
 use north_offload::land_offload;
 use north_foundation::foundation::failure;
@@ -48,7 +46,7 @@ use std::path::Path;
 /// What the worker sandbox asks of this runtime: the build-ahead pull of a candidate's north and the carry of the accepts store to the build hosts.
 pub const SANDBOX: north_worker_sandbox::worker_sandbox::Runtime = north_worker_sandbox::worker_sandbox::Runtime { pull_held: update::pull_held, carry_accepts: mirror::carry_accepts };
 
-const USAGE: &str = "usage: north runtime update [--sha SHA [--ordered]] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime build SHA | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime order --reason REASON [--commit REV] [--except HOST]... | north runtime hold COMMIT [--host HOST] [--until LANE] --why TEXT | north runtime accept [--withdraw] COMMIT | north runtime hold --lift COMMIT --why TEXT | north runtime mirror | north runtime checkouts | north runtime lag --processes|--json | north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR] | north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR] | north runtime follow --repo-dir DIR | north runtime agents|claude|agy|pi|opencode [VERSION]
+const USAGE: &str = "usage: north runtime update [--sha SHA [--ordered]] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime build SHA | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime order --reason REASON [--commit REV] [--except HOST]... | north runtime hold COMMIT [--host HOST] [--until LANE] --why TEXT | north runtime accept [--withdraw] COMMIT | north runtime hold --lift COMMIT --why TEXT | north runtime mirror | north runtime checkouts | north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR] | north runtime build-ahead --fetch --tree TREE [--commit COMMIT --checkout DIR] | north runtime follow --repo-dir DIR | north runtime agents|claude|agy|pi|opencode [VERSION]
 covers [--head REV] [--from REV] [--code PATH,...] | north runtime tree-build | north runtime head-north ROOT [--code PATH] [--no-build] [--build] [ARG...]
 
 update [--sha SHA [--ordered]]  bring this host's current runtime to the pinned runtime (or SHA, which moves no host back from a newer runtime unless --ordered says an order chose it): on the host that settles the fleet, origin/main is promoted at six fixed slots a day (one every runtime_promotion_slot_sec from 00:00 UTC: the newest head whose runtime is ready, built once ten minutes before the slot, when commits since the pin change a runtime input) or at once for a landing whose commit carries a `Live-fix: REASON` trailer, which takes the next slot's place (one promotion at a time, a landing between slots waits for its slot, and the coordinator is paged once when a promotion that fell due is not live 5 min later; a sha rolled back stays quarantined); every other host runs only what the settling host ships it; pull it from a peer, reuse the live binaries when no Rust build input changed, else build it on the build host it reaches with the most free cores and take its binaries, or build it here under a runtime capacity lease when no build host answers, saying so; swap back when health fails, and for 10 min after a swap roll back when session hosts died with nobody asking and stayed down (not ones their host parked at idle, ones restarted within a minute, nor `vn-*` scratch hosts) or land refusals ran faster than over the hour before, or launches failed more often for a cause the hour before never saw, and in a window a rollback opened only report it once (only current moves, so running session hosts keep their runtime); an agents sync failure keeps the code, alerts the coordinator and retries each tick
@@ -70,8 +68,6 @@ mirror                 on the host that settles the fleet: copy its lander and r
 checkouts              on the host that settles the fleet: ask every host it ships runtimes to fast-forward its ~/code/<project>/main checkouts onto origin/main (south, then north, nixos-config, wisp and makgora), naming each move and each checkout a host could not move, as each fleet tick does in the background
 agents [VERSION]       update this host's north runtime, then the Claude, Agy, Pi and OpenCode runtimes, as the twice-daily timer does
 claude|agy|pi|opencode [VERSION]   install a checksum-verified Claude, Agy, Pi or OpenCode runtime and select it
-lag --processes        list each long-lived north process on this host (landers, session hosts and links, watchdogs, brokers, the offload taker) with the runtime it runs, and `behind` with the runtime its link names for each that runs another one
-lag --json             print an array with one object per long-lived north process on every declared host: host, process, runtime and `seconds` older than the runtime the settling host pinned (0 when it runs the pin or a runtime built on it; null for a host that did not answer); each fleet tick on the settling host samples the worst for the `ready-runtime-lag` bar, at most once a minute whatever the stable pin, and pages the coordinator once per session episode past 5 min and once per host service (broker, lander, watchdog, offload taker) each time it starts to lag past 5 min, by name
 covers [--head REV] [--from REV] [--code PATH,...]
                        print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor rust-toolchain.toml nor any package Cargo.lock held at the live runtime (a lock that only adds packages still covers), so a land check runs it instead of building north from the tree; with --from REV it compares with REV instead of the live runtime and prints nothing, so the lander can run the north built ahead for REV's tree (north#1247)
 tree-build             build north from the checkout it runs in, with Buck2 on a host set to buck2_tree_build = true for a tree whose Buck2 configuration and targets are its base's and Cargo otherwise or when Buck2 fails for a reason other than the tree, and print the binary's path; exit 1 when the tree does not build and 75 when the build failed for another reason; bin/head-north runs it when no built runtime covers the tree
@@ -107,9 +103,7 @@ fn update_command(layout: &layout::Layout, flags: &[String]) -> Option<Result<()
     match flags {
         [] if land_offload::settles_fleet_here() => Some(settle::settle(layout)),
         [] => {
-            let updated = update::update(layout, &mut || {});
-            watch::watch(layout);
-            Some(updated.map(|_| ()))
+            Some(update::update(layout, &mut || {}).map(|_| ()))
         }
         [flag, sha] if flag == "--sha" && layout::is_sha(sha) => Some(update::update_to(layout, sha)),
         [flag, sha, ordered] if flag == "--sha" && layout::is_sha(sha) && ordered == "--ordered" => Some(update::update_ordered_to(layout, sha)),
@@ -134,7 +128,6 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         (command, flags) if command == "build-ahead" => Some(update::build_ahead(layout, flags)),
         (command, []) if command == "mirror" => Some(mirror::run()),
         (command, []) if command == "checkouts" => Some(checkouts::run()),
-        (command, flags) if command == "lag" => lag::command(layout, flags),
         (command, flags) if command == "covers" => reuse::covers_command(layout, flags),
         (command, [root, rest @ ..]) if command == "head-north" => Some(head_north::run(Path::new(root), rest)),
         (command, []) if command == "tree-build" => Some(tree_build::run()),

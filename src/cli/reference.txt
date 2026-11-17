@@ -51,8 +51,6 @@ Commands:
   land abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land serve [--once] [--repo DIR] [--checker PROGRAM]  Land the queued lanes of this origin: one candidate, checked once by safe-push --check-candidate, pushed to main by lease
   land status TICKET [--repo DIR]               Read a ticket's place in the landing queue and the reason the lander last deferred, refused or withdrew it, from the records mirror on a host that is not the lander's
-  land promote [--dry-run] [--shadow-minutes N] [--repo DIR]  Replay recorded rounds and shadow the queue with the current runtime, then point the lander link at it
-  land machinery-replay BASE..HEAD [--repo DIR]...  Replay the last recorded landing rounds through a landing-path lane's own build and refuse it for a verdict its change moves
   land withdraw TICKET --reason TEXT [--repo DIR]  Move a queued ticket out of the landing queue, tell its session why and record the incident
   land clear-withdrawal TICKET --reason TEXT [--repo DIR]  Let the withdrawn ticket's session queue the same head again; enqueue refuses it until then or a changed head
   land scan dep-gate BASE..HEAD                 Run the dependency gate on an outgoing range
@@ -237,7 +235,6 @@ Commands:
   docs reference-index [--check] [--root DIR]    Regenerate src/cli/reference.txt from the one-file-per-command tree under src/cli/reference/, or with --check fail when it is stale
   docs verbs-index [--check] [--root DIR]        Regenerate src/cli/verbs.rs from the one-file-per-verb tree under src/cli/verbs/, or with --check fail when it is stale
   docs structure-index [--check] [--root DIR]    Regenerate structure.toml from the one-file-per-table tree under structure/, or with --check fail when it is stale
-  runtime lag --processes|--json                List each long-lived north process on this host with the runtime it runs and behind for each whose runtime is not the one its link names, or (--json) as an array the seconds each process on every declared host runs behind the newest landing that changed a runtime input
   lane sync CHECKOUT...                            Fetch and fast-forward each project main checkout to origin/main, outside a worker sandbox
   buck targets [--check] [--root DIR]              Write every workspace crate's Buck2 targets from the Cargo manifests; --check exits 1 on drift; --check --third-party judges only third-party/BUCK against the Cargo build and the host-case review, leaving the crate targets the lander writes at landing
   buck compare-cases NAME...                       Print per crate the cases Buck2 runs of it at the checked-out commit and those cargo nextest lists of its library, binaries and integration tests, and each case on one side only; exits 1 on a difference, an unreadable side or a crate with no case; a host case of build/host-cases.list counts as Cargo's, and one nextest does not list is a difference
@@ -250,7 +247,6 @@ Commands:
   land requeue TICKET --reason TEXT [--repo DIR]  Put a quarantined ticket back in the landing queue for another check, recording the reason
   land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]  Land one queued ticket onto main without a lander round, only under a recorded approval, after the secret and privacy scans
   land freeze --cause TEXT | --lift             Place or lift the landing freeze on this host and every fleet host: while placed, every hand-in, finish call and safe-push --to main is refused with its cause before any check runs, and no ticket is written
-  land reuse report [--since DURATION]          Count the land-check units answered from a cache, from the north-reuse lines the lander harvests
   land reuse observe -- COMMAND...              Run a buck2 test line and print one north-reuse unit per test binary, with the action key when Buck2 answered it from its cache
   land follow                                   Run after each landing: ingest the fact graph from every source on this host
   land static-gates [--repo DIR]                Judge the lane's committed changes against every refusal that reads only the diff (generated registry, language, build-cache, dependency, stub-exec, commit trailers, test admission, code health, policy sweep, dependency age and advisory, guard suite, revert guard), the same function the hand-in runs before its checks take a build-host slot, and print the first refusal with its seconds

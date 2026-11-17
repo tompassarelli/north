@@ -90,7 +90,7 @@ const MARK: &str = north_base::platform::session_scope::SANDBOX_MARK;
 const LANE_ONLY: &str = north_base::platform::session_scope::LANE_ONLY;
 const HOSTS_HIDDEN: &str = north_base::platform::session_scope::HOSTS_HIDDEN;
 const SESSION_SCOPE: &str = "NORTH_WORKER_SESSION_SCOPE";
-const USAGE: &str = "usage: north --worker-sandbox [--worker] COMMAND | north --worker-sandbox --built|--program [--worker] -- PROGRAM [ARGS...] | north --worker-sandbox --checked -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --candidate -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker [--code DIRECTORY [--detached | --peers CGROUP]]";
+const USAGE: &str = "usage: north --worker-sandbox [--worker] COMMAND | north --worker-sandbox --built|--program [--worker] -- PROGRAM [ARGS...] | north --worker-sandbox --checked -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --candidate -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker [--code DIRECTORY]";
 
 /// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots`: the rule a process the outside broker handed work to keeps inside the namespace it builds, where Landlock could not be applied before the mount calls and the namespace alone does not know the worker's trees.
 fn confine_removal(roots: &[PathBuf]) -> Result<RulesetStatus, String> {

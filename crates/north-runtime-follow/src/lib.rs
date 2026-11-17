@@ -7,7 +7,6 @@
 
 pub mod collection;
 pub mod layout;
-pub mod leaving;
 
 use std::ffi::OsString;
 use std::fs;
@@ -20,8 +19,6 @@ use std::time::{Duration, Instant};
 
 /// The variable a unit sets to follow a link other than `current`, as the lander's units name the lander link.
 pub const LINK: &str = "NORTH_RUNTIME_LINK";
-/// The file beside the lander link that names the runtime a rollback of the link would go back to while a promotion judges a newer one, so runtime collection keeps it.
-pub const LANDER_ROLLBACK: &str = "lander-rollback";
 /// How long a busy process may finish what it holds after its link moved, so it moves within a minute of the flip.
 pub const DEFER: Duration = Duration::from_secs(45);
 const DELETED_SUFFIX: &[u8] = b" (deleted)";

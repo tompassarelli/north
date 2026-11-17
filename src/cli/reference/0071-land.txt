@@ -1,2 +1,0 @@
-  land promote [--dry-run] [--shadow-minutes N] [--repo DIR]  Replay recorded rounds and shadow the queue with the current runtime, then point the lander link at it
-  land machinery-replay BASE..HEAD [--repo DIR]...  Replay the last recorded landing rounds through a landing-path lane's own build and refuse it for a verdict its change moves

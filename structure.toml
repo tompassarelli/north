@@ -351,7 +351,7 @@ may_use = ["north-base", "north-graph"]
 name = "north-runtime"
 layer = 5
 paths = ["crates/north-runtime/src/**"]
-may_use = ["north-build-system", "north-capacity", "north-landing", "north-offload", "north-runtime-follow", "north-runtime-records", "north-trusted-mirror", "north-unblocks", "north-worker-sandbox"]
+may_use = ["north-build-system", "north-capacity", "north-landing", "north-offload", "north-runtime-follow", "north-runtime-records", "north-trusted-mirror", "north-worker-sandbox"]
 
 [[crate_dag.crate]]
 name = "north-worker-sandbox"
@@ -1101,10 +1101,6 @@ name = "north-registries"
 layer = 1
 paths = ["crates/north-registries/src/**"]
 may_use = []
-[[implicit_state.allow]]
-shape = "status-string"
-path = "crates/north-runtime/src/runtime/watch.rs"
-reason = "the canary reads the ledger's lifecycle_moves rows in one read-only SQL count; the state names are the stored column values, never held or written as state here (north#722)"
 [[implicit_state.allow]]
 shape = "status-string"
 path = "src/bin/verify_north/journey.rs"

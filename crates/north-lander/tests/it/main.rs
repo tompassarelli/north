@@ -3,7 +3,6 @@ mod land_first;
 mod private_kind_asks;
 mod outbox_pull;
 mod hand_in;
-mod promote;
 mod serve;
 mod watchdog;
 mod land_merge_sets;

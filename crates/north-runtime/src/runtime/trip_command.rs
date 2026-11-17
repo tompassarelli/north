@@ -1,11 +1,10 @@
-//! `north runtime trip clear COMMIT --why TEXT [--issue REPO#N]` clears the open Buck2 trip on a commit, the second clear of one failing test within a day naming its class-fix issue (north#1577), and `north runtime trip replay COMMIT` reads the new cases of its red hosted run again on a build host (replay.rs), both on the host that settles the fleet.
+//! `north runtime trip clear COMMIT --why TEXT` clears the open Buck2 trip on a commit and `north runtime trip replay COMMIT` reads the new cases of its red hosted run again on a build host (replay.rs), both on the host that settles the fleet.
 
 use std::path::Path;
 
 use north_foundation::foundation::exit::NO_VERDICT_STATUS;
 use north_foundation::foundation::pair::{self, Reading};
 use north_offload::land_offload;
-use north_unblocks::{Admission, Kind, Ledger};
 
 use north_foundation::foundation::failure::{Failure, failed};
 use super::main_runs;
@@ -22,13 +21,12 @@ const BUILD: &str = "./bin/land-shell --dev -- buck2 build --remote-only --mater
 const CLIPPY: &str = "./bin/land-shell --dev -- buck2 bxl --remote-only --materializations=none //lint/clippy.bxl:clippy -- --targets //...";
 const STEPS: [(&str, &str); 3] = [("Test", BUILD), ("Build north for the harness tests", BUILD), ("Clippy", CLIPPY)];
 
-const USAGE: &str = "usage: north runtime trip clear COMMIT --why TEXT [--issue REPO#N] | north runtime trip replay COMMIT  clear the open Buck2 trip that names COMMIT, so the promotion of that head goes live again; the clear keeps who cleared it and why; the second clear of the same failing tests within 24 h is refused unless --issue names an open issue with an owner that fixes their cause; or read the cases the red hosted run of COMMIT failed that the last verified head before it did not, or for a run that failed no case the build or lint step it failed, twice at COMMIT and twice at its parent on a build host, and trip COMMIT only when its parent passes both and COMMIT fails both the same way, else record each case in unreproduced.tsv (the screen starts it); run it on the host that settles the fleet";
+const USAGE: &str = "usage: north runtime trip clear COMMIT --why TEXT | north runtime trip replay COMMIT  clear the open Buck2 trip that names COMMIT, so the promotion of that head goes live again; the clear keeps who cleared it and why; or read the cases the red hosted run of COMMIT failed that the last verified head before it did not, or for a run that failed no case the build or lint step it failed, twice at COMMIT and twice at its parent on a build host, and trip COMMIT only when its parent passes both and COMMIT fails both the same way, else record each case in unreproduced.tsv (the screen starts it); run it on the host that settles the fleet";
 
 pub(super) fn command(flags: &[String], settles: bool) -> Result<(), Failure> {
-    let (commit, why, issue) = match flags {
-        [verb, commit] if verb == "replay" && full_sha(commit) => (commit, None, None),
-        [verb, commit, flag, why] if verb == "clear" && flag == "--why" => (commit, Some(why), None),
-        [verb, commit, flag, why, named, issue] if verb == "clear" && flag == "--why" && named == "--issue" => (commit, Some(why), Some(issue.as_str())),
+    let (commit, why) = match flags {
+        [verb, commit] if verb == "replay" && full_sha(commit) => (commit, None),
+        [verb, commit, flag, why] if verb == "clear" && flag == "--why" => (commit, Some(why)),
         _ => return Err(failed(64, USAGE)),
     };
     if why.is_some_and(|why| why.trim().is_empty()) {
@@ -39,27 +37,18 @@ pub(super) fn command(flags: &[String], settles: bool) -> Result<(), Failure> {
     }
     let Some(why) = why else { return run(commit, now()) };
     let head = git(&["rev-parse", "--verify", &format!("{commit}^{{commit}}")]).ok().filter(|head| full_sha(head)).ok_or_else(|| failed(1, format!("{commit} names no commit here")))?;
-    let admission = Admission { ledger: &Ledger::here(), issues: &north_unblocks::GitHub, now: now() };
-    let line = clear(&Trips::here(), &admission, &head, &orderer(), why.trim(), issue).map_err(|why| failed(1, why))?;
+    let line = clear(&Trips::here(), &head, &orderer(), why.trim(), now()).map_err(|why| failed(1, why))?;
     println!("{line}");
     Ok(())
 }
 
-/// The class a trip clear unblocks: the failed cases it names, or the run when its log named none.
-pub fn class(trip: &Trip) -> String {
-    let mut cases: Vec<String> = trip.cases.iter().map(|(name, case)| format!("{case} in {name}")).collect();
-    cases.sort();
-    if cases.is_empty() { "a hosted run whose log names no failed test".to_owned() } else { cases.join(", ") }
-}
-
-/// Clears the open trip on `head` once the unblock ledger admits it: the second clear of one class within a day names an open, owned issue.
-pub fn clear(trips: &Trips, admission: &Admission, head: &str, by: &str, why: &str, issue: Option<&str>) -> Result<String, String> {
-    let trip = trips.read(head)?.ok_or_else(|| format!("no Buck2 trip stands on {head}"))?;
+/// Clears the open trip on `head`.
+pub fn clear(trips: &Trips, head: &str, by: &str, why: &str, now: u64) -> Result<String, String> {
+    trips.read(head)?.ok_or_else(|| format!("no Buck2 trip stands on {head}"))?;
     if trips.cleared(head)? {
         return Err(format!("the Buck2 trip on {head} is already cleared"));
     }
-    admission.admit(Kind::TripClear, &class(&trip), by, issue)?;
-    trips.clear(head, by, why, admission.now)
+    trips.clear(head, by, why, now)
 }
 
 /// Reads what the replay of `head` names at `head` and its parent on the first build host, from the north checkout, and writes the trip or the unreproduced record; a replay that fails ends its record too, so the next screen starts it again.

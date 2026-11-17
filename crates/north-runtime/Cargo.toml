@@ -16,7 +16,6 @@ north-worker-sandbox = { path = "../north-worker-sandbox" }
 north-offload = { path = "../north-offload" }
 north-build-system = { path = "../north-build-system" }
 north-base = { path = "../north-base" }
-north-unblocks = { path = "../north-unblocks" }
 north-trusted-mirror = { path = "../north-trusted-mirror" }
 regex.workspace = true
 percent-encoding.workspace = true

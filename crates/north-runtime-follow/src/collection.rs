@@ -26,8 +26,6 @@ pub fn collect(layout: &Layout, target: &str, previous: Option<&Path>, proc_root
     keep.extend(previous.and_then(layout::linked_sha));
     let lander = fs::read_link(layout.lander()).ok();
     keep.extend(lander.as_deref().and_then(layout::linked_sha));
-    let rollback = fs::read_to_string(layout.lander_rollback()).ok();
-    keep.extend(rollback.as_deref().and_then(|target| layout::linked_sha(Path::new(target.trim()))));
     let running = layout::running(proc_root, &layout.runtimes());
     keep.extend(running.iter().map(String::as_str));
     for target in agent_targets {
@@ -59,8 +57,6 @@ pub fn prune(layout: &Layout, proc_root: &Path, newest: usize) -> std::io::Resul
     for link in [fs::read_link(layout.current()).ok(), fs::read_link(layout.lander()).ok()] {
         keep.extend(link.as_deref().and_then(layout::linked_sha).map(str::to_owned));
     }
-    let rollback = fs::read_to_string(layout.lander_rollback()).ok();
-    keep.extend(rollback.as_deref().and_then(|target| layout::linked_sha(Path::new(target.trim()))).map(str::to_owned));
     keep.extend(layout::running(proc_root, &layout.runtimes()));
     let current = fs::canonicalize(layout.current()).ok();
     let mut removed = Vec::new();

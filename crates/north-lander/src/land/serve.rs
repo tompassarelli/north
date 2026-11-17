@@ -18,8 +18,6 @@ use super::watchdog;
 use super::repositories;
 use north_foundation::foundation::exit::NO_VERDICT;
 use north_runtime_follow::Follow;
-use north_runtime_follow::layout::Layout;
-use north_runtime_follow::leaving;
 use options::{Options, lander_for, parse};
 
 mod ahead;
@@ -179,16 +177,9 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, outbox: &Sender<
     }
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
-    let mut shown: Option<super::build_lag::Lag> = None;
     let mut map_lag = super::map_lag::Watch::default();
     let mut shown_map = None;
     loop {
-        if let Some(lag) = super::build_lag::report(&lander.repo)
-            && shown.as_ref().is_none_or(|shown| !shown.same_episode(&lag))
-        {
-            println!("north land: {}", lag.note());
-            shown = Some(lag);
-        }
         if let Some(note) = map_lag.line(&lander.repo).filter(|note| shown_map.as_deref() != Some(note.as_str()))
         {
             println!("north land: {note}");
@@ -205,9 +196,6 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, outbox: &Sender<
         publish(outbox, watch.waits(lander));
         lander.heartbeat.enter(Step::Watchdog);
         watchdog::after_round(lander, &round);
-        if let Some(note) = super::promote::watch_round(std::slice::from_ref(&lander.repo)) {
-            println!("north land: {note}");
-        }
         lander.heartbeat.enter(Step::Between);
         backoff.clear_if(matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)));
         match round {
@@ -332,15 +320,9 @@ fn serve_once(options: &Options) -> u8 {
     })
 }
 
-fn record_waits(layout: &Layout, pid: u32, next: &str, running: &mut HashMap<PathBuf, Serving>, leave_by: f64) -> f64 {
+fn waits_until(running: &mut HashMap<PathBuf, Serving>, leave_by: f64) -> f64 {
     running.values_mut().for_each(Serving::refresh);
-    let waits: Vec<&Wait> = running.values().flat_map(|serving| serving.waits.iter()).collect();
-    let until = waits.iter().map(|wait| wait.until + handover::BOUND.as_secs_f64()).fold(leave_by, f64::max);
-    let what = if waits.is_empty() { "the serve loop".to_owned() } else { waits.iter().map(|wait| wait.describe()).collect::<Vec<_>>().join(", ") };
-    if let Err(error) = leaving::write(layout, pid, &leaving::Record { target: next.to_owned(), until: until.ceil() as u64, what }) {
-        println!("north land: could not record that it waits to leave for {next}: {error}");
-    }
-    until
+    running.values().flat_map(|serving| serving.waits.iter()).map(|wait| wait.until + handover::BOUND.as_secs_f64()).fold(leave_by, f64::max)
 }
 
 fn report_overdue(next: &str, running: &HashMap<PathBuf, Serving>) {
@@ -365,11 +347,9 @@ fn serve_forever(options: &Options) -> u8 {
         if let Some(next) = runtime.replaced() {
             retire.store(true, Ordering::Relaxed);
             handover::announce(&next);
-            let layout = Layout::from_env();
-            let pid = std::process::id();
             let leave_by = epoch_seconds() + handover::BOUND.as_secs_f64();
             loop {
-                let until = record_waits(&layout, pid, &next, &mut running, leave_by);
+                let until = waits_until(&mut running, leave_by);
                 let held: Vec<Step> = running.values().filter(|serving| !serving.handle.is_finished()).map(|serving| serving.lander.heartbeat.current().0).collect();
                 let now = epoch_seconds();
                 let open = running.values().flat_map(|serving| serving.waits.iter()).any(|wait| wait.until > now);
@@ -379,7 +359,6 @@ fn serve_forever(options: &Options) -> u8 {
                 std::thread::sleep(TICK);
             }
             report_overdue(&next, &running);
-            leaving::remove(&layout, pid);
             return 0;
         }
         running.retain(|_, serving| !serving.handle.is_finished());

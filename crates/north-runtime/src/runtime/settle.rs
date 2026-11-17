@@ -8,7 +8,6 @@ use super::pin;
 use super::verdict;
 use super::review_hold::Screen;
 use super::ship;
-use super::watch;
 use super::follow;
 use super::probe::{self, Shell};
 use super::update;
@@ -96,10 +95,9 @@ fn outcome(promoted: Result<(), Failure>, failing: &[String]) -> Result<(), Fail
     promoted
 }
 
-/// Brings this host to the pinned runtime, then follows the lander link and ships from `ship_here`, and watches a fresh swap for rising failures.
+/// Brings this host to the pinned runtime, then follows the lander link and ships from `ship_here`.
 fn promote_here(layout: &Layout) -> Result<(), Failure> {
-    let follow::Followed { here: updated, .. } = follow::update_following_lander(layout, false, false);
-    watch::watch(layout);
+    let follow::Followed { here: updated, .. } = follow::update_following_lander(layout, false);
     updated.map(|_| ()).map_err(|failure| failed(failure.code, format!("{}: {}", host::name(), failure.message)))
 }
 

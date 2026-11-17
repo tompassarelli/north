@@ -12,26 +12,6 @@ incidents = ""
 accepted_risk = "2026-11-14: decided by the coordinator: sequenced, no risk accepted; the guard is written from north runtime lag --json once the propagation-number box of north#1115 lands"
 
 [[hold]]
-id = "H2"
-what = "A runtime that breaks the core loop never reaches a second host"
-metric = "hosts reached by a failed canary"
-budget = "0"
-guard_kind = "test"
-guard = "a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming_the_probe"
-state = "live"
-incidents = ""
-
-[[hold]]
-id = "H3"
-what = "A deliberate stop of sessions never rolls a runtime back"
-metric = "rollbacks caused by ordered stops"
-budget = "0"
-guard_kind = "test"
-guard = "asked_for_exits_do_not_roll_a_runtime_back"
-state = "live"
-incidents = ""
-
-[[hold]]
 id = "H5"
 what = "The bottom of the degradation ladder is always reachable without the north binary"
 metric = "seconds to a usable prompt at the two lowest levels"

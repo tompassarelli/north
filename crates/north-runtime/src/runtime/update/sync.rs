@@ -37,7 +37,7 @@ fn point_current(layout: &Layout, link: &Path, rollback: bool) -> std::io::Resul
 }
 
 /// Points the symlink `at` at `link` in one rename, so a reader sees the old target or the new one and never neither.
-pub(super) fn relink(at: &Path, link: &Path) -> std::io::Result<()> {
+pub(in crate::runtime) fn relink(at: &Path, link: &Path) -> std::io::Result<()> {
     if fs::read_link(at).is_ok_and(|now| now == link) {
         return Ok(());
     }
@@ -196,14 +196,3 @@ fn agents_sync(north: &Path) -> Command {
 }
 
 pub(in crate::runtime) use crate::runtime::alert::{alert_coordinator, send_alert};
-
-pub(in crate::runtime) fn page_coordinator(key: &str, text: &str) -> bool {
-    let sent = Command::new("north")
-        .args(["fleet", "send", "--from", "service:north-runtime-update", "--key", key, "coordinator", text])
-        .status();
-    let delivered = sent.is_ok_and(|status| status.success());
-    if !delivered {
-        eprintln!("north runtime update: coordinator page delivery failed");
-    }
-    delivered
-}

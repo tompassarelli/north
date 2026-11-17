@@ -231,7 +231,7 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
         named.max(written)
     };
     let [_, done, ..] = north_base::land_ticket::directories(queue);
-    let landed = super::promote::last_landed(&done).and_then(|at| u64::try_from(at.duration_since(UNIX_EPOCH).ok()?.as_micros()).ok());
+    let landed = last_landed(&done).and_then(|at| u64::try_from(at.duration_since(UNIX_EPOCH).ok()?.as_micros()).ok());
     let bound = stall_bound_micros();
     if let Some((path, ticket)) = pending.iter().min_by_key(|(path, _)| queued_since(path)).filter(|(path, _)| stalled(now, queued_since(path), landed, bound)) {
         let waited = now.saturating_sub(queued_since(path));
@@ -240,6 +240,14 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
         found.push(Violation { invariant: Invariant::StaleLane, queue: queue.to_owned(), detail, repairs: vec![stale_repair()] });
     }
     Ok(found)
+}
+
+/// When the queue in `done` last landed a lane: its newest ticket whose verdict is `landed`.
+fn last_landed(done: &Path) -> Option<SystemTime> {
+    let modified = |path: &Path| fs::metadata(path).and_then(|metadata| metadata.modified()).ok();
+    let mut tickets: Vec<(SystemTime, PathBuf)> = fs::read_dir(done).ok()?.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).filter_map(|path| Some((modified(&path)?, path))).collect();
+    tickets.sort_by(|left, right| right.cmp(left));
+    tickets.into_iter().find(|(_, path)| queue::read(path).is_ok_and(|ticket| ticket.verdict.as_deref().and_then(super::replay::landed_tip).is_some() && !ticket.branch.starts_with("sheriff-"))).map(|(at, _)| at)
 }
 
 fn stall_bound_micros() -> u64 {
