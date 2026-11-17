@@ -147,7 +147,12 @@ fn seat_idle() -> bool {
     })
 }
 fn locked() -> bool {
-    std::fs::read_dir("/proc").into_iter().flatten().flatten().any(|entry| std::fs::read_to_string(entry.path().join("comm")).is_ok_and(|name| name.trim_end() == "swaylock"))
+    use std::os::unix::ffi::OsStrExt;
+    std::fs::read_dir("/proc").into_iter().flatten().flatten().any(|entry| {
+        let line = std::fs::read(entry.path().join("cmdline")).unwrap_or_default();
+        let program = line.split(|byte| *byte == 0).next().unwrap_or_default();
+        std::path::Path::new(std::ffi::OsStr::from_bytes(program)).file_name().is_some_and(|name| name == "swaylock")
+    })
 }
 fn value(assignments: &BTreeMap<String, String>, key: &str) -> String {
     assignments.get(key).cloned().unwrap_or_else(|| env(key))
