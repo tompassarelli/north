@@ -4,8 +4,8 @@
 //! not the base's gets no graph build and passes, as the lint gate leaves its line as declared. The tests of such a lane
 //! stay on Cargo. With `--changed` and the packages the lane changed (`-p NAME` each), it builds those packages alone:
 //! the compile a lane gets before it queues when its other checks run after the landing. On a host that holds no store
-//! generation, that run goes to a build host through `north capacity offload run`, never compiling on this host, and
-//! a build host with no store compiles the packages with `cargo check`.
+//! generation, that run goes to a build host through `north capacity offload run`, compiling on this host only when
+//! no build host answers, and a build host with no store, or this host then, compiles the packages with `cargo check`.
 
 use north_foundation::foundation::exit::NO_VERDICT;
 
@@ -52,7 +52,7 @@ fn judged(status: Option<i32>) -> u8 {
     }
 }
 
-/// The compile of the changed packages on a host with no shared build store: on a build host, `cargo check` of them, the clippy line's compile without its lints; on any other host, the same `graph-build` run on a build host that holds a store, through `north capacity offload run`, so the compile never runs on this host; with no build host answering it reports no verdict, the lane is not queued uncompiled and the caller tries again (north#1631).
+/// The compile of the changed packages on a host with no shared build store: on a build host, `cargo check` of them, the clippy line's compile without its lints; on any other host, the same `graph-build` run on a build host that holds a store, through `north capacity offload run`, so the compile runs on this host only when no build host answers, as with every server down, and then it is this host's `cargo check` (north#1631, north#1650).
 fn no_store_check(root: &std::path::Path, packages: Option<&[String]>) -> u8 {
     if !root.join("Cargo.toml").is_file() || !root.join("bin/land-shell").is_file() {
         eprintln!("north land graph-build: this tree has no Cargo workspace with bin/land-shell, so it has nothing to compile here");
@@ -67,8 +67,8 @@ fn no_store_check(root: &std::path::Path, packages: Option<&[String]>) -> u8 {
     let chosen = std::process::Command::new(&north).args(["capacity", "offload", "choose"]).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok().filter(|output| output.status.success());
     let host = chosen.map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|host| !host.is_empty() && !host.contains(char::is_whitespace));
     let Some(host) = host else {
-        eprintln!("north land graph-build: this host has no shared build store and no build host answers, so the compile has no verdict; it never runs on this host");
-        return NO_VERDICT;
+        eprintln!("north land graph-build: this host has no shared build store and no build host answers, so it compiles here");
+        return cargo_check(root, packages);
     };
     let head = std::env::var("SAFE_PUSH_LAND_HEAD").ok().filter(|head| !head.is_empty()).unwrap_or_else(|| "HEAD".to_owned());
     let base = std::env::var(BASE_ENV).unwrap_or_default();
