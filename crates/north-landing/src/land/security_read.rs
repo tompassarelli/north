@@ -17,7 +17,7 @@ const INSTRUCTIONS: &str = "harness/review/commit-reviewer.md";
 const MODELS: &str = "review_call_models";
 const LISTS: [&str; 2] = ["ring_zero_paths]", "dependency_source_paths]"];
 const MARKER: &str = concat!("LANE", "-DATA");
-const SECONDS: u64 = 900;
+const SECONDS: u64 = 1800;
 const SLACK: Duration = Duration::from_secs(60);
 
 /// What one security read of a patch came to: the model's accept or refusal with its whole answer, or why no verdict came.
