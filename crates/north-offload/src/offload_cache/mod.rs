@@ -23,7 +23,7 @@ use north_base::platform::disk_ledger::{self, Kind, Ledger};
 use north_base::platform::shared_target::{self, allocated_tree};
 pub use north_base::platform::disk_line::Line;
 pub use page::alarm;
-use page::{largest, page, record};
+use page::largest;
 
 mod compiler_cache;
 mod own_stores;
@@ -414,11 +414,9 @@ fn pass(home: &Path) {
         let key = format!("{INCIDENT_CLASS}:{host}@{now}");
         let largest = disk_ledger::local().map(|account| largest(&account)).unwrap_or_default();
         let detail = alarm(&host, before, after, (closed, held), &evicted, &largest);
-        let recorded = record(&key, &host, &detail);
-        if page(&detail) || recorded {
-            let _ = marker.parent().map(fs::create_dir_all);
-            let _ = fs::write(&marker, key);
-        }
+        eprintln!("north disk-keep: {detail}");
+        let _ = marker.parent().map(fs::create_dir_all);
+        let _ = fs::write(&marker, key);
     } else if open && !passed(after) {
         let _ = fs::remove_file(&marker);
     }

@@ -62,7 +62,7 @@ ordinary lane adds something nothing points to; the review below takes that meas
 
 ## Data after landing
 
-The correction class `unevidenced-addition` in [harness/corrections.toml](../../harness/corrections.toml) matches the
+The correction class `unevidenced-addition` in `harness/corrections.toml` matches the
 ways Tom has objected to such additions before. The rule is its guard, set at the rule's landing time, so each later
 correction of the class is a recurrence: it is recorded in the corrections ledger and prints red in the coordinator's fleet
 tick for a week.

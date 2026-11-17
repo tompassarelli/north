@@ -2,4 +2,4 @@
 rule = "single-impl-trait"
 path = "crates/north-landing/src/land/after/route.rs"
 item = "Courier"
-reason = "route decides the host and the message; the north fleet send and ssh transport lives in follow and is swapped out when the fleet sessions are evicted."
+reason = "route decides the host and message routing; follow holds the concrete transport and tests supply a mock Courier."

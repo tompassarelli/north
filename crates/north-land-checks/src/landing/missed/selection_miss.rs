@@ -3,9 +3,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use north_foundation::foundation::clock::Timestamp;
-use north_base::platform::records_mirror;
-
 use super::responsible::{Blame, responsible};
 use super::{Conclusion, Landing, Run, ancestor, changed, git_lines, short};
 
@@ -26,7 +23,7 @@ pub fn name_lanes(repo: &Path, runs: &[Run], failing: Vec<(&Run, Vec<String>)>, 
                 Blame::Unjudged(why) => println!("{test} at {}: {why}", short(&run.sha)),
                 Blame::Lane { lane, sha } => {
                     if blamed.insert((lane.clone(), test.clone())) {
-                        tellers.judge(landings, &lane, &sha, &test, run);
+                        tellers.judge(landings, &lane, &sha, &test);
                     }
                 }
             }
@@ -41,7 +38,7 @@ struct Tellers<'a> {
 }
 
 impl Tellers<'_> {
-    fn judge(&mut self, landings: &[Landing], lane: &str, sha: &str, test: &str, run: &Run) {
+    fn judge(&mut self, landings: &[Landing], lane: &str, sha: &str, test: &str) {
         let parent = rev_parse(self.repo, &format!("{sha}^")).unwrap_or_default();
         let Some(own) = landings.iter().find(|landing| landing.head == sha && landing.base == parent) else {
             println!("{test}: {lane} at {} turned it red, and no selection of its own landing is stored", short(sha));
@@ -52,13 +49,9 @@ impl Tellers<'_> {
             return;
         }
         let files = changed(self.repo, &parent, sha);
-        let key = format!("{CLASS}:{lane}:{test}");
-        let detected = Timestamp::parse_rfc3339(&run.created).map_or_else(records_mirror::now, |at| at.unix_seconds_f64()).to_string();
-        let detail = format!("{test}; {}", files.join(" "));
-        let recorded = self.command(&["ledger", "incident", "record", "--key", &key, "--class", CLASS, "--noticed-by", "lander", "--repo", "north", "--subject", lane, "--detected-at", &detected, "--detail", &detail]);
         let node = self.node(test);
         let told = files.iter().filter(|file| self.command(&["graph", "tell", "--writer", CLASS, &node, ":guards", file])).count();
-        println!("{CLASS} {lane} {test}: {} left it out of its selection; {}; told {told} of {} ({node} :guards FILE) edges", short(sha), if recorded { "incident recorded" } else { "the incident record failed" }, files.len());
+        println!("{CLASS} {lane} {test}: {} left it out of its selection; told {told} of {} ({node} :guards FILE) edges", short(sha), files.len());
     }
 
     fn command(&self, arguments: &[&str]) -> bool {

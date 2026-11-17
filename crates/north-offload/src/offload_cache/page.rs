@@ -1,7 +1,6 @@
-//! The one page a host-disk episode sends the coordinator and records as an incident: what the pass took and, when the host stays closed, what holds the space.
-use std::process::{Command, Stdio};
+//! Formats a host-disk episode summary: what the pass took and, when the host stays closed, what holds the space.
 
-use super::{ALARM_STORES, Disk, Evicted, GIB, INCIDENT_CLASS, Line};
+use super::{ALARM_STORES, Disk, Evicted, GIB, Line};
 use north_base::platform::disk_ledger;
 
 /// The ledger's `ALARM_STORES` largest stores as `NAME (KIND, N GiB, trim: HOW)`, then the bytes no store explains.
@@ -35,19 +34,4 @@ pub fn alarm(host: &str, before: Disk, after: Disk, (closed, held): (Line, Line)
         evicted.len(),
         after.free_gib
     )
-}
-
-pub(super) fn page(detail: &str) -> bool {
-    let north = north_base::platform::north_binary::north_binary();
-    let sent = Command::new(north).args(["fleet", "send", "--from", "service:north-lease-reaper", "coordinator", detail]).stdout(Stdio::null()).status();
-    sent.is_ok_and(|status| status.success())
-}
-
-pub(super) fn record(key: &str, host: &str, detail: &str) -> bool {
-    let north = north_base::platform::north_binary::north_binary();
-    let recorded = Command::new(north)
-        .args(["ledger", "incident", "record", "--key", key, "--class", INCIDENT_CLASS, "--noticed-by", "lease-reaper", "--subject", host, "--detail", detail])
-        .stdout(Stdio::null())
-        .status();
-    recorded.is_ok_and(|status| status.success())
 }

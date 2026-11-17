@@ -238,7 +238,7 @@ pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool) -> u8 {
     code
 }
 
-/// The landing `north cloud wait` and `north cloud reap` share: a finished session's transcript
+/// The landing `north cloud wait` runs on a finished session's transcript:
 /// lands as `land` does when it holds a handback, and is left alone (`None`) when it does not.
 pub(super) fn land_handback(events: &[Value], transcript: &Path, repo: &Path, state: &Path, queued_for: Option<&str>, run: &mut Run) -> Option<Outcome> {
     cloud_handback::has_handback(events).then(|| land(events, transcript, repo, state, queued_for, run))
