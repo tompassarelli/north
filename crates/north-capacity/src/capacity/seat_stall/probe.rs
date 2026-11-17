@@ -1,4 +1,4 @@
-//! `north capacity seat-probe`: every 2 s writes and syncs a small file on the owner's filesystem and logs how long the sync took. A watcher apart from the syncing thread trips the breaker once a sync has been out for the trip time, without waiting for it to return, and what the breaker acts with (the unit patterns, the north binary) is read into memory at start. The log is written by a third thread, so a stalled append holds up neither.
+//! `north capacity seat-probe`: every 2 s writes and syncs a small file on the owner's filesystem and logs how long the sync took. A watcher apart from the syncing thread trips the breaker once a sync has been out for the trip time, without waiting for it to return, and what the breaker acts with (the unit patterns) is read into memory at start. The log is written by a third thread, so a stalled append holds up neither.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -17,8 +17,6 @@ use super::{EVENTS, Event, INTERVAL_MS, SAMPLES, SLOW_MS, Sample, append, dir, n
 
 const POLL: Duration = Duration::from_millis(100);
 const PROBE_FILE: &str = "probe";
-const SENDER: &str = "service:seat-probe";
-const COORDINATOR: &str = "coordinator";
 
 pub trait Seat: Send + 'static {
     fn sync(&mut self) -> std::io::Result<()>;
@@ -92,7 +90,6 @@ enum Record {
 
 struct Fleet {
     patterns: Vec<String>,
-    north: PathBuf,
     trip_ms: u64,
     records: Sender<Record>,
 }
@@ -106,7 +103,7 @@ impl Breaker for Fleet {
         let _ = self.records.send(Record::Event(Event::Stop { at_ms: now_ms(), stall_since_ms, units: units.clone() }));
         if !units.is_empty() {
             let since = Timestamp::from_unix_millis(i64::try_from(stall_since_ms).unwrap_or(i64::MAX)).iso();
-            page(&self.north, format!("seat-probe: a synced write on the owner's laptop has been out over {:.0} s since {since}, so the breaker stopped {} fleet units: {}. Start them with `north capacity seat-stall resume` once the stall ends.", self.trip_ms as f64 / 1000.0, units.len(), units.join(", ")));
+            page(&format!("seat-probe: a synced write on the owner's laptop has been out over {:.0} s since {since}, so the breaker stopped {} fleet units: {}. Start them with `north capacity seat-stall resume` once the stall ends.", self.trip_ms as f64 / 1000.0, units.len(), units.join(", ")));
         }
     }
 
@@ -139,13 +136,8 @@ fn stop(units: &[String]) {
     }
 }
 
-fn page(north: &Path, text: String) {
-    let north = north.to_owned();
-    thread::spawn(move || {
-        if let Err(error) = Command::new(north).args(["fleet", "send", "--now", "--from", SENDER, COORDINATOR, &text]).stdin(Stdio::null()).stdout(Stdio::null()).status() {
-            eprintln!("north capacity seat-probe: fleet send {COORDINATOR}: {error}");
-        }
-    });
+fn page(text: &str) {
+    eprintln!("north capacity seat-probe: {text}");
 }
 
 fn write_records(dir: &Path, records: &Receiver<Record>) {
@@ -179,7 +171,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let log_dir = dir.clone();
     thread::spawn(move || write_records(&log_dir, &written));
     let trip_ms = trip_ms();
-    let mut fleet = Fleet { patterns, north: north_base::platform::north_binary::north_binary(), trip_ms, records };
+    let mut fleet = Fleet { patterns, trip_ms, records };
     watch(FileSeat(dir.join(PROBE_FILE)), &mut fleet, Duration::from_millis(trip_ms), Duration::from_millis(INTERVAL_MS));
     eprintln!("north capacity seat-probe: the syncing thread ended");
     1
