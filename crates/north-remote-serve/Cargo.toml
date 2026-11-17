@@ -12,7 +12,6 @@ doctest = false
 [dependencies]
 base64.workspace = true
 north-base = { path = "../north-base" }
-rusqlite.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true

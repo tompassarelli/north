@@ -1122,7 +1122,6 @@ dependencies = [
  "base64",
  "north-base",
  "north-foundation",
- "rusqlite",
  "rustix 0.38.44",
  "serde",
  "serde_json",

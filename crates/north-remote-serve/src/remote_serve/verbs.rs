@@ -1,55 +1,14 @@
 use super::Refusal;
 
-const THREADS_VERBS: [&str; 24] = [
-    "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "replay-staffing", "planner-band",
-    "job-runs", "calibrate", "job-run", "queue", "claim", "release", "need", "unneed",
-    "new", "note", "close", "reopen", "block", "opencode",
-];
-const THREADS_UNBLOCK: &str = "unblock";
-const THREADS_INCIDENT: &str = "incident";
-const INCIDENT_RECORD: &str = "record";
-const NORTH_ONLY_THREADS: [&str; 2] = ["ingest", "snapshot-pages"];
-const FLEET_ROW: [&str; 7] = ["put", "wait", "exchange", "settle", "register", "retire", "addressed"];
-const OPERATOR_THREADS: [&str; 3] = ["queue", "job-run", "ingest"];
-
 pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
     let refused = || Refusal::Verb(words.iter().take(3).copied().collect::<Vec<_>>().join(" "));
     let verb = match words.as_slice() {
-        ["threads", rest @ ..] => threads(rest, false).map(|name| format!("threads {name}")),
-        ["north", "threads", rest @ ..] => threads(rest, true).map(|name| format!("threads {name}")),
-        ["north", "fleet", "row", "leased", _session] => Some("fleet row leased".to_string()),
-        ["north", "fleet", "dispatch", "needs", _item] => Some("dispatch needs".to_string()),
-        ["north", "fleet", "dispatch", "need", _session, _need] | ["north", "fleet", "dispatch", "need", _session, _need, _] => Some("dispatch need".to_string()),
-        ["north", "fleet", "row", verb, ..] if FLEET_ROW.contains(verb) => Some(format!("fleet row {verb}")),
-        ["north", "fleet", "laptop", "status"] | ["north", "fleet", "laptop", "status", "--json"] => Some("laptop status".to_string()),
-        ["north", "fleet", "usage", "--refresh", "--local", "--json"] => Some("fleet usage".to_string()),
         ["readlink", ".local/state/north/current"] => Some("readlink current".to_string()),
         ["north", "runtime", "health"] => Some("runtime health".to_string()),
         ["north", "holds", "list", "--here", "--json"] => Some("holds list".to_string()),
-        ["north", "github-mirror", "serve"] => Some("github-mirror serve".to_string()),
-        ["south", "land"] =>Some("south land".to_string()),
+        ["south", "land"] => Some("south land".to_string()),
         _ => None,
     };
     verb.ok_or_else(refused)
-}
-
-fn threads(rest: &[&str], north: bool) -> Option<&'static str> {
-    let (verb, arguments) = rest.split_first()?;
-    if *verb == "calibrate" && arguments.contains(&"--write") {
-        return None;
-    }
-    let named = |names: &'static [&'static str]| names.iter().find(|name| *name == verb).copied();
-    named(&THREADS_VERBS)
-        .or_else(|| (*verb == THREADS_UNBLOCK).then_some(THREADS_UNBLOCK))
-        .or_else(|| (*verb == THREADS_INCIDENT && arguments.first() == Some(&INCIDENT_RECORD)).then_some(THREADS_INCIDENT))
-        .or_else(|| north.then(|| named(&NORTH_ONLY_THREADS)).flatten())
-}
-
-/// What a threads-only peer key reaches: a threads verb, and nothing else, so the key an agent host's broker holds runs no fleet row, dispatch or south land; queue, job-run and ingest stay refused too, since a queued job runs on the peer as its operator and a job-run or ingest writes the operator's run history.
-pub(super) fn authorize_threads(argv: &[String]) -> Result<String, Refusal> {
-    authorize(argv).and_then(|verb| match verb.strip_prefix("threads ") {
-        Some(name) if !OPERATOR_THREADS.contains(&name) => Ok(verb),
-        _ => Err(Refusal::Verb(verb)),
-    })
 }
