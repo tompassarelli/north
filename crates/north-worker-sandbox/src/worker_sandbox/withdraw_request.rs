@@ -1,19 +1,43 @@
-//! A queued landing ticket withdrawn through the outside broker for a worker whose domain keeps the landing queue's ticket store unwritable (north#1054): a worker's own `north land withdraw` failed with `lifecycle store: attempt to write a readonly database`. The broker runs `land withdraw TICKET ...` only when every undecided ticket TICKET names, by file name or branch, in the queue of the repository the request names or in its outbox, was queued by the fleet session whose scope the caller's cgroup names (lane_grant.rs), never a session the client names. The queue is named by the push address of origin in the project's trusted mirror, which no worker writes, never by the checkout's, which a worker repoints at a queue holding a ticket of its own; a project with no mirror yet is refused, since making one copies the checkout's address into it.
+//! A queued landing ticket withdrawn through the outside broker (north#1054, north#1650): a confined session's domain keeps the landing queue's ticket store unwritable, and every `north --worker-sandbox` shell routes `north land withdraw` through the broker. A confined session withdraws only undecided tickets queued by its own session (lane_grant.rs); the coordinator seat and a plain session or operator login outside every confined fleet unit, broker unit and capacity lease scope may withdraw any undecided ticket in the repository's queue or outbox. The queue is named by the push address of origin in the project's trusted mirror, which no worker writes, never by the checkout's.
 
 use std::path::{Path, PathBuf};
 
 use north_base::land_ticket::{self, Phase};
-use north_base::platform::land_queue;
+use north_base::platform::{land_queue, session_scope};
 use north_trusted_mirror::Mirror;
 
-use super::peer::Peer;
 use super::lane_grant::{self, Host};
+use super::peer::Peer;
 use super::request_checkout;
 
-const VALUED: [&str; 4] = ["--reason", "--repo", "--noticed-by", "--class"];
+const VALUED: [&str; 3] = ["--reason", "--noticed-by", "--class"];
 
-/// The ticket and repository a `land withdraw` request asked from `directory` names, `None` for every other request.
-fn asked(arguments: &[String], directory: &Path) -> Option<(String, PathBuf)> {
+fn inline_flag(word: &str, directory: &Path, repo: &mut PathBuf) -> Option<Result<(), String>> {
+    let (flag, value) = word.split_once('=').filter(|(flag, _)| flag.starts_with("--"))?;
+    match flag {
+        "--repo" => *repo = directory.join(value),
+        _ if VALUED.contains(&flag) => {}
+        other => return Some(Err(format!("land withdraw takes no {other}"))),
+    }
+    Some(Ok(()))
+}
+
+fn parse_word<'a>(word: &str, words: &mut std::slice::Iter<'a, String>, directory: &Path, ticket: &mut String, repo: &mut PathBuf) -> Result<(), String> {
+    if let Some(inline) = inline_flag(word, directory, repo) {
+        return inline;
+    }
+    match word {
+        "--repo" => *repo = directory.join(words.next().ok_or_else(|| "land withdraw --repo needs a directory".to_owned())?),
+        flag if VALUED.contains(&flag) => {
+            words.next();
+        }
+        flag if flag.starts_with('-') => return Err(format!("land withdraw takes no {flag}")),
+        named => named.clone_into(ticket),
+    }
+    Ok(())
+}
+
+fn asked(arguments: &[String], directory: &Path) -> Option<Result<(String, PathBuf), String>> {
     let [noun, verb, rest @ ..] = arguments else { return None };
     if noun != "land" || verb != "withdraw" {
         return None;
@@ -21,34 +45,57 @@ fn asked(arguments: &[String], directory: &Path) -> Option<(String, PathBuf)> {
     let (mut ticket, mut repo) = (String::new(), directory.to_path_buf());
     let mut words = rest.iter();
     while let Some(word) = words.next() {
-        match word.as_str() {
-            "--repo" => repo = directory.join(words.next().map_or("", String::as_str)),
-            flag if VALUED.contains(&flag) => {
-                words.next();
-            }
-            named => named.clone_into(&mut ticket),
+        if let Err(error) = parse_word(word, &mut words, directory, &mut ticket, &mut repo) {
+            return Some(Err(error));
         }
     }
-    Some((ticket, repo))
+    Some(Ok((ticket, repo)))
 }
 
-/// Refuses a `land withdraw` request asked from `directory` unless the session whose scope the caller `peer` runs in on `host` queued every undecided ticket it names; `Ok` for every other request.
+fn is_coordinator_held(cgroup: &str) -> bool {
+    let prefix = format!("north-fleet-{}-", session_scope::COORDINATOR_ROLE);
+    cgroup.lines().flat_map(|line| line.split('/')).any(|unit| {
+        unit.strip_prefix(&prefix)
+            .and_then(|rest| rest.strip_suffix(".service"))
+            .is_some_and(|id| id.len() == 8 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    })
+}
+
 pub(super) fn refusal(arguments: &[String], directory: &Path, peer: &Peer, host: &Host) -> Result<(), String> {
-    let Some((ticket, repo)) = asked(arguments, directory) else { return Ok(()) };
-    let (record_directory, record) = lane_grant::own_session(peer, host, "a ticket is withdrawn through the broker by the fleet session that queued it, and this caller runs in no session's scope")?;
-    let session = record["name"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| format!("{} names no session", record_directory.display()))?;
+    let Some(asked) = asked(arguments, directory) else { return Ok(()) };
+    let (ticket, repo) = asked?;
+    let Some(cgroup) = peer.cgroup() else {
+        return Err("a caller whose cgroup cannot be read does not withdraw a ticket".to_owned());
+    };
+    if session_scope::lane_only_cgroup(cgroup) {
+        return Err("a lane-only session's command does not reach a ledger through the broker".to_owned());
+    }
+    let caller = match lane_grant::own_session(peer, host, "") {
+        Ok((record_directory, record)) => {
+            let session = record["name"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| format!("{} names no session", record_directory.display()))?;
+            session_scope::confined_role(Some(&super::capability::recorded_role(&record))).then(|| session.to_owned())
+        }
+        Err(why) if !why.is_empty() => return Err(why),
+        Err(_) if session_scope::fleet_session_cgroup(cgroup) && !is_coordinator_held(cgroup) => {
+            return Err("this caller runs in a confined fleet or broker unit outside a recorded session scope".to_owned());
+        }
+        Err(_) if north_capacity::capacity::gate::lease_cgroup(cgroup).is_some() => {
+            return Err("run north land withdraw from the session itself, not inside a capacity lease scope".to_owned());
+        }
+        Err(_) => None,
+    };
     let queue = land_queue::directory(&state_home(host), &origin(host, &repo)?);
     let queuers = queuers(&queue, &ticket);
     if queuers.is_empty() {
         return Err(format!("no queued ticket named {ticket} in {}", queue.display()));
     }
-    match queuers.into_iter().find(|queuer| queuer.as_deref() != Some(session)) {
+    let Some(session) = caller else { return Ok(()) };
+    match queuers.into_iter().find(|queuer| queuer.as_deref() != Some(session.as_str())) {
         Some(other) => Err(format!("{session} withdraws only a ticket it queued, and {ticket} was queued by {}", other.as_deref().unwrap_or("no session"))),
         None => Ok(()),
     }
 }
 
-/// The state home the brokered withdraw reads its queue under: the broker's own, as `request_env::request_homes` gives every verb but a safe-push.
 fn state_home(host: &Host) -> PathBuf {
     host.environment.iter().find(|(name, value)| name == "XDG_STATE_HOME" && !value.is_empty()).map_or_else(|| host.home.join(".local/state"), |(_, value)| PathBuf::from(value))
 }
@@ -58,7 +105,6 @@ fn origin(host: &Host, repo: &Path) -> Result<String, String> {
     Mirror::existing(&project.join("main"))?.push_address()
 }
 
-/// The session each undecided ticket `wanted` names in `queue` and its outbox was queued by, `None` for one that names none or cannot be read.
 fn queuers(queue: &Path, wanted: &str) -> Vec<Option<String>> {
     let file = if wanted.ends_with(".json") { wanted.to_owned() } else { format!("{wanted}.json") };
     [queue.to_path_buf(), queue.join(land_queue::OUTBOX)]

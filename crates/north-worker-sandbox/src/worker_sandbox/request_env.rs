@@ -39,27 +39,19 @@ pub(super) fn landing_choices(arguments: &[String], home: &Path, own: &[(String,
     arguments.first().is_some_and(|verb| verb == "safe-push").then(|| [("PATH".to_owned(), path)].into_iter().chain(NORTH_PINS.map(|pin| (pin.to_owned(), north.clone()))).chain(own.iter().filter(|(name, _)| builds(name)).cloned()).collect())
 }
 
-/// The `PATH` of a request whose verb starts no command of the caller's (`lane`, `home`, `threads`, `fleet need`), `None` for every other request: the absolute entries of the `PATH` in `own`, the broker's environment, since the git, ssh and file tools such a verb starts by name run as the operator outside the caller's domain, where a program found on the caller's `PATH` would be the caller's own (south#118). A verb that starts the caller's command (a build, a depbox run) still finds it on the caller's `PATH`.
+/// The `PATH` of a request whose verb starts no command of the caller's (`lane`, `home`, `land withdraw`, `task landed`), `None` for every other request: the absolute entries of the `PATH` in `own`, the broker's environment, since the git, ssh and file tools such a verb starts by name run as the operator outside the caller's domain, where a program found on the caller's `PATH` would be the caller's own (south#118). A verb that starts the caller's command (a build, a depbox run) still finds it on the caller's `PATH`.
 pub(super) fn own_path(arguments: &[String], own: &[(String, String)]) -> Option<(String, String)> {
     let path = own.iter().find(|(name, _)| name == "PATH").map_or("", |(_, value)| value.as_str());
     let absolute = std::env::join_paths(std::env::split_paths(path).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
     (arguments.first().is_some_and(|verb| ["lane", "home"].contains(&verb.as_str())) || super::broker::reaches_ledger(arguments)).then(|| ("PATH".to_owned(), absolute))
 }
 
-/// The variables that name the fleet session a brokered request speaks as, `None` for every other request: a gate or a need speaks as the session the caller `peer` runs in on `host` (lane_grant.rs), and a safe-push enqueues as it (`enqueuing_as`), never as a word or variable of the client's, since a gate's question and default answer reach its session's parent and come back into that session as its decision, a need is placed for its session's next try, and a ticket is queued under its session's name. A gate or need whose `--session` names any other session is refused, as is one from a caller in no session's scope.
+/// The variables that name the fleet session a brokered `safe-push` enqueues as, `None` for every other request: a ticket is queued under the session the caller `peer` runs in on `host` (`enqueuing_as`), never a word or variable of the client's.
 pub(super) fn asking_session(arguments: &[String], peer: &Peer, host: &lane_grant::Host) -> Result<Option<Vec<(String, String)>>, String> {
-    let flags = match arguments {
-        [noun, verb, flags @ ..] if noun == "gate" && verb == "open" => flags,
-        [noun, verb, ..] if noun == "fleet" && verb == "need" => &[][..],
-        [verb, ..] if verb == "safe-push" => return Ok(Some(enqueuing_as(peer, host))),
-        _ => return Ok(None),
-    };
-    let (directory, record) = lane_grant::own_session(peer, host, "a gate or a need is asked from a fleet session's own scope, and this caller runs in none")?;
-    let session = record["name"].as_str().filter(|name| !name.is_empty()).ok_or_else(|| format!("{} names no session", directory.display()))?;
-    if let Some([_, other]) = flags.chunks(2).find(|pair| matches!(pair, [flag, other] if flag == "--session" && other != session)) {
-        return Err(format!("{session} asks as itself, not as {other}"));
+    match arguments {
+        [verb, ..] if verb == "safe-push" => Ok(Some(enqueuing_as(peer, host))),
+        _ => Ok(None),
     }
-    Ok(Some(vec![(lane_grant::SESSION_ENV.to_owned(), session.to_owned())]))
 }
 
 /// The variables a brokered `safe-push` enqueues under: the session the caller `peer` runs in on `host`, with `PROVED_ENV` set to say the broker read it there, or an empty session name from a caller in no session's scope, which the readers take as no session.

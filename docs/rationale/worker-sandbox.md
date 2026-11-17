@@ -86,3 +86,8 @@ Which domain a command gets is never read from the role its environment names (`
 A trusted check runs no agent with tools (north#1574). The model call the lander makes outside every domain, the security read of a lane held for a review accept (crates/north-landing/src/land/security_read.rs), starts `north check oneshot`, whose flags carry `--tools ""` and `--strict-mcp-config` (crates/north-timers/src/timers/oneshot.rs), so the model reads the text and answers in one turn, and nothing it says runs a command in the tree or the account it runs on. The judge ran on `agy`, a coding agent whose tools ran there, until north#1553 took it out, and north's own launches pass no `--dangerously-skip-permissions`. An agent that holds tools is a fleet session, which a record confines.
 
 The record changes two recorded decisions. The push identity of docs/rationale/agent-push-identity.md is still set per session through the git environment the launcher writes, but which session a brokered command speaks, queues and pushes as is the caller's recorded one, never the name its client sent (request_env.rs). The canary's worker probe asks for a worker domain with `--worker` instead of naming the role, since the probe runs in no session's unit.
+
+
+## Ticket withdrawal (north#1054, north#1650)
+
+`north land withdraw` updates the landing queue's ticket store through the broker (`crates/north-worker-sandbox/src/worker_sandbox/withdraw_request.rs`): a confined session withdraws only undecided tickets queued under its own session name, while the coordinator seat and a plain session or operator login outside confined units and capacity lease scopes withdraw undecided tickets without a fleet scope.

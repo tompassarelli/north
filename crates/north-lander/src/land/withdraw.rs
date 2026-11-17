@@ -1,7 +1,6 @@
 use clap::Parser;
 use std::path::{Path, PathBuf};
 
-use super::after;
 use super::candidate::git;
 use super::lander::state_home;
 use super::queue::{self, Ticket};
@@ -51,12 +50,7 @@ fn withdraw(queue: &Path, options: &Options) -> Result<String, String> {
         Err(Some(Phase::Checking)) => return Err(already(&path)),
         Err(now) => return Err(format!("{}: its record is {now:?}, so it cannot be withdrawn", path.display())),
     };
-    let mut lines = vec![format!("north land: {} ({}): withdrew it, recorded in {}", ticket.branch, ticket.head, moved.display())];
-    if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
-        let told = after::send(session, &format!("north land: {} ({}) was withdrawn from the landing queue: {}", ticket.branch, ticket.head, options.reason.trim()));
-        lines.push(if told { format!("north land: told session {session}") } else { format!("north land: could not tell session {session}") });
-    }
-    Ok(lines.join("\n"))
+    Ok(format!("north land: {} ({}): withdrew it, recorded in {}", ticket.branch, ticket.head, moved.display()))
 }
 
 pub fn run(arguments: &[String]) -> u8 {

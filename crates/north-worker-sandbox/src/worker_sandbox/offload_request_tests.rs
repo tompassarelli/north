@@ -27,7 +27,7 @@ const LAND_CHECK_CEILING: &str = "2100";
 const GIT_PLACES: [&str; 3] = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
 const FOREIGN: &str = "names another repository";
 const REWRITE: &str = "rewrite";
-const OWN_PATH: [&str; 3] = ["lane sync", "home move", "threads list"];
+const OWN_PATH: [&str; 3] = ["lane sync", "home move", "task landed north#1 abc"];
 const SERVED: [&str; 14] = [
     "safe-push --to main",
     "task comment x",
@@ -40,7 +40,7 @@ const SERVED: [&str; 14] = [
     "depbox fetch -- true",
     "capacity host run --class moderate --owner o --timeout-seconds 9 -- true",
     "home move plan.tsv",
-    "threads x",
+    "task landed north#1 abc",
     "--worker-sandbox --built -- ./t",
     "--worker-sandbox --lane -- /bin/sh -c true",
 ];
