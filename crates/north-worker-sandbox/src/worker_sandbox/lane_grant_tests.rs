@@ -126,6 +126,12 @@ fn a_lane_only_session_lands_its_own_lane_on_main_and_nothing_else() {
     fixture.ask(&["safe-push", "--to", "main"], &fixture.other).refused(&fixture.other.display().to_string());
     fixture.ask(&["safe-push", "--to", "main", "--repo", "tompassarelli/wisp"], &fixture.lane).refused("--repo");
     assert_eq!(fixture.ran().len(), 1, "no refused request ran");
+    let session = super::Session { name: NAME.to_owned(), task: TASK.to_owned(), lane: fixture.lane.clone() };
+    assert_eq!(
+        super::grant(&session, &["safe-push".to_owned(), "--check-only".to_owned()], &fixture.lane),
+        Ok(vec!["safe-push".to_owned(), "--to".to_owned(), "main".to_owned(), "--check-only".to_owned()])
+    );
+    assert!(super::grant(&session, &["safe-push".to_owned(), "--several-commits".to_owned(), "--check-only".to_owned()], &fixture.lane).is_err());
 }
 
 #[test]

@@ -208,12 +208,12 @@ fn land(session: &Session, rest: &[&str], directory: &Path) -> Result<Vec<String
                 words.next();
             }
             ("--to", destination) => return Err(format!("a lane-only session lands only on its repository's {DESTINATION} through the lander, not on {}", destination.unwrap_or(&"nothing"))),
-            ("--keep-lane", _) => granted.push("--keep-lane".to_owned()),
-            ("--several-commits", Some(reason)) => {
+            ("--check-only" | "--require-check-only" | "--keep-lane", _) => granted.push((*word).to_owned()),
+            ("--several-commits", Some(reason)) if !reason.trim().is_empty() && !reason.starts_with('-') => {
                 granted.extend(["--several-commits".to_owned(), (*reason).to_owned()]);
                 words.next();
             }
-            (other, _) => return Err(format!("safe-push {other} is not granted to a lane-only session; it lands with safe-push --to {DESTINATION} [--several-commits REASON] [--keep-lane]")),
+            (other, _) => return Err(format!("safe-push {other} is not granted to a lane-only session; it lands with safe-push --to {DESTINATION} [--check-only] [--several-commits REASON] [--keep-lane]")),
         }
     }
     Ok(granted)

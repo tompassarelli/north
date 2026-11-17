@@ -1,1 +1,1 @@
-  safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag other than v* (branches land through safe-push --to)
+  safe-push [--dry-run | --check-only] [--to BRANCH]  Run the lander's pre-queue checks (--check-only records the pass without queueing) or scan and publish one annotated tag other than v*

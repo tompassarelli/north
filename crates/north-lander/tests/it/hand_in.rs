@@ -371,6 +371,17 @@ fn handing(world: &World, message: &str, path: &Path) -> Child {
 fn a_handed_in_lane_keeps_its_message_and_live_fix_trailer() {
     if let Ok(arguments) = std::env::var(VERB_ARGUMENTS) {
         let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
+        match std::env::var("NORTH_HAND_IN_IT_CHECK_ONLY").ok().as_deref() {
+            Some("check-only") => {
+                let cwd = std::env::current_dir().unwrap();
+                std::process::exit(i32::from(enqueue::run(&["--repo".to_owned(), cwd.display().to_string(), "--check-only".to_owned()])));
+            }
+            Some("hand-in") => {
+                let state = Path::new(&std::env::var("NORTH_TEST_ROOT").unwrap()).join("state");
+                std::process::exit(i32::from(hand_in::run(&arguments, CheckOnlyRoad { state })));
+            }
+            _ => {}
+        }
         let road = |lane: &hand_in::Lane| {
             let file = Path::new(&std::env::var("NORTH_TEST_ROOT").unwrap()).join("landing-message");
             fs::write(&file, &lane.message).unwrap();
@@ -403,6 +414,107 @@ fn a_handed_in_lane_keeps_its_message_and_live_fix_trailer() {
         "Name the change twice\n\nWhy it lands.\n\nItem: north#1540\nBox: the lane head's box\nLive-fix: the lander is red\nCo-Authored-By: A <a@example.com>",
         "a hand-in message of its subject alone dropped the lane head's body or trailers, as 5985b7d80e lost its body: {text}"
     );
+    hand_in_requiring_check_only_refuses_uncommitted_or_unchecked_heads_and_queues_a_checked_head(&world, &north);
+}
+
+struct CheckOnlyRoad {
+    state: PathBuf,
+}
+
+impl hand_in::Road for CheckOnlyRoad {
+    fn requires_check_only(&self) -> bool {
+        true
+    }
+
+    fn admit(&self, admit: &hand_in::Admit) -> Result<(), String> {
+        if admit.uncommitted {
+            return Err(format!("the lane has uncommitted changes and has not passed safe-push --check-only at its current head ({}); commit the changes and run safe-push --check-only first", admit.head));
+        }
+        let requested = admit.requested_message.trim();
+        if !requested.is_empty() {
+            let full = git(&admit.lane.root, &["show", "-s", "--format=%B", "HEAD"]);
+            let subject = full.lines().next().unwrap_or_default().trim();
+            if requested != full.trim() && requested != subject {
+                return Err(format!("--message differs from HEAD ({}); amend the commit and run safe-push --check-only first", admit.head));
+            }
+        }
+        let origin = git(&admit.lane.root, &["remote", "get-url", "--push", "origin"]);
+        let dir = north_lander::land::check_only::store_dir(&self.state);
+        if !north_lander::land::check_only::passed(&dir, &origin, &admit.lane.destination, admit.head) {
+            return Err(format!("the lane has not passed safe-push --check-only at its current head ({}); run safe-push --check-only first", admit.head));
+        }
+        Ok(())
+    }
+
+    fn take(self, lane: &hand_in::Lane) -> u8 {
+        enqueue::run(&["--repo".to_owned(), lane.root.display().to_string(), "--require-check-only".to_owned(), "--wait".to_owned()])
+    }
+}
+
+fn hand_in_requiring_check_only_refuses_uncommitted_or_unchecked_heads_and_queues_a_checked_head(world: &World, north: &Repository) {
+    const CHECK_ONLY_MODE: &str = "NORTH_HAND_IN_IT_CHECK_ONLY";
+    git(&north.checkout, &["fetch", "-q", "origin"]);
+    let lane = worktree(north, "checked-head");
+    let target = lane.join("checked.txt");
+    fs::write(&target, "uncommitted\n").unwrap();
+    let call = |mode: &str, message: &str| {
+        queueing(world, "hand_in::a_handed_in_lane_keeps_its_message_and_live_fix_trailer", VERB_ARGUMENTS, &["--message", message, "--", target.to_str().unwrap()])
+            .current_dir(&lane)
+            .env(CHECK_ONLY_MODE, mode)
+            .env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts"))
+            .spawn()
+            .unwrap()
+    };
+    let dirty = call("hand-in", "Uncommitted change").wait_with_output().unwrap();
+    assert_eq!(dirty.status.code(), Some(1), "{}", report(&dirty));
+    assert!(report(&dirty).contains("safe-push --check-only"), "{}", report(&dirty));
+
+    git(&lane, &["add", "checked.txt"]);
+    git(&lane, &["commit", "-qm", "Checked change (north#1650)\n\nBody.\n\nItem: north#1650\n\nCo-Authored-By: A <a@example.com>"]);
+    let checked_sha = git(&lane, &["rev-parse", "HEAD"]);
+    let unchecked = call("hand-in", "Checked change (north#1650)").wait_with_output().unwrap();
+    assert_eq!(unchecked.status.code(), Some(1), "{}", report(&unchecked));
+    assert!(report(&unchecked).contains("safe-push --check-only"), "{}", report(&unchecked));
+
+    let checked_run = call("check-only", "").wait_with_output().unwrap();
+    assert_eq!(checked_run.status.code(), Some(0), "{}", report(&checked_run));
+    assert!(report(&checked_run).contains("Done: safe-push --check-only passed"), "{}", report(&checked_run));
+    assert!(queue::pending(&north.queue).unwrap().is_empty(), "check-only queued a ticket");
+
+    let edited_message = call("hand-in", "Rewritten subject (north#1650)").wait_with_output().unwrap();
+    assert_eq!(edited_message.status.code(), Some(1), "{}", report(&edited_message));
+    assert_eq!(git(&lane, &["rev-parse", "HEAD"]), checked_sha, "a refused message edit mutated HEAD");
+
+    fs::write(lane.join("README"), "dirty tracked sibling\n").unwrap();
+    let dirty_sibling = call("hand-in", "Checked change (north#1650)").wait_with_output().unwrap();
+    assert_eq!(dirty_sibling.status.code(), Some(1), "{}", report(&dirty_sibling));
+    git(&lane, &["checkout", "--", "README"]);
+
+    let (landed_out, journal) = decided(world, north, call("hand-in", "Checked change (north#1650)"));
+    assert_eq!(landed_out.status.code(), Some(0), "{}\n{journal}", report(&landed_out));
+    assert_eq!(git(&lane, &["rev-parse", "HEAD"]), checked_sha);
+    assert_eq!(git(&north.origin, &["log", "-1", "--format=%B", "main"]).trim(), "Checked change (north#1650)\n\nBody.\n\nItem: north#1650\n\nCo-Authored-By: A <a@example.com>");
+
+    git(&north.checkout, &["fetch", "-q", "origin"]);
+    let moved_lane = worktree(north, "moved-head");
+    let moved_target = moved_lane.join("moved.txt");
+    fs::write(&moved_target, "v1\n").unwrap();
+    git(&moved_lane, &["add", "moved.txt"]);
+    git(&moved_lane, &["commit", "-qm", "First head (north#1650)"]);
+    let run_moved = |mode: &str, message: &str| {
+        queueing(world, "hand_in::a_handed_in_lane_keeps_its_message_and_live_fix_trailer", VERB_ARGUMENTS, &["--message", message, "--", moved_target.to_str().unwrap()])
+            .current_dir(&moved_lane)
+            .env(CHECK_ONLY_MODE, mode)
+            .env("NORTH_VERDICT_CACHE_DIR", world.path().join("verdicts"))
+            .output()
+            .unwrap()
+    };
+    assert_eq!(run_moved("check-only", "").status.code(), Some(0));
+    fs::write(&moved_target, "v2\n").unwrap();
+    git(&moved_lane, &["commit", "-qam", "Second head (north#1650)"]);
+    let refused_moved = run_moved("hand-in", "Second head (north#1650)");
+    assert_eq!(refused_moved.status.code(), Some(1), "{}", report(&refused_moved));
+    assert!(report(&refused_moved).contains("safe-push --check-only"), "{}", report(&refused_moved));
 }
 
 #[test]

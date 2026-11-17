@@ -9,6 +9,8 @@ pub(super) struct Arguments<'a> {
     pub several_commits: Option<&'a str>,
     pub keep_lane: bool,
     pub wait: bool,
+    pub check_only: bool,
+    pub require_check_only: bool,
 }
 
 impl Arguments<'_> {
@@ -35,23 +37,31 @@ pub(super) fn parse(arguments: &[String]) -> Result<Arguments<'_>, u8> {
         [flag, file, rest @ ..] if flag == "--message" => (Some(read_message(file)?), rest),
         rest => (None, rest),
     };
-    let (several_commits, rest) = match rest {
+    let (several_commits, mut rest) = match rest {
         [flag, reason, rest @ ..] if flag == "--several-commits" && message.is_none() && !reason.trim().is_empty() => (Some(reason.as_str()), rest),
         rest => (None, rest),
     };
-    let (keep_lane, rest) = match rest {
-        [flag, rest @ ..] if flag == "--keep-lane" => (true, rest),
-        rest => (false, rest),
-    };
-    let (wait, rest) = match rest {
-        [flag, rest @ ..] if flag == "--wait" => (true, rest),
-        rest => (false, rest),
-    };
-    if !rest.is_empty() {
+    let (mut keep_lane, mut wait, mut check_only, mut require_check_only) = (false, false, false, false);
+    while let [flag, tail @ ..] = rest {
+        let slot = match flag.as_str() {
+            "--keep-lane" => &mut keep_lane,
+            "--wait" => &mut wait,
+            "--check-only" => &mut check_only,
+            "--require-check-only" => &mut require_check_only,
+            _ => break,
+        };
+        if *slot {
+            eprintln!("{USAGE}");
+            return Err(64);
+        }
+        *slot = true;
+        rest = tail;
+    }
+    if !rest.is_empty() || (check_only && (keep_lane || wait || require_check_only)) {
         eprintln!("{USAGE}");
         return Err(64);
     }
-    Ok(Arguments { repo, message, several_commits, keep_lane, wait })
+    Ok(Arguments { repo, message, several_commits, keep_lane, wait, check_only, require_check_only })
 }
 
 fn read_message(file: &str) -> Result<String, u8> {

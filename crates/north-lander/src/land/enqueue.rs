@@ -27,14 +27,18 @@ use timings::Timings;
 mod alone;
 use alone::checked_alone;
 pub use facts::Facts;
-use refuse::{DiffOnly, confined_worker_here, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
+use refuse::{DiffOnly, confined_worker_here as is_confined_worker_here, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
+
+pub fn confined_worker_here() -> bool {
+    is_confined_worker_here()
+}
 use super::scans::outgoing;
 use north_landing::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen};
 use crate::land::slots::runner::{self, STOPPED, Stop};
 use north_diff_gates::landing_refusals;
 
-const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
+const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane] [--wait] [--check-only]";
 pub const REFUSALS: &str = "north/enqueue-refusals.jsonl";
 
 #[derive(Clone, Copy, Debug)]
@@ -42,6 +46,9 @@ pub enum Shape<'a> {
     OneCommit { message: Option<&'a str> },
     SeveralCommits { reason: &'a str },
 }
+
+pub use super::check_only::{Checked, Mode};
+pub type Outcome = super::check_only::Outcome<Queued>;
 
 #[derive(Debug)]
 pub struct Queued {
@@ -171,17 +178,33 @@ fn marks(root: &Path, base: &str, head: &str) -> Result<Marks, String> {
 }
 
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, facts: Option<Facts>) -> Result<Queued, String> {
+    match enqueue_mode(repo, shape, Mode::Queue { keep_lane, require_check_only: false }, environment, facts)? {
+        Outcome::Queued(queued) => Ok(*queued),
+        Outcome::Checked(_) => unreachable!("Mode::Queue returns Outcome::Queued"),
+    }
+}
+
+pub fn check_only(repo: &Path, shape: Shape, environment: &Environment, facts: Option<Facts>) -> Result<Checked, String> {
+    match enqueue_mode(repo, shape, Mode::CheckOnly, environment, facts)? {
+        Outcome::Checked(checked) => Ok(checked),
+        Outcome::Queued(_) => unreachable!("Mode::CheckOnly returns Outcome::Checked"),
+    }
+}
+
+pub fn enqueue_mode(repo: &Path, shape: Shape, mode: Mode, environment: &Environment, facts: Option<Facts>) -> Result<Outcome, String> {
     let timings = Timings::start(environment.called_micros);
-    let queued = timed_enqueue(repo, shape, keep_lane, environment, &timings, facts);
+    let outcome = timed_enqueue(repo, shape, mode, environment, &timings, facts);
     println!("{}", timings.line());
-    if let Ok(queued) = &queued {
+    if let Ok(Outcome::Queued(queued)) = &outcome {
         let ticket = queued.path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
         timings.record(&queue::directory(environment.state_home, &queued.ticket.origin).join("logs"), &queued.ticket.head, &queued.ticket.branch, &ticket, environment.host);
     }
-    if let Err(why) = &queued {
+    if let Err(why) = &outcome
+        && mode.records_refusal()
+    {
         record_refused(repo, (environment.state_home, environment.host), &timings, why);
     }
-    queued
+    outcome
 }
 
 fn record_refused(repo: &Path, (state_home, host): (&Path, &str), timings: &Timings, why: &str) {
@@ -191,7 +214,7 @@ fn record_refused(repo: &Path, (state_home, host): (&Path, &str), timings: &Timi
     timings.record_refused(&queue::directory(state_home, &origin).join("logs"), &head, &branch, host, &summary);
 }
 
-fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment, timings: &Timings, facts: Option<Facts>) -> Result<Queued, String> {
+fn timed_enqueue(repo: &Path, shape: Shape, mode: Mode, environment: &Environment, timings: &Timings, facts: Option<Facts>) -> Result<Outcome, String> {
     let (root, branch) = checkout(repo)?;
     let origin = git(&root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
     let destination = default_branch(&root);
@@ -202,6 +225,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     timings.stage("nothing to land", || refuse_nothing_to_land(&root, &base, &destination))?;
     timings.stage("conflict", || refuse_conflict(&root, &base, &destination))?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    mode.verify_required(environment.state_home, &origin, &destination, &lane_head)?;
     let folded = timings.stage("merge fold", || north_landing::landing::merge_continue::fold(&root, &root.join(north_landing::landing::merge_set::DEFAULT_CONFIG), &base))?;
     if !folded.is_empty() {
         println!("safe-push: sorted {} and folded the result into the lane", folded.join(", "));
@@ -210,11 +234,6 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
     let outbox = is_other_host(&lander_host, environment.host);
     let stop = Stop::new();
     std::thread::scope(|scope| {
-        let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
-        let checked_tree = git(&root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])?;
-        let gates_first = static_first::enabled();
-        let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop).map_err(|refusal| refused_finish(environment.session, &root, &lane_head, refusal)), || (runner::queue_steps(), runner::queue_windows()));
-        let early = (!gates_first).then(|| scope.spawn(run_checks));
         let first_commit_secs = first_commit::seconds(&root, &branch, &base);
         let stated = matches!(shape, Shape::OneCommit { message: Some(_) });
         let (squash, several_commits) = timings.stage("squash", || Ok::<_, String>(match shape {
@@ -223,6 +242,12 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         }))?;
         let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
         lane_squash::refuse_unfinished_subject(&root, &branch, &lane_head, stated)?;
+        mode.verify_required(environment.state_home, &origin, &destination, &head)?;
+        let secrets = scope.spawn(|| timings.stage("secret scan", || outgoing::enqueue_secrets(&root, (&base, &lane_head))));
+        let checked_tree = git(&root, &["rev-parse", "--verify", &format!("{lane_head}^{{tree}}")])?;
+        let gates_first = static_first::enabled();
+        let run_checks = || timings.stage_in_steps("queue checks", || (environment.queue_checks)(&root, &base, &lane_head, environment.north, &stop).map_err(|refusal| refused_finish(environment.session, &root, &lane_head, refusal)), || (runner::queue_steps(), runner::queue_windows()));
+        let early = (!gates_first).then(|| scope.spawn(run_checks));
         let queue = queue::directory(environment.state_home, &origin);
         let seen = Seen { visibility: facts.repository().visibility.clone(), held: None };
         let asked_micros = micros();
@@ -237,7 +262,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             });
             let rest = (|| {
                 timings.stage("requeue", || super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session))?;
-                let gated_from = refuse_diff_only(DiffOnly { environment, timings, root: &root, branch: &branch, base: &base, head: &head, ledger: lander_ledger_at(&lander_host, &queue, environment), record: true })?;
+                let gated_from = refuse_diff_only(DiffOnly { environment, timings, root: &root, branch: &branch, base: &base, head: &head, ledger: lander_ledger_at(&lander_host, &queue, environment), record: matches!(mode, Mode::Queue { .. }) })?;
                 let (checks, secrets) = match early {
                     Some(checks) => (checks, Some(secrets)),
                     None => {
@@ -264,6 +289,13 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
             let (gate, ran, answered) = asked??;
             Ok::<_, String>(((gate, ran, answered), gated_from, marks, failed_on_main))
         })?;
+        let keep_lane = match mode {
+            Mode::CheckOnly => {
+                super::check_only::record(&super::check_only::store_dir(environment.state_home), &origin, &destination, &head)?;
+                return Ok(Outcome::Checked(Checked { root: root.clone(), branch: branch.clone(), head, squash }));
+            }
+            Mode::Queue { keep_lane, .. } => keep_lane,
+        };
         let unreviewed = timings.stage("review", || super::review_request::held(&root, &base, &head))?;
         let hand_in = HandIn { called_micros: environment.called_micros, gates_micros: micros(), asked_micros, verdict_micros: (gate == outgoing::Gate::Judged).then_some(answered), wakes_session: environment.session.is_some() && !environment.waits, judge: ran };
         let queued_micros = micros();
@@ -292,7 +324,7 @@ fn timed_enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Envir
         let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
         let path = directory.join(queue::file_name(queued_micros, &branch));
         timings.stage("ticket", || file(&directory, &path, &ticket, outbox.then_some(base.as_str())))?;
-        Ok(Queued { path, outbox, ticket, squash })
+        Ok(Outcome::Queued(Box::new(Queued { path, outbox, ticket, squash })))
     })
 }
 
@@ -339,15 +371,16 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     let sources = Denylist::from_env();
     let north = land_north();
     let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), confined_worker: confined_worker_here(), waits: parsed.wait, denylist: &sources, queue_checks: runner::judge_queue_checks_until, north: &north };
-    match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment, Facts::kept()) {
-        Ok(queued) => {
-            match &queued.squash {
-                Squash::Kept(reason) => println!("safe-push: lane not squashed: {reason}"),
-                Squash::Squashed { commits, head } => println!("safe-push: queued the lane's {commits} unpublished commits as one commit {head}"),
-                Squash::Unchanged => {}
-            }
-            println!("Done: queued {}{} {} {}, ticket {}", if queued.outbox { "(outbox) " } else { "" }, queued.ticket.root.display(), queued.ticket.branch, queued.ticket.head, queued.path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()));
+    let mode = Mode::from_flags(parsed.check_only, parsed.keep_lane, parsed.require_check_only);
+    match enqueue_mode(repo, parsed.shape(), mode, &environment, Facts::kept()) {
+        Ok(Outcome::Checked(checked)) => super::check_only::announce_checked(&checked),
+        Ok(Outcome::Queued(queued)) => {
+            super::check_only::announce_queued(queued.outbox, (&queued.ticket.root, &queued.ticket.branch, &queued.ticket.head), &queued.path, &queued.squash);
             if parsed.wait { hand_in(repo, &queued, &state_home) } else { 0 }
+        }
+        Err(error) if parsed.check_only => {
+            eprintln!("safe-push: ✗ safe-push --check-only failed: {error}; NOT passed.");
+            1
         }
         Err(error) => {
             record_refusal(&state_home, repo, session.as_deref(), &error);
@@ -383,22 +416,12 @@ fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
 
-/// One refusal record: when, where, the lane and session that handed in, the failing step and its first error line, and the whole refusal text.
-fn refusal_row(micros: u128, repo: &Path, (lane, session): (Option<&str>, Option<&str>), error: &str) -> serde_json::Value {
-    let (step, first) = match runner::failing(error) {
-        Some(failing) => failing,
-        None => (error.split(';').next().unwrap_or(error).trim(), error.lines().next().unwrap_or(error)),
-    };
-    let shorten = |text: &str, bound: usize| text.chars().take(bound).collect::<String>();
-    serde_json::json!({ "micros": micros, "root": repo.to_string_lossy(), "lane": lane, "session": session, "step": shorten(step, 120), "first_error": shorten(first, 300), "error": error })
-}
+use super::check_only::refusal_row;
 
 fn record_refusal(state_home: &Path, repo: &Path, session: Option<&str>, error: &str) {
     let lane = checkout(repo).ok().map(|(_, branch)| branch);
     let row = refusal_row(micros(), repo, (lane.as_deref(), session), error);
-    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(state_home.join(REFUSALS)) {
-        let _ = io::Write::write_all(&mut file, format!("{row}\n").as_bytes());
-    }
+    super::check_only::append_refusal(&state_home.join(REFUSALS), &row);
 }
 
 #[cfg(test)]

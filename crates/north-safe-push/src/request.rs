@@ -5,6 +5,8 @@ const DESTRUCTIVE: [&str; 6] = ["-f", "--force", "--force-with-lease", "--mirror
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Arguments {
     pub dry_run: bool,
+    pub check_only: bool,
+    pub require_check_only: bool,
     pub keep_lane: bool,
     pub direct: bool,
     pub wait: bool,
@@ -56,12 +58,14 @@ pub fn arguments(arguments: &[String]) -> Result<Plan, Refusal> {
         rest = tail;
         match flag.as_str() {
             "-h" | "--help" => {
-                if !tail.is_empty() || parsed.dry_run || parsed.tag.is_some() || parsed.delete_tag.is_some() || parsed.to.is_some() {
+                if !tail.is_empty() || parsed.dry_run || parsed.check_only || parsed.require_check_only || parsed.tag.is_some() || parsed.delete_tag.is_some() || parsed.to.is_some() {
                     return Err(usage_error("--help cannot be combined with other arguments"));
                 }
                 return Ok(Plan::Help);
             }
             "--dry-run" => set_once(&mut parsed.dry_run, "--dry-run")?,
+            "--check-only" => set_once(&mut parsed.check_only, "--check-only")?,
+            "--require-check-only" => set_once(&mut parsed.require_check_only, "--require-check-only")?,
             "--keep-lane" => set_once(&mut parsed.keep_lane, "--keep-lane")?,
             "--direct" => set_once(&mut parsed.direct, "--direct")?,
             "--wait" => set_once(&mut parsed.wait, "--wait")?,
@@ -108,10 +112,16 @@ fn take_value<'a>(
 
 fn check_combination(parsed: &Arguments) -> Result<(), Refusal> {
     if parsed.delete_tag.is_some() {
-        let others = parsed.tag.is_some() || parsed.to.is_some() || parsed.keep_lane || parsed.direct || parsed.wait || parsed.message.is_some() || parsed.several_commits.is_some();
+        let others = parsed.tag.is_some() || parsed.to.is_some() || parsed.check_only || parsed.require_check_only || parsed.keep_lane || parsed.direct || parsed.wait || parsed.message.is_some() || parsed.several_commits.is_some();
         if others {
             return Err(usage_error("--delete-tag cannot be combined with other arguments but --dry-run"));
         }
+    }
+    if parsed.check_only && (parsed.dry_run || parsed.require_check_only || parsed.keep_lane || parsed.direct || parsed.wait || parsed.tag.is_some()) {
+        return Err(usage_error("--check-only cannot be combined with --dry-run, --keep-lane, --direct, --wait or --tag"));
+    }
+    if parsed.require_check_only && (parsed.to.is_none() || parsed.dry_run || parsed.tag.is_some()) {
+        return Err(usage_error("--require-check-only needs --to and cannot be combined with --dry-run or --tag"));
     }
     if parsed.tag.is_some() && parsed.to.is_some() {
         return Err(usage_error("--to cannot be combined with --tag"));
@@ -122,8 +132,8 @@ fn check_combination(parsed: &Arguments) -> Result<(), Refusal> {
     if parsed.wait && (parsed.to.is_none() || parsed.dry_run) {
         return Err(usage_error("--wait needs --to and cannot be combined with --dry-run"));
     }
-    if (parsed.message.is_some() || parsed.several_commits.is_some()) && parsed.to.is_none() {
-        return Err(usage_error("--message and --several-commits need --to"));
+    if (parsed.message.is_some() || parsed.several_commits.is_some()) && parsed.to.is_none() && !parsed.check_only {
+        return Err(usage_error("--message and --several-commits need --to or --check-only"));
     }
     if parsed.message.is_some() && parsed.several_commits.is_some() {
         return Err(usage_error("--message cannot be combined with --several-commits"));
@@ -150,7 +160,7 @@ pub struct Destination {
 }
 
 pub fn destination(arguments: &[String]) -> Option<Destination> {
-    let Ok(Plan::Push(Arguments { tag: None, to: Some(to), dry_run, .. })) = self::arguments(arguments) else { return None };
+    let Ok(Plan::Push(Arguments { tag: None, check_only: false, to: Some(to), dry_run, .. })) = self::arguments(arguments) else { return None };
     Some(Destination { to, dry_run })
 }
 

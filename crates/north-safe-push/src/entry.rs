@@ -43,13 +43,18 @@ fn dispatch(arguments: &[String], shell: &Shell) -> u8 {
     match default_destination(&request, shell) {
         Some(to) if request.dry_run => preflight::run(&request, &to, shell),
         Some(to) => route::land(arguments, &request, &to, shell),
+        None if request.check_only => {
+            let default = shell.git.default_branch();
+            eprint!("safe-push: --check-only checks a lane against origin's default branch ({default})\n{USAGE}");
+            2
+        }
         None => publication::run(arguments, shell),
     }
 }
 
 fn default_destination(request: &Arguments, shell: &Shell) -> Option<String> {
     let default = shell.git.default_branch();
-    let to = request.to.clone().or_else(|| shell.git.current_branch())?;
+    let to = request.to.clone().or_else(|| request.check_only.then(|| default.clone())).or_else(|| shell.git.current_branch())?;
     (to == default).then_some(to)
 }
 
@@ -66,4 +71,12 @@ pub fn safe_push(arguments: &[String], host: &HostFacts) -> u8 {
 
 pub fn release(arguments: &[String]) -> u8 {
     release::run(arguments, &Shell::live(Path::new(".")))
+}
+
+pub fn enqueues_to(arguments: &[String]) -> Option<String> {
+    match request::arguments(arguments) {
+        Ok(Plan::Help) | Ok(Plan::Push(Arguments { check_only: true, .. })) => None,
+        Ok(Plan::Push(args)) => Some(args.to.unwrap_or_else(|| "main".to_owned())),
+        Err(_) => Some(arguments.iter().skip_while(|word| *word != "--to").nth(1).map_or_else(|| "main".to_owned(), Clone::clone)),
+    }
 }

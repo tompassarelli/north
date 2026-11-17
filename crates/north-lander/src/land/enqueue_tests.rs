@@ -586,10 +586,28 @@ fn a_confined_worker_is_refused_at_enqueue_on_ring_zero_paths_while_an_unconfine
     assert!(denied_defaults.contains("key ring0_knob"), "{denied_defaults}");
 }
 
+fn check_only_records_pass_without_queueing_and_require_check_only_refuses_unchecked_or_moved_heads() {
+    let lane = Lane::new();
+    let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
+    lane.commit("checked lane change", &[]);
+    let env = || super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: None, confined_worker: false, waits: false, denylist: &denylist, queue_checks: crate::land::slots::runner::judge_queue_checks_until, north: &lane.north };
+    let unchecked = super::enqueue_mode(&lane.repo, super::Shape::OneCommit { message: None }, super::Mode::Queue { keep_lane: false, require_check_only: true }, &env(), None).unwrap_err();
+    assert!(unchecked.contains("safe-push --check-only"), "{unchecked}");
+    let checked = super::check_only(&lane.repo, super::Shape::OneCommit { message: None }, &env(), None).unwrap();
+    let queue_dir = super::queue::directory(&state, &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
+    assert!(super::queue::pending(&queue_dir).unwrap_or_default().is_empty(), "check-only wrote a ticket");
+    let queued = super::enqueue_mode(&lane.repo, super::Shape::OneCommit { message: None }, super::Mode::Queue { keep_lane: false, require_check_only: true }, &env(), None).unwrap();
+    assert!(matches!(queued, super::Outcome::Queued(ref q) if q.ticket.head == checked.head));
+    lane.commit("unverified follow-up", &[]);
+    let moved = super::enqueue_mode(&lane.repo, super::Shape::OneCommit { message: None }, super::Mode::Queue { keep_lane: false, require_check_only: true }, &env(), None).unwrap_err();
+    assert!(moved.contains("safe-push --check-only"), "{moved}");
+}
+
 #[test]
 fn a_hand_in_whose_checks_wait_for_a_slot_is_never_queued_unjudged_and_a_hand_in_already_on_main_is_refused_before_the_queue() {
     a_hand_in_whose_head_is_already_on_main_is_refused_before_the_queue_naming_its_uncommitted_paths_while_a_lane_behind_main_with_its_own_commit_still_queues();
     a_confined_worker_is_refused_at_enqueue_on_ring_zero_paths_while_an_unconfined_session_queues();
+    check_only_records_pass_without_queueing_and_require_check_only_refuses_unchecked_or_moved_heads();
     let mut lane = Lane::new();
     lane.queue_checks = slot_source_stops_the_wait;
     lane.commit("add a land check every build host's slot line refuses", &[]);

@@ -19,7 +19,7 @@ use north_lander::land::enqueue;
 use north_lander::land::scans::outgoing::denylist::Denylist;
 use north_landing::land::{hold, queue, repositories, setting};
 
-const USAGE: &str = "usage: safe-push --to BRANCH [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
+const USAGE: &str = "usage: safe-push [--check-only] [--to BRANCH] [--message FILE | --several-commits REASON] [--keep-lane] [--wait]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Settings {
@@ -93,6 +93,12 @@ fn ticket_arguments(request: &Arguments) -> Vec<String> {
     if request.wait {
         arguments.push("--wait".to_owned());
     }
+    if request.check_only {
+        arguments.push("--check-only".to_owned());
+    }
+    if request.require_check_only {
+        arguments.push("--require-check-only".to_owned());
+    }
     arguments
 }
 
@@ -118,7 +124,9 @@ fn run(arguments: &[String], called_micros: u128) -> u8 {
     let host = repositories::local_host();
     match decide(&settings, &host, &to, &request) {
         Route::Lander => {
-            if let Some(reason) = unserved(repo, &to, &host) {
+            if !request.check_only
+                && let Some(reason) = unserved(repo, &to, &host)
+            {
                 eprintln!("safe-push: {reason}");
                 return 1;
             }
@@ -132,7 +140,9 @@ fn run(arguments: &[String], called_micros: u128) -> u8 {
 }
 
 pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) -> u8 {
-    if let Err(frozen) = north_landing::land::freeze::unfrozen() {
+    if !request.check_only
+        && let Err(frozen) = north_landing::land::freeze::unfrozen()
+    {
         eprintln!("safe-push: ✗ {frozen}.");
         return 1;
     }
@@ -141,15 +151,24 @@ pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) 
     let code = match claim(shell) {
         Ok(claims) => {
             timeline.announce();
-            let facts = enqueue::Facts::kept().filter(|kept| kept.base().is_ok()).or_else(|| enqueue::Facts::start(Path::new("."), to, &Denylist::from_env()).inspect(enqueue::Facts::keep));
-            match facts.as_ref().filter(|facts| facts.base().is_ok()).map_or_else(|| fetch_destination(shell, to), |_| Ok(Destination::Queue)) {
-                Ok(Destination::Queue) => run_noting_the_slot(arguments, &timeline, to),
+            match land_destination(shell, to) {
+                Ok(Destination::Queue) => run_noting_the_slot(arguments, request, &timeline, to),
+                Ok(Destination::EmptyOrigin) if request.check_only => run_noting_the_slot(arguments, request, &timeline, to),
                 Ok(Destination::EmptyOrigin) => return preflight::publish_root(request, to, shell, &claims.list, &mut timeline),
                 Err(Refused(code)) => code,
             }
         }
         Err(Refused(code)) => code,
     };
+    exit_for(code, shell, &mut timeline)
+}
+
+fn land_destination(shell: &Shell, to: &str) -> Step<Destination> {
+    let facts = enqueue::Facts::kept().filter(|kept| kept.base().is_ok()).or_else(|| enqueue::Facts::start(Path::new("."), to, &Denylist::from_env()).inspect(enqueue::Facts::keep));
+    facts.as_ref().filter(|facts| facts.base().is_ok()).map_or_else(|| fetch_destination(shell, to), |_| Ok(Destination::Queue))
+}
+
+fn exit_for(code: u8, shell: &Shell, timeline: &mut Timeline) -> u8 {
     match code {
         _ if code == 0 || shell.settings.raw_exit => code,
         130 | 143 => {
@@ -164,8 +183,8 @@ pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) 
     }
 }
 
-fn run_noting_the_slot(arguments: &[String], timeline: &Timeline, to: &str) -> u8 {
-    let note = when_it_goes_live(to);
+fn run_noting_the_slot(arguments: &[String], request: &Arguments, timeline: &Timeline, to: &str) -> u8 {
+    let note = (!request.check_only).then(|| when_it_goes_live(to)).flatten();
     let code = run(arguments, u128::from(timeline.started_ms()) * 1000);
     if let Some(note) = note.filter(|_| code == 0) {
         println!("{note}");

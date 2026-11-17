@@ -1,4 +1,4 @@
-Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--wait] [--message FILE | --several-commits REASON]
+Usage: safe-push [--dry-run | --check-only] [--to BRANCH] [--keep-lane] [--wait] [--message FILE | --several-commits REASON]
        safe-push [--dry-run] --tag NAME
        safe-push [--dry-run] --delete-tag NAME
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH [--by COMMIT]]
@@ -13,6 +13,8 @@ Move longer detail to CLI --help, help TOPIC, or indexed docs.
 
 Options:
   --dry-run    run all safety checks without pushing
+  --check-only run the lander's pre-queue checks on the current lane head and
+               record its pass for north hand-in without writing a ticket
   --to BRANCH  explicitly publish HEAD to a remote branch. On origin's default
                branch the lander lands the lane: the lander queues it
                when this host is landing.lander-host, an ssh host of orchestration.toml,
