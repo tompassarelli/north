@@ -14,16 +14,12 @@ use starts::write_starts;
 use far::{cache_far, deliver_far, drop_far, far_hosts, take_far};
 use super::registry::{Fleet, HandedIn};
 use super::stage::{Detached, Late};
-use super::store::{Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LeaseTable, LedgerHost, WaitKey};
+use super::store::{Exchange, Exchanged, FarRegistry, FleetRow, FleetTable, Handed, HandedRow, LeaseTable, OverSsh, Store, WaitKey};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
 
-pub type OpenLedger = Arc<dyn Fn() -> NorthResult<Box<dyn LedgerHost + Send>> + Send + Sync>;
-
-pub fn open_ledger<L: LedgerHost + Send + 'static>(open: impl Fn() -> NorthResult<L> + Send + Sync + 'static) -> OpenLedger {
-    Arc::new(move || Ok(Box::new(open()?) as Box<dyn LedgerHost + Send>))
-}
+pub type OpenLedger = Arc<dyn Fn() -> NorthResult<Store> + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Budgets {
@@ -102,7 +98,7 @@ pub struct FarHost {
 }
 
 pub struct Pulls {
-    pub spools: Arc<dyn FarSpools + Send>,
+    pub spools: Arc<OverSsh>,
     pub always: Vec<FarHost>,
     pub starts: Option<StartWriter>,
 }
@@ -319,7 +315,7 @@ fn settle(fleet: &Fleet, ledger: &OpenLedger, clock: &Clock, ticked: &mut Ticked
     }
     let settling = {
         let (ledger, settled) = (ledger.clone(), settled.clone());
-        detach_metered("settle", move || ledger()?.settle(&settled))
+        detach_metered("settle", move || ledger()?.settle_all(&settled))
     };
     let left = match clock.wait("settle", &settling, Instant::now() + budgets.ledger) {
         Ok(Ok(())) => Vec::new(),

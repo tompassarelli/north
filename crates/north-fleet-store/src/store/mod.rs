@@ -20,8 +20,8 @@ mod waits;
 
 pub use cache::{FleetTable, LeaseTable, cache_leases, cache_sessions, cache_table, cached_gates, cached_leases, cached_sessions, sessions_cached_ms};
 pub use gates::GateRow;
-pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
-pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, Pull, Undecodable, UnknownKind, drop_with, set_aside_with, take_with};
+pub use exchange::{Addressee, Exchange, Exchanged};
+pub use remote::{FarRegistry, Handed, HandedRow, OverSsh, Pull, Undecodable, UnknownKind, drop_with, set_aside_with, take_with};
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
 pub use registrar::{Registered, Registrar, Registration};
 pub use sent::delivered_by;

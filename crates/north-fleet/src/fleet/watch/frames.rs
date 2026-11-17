@@ -1,6 +1,5 @@
 //! How a watch reads its provider's frames: the questions it relays, the prompts and answers it journals,
 //! and the rest, compaction or exit it asks its session host for.
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -37,7 +36,6 @@ impl TurnWatch {
         if let Some(id) = self.runtime.accepted_prompt(&frame) {
             self.unaccepted.journal().accepted(&id);
         }
-        self.record_usage(&frame);
         let signals = self.runtime.signals(&frame);
         for signal in &signals {
             self.views.entry(signal.conversation().to_owned()).or_insert_with(|| View::of(signal.conversation()));
@@ -133,10 +131,6 @@ impl TurnWatch {
         self.closing = true;
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
-        }
-        let ended: HashSet<String> = host_sessions(&self.root, &self.host_dir).into_iter().filter_map(|record| record.conversation).collect();
-        for conversation in &ended {
-            self.recording.ended(conversation);
         }
         let retired = !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() && self.retire(Phase::HostEnded);
         let waits = Waits::in_root(&self.root);

@@ -61,15 +61,6 @@ impl From<Vec<FleetRow>> for Pull {
     }
 }
 
-pub trait FarSpools: Sync {
-    fn take(&self, ssh: &str) -> NorthResult<Pull>;
-    fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()>;
-    fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()>;
-    fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()>;
-    fn registry(&self, ssh: &str) -> NorthResult<FarRegistry>;
-    fn deliver(&self, ssh: &str, rows: &[FleetRow]) -> NorthResult<Vec<HandedRow>>;
-}
-
 pub struct OverSsh {
     ssh: PathBuf,
 }
@@ -95,28 +86,28 @@ impl OverSsh {
     }
 }
 
-impl FarSpools for OverSsh {
-    fn take(&self, ssh: &str) -> NorthResult<Pull> {
+impl OverSsh {
+    pub fn take(&self, ssh: &str) -> NorthResult<Pull> {
         take_with(|words, input| self.run(ssh, words, input))
     }
 
-    fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
+    pub fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
         drop_with(|words, input| self.run(ssh, words, input), ids)
     }
 
-    fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
+    pub fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
         set_aside_with(|words, input| self.run(ssh, words, input), ids)
     }
 
-    fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()> {
+    pub fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()> {
         self.run(ssh, &["fleet", "spool", "cache"], &serde_json::to_vec(table)?).map(drop)
     }
 
-    fn registry(&self, ssh: &str) -> NorthResult<FarRegistry> {
+    pub fn registry(&self, ssh: &str) -> NorthResult<FarRegistry> {
         Ok(serde_json::from_slice(&self.run(ssh, &["fleet", "spool", "registry"], &[])?)?)
     }
 
-    fn deliver(&self, ssh: &str, rows: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
+    pub fn deliver(&self, ssh: &str, rows: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
         Ok(serde_json::from_slice(&over_ssh_via(&self.ssh, ssh, &["fleet", "spool", "deliver"], Some(&serde_json::to_vec(rows)?), DELIVER_WAIT)?)?)
     }
 }

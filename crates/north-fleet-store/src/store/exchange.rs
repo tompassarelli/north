@@ -7,7 +7,7 @@ use north_foundation::error::NorthResult;
 use north_foundation::foundation::clock::Timestamp;
 
 use super::schema::sql;
-use super::waits::{self, WaitKey, WaitRow};
+use super::waits::{self, WaitRow};
 use super::{FleetRow, GateRow, RowKind, SessionRow, Store};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -45,13 +45,8 @@ pub struct Exchanged {
     pub now: String,
 }
 
-pub trait LedgerHost {
-    fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged>;
-    fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()>;
-}
-
-impl LedgerHost for Store {
-    fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
+impl Store {
+    pub fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
         self.put(&exchange.rows)?;
         self.record_takes(&exchange.addressees)?;
         let held_elsewhere = self.publish_over(&exchange.host, &exchange.sessions, &exchange.outranks)?;
@@ -62,12 +57,6 @@ impl LedgerHost for Store {
         Ok(Exchanged { held_elsewhere, sessions: self.sessions()?, gates: self.gates()?, rows: addressed(&self.db, &exchange.addressees)?, waits, now: Timestamp::now().iso() })
     }
 
-    fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()> {
-        self.settle_all(waits)
-    }
-}
-
-impl Store {
     pub fn addressed_to(&self, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
         addressed(&self.db, addressees)
     }

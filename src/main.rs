@@ -3,14 +3,13 @@ mod coordinator;
 #[cfg(test)]
 mod run_time_readers_tests;
 
-use north_calibration::threads;
+use north_threads::threads;
 use north_capacity_host::capacity;
 use north_agent_policy::{agent_catalog, agent_config_check, agent_policy_contract};
-use north_base::{autoland_status, land_ticket, platform::{self, entry_points::{self, EntryPoint}}, run_time_data};
+use north_base::{autoland_status, platform::{self, entry_points::{self, EntryPoint}}, run_time_data};
 use north_foundation::{error, foundation};
 use north_fleet_supervisor::{fleet};
-use north_pace::{router, usage};
-use north_providers::{ledger, providers};
+use north_pace::router;
 use north_code_health::code_health;
 use north_guard::{guard, hook, nix_explain};
 use north_lanes::lanes;
@@ -23,13 +22,11 @@ use north_ci::private_check;
 use north_github_broker::gh_broker;
 use north_runtime::{laptop_runner, runtime};
 use north_worker_sandbox::{agent_contain, worker_sandbox};
-use north_pace::{spend};
 use north_credentials::credentials;
 use north_remote_serve::remote_serve;
 
-static RUN_TIME_READERS: [run_time_data::Consumer; 5] = [
+static RUN_TIME_READERS: [run_time_data::Consumer; 4] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },
-    run_time_data::Consumer { path: "harness/defaults.toml", validate: cli::validate_coordinator_chain },
     run_time_data::Consumer { path: "north-data/private-checks.toml", validate: private_check::validate },
     run_time_data::Consumer { path: "harness/nix/cards.toml", validate: guard::nix_activity::validate },
     run_time_data::Consumer { path: "harness/file-skills.toml", validate: guard::file_skill::validate },

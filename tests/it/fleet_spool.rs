@@ -2,7 +2,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 use north_fleet_supervisor::fleet::sender::Sender;
-use north_fleet_supervisor::fleet::store::{FarSpools, FleetRow, OverSsh, RowKind, Spool};
+use north_fleet_supervisor::fleet::store::{FleetRow, OverSsh, RowKind, Spool};
 use north_foundation::foundation::shim;
 
 struct Hosts {

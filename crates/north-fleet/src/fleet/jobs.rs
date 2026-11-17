@@ -7,7 +7,7 @@ use std::sync::Arc;
 use north_foundation::error::NorthResult;
 
 use super::model::Machine;
-use super::store::{FarSpools, FleetRow, RowKind, Spool};
+use super::store::{FleetRow, OverSsh, RowKind, Spool};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Lease {
@@ -42,7 +42,7 @@ impl JobLeases for HeldLeases {
 pub struct SpooledLeases {
     ledger: Arc<dyn JobLeases>,
     spool: Spool,
-    far: Option<Arc<dyn FarSpools + Send + Sync>>,
+    far: Option<Arc<OverSsh>>,
 }
 
 impl SpooledLeases {
@@ -50,7 +50,7 @@ impl SpooledLeases {
         Self { ledger, spool, far: None }
     }
 
-    pub fn reading_far(mut self, far: Arc<dyn FarSpools + Send + Sync>) -> Self {
+    pub fn reading_far(mut self, far: Arc<OverSsh>) -> Self {
         self.far = Some(far);
         self
     }

@@ -1,5 +1,5 @@
 //! `north cloud`: the command surface over the sessions API and the cloud landing. It parses the
-//! arguments, keeps the launch, collect, land and reap paths their own, and executes the API
+//! arguments, keeps the collect and land paths their own, and executes the API
 //! commands here, leaving the transport to `api` and a turn's lifecycle to `turn`.
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ pub(super) use api::{Api, events, save};
 use api::{credentials, pages, row};
 use turn::{Finish, NUDGES, POLL, Waker, finish, send, sweep};
 
-pub(super) const USAGE: &str = "usage: north cloud list |  events SESSION_ID OUT.jsonl | sweep OUT_DIR | reap | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS] | collect EVENTS.jsonl OUT.mbox | land EVENTS.jsonl [--repo DIR]
+pub(super) const USAGE: &str = "usage: north cloud list | events SESSION_ID OUT.jsonl | sweep OUT_DIR | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS] | collect EVENTS.jsonl OUT.mbox | land EVENTS.jsonl [--repo DIR]
  sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
  send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
  wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout); a turn that ends with no Done:/Not done:/Split:/Blocked: line and no patch handback gets a continue message posted and is waited on again, at most twice, before wait reports the worker stalled and exits 1; when those events hold a patch handback it then lands it as land does.

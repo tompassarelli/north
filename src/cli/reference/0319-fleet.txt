@@ -1,1 +1,0 @@
-  fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry) that a far host's tick calls over ssh

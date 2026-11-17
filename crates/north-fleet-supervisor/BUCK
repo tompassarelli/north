@@ -2,10 +2,6 @@
 
 load("//build:rust_test.bzl", "manifest_dir_flags", "north_files", "north_rust_test")
 
-FEATURES = [
-    "test-support",
-]
-
 RUSTC_FLAGS = [
     "--forbid=unsafe_code",
     "--warn=clippy::unnecessary_to_owned",
@@ -25,7 +21,6 @@ rust_library(
     crate = "north_fleet_supervisor",
     crate_root = "src/lib.rs",
     edition = "2024",
-    features = FEATURES,
     rustc_flags = manifest_dir_flags() + RUSTC_FLAGS,
     deps = [
         "//crates/north-agent-starts:north-agent-starts",
@@ -55,7 +50,6 @@ north_rust_test(
     crate = "north_fleet_supervisor",
     crate_root = "src/lib.rs",
     edition = "2024",
-    features = FEATURES,
     rustc_flags = RUSTC_FLAGS,
     deps = [
         "//crates/north-agent-starts:north-agent-starts",

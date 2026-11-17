@@ -1,2 +1,0 @@
-accounts
-Each account's state, 5h and week room, and each api grant's dollars

@@ -50,7 +50,7 @@ fn read_only(path: &Path) -> Option<Connection> {
 }
 
 pub(super) fn paths(item: &str, wanted: Option<&str>) -> NorthResult<Vec<BoxPath>> {
-    let threads = crate::ledger::threads_database();
+    let threads = crate::threads::client::threads_database();
     let db = read_only(&threads).ok_or_else(|| NorthError::Usage(format!("north box path: cannot open the threads ledger {}", threads.display())))?;
     let runs = runs(&db, item).map_err(sql)?;
     let wanted = wanted.and_then(box_slug);

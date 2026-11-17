@@ -19,7 +19,6 @@ use super::model::{Delivery, Entry, EntryKind, Machine, Phase, Phases, Role, Ses
 use super::promises::{Reckon, Unreckoned};
 use super::receipts::{Courier, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
-use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::sender::Sender;
 use super::silent::{self, Quiet, Silence, State};
@@ -27,7 +26,6 @@ use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::tickets::{NoTickets, Tickets};
 use super::turns::{TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
-use super::usage_sink::{NoUsage, UsageSink};
 use super::wait;
 use super::waits::Waits;
 
@@ -58,8 +56,6 @@ pub struct TurnWatch {
     jobs: Arc<dyn JobLeases>,
     tickets: Arc<dyn Tickets>,
     closing: bool,
-    usage: Arc<dyn UsageSink>,
-    recording: Arc<dyn RunRecording>,
     verdicts: PathBuf,
     reckon: Arc<dyn Reckon>,
 }
@@ -193,8 +189,6 @@ impl TurnWatch {
             jobs: Arc::new(HeldLeases::default()),
             tickets: Arc::new(NoTickets),
             closing: false,
-            usage: Arc::new(NoUsage),
-            recording: Arc::new(NoRecording),
             verdicts: north_base::platform::finish_record::FinishRecords::here().0,
             reckon: Arc::new(Unreckoned),
         }
@@ -215,18 +209,8 @@ impl TurnWatch {
         self
     }
 
-    pub fn writing_usage(mut self, usage: Arc<dyn UsageSink>) -> Self {
-        self.usage = usage;
-        self
-    }
-
     pub fn reading_verdicts(mut self, verdicts: PathBuf) -> Self {
         self.verdicts = verdicts;
-        self
-    }
-
-    pub fn recording_runs(mut self, recording: Arc<dyn RunRecording>) -> Self {
-        self.recording = recording;
         self
     }
 

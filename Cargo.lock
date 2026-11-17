@@ -509,7 +509,6 @@ dependencies = [
  "north-broker",
  "north-buck",
  "north-build-system",
- "north-calibration",
  "north-capacity",
  "north-capacity-host",
  "north-check-environment",
@@ -541,7 +540,6 @@ dependencies = [
  "north-mutants",
  "north-offload",
  "north-pace",
- "north-providers",
  "north-reclaim",
  "north-registries",
  "north-remote-serve",
@@ -656,22 +654,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tempfile",
- "toml_edit",
-]
-
-[[package]]
-name = "north-calibration"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-foundation",
- "north-pace",
- "north-threads",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
  "tempfile",
  "toml_edit",
 ]
@@ -1232,31 +1214,6 @@ dependencies = [
  "north-foundation",
  "north-strategy-types",
  "proptest",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "time",
- "toml_edit",
-]
-
-[[package]]
-name = "north-providers"
-version = "0.1.0"
-dependencies = [
- "landlock",
- "north-base",
- "north-calibration",
- "north-claude-stream",
- "north-fleet-supervisor",
- "north-foundation",
- "north-graph",
- "north-pace",
- "north-runtime",
- "north-threads",
  "regex",
  "rusqlite",
  "rustix 0.38.44",

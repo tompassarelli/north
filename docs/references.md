@@ -212,7 +212,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: adopted as an outside measure of north against plain T3 Code.
 
 - <a id="terminal-bench-2-1"></a>**Terminal-Bench 2.1 harness-leaderboard comparison** (2026-11-13), the same 89-task benchmark as [Terminal-Bench 2.0](#terminal-bench-2) at its 2.1 revision, compared across agent harnesses by effort; origin link not recorded.
-  Informed: [crates/north-providers/src/providers/opencode/harness.rs](../crates/north-providers/src/providers/opencode/harness.rs) (north#1495): DeepSeek-V4.1-Flash is dispatched at low effort, because high effort cost about 28% more for 0.1 points; the owner asked on 2026-11-14 for it as a per-model fact.
+  Informed: north#1495, the per-model dispatch effort, now removed with the provider adapters: DeepSeek-V4.1-Flash is dispatched at low effort, because high effort cost about 28% more for 0.1 points; the owner asked on 2026-11-14 for it as a per-model fact.
   Reused scope: one figure, the cost and score difference between high and low effort; nothing copied.
   Outcome: adopted.
 

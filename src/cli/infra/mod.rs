@@ -11,7 +11,6 @@ pub(crate) mod report;
 pub(crate) struct Read {
     pub resources: Vec<report::Resource>,
     pub unread: Vec<String>,
-    pub billing: Result<manifest::Billing, String>,
 }
 
 pub(crate) fn read() -> (Vec<report::Resource>, Vec<String>) {
@@ -45,5 +44,5 @@ pub(crate) fn read_with_billing() -> Read {
         (None, Some(billing)) => report::merge(Vec::new(), billing),
         (None, None) => Vec::new(),
     };
-    Read { resources, unread, billing }
+    Read { resources, unread }
 }

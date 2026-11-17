@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 
-use super::fleet::entered;
 use crate::remote_serve::{self, Grants, Job, Jobs, Launch, Plan, REMOTE_PEER, Refusal, log};
 
 const LAPTOP_JOB: i64 = 1;
@@ -87,8 +86,6 @@ fn remote_serve_forces_the_peer_on_every_fleet_row_verb() {
             let plan = planned(&command).unwrap();
             assert_eq!(plan.argv, ["north", "fleet", "row", verb, "--peer", "gex45"], "{command}");
             assert_eq!(plan.env[REMOTE_PEER], "gex45");
-            assert_eq!(entered(Some("gex45"), |name| plan.env.get(name).cloned()).unwrap(), Some("gex45"));
-            assert!(entered(Some("laptop"), |name| plan.env.get(name).cloned()).is_err());
         }
         assert!(matches!(planned(&format!("north fleet row {verb} --peer laptop")), Err(Refusal::Guard(_))));
     }

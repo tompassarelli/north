@@ -74,10 +74,6 @@ impl Resource {
         }
     }
 
-    pub fn is_machine(&self) -> bool {
-        matches!(self.kind.as_str(), "machine" | "server")
-    }
-
     pub fn at(mut self, location: Option<String>) -> Self {
         self.location = location;
         self

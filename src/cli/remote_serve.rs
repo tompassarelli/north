@@ -36,7 +36,7 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<u8> {
         print!("{}", audit_text(&options, &env, Timestamp::now().unix_days())?);
         return Ok(0);
     }
-    let host = Host { exe: std::env::current_exe()?, fleet: Arc::new(super::fleet::Registry), env };
+    let host = Host { exe: std::env::current_exe()?, fleet: Arc::new(crate::threads::outside::Unread), env };
     let command = host.env.get("SSH_ORIGINAL_COMMAND").cloned();
     Ok(exit_byte(serve(&options, command.as_deref(), &host, &mut io::stderr())))
 }
@@ -119,7 +119,7 @@ impl Launch for Host {
         match words.as_slice() {
             ["threads", ..] | ["north", "threads", ..] => {
                 let skip = if words[0] == "north" { 2 } else { 1 };
-                i32::from(client::run_in(&plan.argv[skip..], env, self.fleet.clone(), crate::cli::THREADS_FAMILIES))
+                i32::from(client::run_in(&plan.argv[skip..], env, self.fleet.clone(), &[]))
             }
             ["north", ..] => spawn(self.exe.as_os_str(), &plan.argv[1..], &env),
             [program, ..] => spawn(program.as_ref(), &plan.argv[1..], &env),

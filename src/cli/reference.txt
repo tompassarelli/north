@@ -5,9 +5,6 @@ Usage: north [COMMAND]
 Run north --help for the operator and agent commands, or north COMMAND --help for one.
 
 Commands:
-  accounts [--json | --emails]                   Every account's windows, plan, api credit and spend; --emails prints each signed-in profile's sign-in email
-  accounts reset [--dry-run]                     Check the coordinator's usage reset grant against its Fable meter and log the outcome to ~/.local/state/north/usage/resets.jsonl; it never clicks the reset (docs/rationale/usage-resets.md)
-  health [--dry-run] [--json]                    Readiness bars, goals and harness invariants
   infra [--json]                                 List each live paid resource with its monthly price and a total
   home move [--dry-run] PLAN.tsv                 Apply a move plan at the top of home outside the worker sandbox: one rename per row, logged to moves.tsv, never copying or deleting
   check calls [--tree DIR] [--live DIR]         Read every north call on this host (unit Exec lines and the scripts they run, hooks, ssh hops in the --tree source) against this runtime, exit 1 naming each unparsable one; runtime update runs it from the incoming runtime before each swap
@@ -26,8 +23,6 @@ Commands:
   code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]] [--new-since REV] [--grown-since REV]  Run the Rust habit checks; --new-since reports only the findings new since REV and --grown-since adds the allowances grown since REV; --base reports each added // line that names no determinism, engine, Lua or external-format constraint, and --shadow prints the findings and exits 0
   code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold; --rev measures a fresh detached checkout of REF, --file keeps one rolling split issue per repo
   guard language                                PreToolUse language guard
-  work [--since DURATION] [--json]              Show the fleet's work: sessions, gates, landings, stalls, report and the harness-loss classes of the window with the issue that owns each
-  work own CLASS --issue REPO#N                 Record REPO#N, an open issue with an owner, as the owner of the harness-loss class CLASS, which lets the coordinator's turn end while CLASS repeats
   work list                                     List the open work items
   work search TEXT                              Search work items
   work show REPO#N                              Show one work item with its holder
@@ -47,7 +42,6 @@ Commands:
   config agents check-owners ...                Check that every registered owner exists
   config agents live-refs [--dropped-by-catalog]  List live references to managed skills and hooks
   config check guides [--refresh] [--guides DIR]  List the vendored agent-policy guides and fail when one is over 90 days old; --refresh re-fetches them at their upstream head
-  session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
   denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
@@ -85,11 +79,6 @@ Commands:
   land train record ...                         Record a train verdict in the threads ledger
   land train check ...                          Record a check run in the threads ledger
   land train red ...                            Record a red-main interval in the threads ledger
-  ledger incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]  Record a failure the moment it happens
-  ledger incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]  Record the guard that closes a failure class
-  ledger incident report [--days N] [--since EPOCH --until EPOCH]  Read incidents by class, detector-first rate and recurrences
-  ledger duplicate [--days N] [--json]          Count the worker runs that started on a box another run still worked, by day; a day without one reads 0
-  ledger opencode [--since 7d]                  Per week and DeepSeek model: boxes attempted, landed Done, checked, escalated to Claude and its cost, Go window share and limit wait, against the ledger's Sonnet rate
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   lane squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
@@ -136,23 +125,11 @@ Commands:
   cloud wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS]  Wait until a session's latest turn ended, then save its events
   cloud collect EVENTS.jsonl OUT.mbox           Decode a saved handback to an mbox
   cloud land EVENTS.jsonl [--repo DIR]          Apply a handback in a fresh lane and land it
-  fetch-fleet [VIEW [ARGS...]]                  Run git fetch, north fleet VIEW (list when none is named) and git fetch again in one call
-  fleet-for NAME...                             Run north fleet list, north fleet show NAME for each NAME and north fleet list again in one call
-  fleet-issue [ARGS...]                         Run north fleet list, gh issue ARGS (list when none is named) and north fleet list again in one call
   config operator paths [--class CLASS]         One line per path north reads from the operator repository, as PATH<TAB>CLASS in the inventory's order; class is schema, generic method, private value or secret
   config operator check [DIR] [--only NAME,...] [--distinct-from OWNER]  Read the operator repository's schema-class files against their typed keys; each finding prints as FILE: KEY: reason and the command exits 1; with --distinct-from a string a template DIR holds at an identifying key (id, name, email, repo, path, host, source and the like) that equals the owner repository OWNER's string at that key is also a finding naming the file and key, never the value; DIR defaults to the resolved operator root, NAME is costs, claude-accounts, credentials or infra
   config operator init [--check] DIR                    Create the operator repository DIR (which must not exist or be empty) holding synthetic values for every file north reads from it (accounts, costs, credentials, policy lists, orchestration, privacy lists, infra, a secrets note, the schema marker and a landing configuration) and a catalog registering each skill of north's structure registry; `north config operator check DIR` passes on it; init --check DIR exits 1 naming each file of DIR that differs from, lacks or adds to that output; init --sync DIR rewrites DIR in place to that output, with no git repository, as the lander does for examples/operator
-  ledger worker [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
-  dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]  One screen over the window: the readiness bars failing first, each Claude account's week and the spend by model and effort, and per task category the model mix, first-try success and cost per closed box; --closed prints the closed-box report dispatch decides on as JSON, the other flags the scoreboard's reports, and losses lists each first try lost to the harness with its class and boundary record
   policy off | policy on                         Take north's hooks, skills, instructions and the git checks on your own commits and pushes away on this host, or put back exactly what policy off took; stops nothing. Runs as north-switch, without the runtime
-  glance                                        One line (layer 0): whether anything is broken, whether money is all right and whether any gate waits on Tom
-  ledger runs [--json]                          Fleet turn records
-  fleet orders list                             List Tom's standing orders, rendered into every fleet session
-  fleet orders add TEXT...                      Add a standing order
-  task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
-  gate [open --session S --question Q --option O... --recommend N [--default N --default-after D | --ask-once CATEGORY [--amount TEXT]] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | withdraw ID --reason TEXT | list [--json] | digest [--peek]]  Open, answer or withdraw a decision gate (a gate with no --default names its ask-once category with --ask-once); withdraw closes a gate opened in error with its reason, for its asking session or the coordinator; digest prints the for-Tom gates still open and the defaults applied since the last look
-  fleet digest [--since DURATION]  Retired view: the digest prints as `north work --since DURATION`
-  fleet held [--since DURATION]    Print the messages held back from waking their recipient, page-flood folds included (default the last 10m)
+  task comment REPO#N --body TEXT              Comment on a work item
   fleet off [--force] | fleet on                 Stop the whole fleet on every host (dispatch, landing, sessions after their current step, every fleet unit; --force kills at once) and record it; `fleet on` starts exactly that. Runs as north-switch, without the runtime
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity dev-shell run [--dir D] (--prepare | -- COMMAND...)  Run COMMAND inside the flake default dev shell, entering it once offline from its GC root; --prepare realises the root
@@ -248,9 +225,7 @@ Commands:
   private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
   provider-capacity events [--minutes N]        Read provider capacity events
   provider-capacity status [--minutes N]        Read provider capacity state
-  fleet report                                        Retired view: `north work` prints the report
   capacity bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
-  session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND  Link a remote session unit
   session-unit SYSTEMD-RUN-ARGS...              Run systemd-run in the fleet session's scope (systemd-run's own --help passes through)
   code-health split move-module [--dry-run] --from FROM --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...  Move modules into a crate
   code-health split check [--target-dir DIR] --crate CRATE  Type-check a crate with this host's build system
@@ -258,7 +233,6 @@ Commands:
   ssh-session REAL_SSH [ARGS...]                Run ssh with session attribution
   ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers
   lane seed [DIR]                               Seed a lane's cargo target from the shared one
-  fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`
   help                                          Show the operator and agent commands
   docs reference-index [--check] [--root DIR]    Regenerate src/cli/reference.txt from the one-file-per-command tree under src/cli/reference/, or with --check fail when it is stale
   docs verbs-index [--check] [--root DIR]        Regenerate src/cli/verbs.rs from the one-file-per-verb tree under src/cli/verbs/, or with --check fail when it is stale
@@ -281,7 +255,6 @@ Commands:
   land follow                                   Run after each landing: ingest the fact graph from every source on this host
   land static-gates [--repo DIR]                Judge the lane's committed changes against every refusal that reads only the diff (generated registry, language, build-cache, dependency, stub-exec, commit trailers, test admission, code health, policy sweep, dependency age and advisory, guard suite, revert guard), the same function the hand-in runs before its checks take a build-host slot, and print the first refusal with its seconds
   depbox fetch|run -- COMMAND [ARGS...]         Run a command in the dependency sandbox: home masked except the checkout, no sudo, and under run no network; fetch may reach the network
-  fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry) that a far host's tick calls over ssh
   graph retain [--db PATH]                       Delete graph history no reader needs: occurrences, withdrawals and terms older than the retention horizon, then vacuum
   runtime settle                                Run the core-loop probes on the promoted runtime here, then ship it to the other hosts only when every probe passed
   runtime status                                Print the pinned runtime SHA, when it was promoted, and the promotions and fast paths of the last 24 hours

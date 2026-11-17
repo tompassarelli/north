@@ -13,28 +13,14 @@ mod job_run;
 mod cloud_handback;
 pub(crate) mod concern_history;
 mod cloud_land;
-mod token_usage;
 mod alarm_stats;
 mod box_path;
-mod fetch_fleet;
-mod fleet_for;
-mod fleet_issue;
 mod proof_run;
-mod fleet;
-mod steps;
-mod gate;
-mod issue_ref;
-mod gate_closing;
-mod gate_list;
-mod gate_relay;
-mod glance;
 mod holds;
 mod hook_verb;
-mod ledger;
-mod ledger_duplicate;
+mod task;
 mod moved;
 mod operator;
-mod orders;
 pub(crate) mod remote_land;
 mod draft_road;
 mod land_adopt;
@@ -42,20 +28,12 @@ mod control_plane;
 mod remote_serve;
 #[cfg(test)]
 mod remote_serve_tests;
-mod dash;
 mod infra;
 pub(crate) mod oneshot;
-pub(crate) mod scoreboard;
-mod send;
-mod session;
-#[cfg(test)]
-mod usage_error_tests;
 #[cfg(test)]
 mod laptop_runner_tests;
 #[cfg(test)]
 mod repeat_unblock_tests;
-#[cfg(test)]
-mod fleet_peer_row_tests;
 #[cfg(test)]
 mod south_land_tests;
 #[cfg(test)]
@@ -67,37 +45,25 @@ mod verb_help;
 mod verbs;
 mod views;
 mod work_items;
-mod worker_ledger;
 
-use session::Session;
 use tools::Tool;
-
-pub(crate) use fleet::coordinator_chain::validate as validate_coordinator_chain;
-
-/// The `north threads` verb families that live above north-threads, run beside the ones the ledger runs itself.
-pub(crate) const THREADS_FAMILIES: &[crate::threads::verb::Family] = &[crate::threads::calibration::FAMILY];
 
 #[derive(Debug, Eq, PartialEq)]
 enum Command {
-    Fleet(Vec<String>),
     Help,
     HelpAll,
     DesktopIdleState(Option<String>),
     Alarm(Vec<String>),
     Hook(Vec<String>),
     Nix(Vec<String>),
+    Task(Vec<String>),
     Threads(Vec<String>),
-    Ledger(Vec<String>),
     Agents(Vec<String>),
     ConfigCheck(Vec<String>),
     Work(Vec<String>),
-    Accounts(Vec<String>),
-    Session(Session, Vec<String>),
     Tool(Tool, Vec<String>),
     LanguageGate(Vec<String>),
     BuildCacheGate(Vec<String>),
-    Health(Vec<String>),
-    Glance(Vec<String>),
     Holds(Vec<String>),
     Operator(Vec<String>),
     BoxPath(Vec<String>),
@@ -150,25 +116,15 @@ type Forward = fn(&str, Vec<String>) -> Command;
 const FORWARDED: &[(&str, Forward)] = &[
     ("alarm", |_, rest| Command::Alarm(rest)),
     ("hook", |_, rest| Command::Hook(rest)),
-    ("nix", |_, rest| Command::Nix(rest)),
     ("threads", |_, rest| Command::Threads(rest)),
-    ("fleet", |name, rest| match rest.split_first() {
-        Some((verb, _)) if verb == "off" || verb == "on" => Command::Switch([vec![name.to_owned()], rest].concat()),
-        Some((verb, tail)) if let Some(tool) = Tool::fleet_verb(verb) => Command::Tool(tool, tail.to_vec()),
-        _ => Command::Fleet(rest),
-    }),
-    ("ledger", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
-    ("task", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
-    ("gate", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
+    ("nix", |_, rest| Command::Nix(rest)),
+    ("task", |name, rest| Command::Task([vec![name.to_owned()], rest].concat())),
     ("work", |_, rest| match rest.first().map(String::as_str) {
         Some("split") => Command::Tool(Tool::Work, rest),
         _ => Command::Work(rest),
     }),
-    ("accounts", |_, rest| Command::Accounts(rest)),
     ("language-gate", |_, rest| Command::LanguageGate(rest)),
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
-    ("health", |_, rest| Command::Health(rest)),
-    ("glance", |_, rest| Command::Glance(rest)),
     ("holds", |_, rest| Command::Holds(rest)),
     ("box", |_, rest| Command::BoxPath(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
@@ -176,14 +132,14 @@ const FORWARDED: &[(&str, Forward)] = &[
 ];
 
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
+    if command == "fleet" && rest.first().is_some_and(|verb| verb == "off" || verb == "on") {
+        return Some(Command::Switch([vec![command.to_owned()], rest].concat()));
+    }
     if command == "config" && rest.first().is_some_and(|verb| verb == "operator") {
         return Some(Command::Operator(rest[1..].to_vec()));
     }
     if let Some(tool) = Tool::named(command) {
         return Some(Command::Tool(tool, rest));
-    }
-    if let Some(session) = Session::named(command) {
-        return Some(Command::Session(session, rest));
     }
     FORWARDED.iter().find(|(name, _)| *name == command).map(|(name, forward)| forward(name, rest))
 }
@@ -223,9 +179,8 @@ fn dispatch(command: Command) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Command::Threads(arguments) => ExitCode::from(ledger::threads(&arguments)),
-        Command::Fleet(arguments) => fleet::run(&arguments),
-        Command::Ledger(arguments) => ledger::run(&arguments),
+        Command::Task(arguments) => task::run(&arguments),
+        Command::Threads(arguments) => ExitCode::from(task::threads(&arguments)),
         Command::VerbHelp(path) => match verb_help::usage(&path) {
             Some(text) => {
                 print!("{text}");
@@ -243,22 +198,10 @@ fn dispatch(command: Command) -> ExitCode {
         }
         Command::Agents(arguments) => agents::config(&arguments),
         Command::ConfigCheck(arguments) => in_runtime(async move { agent_catalog::config_check(&arguments).map(ExitCode::from) }),
-        Command::Work(arguments) => match arguments.first().map(String::as_str) {
-            None => views::work::run(&arguments).into(),
-            Some("own") => views::work::own(&arguments[1..]).into(),
-            Some(flag) if flag.starts_with('-') => views::work::run(&arguments).into(),
-            Some(_) => in_runtime(async move { work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS) }),
-        },
-        Command::Accounts(arguments) => views::accounts::run(&arguments).into(),
-        Command::Session(session, arguments) => in_runtime(async move { session.run(&arguments).await.map(ExitCode::from) }),
+        Command::Work(arguments) => in_runtime(async move { work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS) }),
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
-        Command::Health(arguments) => views::health::run(&arguments),
-        Command::Glance(arguments) => match glance::run(&arguments) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => failure(error),
-        },
         Command::Holds(arguments) => match holds::run(&arguments) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure(error),

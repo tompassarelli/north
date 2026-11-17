@@ -16,18 +16,9 @@ pub(super) fn code_health(arguments: &[String]) -> u8 {
     }
 }
 
-fn opencode(arguments: &[String]) -> u8 {
-    let value = ledger_verb("opencode", arguments);
-    if value == 2 {
-        return value;
-    }
-    println!();
-    value.max(crate::providers::opencode::report::run(arguments))
-}
-
 pub(super) fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
     let words: Vec<String> = std::iter::once(verb.to_owned()).chain(arguments.iter().cloned()).collect();
-    crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread), crate::cli::THREADS_FAMILIES)
+    crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread), &[])
 }
 
 fn fails_first_runs(arguments: &[String]) -> u8 {
@@ -157,16 +148,6 @@ pub(super) fn home(arguments: &[String]) -> u8 {
             2
         }
     }
-}
-
-const LEDGER: &[(&str, Run)] = &[
-    ("incident", |arguments| ledger_verb("incident", arguments)),
-    ("opencode", opencode),
-    ("worker", super::super::worker_ledger::run),
-];
-
-pub(in crate::cli) fn ledger_runner(verb: &str) -> Option<Run> {
-    runner(LEDGER, verb)
 }
 
 const RUNTIME: &[(&str, Run)] = &[

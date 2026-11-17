@@ -1,9 +1,13 @@
 use std::process::ExitCode;
 
-use super::fleet;
 use crate::{foundation, guard, hook};
 
 const GUARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
+
+fn account_home(provider: &str, label: &str) -> Option<std::path::PathBuf> {
+    let state = std::env::var_os("HOME").map(std::path::PathBuf::from)?.join(".local/state/north/profiles");
+    Some(state.join(format!("{provider}-{label}"))).filter(|home| home.is_dir())
+}
 
 pub(super) fn run(arguments: Vec<String>) -> ExitCode {
     let reported = |outcome: Result<(), String>| match outcome {
@@ -30,7 +34,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             {
                 return ExitCode::SUCCESS;
             }
-            guard::host::install(guard::host::Host { account_home: fleet::account_home, status_verb, file_tool_refusal: north_worker_sandbox::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_worker_sandbox::worker_sandbox::unreadable_by_file_tool });
+            guard::host::install(guard::host::Host { account_home, status_verb, file_tool_refusal: north_worker_sandbox::worker_sandbox::unwritable_by_file_tool, file_read_refusal: north_worker_sandbox::worker_sandbox::unreadable_by_file_tool });
             let started = std::time::Instant::now();
             let mut request = Vec::new();
             let _ = std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut request);

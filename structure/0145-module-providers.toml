@@ -1,6 +1,0 @@
-[[module]]
-name = "providers"
-paths = ["crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
-responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
-may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket", "shell", "platform.store", "platform.git", "platform.github", "platform.host", "platform.records", "usage"]
-

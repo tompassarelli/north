@@ -4,7 +4,6 @@
 pub enum Kind {
     Delegate,
     ChildMessage,
-    TomFacing,
     Brief,
     Bookkeeping,
     Landing,

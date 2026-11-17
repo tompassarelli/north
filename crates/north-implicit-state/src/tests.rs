@@ -29,7 +29,7 @@ fn source<'a>(path: &'a str, text: &'a str) -> Source<'a> {
 
 #[test]
 fn replays_the_api_exhausted_marks_of_2026_11_07() {
-    let writer = source("crates/north-providers/src/providers/claude/api_pool.rs", SPEND);
+    let writer = source("api_pool.rs", SPEND);
     let found = found(&[source("crates/north-pace/src/credit.rs", CREDIT)], &[writer]);
     assert_eq!(found, [(Shape::PresenceFlag, 3, "api-exhausted/*".to_owned())]);
     let unwritten = self::found(&[source("crates/north-pace/src/credit.rs", CREDIT)], &[]);

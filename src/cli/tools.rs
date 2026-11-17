@@ -4,7 +4,6 @@ use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_
 use self::graph::graph;
 use self::work_split::work_split;
 use self::subverbs::{Run, code_health, home, lane, land, ledger_verb, ops, runner, runtime};
-pub(super) use self::subverbs::ledger_runner;
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
     provenance,
@@ -38,9 +37,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("pin-retire", crate::lanes::pin_retire),
     ("graph", graph),
     ("docs", north_docs::docs::run),
-    ("fetch-fleet", super::fetch_fleet::run),
-    ("fleet-for", super::fleet_for::run),
-    ("fleet-issue", super::fleet_issue::run),
     ("proof-run", super::proof_run::run),
     ("control-plane", super::control_plane::run),
     ("ops", ops),
@@ -66,7 +62,6 @@ const DIRECT: &[(&str, Run)] = &[
     ("home", home),
     ("runtime", runtime),
     ("code-health", code_health),
-    ("dash", super::dash::run),
     ("infra", super::views::infra::run),
     ("depbox", |arguments| capacity::depbox::run(arguments, &capacity_host())),
 ];
@@ -77,26 +72,9 @@ pub(super) enum Tool {
     Direct(&'static str),
     Capacity,
     SessionUnit,
-    Fleet(&'static str),
     Config,
     Work,
     Test,
-}
-
-const FLEET: &[(&str, Run)] = &[("report", retired_work), ("usage", retired_usage)];
-
-fn retired_work(_: &[String]) -> u8 {
-    eprintln!("north fleet report moved to `north work`; its sessions, gates, landings, report and lane flow print there");
-    2
-}
-
-fn retired_usage(arguments: &[String]) -> u8 {
-    let writer = arguments.iter().any(|argument| matches!(argument.as_str(), "--refresh" | "--local" | "--write-pace-gate" | "--fast" | "--cached" | "--gate" | "--rows" | "sample"));
-    if writer {
-        return super::agents::usage(arguments);
-    }
-    eprintln!("north fleet usage's account view moved to `north accounts`; `north fleet usage --refresh` and the provider flags still write readings");
-    2
 }
 
 const OPERATIONS: &[(&str, Tool)] = &[
@@ -106,10 +84,6 @@ const OPERATIONS: &[(&str, Tool)] = &[
 ];
 
 impl Tool {
-    pub(super) fn fleet_verb(verb: &str) -> Option<Self> {
-        named(FLEET, verb).map(Self::Fleet)
-    }
-
     pub(super) fn named(command: &str) -> Option<Self> {
         named(UNIFORM, command)
             .map(Self::Uniform)
@@ -124,10 +98,6 @@ impl Tool {
                 super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
             }
             Self::Direct(name) => ExitCode::from(runner(DIRECT, name).map_or(2, |run| run(arguments))),
-            Self::Fleet(name) => {
-                let run = runner(FLEET, name);
-                super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
-            }
             Self::Config => super::in_runtime(async move { Ok(ExitCode::from(config(arguments))) }),
             Self::Work => super::in_runtime(async move { Ok(ExitCode::from(work(arguments))) }),
             Self::Test => match arguments.split_first() {
@@ -156,21 +126,19 @@ fn call_check(arguments: &[String]) -> u8 {
     super::call_check::run(arguments, defines)
 }
 
-
 const CHECK: &[(&str, Run)] = &[
     ("calls", call_check),
     ("concerns", concerns),
     ("harness", agent_config_check::run),
     ("disclosure", disclosure_judge),
-    ("oneshot", |arguments| super::oneshot::ask::run(arguments, &super::agents::claude_access(), &|_| Ok(()))),
+    ("oneshot", super::oneshot::ask::run),
     ("issue-boxes", issue_box_lint::run),
     ("provenance", provenance::run),
 ];
 
 fn disclosure_judge(arguments: &[String]) -> u8 {
-    let access = super::agents::claude_access();
     north_land_scans::disclosure_judge::run(arguments, &|tier, prompt| {
-        super::oneshot::judge_model::ask_subscription(&super::oneshot::judge_model::Model { model: tier.model, effort: tier.effort, system: north_land_scans::disclosure_judge::SYSTEM }, prompt, &access)
+        super::oneshot::judge_model::ask_subscription(&super::oneshot::judge_model::Model { model: tier.model, effort: tier.effort, system: north_land_scans::disclosure_judge::SYSTEM }, prompt)
     })
 }
 

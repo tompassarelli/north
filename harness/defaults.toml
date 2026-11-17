@@ -4,7 +4,7 @@ allowed = { min = 0, max = 100 }
 unit = "percent of runs that succeed (threads run_ok)"
 source = "measured: flat over {60,70,75,80,85,90}: picked-tier success among runs on the pick 60.1-63.0%, Wilson 95% intervals overlap, n=291-354 of 801 decisions; 80 is tied-best (63.0%, n=354, $0.11/success)"
 fallback = "a tier under min_runs runs is unsampled: recommend requires sampled measured costs when no tier passes; routing uses the orchestration.toml band"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs", "crates/north-pace/src/router/ctx.rs"]
+consumers = ["crates/north-pace/src/router/ctx.rs"]
 
 [min_runs]
 value = 5
@@ -12,63 +12,7 @@ allowed = { min = 1, max = 100000 }
 unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell; recommend reports insufficient evidence without a sampled priced tier"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[incumbent_margin]
-value = 15
-allowed = { min = 0, max = 100 }
-unit = "success points a dearer challenger must gain over a cell's incumbent"
-source = "measured: flat over {0,5,10,15,20,30}: picked-tier success 59.3-63.2%, Wilson 95% intervals overlap, n=317-354 of 801 decisions; 10-20 tied-best at 62.9-63.2%"
-fallback = "with no incumbent the cheapest passing tier is picked"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[default_tier]
-value = "claude:opus-medium"
-allowed = { prefix = "claude:" }
-unit = "tier key"
-source = "tom: south agents/orchestration.toml tiers.claude:opus-medium, hand-edited by Tom: 'The default Opus worker for the whole top range'"
-fallback = "defines the mode-allowed band baseline; recommend never selects an unsampled fallback"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[eta_min_samples]
-value = 3
-allowed = { min = 1, max = 100000 }
-unit = "timed runs before recommend prints a cell's ETA"
-source = "measured: flat over {1,2,3,5,8}: walk-forward recommend_eta median |ln(actual/eta)| 1.04-1.05, p75 coverage 76-77%, n=1844-1847"
-fallback = "back off to the category cell; below it the ETA is n/a and the brief says (uncalibrated)"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[eta_coverage]
-value = 0.75
-allowed = { min = 0.05, max = 0.99 }
-unit = "quantile of actual/predicted the calibrated ETA scale covers"
-source = "measured: flat over {0.5..0.8}: OVERDUE false alarms (done runs past 2x the scaled ETA) plus unfinished runs never flagged 840-852, 866 at 0.9, n=1902 walk-forward runs; live row threads calibrate kind eta_pred, 2026-10-12, n=1889, p75 0.96"
-fallback = "below calibration_thin_n runs or older than calibration_stale_days the ETA is unscaled and marked (uncalibrated)"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[calibration_thin_n]
-value = 100
-allowed = { min = 1, max = 100000 }
-unit = "runs behind a calibration ratio row (eta, eta_pred, usd) before readers apply it"
-source = "measured: bootstrap 80% half-width of the walk-forward ratio p75 at sample size n, 7d to 2026-10-12: eta_pred 74% at 5, 41% at 20, 29% at 50, 20% at 100 (pool 1902); usd 75% at 5, 26% at 50, 18% at 100 (pool 318); 100 is the first n under 20% for both, was 5 (delta +95); tier rate rows keep the min_runs floor"
-fallback = "readers use the uncalibrated rule and print (uncalibrated: n < floor)"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[calibration_stale_days]
-value = 7
-allowed = { min = 1, max = 365 }
-unit = "days before a calibration row is too old to apply"
-source = "tom: 2026-10-12 policy-lead-status.md item 20 (via tom-48): project shares are rolling 7-day $, the window every loop measures over"
-fallback = "readers use the uncalibrated rule and print (uncalibrated: older than 7 days)"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[calibrate_after_min]
-value = 55
-allowed = { min = 1, max = 10080 }
-unit = "minutes since the newest calibration row before north ledger worker recalibrates"
-source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): the loop reads usage hourly; 55 keeps it under the hourly tick"
-fallback = "no calibration row at all recalibrates on the next north ledger worker run"
-consumers = ["src/cli/worker_ledger/recalibrate.rs"]
+consumers = ["crates/north-pace/src/router/ctx.rs", "crates/north-pace/src/usage/ctx.rs"]
 
 [overdue_ratio]
 value = 2
@@ -226,31 +170,6 @@ unit = "factor the deadline of a landing command is divided by before its day's 
 source = "derived: from land_offload_cpus (north#1247): the 8-CPU heavy charge was set so the whole suite needs 59% of its 300 s deadline floor; a lighter charge keeps every run within 67% of its deadline, and the scaling assumes the run's work spreads over at most the cores it was charged, so the spare third covers a cold cache or a slower host than the day's slowest run"
 fallback = "a command that fits no lighter charge keeps the heavy charge"
 consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
-
-[plan_meter_weighting]
-value = "price"
-allowed = { one_of = ["price", "tokens"] }
-unit = "how an account interval's plan $ splits across concurrent runs: price (each request's list $ from model-catalog.toml) or tokens (input + five-minute cache write x1.25 + one-hour cache write x2 + cache read x0.1, x0.05 on Opus + output x5)"
-source = "measured: north#36 meter test 2026-10-12 (replay/advisor-2026-10-12-M-haiku.jsonl): 40 Haiku 5.5 high runs on claude:a, $0.095 at list price, moved five_hour 10 -> at most 11 and seven_day 68 -> 68, against the several points token weight predicts; token weight had given Opus kappa 0.050 and Haiku 1.31 over the same 2 days, price weight gives 0.051 and 0.028"
-settles_when = { need = 40, count = "count_meter_test_haiku_runs", what = "re-measure: Haiku policy-replay rows carrying five_hour_pct and seven_day_pct; value is the five_hour rise across the newest such file" }
-fallback = "a model without input and output list prices in model-catalog.toml takes token weight, which equals list price at $1/M input and $5/M output, and threads ingest names it"
-consumers = ["crates/north-providers/src/providers/claude/runs/telemetry.rs"]
-
-[box_chain_gap_min]
-value = 30
-allowed = { min = 1, max = 10080 }
-unit = "minutes between an item's runs that still chain them into one box"
-source = "measured: north defaults-measure box_chain_gap_min, snapshot 2026-10-12T08:13Z: 775 same-item gaps from the chain's latest end to the next run's staffing; per 10-minute bin 160, 47, 36 to 30m (57% within), then 15 per 10m to 60m and 3-5 per 10m to 120m (26% over 120m, waits on Tom or overnight); 30 closes the review-and-landing mode; box p75 50m at 10, 62m at 30, 77m at 60, 107m at 120, 566 chains at 30"
-fallback = "a longer gap starts a new chain, so idle waits on Tom or overnight never count as box time"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
-
-[box_calibration_n]
-value = 200
-allowed = { min = 1, max = 100000 }
-unit = "box chains behind the box calibration ratio row before goal_eta applies it"
-source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
-fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
-consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [spend_reading_max_h]
 value = 2
@@ -1053,15 +972,6 @@ settles_when = { need = 20, count = "count_worker_runs", what = "worker runs ava
 fallback = "none: the cap is always read"
 consumers = ["crates/north-capacity-host/src/capacity/host/priority.rs"]
 
-[rework_alarm_pct]
-value = 20
-allowed = { min = 0, max = 100 }
-unit = "percent of a repository's worker landings in the last 7 days reworked on main (reverted, fixed forward or a red-main culprit within 48 h) above which north health fails"
-source = "prior: one landing in five reworked is past the quality a retired landing gate was traded for (2026-11-04)"
-settles_when = { need = 100, count = "count_worker_runs", what = "judged first worker runs, so the per-repository weekly rework rate has a measured spread" }
-fallback = "with no landing found on main in 7 days the check passes"
-consumers = ["crates/north-calibration/src/threads/calibration/rework.rs"]
-
 [capacity_mode_table]
 value = ["away:build-host", "desktop:", "play:reserve,hold"]
 allowed = { min_len = 1 }
@@ -1558,22 +1468,6 @@ source = "tom: the coordinator holds itself to an explicit, harness-enforced sta
 fallback = "an unreadable table leaves the coordinator-role guard allowing the call, and `north config coordinator role` exits 1 naming the fault"
 consumers = ["crates/north-guard/src/guard/coordinator_table.rs"]
 
-[coordinator_chain]
-value = []
-allowed = { min_len = 0 }
-unit = "the coordinator's ordered seats, each { provider, account, model }: when the coordinator's account runs out inside its trigger, north moves it to the seat after that account; an empty list keeps the most-headroom move"
-source = "north#1552 (2026-11-14): the coordinator follows one ordered chain of seats in config and moves before its meter runs out; no seat list is set yet, so the most-headroom move still decides"
-fallback = "an empty list keeps the most-headroom move"
-consumers = ["src/cli/fleet/coordinator_chain.rs"]
-
-[public_only_providers]
-value = ["gemini"]
-allowed = { min_len = 0 }
-unit = "providers whose every model in harness/model-catalog.toml is restricted to public code, which a coordinator seat may not name because the coordinator serves private repositories"
-source = "north#1552 (2026-11-14): harness/model-catalog.toml restricts each gemini model to public code only (checked 2026-11-08)"
-fallback = "none: a seat naming a listed provider is refused when the chain is read"
-consumers = ["src/cli/fleet/coordinator_chain.rs"]
-
 [graph_retired_writers]
 value = ["decision-log", "mirror", "ranking", "ledger", "threads", "push-log", "corrections"]
 allowed = { min_len = 0 }
@@ -1663,7 +1557,7 @@ fallback = "a missing value or any value but on reads as off"
 consumers = ["crates/north-land-checks/src/land/slots/runner/queue_checks.rs"]
 
 [trust_boundary_paths]
-value = ["harness/", ".safe-push", ".github/", "bin/", "flake.nix", "flake.lock", "crates/north-broker/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-credentials/src/credentials/", "crates/north-github-broker/src/gh_broker/", "crates/north-check-environment/src/credential.rs", "crates/north-landing/src/land/credential.rs", "crates/north-fleet/src/fleet/peer_row.rs", "crates/north-session-host/src/row_delivery.rs", "src/cli/fleet/admission.rs", "src/cli/fleet/need.rs", "src/cli/fleet/placement.rs", "src/cli/operator.rs", "src/cli/operator/", "crates/north-trusted-mirror/", "crates/north-remote-serve/", "crates/north-guard/src/guard/tripwire/", "crates/north-capacity/src/capacity/host_table.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-providers/src/providers/claude/tool_server.rs", "crates/north-providers/src/providers/claude/fleet.rs", "crates/north-fleet/src/fleet/model.rs", "crates/north-fleet/src/fleet/remote.rs", "src/cli/fleet/router.rs", "src/cli/fleet/revive.rs", "crates/north-build-system/", "crates/north-graph-change/", "crates/north-base/src/platform/session_scope.rs", "crates/north-providers/src/providers/claude/session_env.rs", "crates/north-fleet-supervisor/src/fleet/registry/", "crates/north-fleet-supervisor/src/fleet/tick/", "crates/north-fleet-store/", "crates/north-warm-spares/", "crates/north-agent-starts/", "crates/north-capacity/src/capacity/gate.rs", "crates/north-capacity/src/capacity/dev_shell.rs", "crates/north-pace/src/spend/", "crates/north-providers/src/providers/claude/api_pool.rs", "crates/north-land-scans/src/disclosure_judge/judge.rs", "src/cli/oneshot/judge_model.rs", "**/Cargo.toml", "Cargo.lock", "**/BUCK", "build/", "third-party/", "toolchains/", "crates/north-github-broker/", "src/bin/verify_north/login.rs", "crates/north-base/src/platform/login.rs", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-fleet/src/fleet/claims.rs", "crates/north-threads/src/threads/claims/", "src/cli/fleet/claims.rs", "crates/north-fleet/src/fleet/claim_releases.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/records_mirror.rs", "crates/north-base/src/build_inputs.rs", ".config/", ".cargo/", "rust-toolchain.toml", ".buckconfig", ".buckroot", "build.rs", "lint/", "mode/", ".language-allowlist.json", ".stub-exec-allowlist.json", ".commit-emails", "concerns.toml", "ambient-test-inputs.tsv", "ambient-test-clocks.tsv", "ambient-test-fleets.tsv"]
+value = ["harness/", ".safe-push", ".github/", "bin/", "flake.nix", "flake.lock", "crates/north-broker/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-credentials/src/credentials/", "crates/north-github-broker/src/gh_broker/", "crates/north-check-environment/src/credential.rs", "crates/north-landing/src/land/credential.rs", "crates/north-fleet/src/fleet/peer_row.rs", "crates/north-session-host/src/row_delivery.rs", "src/cli/fleet/admission.rs", "src/cli/fleet/need.rs", "src/cli/fleet/placement.rs", "src/cli/operator.rs", "src/cli/operator/", "crates/north-trusted-mirror/", "crates/north-remote-serve/", "crates/north-guard/src/guard/tripwire/", "crates/north-capacity/src/capacity/host_table.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-fleet/src/fleet/model.rs", "crates/north-fleet/src/fleet/remote.rs", "src/cli/fleet/router.rs", "src/cli/fleet/revive.rs", "crates/north-build-system/", "crates/north-graph-change/", "crates/north-base/src/platform/session_scope.rs", "crates/north-fleet-supervisor/src/fleet/registry/", "crates/north-fleet-supervisor/src/fleet/tick/", "crates/north-fleet-store/", "crates/north-warm-spares/", "crates/north-agent-starts/", "crates/north-capacity/src/capacity/gate.rs", "crates/north-capacity/src/capacity/dev_shell.rs", "crates/north-pace/src/spend/", "crates/north-land-scans/src/disclosure_judge/judge.rs", "src/cli/oneshot/judge_model.rs", "**/Cargo.toml", "Cargo.lock", "**/BUCK", "build/", "third-party/", "toolchains/", "crates/north-github-broker/", "src/bin/verify_north/login.rs", "crates/north-base/src/platform/login.rs", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-fleet/src/fleet/claims.rs", "crates/north-threads/src/threads/claims/", "src/cli/fleet/claims.rs", "crates/north-fleet/src/fleet/claim_releases.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/records_mirror.rs", "crates/north-base/src/build_inputs.rs", ".config/", ".cargo/", "rust-toolchain.toml", ".buckconfig", ".buckroot", "build.rs", "lint/", "mode/", ".language-allowlist.json", ".stub-exec-allowlist.json", ".commit-emails", "concerns.toml", "ambient-test-inputs.tsv", "ambient-test-clocks.tsv", "ambient-test-fleets.tsv"]
 allowed = { min_len = 1 }
 unit = "paths from the repository root (a trailing / names a directory, a leading **/ names a file of that name in any directory, else one file) whose change crosses a host's trust boundary: the credential broker and credentials, peer-host rows, fleet admission, placement, routing and revival over an operator login, the fleet registry, tick and store, agent starts, session scope and environment, the capacity gate and the dev shell it enters, the API spend hold and its readers in dispatch, the API pool and the disclosure judge, the agent runtime and its tool server, the harness, land and build configuration (manifests, lock file, Buck2 files and modes, the lint gate, the toolchain pin, the build script, cargo and nextest configuration) and the gate allowlists and configuration at the root (the language, stub-exec and ambient-test allowlists, the commit-email allowlist, concerns.toml) and the after-landing test selection; the files of landing_path_paths cross it too; a lane that changes one lands only on a reviewer's accept of its patch (the land scan review-accept), and its test line runs after the landing like every lane's"
 source = "north#1036 second review (2026-11-13): with runtime promotion on landing, a trust-boundary change that skipped its test line would go live on every host before the after-landing run could revert it, and a landing path change that breaks landing could not land its own revert"
@@ -1679,7 +1573,7 @@ fallback = "a missing list replays no lane, so every landing-path lane is judged
 consumers = ["crates/north-base/src/platform/trust_boundary.rs", "crates/north-lander/src/land/promote/machinery_lane.rs"]
 
 [ring_zero_paths]
-value = [".safe-push", "crates/north-safe-push/", "crates/north-lander/", "crates/north-landing/", "crates/north-land-sandbox/", "crates/north-worker-sandbox/src/worker_sandbox/", "crates/north-broker/", "crates/north-github-broker/", "crates/north-credentials/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-land-scans/src/review_accept.rs", "crates/north-land-scans/src/added_dependencies.rs", "crates/north-land-scans/src/ring_zero_defaults.rs", "crates/north-land-scans/src/git.rs", "crates/north-land-scans/src/lib.rs", "crates/north-land-scans/src/holdlist.rs", "harness/holdlist.toml", "crates/north-base/src/platform/harness.rs", "crates/north-base/src/platform/finish_record.rs", "crates/north-worker-sandbox/src/review_accept.rs", "crates/north-runtime/src/runtime/review_hold.rs", "crates/north-trusted-mirror/", "harness/worker-tools.toml", "harness/claude/", "crates/north-agent-starts/", "crates/north-base/src/platform/session_scope.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-providers/src/providers/claude/session_env.rs", "crates/north-providers/src/providers/claude/tool_server.rs", "crates/north-providers/src/providers/claude/api_pool.rs", "crates/north-remote-serve/", "src/cli/operator.rs", "src/cli/operator/", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-base/src/platform/login.rs", "src/bin/verify_north/login.rs", "crates/north-check-environment/src/credential.rs", "crates/north-pace/src/spend/"]
+value = [".safe-push", "crates/north-safe-push/", "crates/north-lander/", "crates/north-landing/", "crates/north-land-sandbox/", "crates/north-worker-sandbox/src/worker_sandbox/", "crates/north-broker/", "crates/north-github-broker/", "crates/north-credentials/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-land-scans/src/review_accept.rs", "crates/north-land-scans/src/added_dependencies.rs", "crates/north-land-scans/src/ring_zero_defaults.rs", "crates/north-land-scans/src/git.rs", "crates/north-land-scans/src/lib.rs", "crates/north-land-scans/src/holdlist.rs", "harness/holdlist.toml", "crates/north-base/src/platform/harness.rs", "crates/north-base/src/platform/finish_record.rs", "crates/north-worker-sandbox/src/review_accept.rs", "crates/north-runtime/src/runtime/review_hold.rs", "crates/north-trusted-mirror/", "harness/worker-tools.toml", "harness/claude/", "crates/north-agent-starts/", "crates/north-base/src/platform/session_scope.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-remote-serve/", "src/cli/operator.rs", "src/cli/operator/", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-base/src/platform/login.rs", "src/bin/verify_north/login.rs", "crates/north-check-environment/src/credential.rs", "crates/north-pace/src/spend/"]
 allowed = { min_len = 1 }
 unit = "paths from the repository root, written as in trust_boundary_paths, that stay ring-0: the worker sandbox and what widens a worker's reach, the credential broker, logins and API spend, the lander and .safe-push, and the review-accept scan with the accept records it rests on; the review-accept scan asks a review accept of a lane only when it changes one of these, changes a harness/defaults.toml key one of these reads (a key it removes passes once its ring-0 readers are gone), adds a line to a dependency_source_paths file, or adds a Cargo.toml dependency or a Cargo.lock package, so a change to any other trust_boundary_paths file lands on the deterministic checks"
 source = "north#1650 (2026-11-16): the core cut plan found all 34 Phase 2 lanes touch Cargo.toml or Cargo.lock, so each removal would wait on a reviewer; the owner kept a mandatory review only for the sandbox, the broker, the lander and .safe-push"

@@ -1,2 +1,0 @@
-dash
-The board: landings and boxes per hour, then four concern panels

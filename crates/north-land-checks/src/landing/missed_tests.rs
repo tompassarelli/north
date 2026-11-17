@@ -53,7 +53,7 @@ fn the_selection_holds_the_three_tests_missed_found_left_out() {
     use std::collections::BTreeSet;
     let gate = "fleet::registry::gate_rows::tests::a_gate_closed_while_its_answer_could_not_be_handed_in_still_reaches_the_session_when_the_tick_hands_the_spooled_row_in";
     let spool = "fleet::registry::messages::tests::a_hand_in_that_fails_is_withdrawn_from_the_spool_and_the_row_can_be_handed_in_later";
-    let floor = "providers::claude::fleet::fleet_tick::a_lead_or_coordinator_at_its_floor_goes_to_the_source_above_the_floor_with_most_headroom_else_parks_until_the_soonest_windfall_and_a_worker_on_spent_api_credit_waits_for_its_grant";
+    let floor = "fleet::fleet_tick::a_lead_or_coordinator_at_its_floor_goes_to_the_source_above_the_floor_with_most_headroom_else_parks_until_the_soonest_windfall_and_a_worker_on_spent_api_credit_waits_for_its_grant";
     let repository = tempfile::tempdir().unwrap();
     let git = |arguments: &[&str]| {
         let output = std::process::Command::new("git").arg("-C").arg(repository.path()).args(arguments).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").output().unwrap();

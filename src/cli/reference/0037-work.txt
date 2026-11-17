@@ -1,2 +1,0 @@
-  work [--since DURATION] [--json]              Show the fleet's work: sessions, gates, landings, stalls, report and the harness-loss classes of the window with the issue that owns each
-  work own CLASS --issue REPO#N                 Record REPO#N, an open issue with an owner, as the owner of the harness-loss class CLASS, which lets the coordinator's turn end while CLASS repeats

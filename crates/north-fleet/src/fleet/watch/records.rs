@@ -1,6 +1,5 @@
 //! What a watch records of the turns it reads: each turn charged to the account its host started with, the
 //! report and promises its parent hears about, and the landings it notices.
-use serde_json::Value;
 
 use super::TurnWatch;
 use crate::fleet::host::Host;
@@ -72,14 +71,6 @@ impl TurnWatch {
         if let Err(error) = Book::at(&self.root).keep(&promises) {
             eprintln!("north fleet: {}'s promises were not kept for the tick to remind its parent of: {}", record.name, error.user_message());
         }
-    }
-
-    pub(super) fn record_usage(&self, frame: &Value) {
-        if self.runtime.quota(frame).is_none() {
-            return;
-        }
-        let Some(session) = self.runtime.frame_conversation(frame).and_then(|conversation| find_session(&self.root, &self.host_dir, conversation)) else { return };
-        self.usage.observe(self.runtime.provider().label(), &session.account, frame);
     }
 
     fn observe_landing(&self, record: &SessionRecord) {

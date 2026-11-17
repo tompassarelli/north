@@ -17,11 +17,9 @@ use super::model::{Account, LaunchRequest, SessionRecord};
 use super::promises::{Reckon, Unreckoned};
 use rewritten::{NoRewrites, Rewrites};
 use super::records::read_record;
-use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::Runtime;
 use super::runtimes::Runtimes;
 use super::store::{Registrar, SPOOL_DIR};
-use super::usage_sink::{NoUsage, UsageSink};
 pub use super::watch::TurnWatch;
 use held_units::OverSshHeld;
 use lanes::OverSshLanes;
@@ -119,8 +117,6 @@ pub struct Fleet {
     proc: PathBuf,
     cgroups: PathBuf,
     admission: PathBuf,
-    usage: Arc<dyn UsageSink>,
-    recording: Arc<dyn RunRecording>,
     remote_lanes: Arc<dyn RemoteLanes>,
     held_units: Arc<dyn HeldUnits>,
     desk: Arc<dyn CoordinatorDesk>,
@@ -158,19 +154,9 @@ impl Fleet {
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         let kept = root.join(lanes::KEPT_LANES);
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: north_base::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: north_base::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes { kept }), held_units: Arc::new(OverSshHeld), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), rewrites: Arc::new(NoRewrites), spools_as: None, starts: spooled::start_spooled, hosts: starting::start_host };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: north_base::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: north_base::platform::admission_root::here(), remote_lanes: Arc::new(OverSshLanes { kept }), held_units: Arc::new(OverSshHeld), desk: Arc::new(NoDesk), reckon: Arc::new(Unreckoned), rewrites: Arc::new(NoRewrites), spools_as: None, starts: spooled::start_spooled, hosts: starting::start_host };
         fleet.adopt_journals()?;
         Ok(fleet)
-    }
-
-    pub fn writing_usage(mut self, usage: Arc<dyn UsageSink>) -> Self {
-        self.usage = usage;
-        self
-    }
-
-    pub fn recording_runs(mut self, recording: Arc<dyn RunRecording>) -> Self {
-        self.recording = recording;
-        self
     }
 
     pub fn reckoning_with(mut self, reckon: Arc<dyn Reckon>) -> Self {

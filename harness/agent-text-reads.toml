@@ -28,12 +28,6 @@ lines = 1
 kind = "hint"
 
 
-# The report's closing Stop: line is kept in runs.stop to be shown beside the run; no outcome, class or hold reads it (north#872).
-[[read]]
-file = "crates/north-providers/src/providers/claude/runs/stop.rs"
-lines = 1
-kind = "hint"
-
 # Dispatch does not revive a session whose last report's closing Stop: line says decision: the line only withholds a revive turn from a session parked on a gate (north#1054), and moves no bar, class or score.
 [[read]]
 file = "crates/north-fleet/src/fleet/stranded.rs"

@@ -15,35 +15,13 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
-| runs.eta_min | north ledger worker, from the brief's `ETA:` head line (row.rs eta in the Claude runs provider), else the first ETA its text names | crates/north-calibration/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
-| runs.minutes | north ledger worker | crates/north-calibration/src/threads/calibration/recommend.rs recommend_eta (the wall p75 printed after the active-minute figures) | read | |
-| runs.outcome, follows, landed, expects_landing | north ledger worker | crates/north-calibration/src/threads/calibration/read.rs succeeded; crates/north-pace/src/usage/ctx.rs routing success | read | 4a58f21e |
-| runs.tier | north ledger worker | crates/north-calibration/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |
-| runs.category and facets | crates/north-threads/src/threads/runs/brief.rs | crates/north-calibration/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
-| runs.lens, flaws | north ledger worker | crates/north-calibration/src/threads/calibration/summary.rs lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
-| runs.tokens | north ledger worker | crates/north-calibration/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |
-| runs.cost_usd | crates/north-threads/src/threads/runs | crates/north-calibration/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates) | read | 4b71ac63 |
-| runs.landed_sha | north ledger worker | crates/north-providers/src/ledger/outcome/read.rs staffed joins each worker run to its landed commit for `north ledger flow`; crates/north-calibration/src/threads/calibration/rework.rs landings judges the commit on main; crates/north-providers/src/ledger/closed_source.rs reworked_agents feeds the cost per closed box | read | |
-| landings.landed_sha, first_commit_at | north land train record (the lander) | crates/north-providers/src/ledger/outcome/read.rs landed, first-commit-to-main p50 in `north ledger flow` | read | |
-| The operator's human turns (convo store index-v5.db, role user, transcript origin human) | Claude Code transcripts, indexed by north convo | src/cli/scoreboard/typed.rs typed_messages feeds `north ledger flow` attention, corrections per active day and who noticed each incident first (crates/north-providers/src/ledger/outcome/attention.rs) | read | |
-| north/grounding/ledger.jsonl tom correction, tom direction | north graph ground distill | crates/north-providers/src/ledger/outcome/read.rs corrections, counted only when the row's convo message is one of the operator's human turns | read | |
-| runs.first_commit | none (tally-internal, crates/north-providers/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
-| runs.session, input_tokens, cache_read_tokens, expects_landing, landed, landed_sha on a DeepSeek run (opencode and pi) | north ledger worker, north ledger opencode | crates/north-providers/src/providers/opencode/runs.rs hand_in, the hand-in of a session that pushed (landed or refused) as the Claude row records it; crates/north-calibration/src/threads/calibration/read.rs succeeded | read | |
-| runs.turns, tool_calls, active_min, wait_min | crates/north-providers/src/providers/claude/runs/activity.rs (Claude workers; recorded by crates/north-threads/src/threads/runs/record.rs; `threads run-ids --settled` leaves out a Claude run with a null active_min so the next ingest re-reads its transcript and fills the four columns, and Codex and Gemini rows stay out of that re-read) | crates/north-calibration/src/threads/calibration/recommend.rs recommend_eta: the `eta` line of `north ledger worker --recommend` prints `eta active <median>m (p25 <a>–p90 <b>, n=<N>) wall p75 <W>m wait median <X>m` from the cell's runs that recorded active minutes (at least `eta_min_samples` of them), and `eta wall <W>m (p75 of n=<N>, ...; too few runs with active minutes)` otherwise; active minutes are work, the wall p75 includes the waits | read | |
-| runs.peak_ctx, handoff_fires, handoff_ignored | crates/north-providers/src/providers/claude/runs/telemetry.rs (Claude); crates/north-providers/src/providers/codex/runs/usage.rs (Codex) | crates/north-calibration/src/threads/calibration/summary.rs context_summary; crates/north-providers/src/ledger/closed_source.rs | read | |
-| runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | crates/north-providers/src/providers/claude/runs/telemetry.rs (Claude); crates/north-providers/src/providers/codex/runs/usage.rs (Codex) | crates/north-calibration/src/threads/calibration/summary.rs context_summary | read | |
-| runs.provider, model, effort | crates/north-providers/src/providers/claude/runs/mod.rs effort, telemetry.rs run_usage (Claude rows: the assistant message `model`; effort from the request's `output_config.effort` in the transcript, else the subagent's recorded effort, its harness/claude/agents/<type>.md `effort:`, its tier, a fleet session's launch effort, then the catalog default; provider `claude`); crates/north-fleet/src/fleet/watch/records.rs identify (fleet turn ledger runs.model, effort) | crates/north-threads/src/threads/runs/mod.rs run_ids --settled (a Claude row missing any of the three is re-read on the next ingest); tier routing and ETAs keyed on what ran | read | |
 | runs.role reviewer, judge | crates/north-base/src/platform/run_roles.rs ingest_role (stored at ingest for a finished worker; ROLE_SQL still reads rows stored before 2026-11-04) | calibration, ledger/closed_source.rs | read | |
-| runs.account, fast | crates/north-threads/src/threads/runs | crates/north-calibration/src/threads/calibration/summary.rs delivery_summary | read | |
 | runs.note, report, session, role | crates/north-threads/src/threads/runs | `threads show`, role filters | read | |
-| calibration | north threads calibrate | crates/north-calibration/src/threads/calibration/forward.rs calibrate_eta | read | ac79788c |
 | run_usage | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs/mod.rs allocate into run_costs | read | |
 | run_costs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs/mod.rs rolls into runs.cost_usd | read | |
 | usage | crates/north-pace/src/usage/refresh/ | crates/north-pace/src/usage/store.rs latest, routing and the pace gate | read | |
 | claims.eta_min | crates/north-threads/src/threads/claims/ledger.rs take | crates/north-threads/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; src/cli/work_items.rs:155 | read | |
-| tier_predictions (item, tier, p, at, source) | crates/north-calibration/src/threads/calibration/verbs.rs recommend_with: `threads recommend` with an Item and no Follows line stores each listed tier's shrunk success | crates/north-calibration/src/threads/calibration/predictions.rs score, printed by `north tune` as each category's walk-forward Brier against its base rate's | read | |
-| tier_choice | crates/north-threads/src/threads/runs | crates/north-calibration/src/threads/calibration/verbs.rs incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
 | usage log cores, memory, cwd | crates/north-capacity-host/src/capacity/host/run/outcome.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate_capacity through crates/north-capacity-host/src/capacity/host/usage_log.rs history | read | |
@@ -59,7 +37,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | costs/*.json | crates/north-pace/src/usage/refresh/digitalocean.rs | crates/north-pace/src/usage/settings.rs service lines | read | |
 | incidents (class, noticed_by, started_at, detected_at, fixed_at, guard, recurred_after_guard) | north ledger incident record from the lander (crates/north-landing/src/land/incidents.rs, every verdict but landed and every held candidate) and north land withdraw | crates/north-threads/src/threads/incidents/report.rs, printed by north ledger flow per 7 days and north ledger incident report | read | |
 | incident_guards (class, guard, landed_at, issue) | north ledger incident guard | crates/north-threads/src/threads/incidents/mod.rs insert marks a later row of the class recurred_after_guard | read | |
-| harness/model-catalog.toml | hand | crates/north-pace/src/usage/settings.rs CATALOG; crates/north-providers/src/providers/codex/runs/usage.rs run_usage; crates/north-providers/src/providers/claude/runs/telemetry.rs Prices | read | |
+| harness/model-catalog.toml | hand | crates/north-pace/src/usage/settings.rs CATALOG | read | |
 The definitions of the activity columns, attempt chains, rework and unjudged runs, with the dated measurements behind them, are in [learned routing and goal ETA measurements](rationale/learned-routing-and-goal-eta.md#signal-definitions-and-measurements-moved-from-the-feedback-loop).
 
 ## File signals
@@ -77,7 +55,6 @@ Rows a writer records into a database, judged like the file signals above. The d
 
 | reading | database | query | writer | cadence | owner |
 |---|---|---|---|---|---|
-| usage header rows | `ledger` | `SELECT max(ts) FROM usage WHERE source LIKE 'Messages response%'` | crates/north-providers/src/providers/claude/token_quota.rs | 5m | north#35 |
 | concern samples of the goal tick | `ledger` | `SELECT max(at) FROM concern_samples WHERE sampler = 'concerns-tick'` | crates/north-concerns/src/tick.rs | 10m | north#709 |
 
 See [learned routing and goal ETA measurements](rationale/learned-routing-and-goal-eta.md) for the dated routing backtest and the goal ETA replay.

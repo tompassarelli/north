@@ -12,7 +12,6 @@ const RECORDED_LOGS: &str = "tests/fixtures/";
 const TEST_TIMING: &str = r"sleep\(|Instant::now\(|\.elapsed\(\)|/proc/loadavg|/proc/pressure|wait::timed\(";
 const MEASURED: &str = r"(took|elapsed|duration|latency|wall|(stage|own|wall|run|spent)_(ms|secs))";
 const THIS_FILE: &str = "crates/north-land-checks/src/land/wall_time_tests.rs";
-const REAL_BUDGETS: (&str, &str) = ("crates/north-providers/src/providers/claude/fleet_tick_tests.rs", "the tick measures hung stages against real budgets through Instant deadlines in north-fleet-supervisor tick.rs; an injected tick clock is north#892 follow-up");
 const SUB_SECOND_BUDGET: &str = r"[(,]\s*Duration::from_millis\(\s*\d{1,3}\s*\)\s*[,)]";
 const INJECTED_CLOCK: &str = r"&\|\|";
 const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 4] = [
@@ -97,8 +96,7 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     assert!(inline > 20, "only {inline} files with an inline test module were scanned");
     let timed_tests = found_in_tests(&tests, &Regex::new(TEST_TIMING).unwrap());
     assert!(timed_tests.is_empty(), "test code reads the wall clock or the host's load; wait on the event through north_base::platform::wait or inject the clock:\n{}", timed_tests.join("\n"));
-    let judged = tests.iter().filter(|(path, _)| path.as_str() != REAL_BUDGETS.0);
-    let thresholds = found_in_tests(judged, &duration_threshold());
+    let thresholds = found_in_tests(tests.iter(), &duration_threshold());
     assert!(thresholds.is_empty(), "a test compares a measured duration to a threshold, so it passes or fails on host load; decide by events through an injected clock or sampler:\n{}", thresholds.join("\n"));
     let budgeted = tests.iter().filter(|(path, _)| !SUB_SECOND_BUDGET_TESTS.iter().any(|(allowed, _)| path.as_str() == *allowed));
     let budgets = found_sub_second(budgeted);

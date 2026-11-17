@@ -1,16 +1,12 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use north_foundation::foundation::limit_clock;
 
-use super::{RuntimeAccess, env_or, home, north_program, text};
-use north_fleet_supervisor::fleet::model::Account;
+use super::{env_or, home, text};
 use north_base::platform::process;
-use north_fleet_supervisor::fleet::runtime::Invocation;
 use north_pace::spend::billing;
 
-pub(crate) const QUIET: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC";
 const QUIET_WORD: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1";
 /// Claude names its limit reset in this zone, the one `limit_clock` reads.
 const UTC_WORD: &str = "TZ=UTC";
@@ -92,27 +88,18 @@ pub(crate) fn ask(profiles: &Path, limited: &mut Limited, labels: &[String], att
     if failed { Asked::Failed("a claude account failed".to_owned()) } else { Asked::AtLimit }
 }
 
-fn claude_accounts() -> Result<Vec<String>, String> {
-    let output = Command::new(north_program()).args(["fleet", "accounts"]).stdin(std::process::Stdio::null()).output().map_err(|error| format!("north fleet accounts did not start: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("listing the claude accounts failed: {}", super::child_failure("north fleet accounts", output.status.code(), &output.stderr)));
-    }
-    Ok(text(&output).lines().filter_map(|line| {
-        let mut fields = line.split_whitespace();
-        (fields.next() == Some("claude")).then(|| fields.next().map(str::to_owned)).flatten()
-    }).collect())
+fn claude_accounts(profiles: &Path) -> Vec<String> {
+    let mut labels: Vec<String> = std::fs::read_dir(profiles).into_iter().flatten().flatten().filter_map(|entry| entry.file_name().to_str()?.strip_prefix("claude-").map(str::to_owned)).collect();
+    labels.sort();
+    labels
 }
 
-/// The `env` words that start `claude` as the profile at `config_dir`: through its account's
-/// invocation when the roster lists one there, since a token-file account is not logged in otherwise.
-pub(crate) fn account_words(config_dir: Option<&Path>, accounts: &[Account], invocation_of: fn(&Account) -> Invocation) -> Vec<String> {
+fn account_words(config_dir: Option<&Path>) -> Vec<String> {
     let fast = "CLAUDE_CODE_DISABLE_FAST_MODE=1".to_owned();
-    let Some(dir) = config_dir else { return vec![fast] };
-    let Some(account) = accounts.iter().find(|account| account.home == dir) else { return vec![format!("CLAUDE_CONFIG_DIR={}", dir.display()), fast] };
-    let invocation = invocation_of(account);
-    let unset = invocation.env_remove.iter().flat_map(|name| ["-u".to_owned(), name.clone()]);
-    let set = invocation.env.iter().map(|(name, value)| format!("{name}={}", value.to_string_lossy()));
-    unset.chain(set).chain([fast]).chain(invocation.prefix).collect()
+    match config_dir {
+        Some(dir) => vec![format!("CLAUDE_CONFIG_DIR={}", dir.display()), fast],
+        None => vec![fast],
+    }
 }
 
 pub struct Ask<'a> {
@@ -180,36 +167,28 @@ fn remember_answered(dir: &Path) {
 }
 
 /// Asks once on the subscription accounts, trying each profile in turn, the last one to answer first; an API key in the environment is unset and the api-key account is skipped, so the call can never bill by token.
-pub(crate) fn ask_claude(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Asked {
-    ask_claude_with(question, &[], limit, access, warn, &mut None, None)
+pub(crate) fn ask_claude(question: &Ask, limit: Duration, warn: &mut dyn FnMut(String)) -> Asked {
+    ask_claude_with(question, &[], limit, warn, &mut None)
 }
 
 /// [`ask_claude`], and which account in the order tried answered, as `reserve-N` or `shared-N` with no account name, or `ambient` for the client's own login.
-pub(crate) fn ask_claude_answered(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> (Asked, Option<String>) {
+pub(crate) fn ask_claude_answered(question: &Ask, limit: Duration, warn: &mut dyn FnMut(String)) -> (Asked, Option<String>) {
     let mut answered = None;
-    let asked = ask_claude_with(question, &[], limit, access, warn, &mut answered, None);
+    let asked = ask_claude_with(question, &[], limit, warn, &mut answered);
     (asked, answered)
 }
 
-fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>, pinned: Option<&str>) -> Asked {
+fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
-    let accounts = north_fleet_supervisor::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
-    let listed = match claude_accounts() {
-        Ok(listed) => listed,
-        Err(reason) => return Asked::Failed(reason),
-    };
-    let shared: Vec<String> = listed.into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api.is_some())).collect();
+    let shared = claude_accounts(&profiles);
     let reserve = north_base::platform::orchestration::read().map(|policy| north_pace::spend::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
-    let subscription = match subscription_order(pinned, shared, &profiles, &reserve, answered.as_deref()) {
-        Ok(subscription) => subscription,
-        Err(why) => return Asked::Failed(why),
-    };
+    let subscription = subscription_order(shared, &reserve, answered.as_deref());
     let now_s = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    ask(&profiles, &mut Limited::read(&state(), now_s), &subscription, &mut |dir| match login_refusal(dir, pinned) {
+    ask(&profiles, &mut Limited::read(&state(), now_s), &subscription, &mut |dir| match login_refusal(dir) {
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
         None => {
-            let reply = claude_once(&account_words(dir, &accounts, access.invocation), question, extra, limit);
+            let reply = claude_once(&account_words(dir), question, extra, limit);
             if was_answered(&reply) {
                 *answered_by = Some(dir.map_or_else(|| "ambient".to_owned(), |dir| place(dir, &subscription, &reserve)));
                 if let Some(dir) = dir {
@@ -225,23 +204,15 @@ fn was_answered(reply: &Reply) -> bool {
     reply.code == Some(0) && !reply.stdout.is_empty()
 }
 
-fn subscription_order(pinned: Option<&str>, shared: Vec<String>, profiles: &Path, reserve: &[String], answered: Option<&str>) -> Result<Vec<String>, String> {
-    match pinned {
-        Some(label) if shared.iter().any(|held| held == label) && profiles.join(format!("claude-{label}")).is_dir() => Ok(vec![label.to_owned()]),
-        Some(label) => Err(format!("claude account {label} has no subscription profile here")),
-        None => Ok(answered_first(north_pace::spend::operational::order(reserve, shared), reserve, answered.map(str::trim))),
-    }
+fn subscription_order(shared: Vec<String>, reserve: &[String], answered: Option<&str>) -> Vec<String> {
+    answered_first(north_pace::spend::operational::order(reserve, shared), reserve, answered.map(str::trim))
 }
 
-fn login_refusal(dir: Option<&Path>, pinned: Option<&str>) -> Option<String> {
+fn login_refusal(dir: Option<&Path>) -> Option<String> {
     match dir {
         None => ambient_billing_refusal(),
-        Some(dir) => billing::settings_refusal(dir).or_else(|| pinned.and_then(|_| subscription_refusal(dir))),
+        Some(dir) => billing::settings_refusal(dir),
     }
-}
-
-fn subscription_refusal(dir: &Path) -> Option<String> {
-    billing::read_json(dir, ".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| format!("{} holds no claude.ai subscription login", dir.display()))
 }
 
 fn place(dir: &Path, order: &[String], reserve: &[String]) -> String {
@@ -259,13 +230,8 @@ pub struct Measured {
     pub cache_write_tokens: u64,
 }
 
-pub fn ask_claude_measured(question: &Ask, limit: Duration, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Result<Measured, String> {
-    ask_claude_measured_on(question, limit, None, access, warn)
-}
-
-/// [`ask_claude_measured`], pinned to the one subscription account `account` when given: its profile alone is asked, with its login checked, and no other account or the ambient login is tried.
-pub fn ask_claude_measured_on(question: &Ask, limit: Duration, account: Option<&str>, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Result<Measured, String> {
-    let answer = match ask_claude_with(question, &["--output-format", "json"], limit, access, warn, &mut None, account) {
+pub fn ask_claude_measured(question: &Ask, limit: Duration, warn: &mut dyn FnMut(String)) -> Result<Measured, String> {
+    let answer = match ask_claude_with(question, &["--output-format", "json"], limit, warn, &mut None) {
         Asked::Answer(answer) => answer,
         Asked::AtLimit => return Err("every claude subscription account is at its usage limit".to_owned()),
         Asked::Failed(reason) => return Err(reason),

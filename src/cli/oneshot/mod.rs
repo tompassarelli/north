@@ -3,19 +3,11 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Output;
 
-use north_fleet_supervisor::fleet::model::Account;
-use north_fleet_supervisor::fleet::runtime::Invocation;
-use north_fleet_supervisor::fleet::runtimes::Runtimes;
 
 pub(super) mod ask;
 pub(super) mod gemini;
 pub(super) mod judge_model;
 pub(super) mod session;
-
-pub struct RuntimeAccess {
-    pub runtimes: Runtimes,
-    pub invocation: fn(&Account) -> Invocation,
-}
 
 fn home() -> PathBuf {
     PathBuf::from(env::var_os("HOME").unwrap_or_default())
@@ -36,8 +28,4 @@ fn child_failure(name: &str, code: Option<i32>, stderr: &[u8]) -> String {
         Some(line) => format!("{name} exited {code}: {line}"),
         None => format!("{name} exited {code}"),
     }
-}
-
-fn north_program() -> std::ffi::OsString {
-    env::var_os("NORTH_BIN").filter(|value| !value.is_empty()).unwrap_or_else(|| "north".into())
 }

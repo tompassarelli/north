@@ -1,1 +1,0 @@
-  fleet-for NAME...                             Run north fleet list, north fleet show NAME for each NAME and north fleet list again in one call

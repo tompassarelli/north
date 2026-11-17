@@ -1,1 +1,0 @@
-  accounts [--json | --emails]                   Every account's windows, plan, api credit and spend; --emails prints each signed-in profile's sign-in email

@@ -18,7 +18,7 @@ impl Store for LedgerHistory {
     }
 
     fn read(&self, host: &str, since: Timestamp) -> Result<Vec<Recorded>, String> {
-        let rows = crate::threads::concerns::since(&crate::ledger::threads_database(), host, since)?;
+        let rows = crate::threads::concerns::since(&crate::threads::client::threads_database(), host, since)?;
         Ok(rows.into_iter().map(|row| Recorded { project: row.project, concern: row.concern, point: Point { at: row.at.unix_seconds(), value: row.value } }).collect())
     }
 }

@@ -7,7 +7,7 @@ pub(super) struct FleetWitness;
 
 impl Witness for FleetWitness {
     fn live_sessions(&self) -> Option<BTreeSet<String>> {
-        super::fleet::open_fleet().ok()?.live_owners()
+        None
     }
 
     fn pushes(&self) -> Vec<ScratchPush> {

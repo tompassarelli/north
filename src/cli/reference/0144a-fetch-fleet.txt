@@ -1,1 +1,0 @@
-  fetch-fleet [VIEW [ARGS...]]                  Run git fetch, north fleet VIEW (list when none is named) and git fetch again in one call

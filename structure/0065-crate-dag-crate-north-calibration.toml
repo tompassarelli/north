@@ -1,6 +1,0 @@
-[[crate_dag.crate]]
-name = "north-calibration"
-layer = 3
-paths = ["crates/north-calibration/src/**"]
-may_use = ["north-threads", "north-pace"]
-

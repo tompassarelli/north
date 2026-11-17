@@ -17,7 +17,7 @@ const INJECTED_NAMES: [&str; 31] = [
 const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY", "GIT_CONFIG"];
 const TRUSTED_FILES: [&str; 5] = [verdict_cache::DIR_ENV, "AGENTS_ORCHESTRATION", "AGENTS_OPERATOR_DIR", "SAFE_PUSH_SOUTH", "SAFE_PUSH_DENYLIST"];
 const NORTH_PINS: [&str; 3] = ["NORTH_LAND_NORTH", "NORTH_BIN", "AGENT_CAPACITY_NORTH"];
-/// The paid key an opencode session (`NORTH_OPENCODE_KEY`) and a pi session (`OPENCODE_API_KEY`) carry, by the names north-providers gives them.
+/// The paid keys an opencode session and a pi session once carried, stripped from every worker environment.
 pub(super) const PAID_KEYS: [&str; 2] = ["NORTH_OPENCODE_KEY", "OPENCODE_API_KEY"];
 const LANDING_CHOICES: [&str; 12] = ["PATH", NORTH_PINS[0], NORTH_PINS[1], NORTH_PINS[2], "SAFE_PUSH_CODE_HEALTH", "SAFE_PUSH_LAND_OFFLOAD", "SAFE_PUSH_LAND_OFFLOAD_HOST", "SAFE_PUSH_LAND_RUNNER", "SAFE_PUSH_LAND_CAPACITY", offload::LOCAL_ENV, offload::OFF_HOST_ENV, offload::LANDER_SLOT_ENV];
 const BUILD_NAMES: [&str; 18] = ["CARGO", "RUSTC", "RUSTDOC", "RUSTFLAGS", "RUSTDOCFLAGS", "CC", "CXX", "AR", "LD", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "CPATH", "LIBRARY_PATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH"];

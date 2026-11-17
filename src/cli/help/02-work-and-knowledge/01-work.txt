@@ -1,2 +1,2 @@
 work
-The fleet's work, gates, landings and stalls; work items
+Work items: list, search, show, claim, release, close

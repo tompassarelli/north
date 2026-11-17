@@ -19,10 +19,9 @@ const WRAPPERS: [&[&str]; 8] = [
     &["ssh-session"],
     &["threads"],
 ];
-const CONTRACTS: [(&[&str], &str); 8] = [
+const CONTRACTS: [(&[&str], &str); 7] = [
     (&["capacity", "watchdog"], WATCHDOG_USAGE),
     (&["cloud"], super::cloud::USAGE),
-    (&["fleet"], super::fleet::usage::USAGE),
     (&["land", "missed"], missed::USAGE),
     (&["land", "serve"], serve::USAGE),
     (&["lane", "gc"], GC_USAGE),

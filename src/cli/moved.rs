@@ -2,16 +2,8 @@
 use crate::error::NorthError;
 
 const MOVED: &[(&[&str], &str, &[&str])] = &[
-    (&["scoreboard"], "dash", &["--ready"]),
-    (&["incident"], "ledger incident", &[]),
-    (&["flow"], "ledger flow", &[]),
-    (&["tempo"], "ledger tempo", &[]),
-    (&["worker-ledger"], "ledger worker", &[]),
     (&["credentials"], "ops credentials", &[]),
     (&["github"], "ops github", &[]),
-    (&["digest"], "fleet digest", &[]),
-    (&["orders"], "fleet orders", &[]),
-    (&["report"], "fleet report", &[]),
     (&["release"], "land release", &[]),
     (&["split"], "code-health split", &[]),
     (&["watch"], "ops watch", &[]),
@@ -19,10 +11,6 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["coverage"], "test coverage", &[]),
     (&["agents"], "config agents", &[]),
     (&["privacy"], "check disclosure", &[]),
-    (&["dispatch"], "fleet dispatch", &[]),
-    (&["pace"], "fleet pace", &[]),
-    (&["usage"], "fleet usage", &[]),
-    (&["laptop"], "fleet laptop", &[]),
     (&["operator"], "config operator", &[]),
     (&["agent-config-check"], "check harness", &[]),
     (&["land-abandon"], "land abandon", &[]),

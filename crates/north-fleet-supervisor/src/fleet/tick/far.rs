@@ -8,7 +8,7 @@ use crate::fleet::model::SessionRecord;
 use crate::fleet::peer_row::{self, Refusal};
 use crate::fleet::registry::Fleet;
 use crate::fleet::stage::each_by;
-use crate::fleet::store::{Exchange, FarRegistry, FarSpools, FleetRow, FleetTable, HandedRow, LAUNCH_GRACE_MS, RowKind, SessionRow, Undecodable, UnknownKind};
+use crate::fleet::store::{Exchange, FarRegistry, OverSsh, FleetRow, FleetTable, HandedRow, LAUNCH_GRACE_MS, RowKind, SessionRow, Undecodable, UnknownKind};
 
 pub(super) fn deliver_far(ledger: &OpenLedger, pulls: &Pulls, taken: &[Taken], known: Vec<SessionRow>, ticked: &mut Ticked, ((deadline, budget), now_ms): ((Instant, Duration), u64)) {
     let known = Arc::new(known);
@@ -106,7 +106,7 @@ pub(super) fn drop_far(pulls: &Pulls, taken: &[Taken], ticked: &mut Ticked, (dea
     let runs = held.iter().map(|taken| {
         let (spools, ssh, ids, refused) = (pulls.spools.clone(), taken.host.ssh.clone(), taken.ids.clone(), taken.refused.clone());
         move || {
-            let dropped = if ids.is_empty() { Ok(()) } else { FarSpools::drop(&*spools, &ssh, &ids) };
+            let dropped = if ids.is_empty() { Ok(()) } else { OverSsh::drop(&spools, &ssh, &ids) };
             dropped.and_then(|()| if refused.is_empty() { Ok(()) } else { spools.set_aside(&ssh, &refused) })
         }
     });
