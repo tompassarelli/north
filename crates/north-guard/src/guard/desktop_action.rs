@@ -9,6 +9,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const DENIAL: &str = "No. Tom is using the desktop. Use the private desktop or wait until he is idle.";
+const LOCKED: &str = "No. The screen is locked, so typed keys would reach the lock screen as a password. Use the private desktop or wait until Tom unlocks it.";
 const CONTEXT: &str = "desktop action guard: wrapped the desktop command to read the focused window when it runs and refocus that window on exit.";
 const WRAPPERS: &[&str] = &[
     "env", "command", "exec", "sudo", "doas", "nohup", "setsid", "timeout", "nice", "stdbuf",
@@ -144,6 +145,9 @@ fn seat_idle() -> bool {
     pid.and_then(process).is_some_and(|(_, started, name)| {
         name == "swayidle" && data["started"] == started && data["idle"] == true
     })
+}
+fn locked() -> bool {
+    std::fs::read_dir("/proc").into_iter().flatten().flatten().any(|entry| std::fs::read_to_string(entry.path().join("comm")).is_ok_and(|name| name.trim_end() == "swaylock"))
 }
 fn value(assignments: &BTreeMap<String, String>, key: &str) -> String {
     assignments.get(key).cloned().unwrap_or_else(|| env(key))
@@ -419,6 +423,9 @@ pub fn decide(input: &HookInput) -> Verdict {
     }
     if !seat_idle() {
         return Verdict::Deny(DENIAL.into());
+    }
+    if locked() {
+        return Verdict::Deny(LOCKED.into());
     }
     let field = if input.tool_input["command"].is_null() { "cmd" } else { "command" };
     let mut updated = input.tool_input.clone();
