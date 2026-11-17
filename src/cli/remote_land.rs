@@ -9,7 +9,8 @@ use north_safe_push::entry::{self, HostFacts};
 const LANDING_MESSAGE: &str = "north-landing-message";
 
 pub fn safe_push(arguments: &[String]) -> u8 {
-    if let Some(refusal) = north_worker_sandbox::worker_sandbox::lane_only_safe_push_refusal() {
+    let base = format!("origin/{}", arguments.iter().skip_while(|word| *word != "--to").nth(1).map_or("main", String::as_str));
+    if let Some(refusal) = north_worker_sandbox::worker_sandbox::lane_hand_in::safe_push_refusal(|| north_land_scans::review_accept::needed(Path::new("."), &base, "HEAD")) {
         eprintln!("{refusal}");
         return 1;
     }

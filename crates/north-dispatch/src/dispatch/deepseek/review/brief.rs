@@ -43,7 +43,7 @@ impl Lander {
 /// The order every DeepSeek worker's brief carries, naming each `Lander` the review job may take.
 pub fn worker_order() -> String {
     format!(
-        "Lane-only: never run safe-push; it refuses at once with `lane-only session: end with Done: <worktree> <branch> <sha>; the review-and-land loop lands it`. \
+        "Lane-only: safe-push hands in your lane only when it changes no ring-0 path and adds no dependency; otherwise it refuses with `lane-only session: <why>; end with Done: <worktree> <branch> <sha>`. \
          Commit in your lane with this brief's `Item:` and `Box:` lines in the commit message, and report Done: with that line. Then {}, and {}; \
          the lander ticks the box from those lines once the commit is on main.",
         Lander::Reviewer.says(),

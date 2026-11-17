@@ -389,7 +389,8 @@ fn a_lane_only_shell_ends_with_done_instead_of_running_safe_push_north_1041() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{stderr}");
-    assert!(stderr.contains(&format!("lane-only session: end with Done: {} lane {sha}; the review-and-land loop lands it", lane.display())), "{stderr}");
+    assert!(stderr.contains("lane-only session: the review-accept scan could not read the lane"), "a lane with no origin/main cannot be told to need no accept: {stderr}");
+    assert!(stderr.contains(&format!("; end with Done: {} lane {sha}", lane.display())), "{stderr}");
     assert!(!stderr.contains("north worker-sandbox broker"), "the refusal names the hand-off, not the broker's opaque refusal: {stderr}");
 }
 

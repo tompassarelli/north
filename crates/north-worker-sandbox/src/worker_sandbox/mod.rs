@@ -20,6 +20,7 @@ mod except;
 mod executable;
 mod file_tools;
 mod lane_grant;
+pub mod lane_hand_in;
 mod session_join;
 mod lane_only;
 mod lane_session;
@@ -335,28 +336,6 @@ pub fn reenter_lane_only(arguments: &[String]) -> Option<u8> {
     std::env::var_os(MARK)?;
     std::env::var_os(LANE_ONLY)?;
     Some(through_broker(arguments))
-}
-
-/// The refusal a lane-only session's shell gets instead of running safe-push itself: the broker lands a lane-only
-/// session's lane only for a caller in that session's own scope, and every OpenCode and Pi shell command runs in the
-/// broker's fresh `--lane` child, so the worker commits, ends with `Done:` and the review-and-land loop lands it
-/// (north#1041). It names the lane, branch and commit the reviewer reads.
-pub fn lane_only_safe_push_refusal() -> Option<String> {
-    north_base::platform::session_scope::lane_only_outside_scope().then(|| {
-        let fact = |arguments: &[&str]| {
-            Command::new("git")
-                .args(arguments)
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-                .filter(|line| !line.is_empty())
-        };
-        let worktree = fact(&["rev-parse", "--show-toplevel"]).unwrap_or_else(|| ".".to_owned());
-        let branch = fact(&["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_else(|| "HEAD".to_owned());
-        let sha = fact(&["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-        format!("safe-push: lane-only session: end with Done: {worktree} {branch} {sha}; the review-and-land loop lands it")
-    })
 }
 
 /// Why a git write in `checkout` would strand its lock files when called inside a worker sandbox: the domain lets git create them anywhere but remove them only beneath the trees `removable` names, so a failed or finished write leaves `index.lock` for the next writer (north#1172). `None` outside a sandbox or for a checkout whose locks the session may remove.

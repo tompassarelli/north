@@ -86,6 +86,13 @@ fn check_listed(directory: &Path, listed_at: &str, base: &str, head: &str, accep
     Err(format!("the lane changes ring-0 paths or adds dependencies, {}, and holds no review accept of its patch {patch} from a reviewer session that did not author the lane; a reviewer's `north runtime accept {head}` records one", crossing.join(", ")))
 }
 
+/// The review the lane `base..head` needs before it lands, read from the harness/defaults.toml at `base`, empty when it lands with no accept.
+pub fn needed(directory: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+    let fork = git::merge_base(directory, base, head);
+    let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
+    needing_review(directory, base, &fork, head, &files)
+}
+
 /// The review a lane `fork..head` needs, read from the harness/defaults.toml at `listed_at`: each file it changes under ring_zero_paths,
 /// each defaults key ring-0 code reads that it changes, each dependency-source file it adds a line to, and each dependency it adds;
 /// `Err` when the file lists no boundary.
