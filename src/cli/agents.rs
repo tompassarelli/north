@@ -3,11 +3,10 @@ use std::sync::Arc;
 use crate::agent_catalog::{self, sync_gate};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::runtimes::Runtimes;
-use crate::pacing;
 use crate::providers::claude::{self, fleet::Claude};
 
 use super::oneshot::RuntimeAccess;
-use super::{fleet, token_usage};
+use super::token_usage;
 
 const USAGE: &str = "usage: north config agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|check-hook-paths|check-owners|live-refs}";
 
@@ -27,9 +26,6 @@ pub(super) fn run(arguments: &[String]) -> u8 {
 }
 
 pub(super) fn usage(arguments: &[String]) -> u8 {
-    if let Some(provider) = gate_provider(arguments) {
-        return pace(&["gate".to_owned(), provider]);
-    }
     if crate::usage::handles(arguments) {
         return with_usage_host(|host| crate::usage::run(arguments, host));
     }
@@ -50,11 +46,6 @@ pub(in crate::cli) fn with_usage_host<T>(work: impl FnOnce(&crate::usage::Host) 
     })
 }
 
-fn gate_provider(arguments: &[String]) -> Option<String> {
-    let precedes = arguments.iter().any(|argument| argument == "--write-pace-gate");
-    let at = arguments.iter().position(|argument| argument == "--gate")?;
-    arguments.get(at + 1).filter(|_| !precedes).cloned()
-}
 
 fn exit(outcome: NorthResult<u8>) -> u8 {
     outcome.unwrap_or_else(|error| {
@@ -67,17 +58,6 @@ fn exit(outcome: NorthResult<u8>) -> u8 {
     })
 }
 
-fn pace(arguments: &[String]) -> u8 {
-    pacing::run(
-        arguments,
-        pacing::FleetFacts {
-            roster: fleet::roster,
-            machine_load: fleet::fleet_load,
-            workers: crate::dispatch::fleet_workers,
-        },
-        token_usage::read,
-    )
-}
 
 pub(super) fn config(arguments: &[String]) -> std::process::ExitCode {
     super::in_runtime(async move { Ok(std::process::ExitCode::from(run(arguments))) })

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{Sources, Window, state_root, tom};
+use super::{Sources, Window, tom};
 use crate::foundation::clock::Timestamp;
 use crate::guard::recommend_acts::{self, Turn};
 
@@ -15,7 +15,6 @@ const DAY_S: i64 = 86_400;
 const MODEL_WAIT: Duration = Duration::from_secs(600);
 const REPLY_CHARS: usize = 1_500;
 const PHRASES_SHOWN: usize = 5;
-const STATE: &str = "north/recommend-audit/last";
 
 const INSTRUCTIONS: &str = "You audit an AI coordinator's replies to its user. For each reply in the JSON array below decide, whatever its wording: \
 `recommends` is true when it recommends a course or asks the user a decision or permission; `phrase` is the words that do it (at most 8, copied from the reply, empty when false); \
@@ -148,19 +147,4 @@ pub fn run(arguments: &[String]) -> u8 {
     u8::from(found.is_err())
 }
 
-/// Starts the day's audit detached when the last one is a day old, so the tick never waits on the model.
-pub fn tick(now: i64) {
-    let file = state_root().join(STATE);
-    let last = std::fs::read_to_string(&file).ok().and_then(|text| text.trim().parse::<i64>().ok()).unwrap_or(0);
-    if (0..DAY_S).contains(&(now - last)) {
-        return;
-    }
-    if let Some(parent) = file.parent()
-        && std::fs::create_dir_all(parent).and_then(|()| std::fs::write(&file, now.to_string())).is_err()
-    {
-        return;
-    }
-    use std::os::unix::process::CommandExt;
-    let Ok(north) = std::env::current_exe() else { return };
-    let _ = std::process::Command::new(north).args(["dash", "audit", "--tell"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).process_group(0).spawn();
-}
+

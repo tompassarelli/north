@@ -2,5 +2,5 @@
 name = "north-guard"
 layer = 3
 paths = ["crates/north-guard/src/**"]
-may_use = ["north-dispatch", "north-code-health"]
+may_use = ["north-code-health"]
 

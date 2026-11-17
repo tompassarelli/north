@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use self::plan::{Info, Moves, plan, processes};
+use north_base::platform::host;
 use north_foundation::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north agent-contain sweep [--dry-run]";
@@ -35,7 +36,7 @@ impl Inputs {
             cgroup: set("AGENT_CONTAIN_CGROUP").map_or_else(|| "/sys/fs/cgroup".into(), PathBuf::from),
             inbox: set("AGENT_CONTAIN_INBOX").map_or_else(|| home.join(".local/state/agents/handoffs/coordinator-inbox.md"), PathBuf::from),
             uid: set("AGENT_CONTAIN_UID").and_then(|uid| uid.parse().ok()).unwrap_or_else(|| rustix::process::getuid().as_raw()),
-            host: set("AGENT_CONTAIN_HOST").unwrap_or_else(|| std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()),
+            host: set("AGENT_CONTAIN_HOST").unwrap_or_else(host::name),
             busctl: set("AGENT_CONTAIN_BUSCTL").unwrap_or_else(|| "busctl".into()),
             state: set("AGENT_CONTAIN_STATE").map_or_else(|| home.join(".local/state/agent-contain/reported.json"), PathBuf::from),
             now: Timestamp::now().unix_seconds_f64(),

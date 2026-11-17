@@ -1,7 +1,6 @@
 //! The coordinator's ordered chain of seats, read from harness/defaults.toml: each seat names the provider, account and model the coordinator moves to in turn. A seat on a provider marked public-only is refused, since the coordinator serves private repositories (north#1552).
 use toml_edit::{DocumentMut, Value};
 
-use crate::platform::harness;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Seat {
@@ -10,10 +9,7 @@ pub struct Seat {
     pub model: String,
 }
 
-pub fn read() -> Result<Vec<Seat>, String> {
-    let defaults: DocumentMut = harness::table(harness::DEFAULTS).parse().map_err(|error| format!("harness/defaults.toml: {error}"))?;
-    parse(&defaults)
-}
+
 
 /// The config check a change to harness/defaults.toml meets before it lands: the chain must read, and no seat may name a public-only provider.
 pub fn validate(text: &str) -> Result<(), String> {
@@ -45,11 +41,6 @@ fn seat_at(number: usize, value: &Value, public_only: &[&str]) -> Result<Seat, S
     Ok(seat)
 }
 
-pub fn holds(chain: &[Seat], account: &str) -> bool {
-    chain.iter().any(|seat| seat.account == account)
-}
 
-pub fn after<'a>(chain: &'a [Seat], account: &str) -> Option<&'a Seat> {
-    let at = chain.iter().position(|seat| seat.account == account)?;
-    chain.get(at + 1)
-}
+
+

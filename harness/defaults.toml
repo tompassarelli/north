@@ -275,17 +275,7 @@ allowed = { min = 0, max = 100 }
 unit = "worker sessions working at once, counting this run's launches, past which dispatch starts no more Claude boxes"
 source = "2026-11-13 lifted to its allowed maximum the way the resident caps were lifted on 2026-11-10, when the owner ruled out count limits and measured pressure and the money ceiling replace them; it began as a prior (about a third of the 38 session slots the hosts declare, north#1137), a stated bound that no measurement set, and the 15 sessions working at its lifting were none placed by dispatch"
 fallback = "none: a stated bound, not a measurement"
-consumers = ["crates/north-dispatch/src/dispatch/plan.rs", "crates/north-pace/src/spend/mod.rs"]
-
-[dispatch_freeze_alarm_min]
-value = 15
-allowed = { min = 5, max = 240 }
-unit = "minutes of dispatch runs with ready boxes, free slots and no launch before the coordinator gets one urgent message naming the refusing guards"
-source = "north#838, 2026-11-08: one stale spend figure froze every launch on the only account with headroom for over 20 minutes and nothing told the coordinator; dispatch runs every 5 minutes, so 15 is three frozen runs"
-fallback = "none: a stated bound, not a measurement"
-consumers = ["crates/north-dispatch/src/dispatch/freeze.rs"]
-
-[codex_route_tooling]
+consumers = ["crates/north-pace/src/spend/mod.rs"][codex_route_tooling]
 value = "codex"
 allowed = { one_of = ["codex", "claude"] }
 unit = "engine for tooling boxes: codex or claude"
@@ -496,14 +486,6 @@ source = "prior: codex-routing plan 15 Oct section 4 learning loop"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "a class without a run count is explorable"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
-
-[laptop_idle_reopen_sec]
-value = 1800
-allowed = { min = 0, max = 604800 }
-unit = "seconds of continuous idle before reopening background laptop capacity"
-source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe existing 1800-second idle reopening threshold; the seat in use no longer drains an open laptop (Tom, 2026-11-08), so this reopens only after a window close or a battery, gaming or sleep hold"
-fallback = "without continuous idle evidence background capacity remains closed"
-consumers = ["crates/north-pacing/src/laptop/observe.rs"]
 
 [bar1_desktop_mib]
 value = 1
@@ -717,9 +699,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB free on the dispatch host's root disk under which dispatch and fleet placement send it no new session, when the operator policy's [hosts.NAME] table sets no disk_free_gib for that host (the host named by [placement] dispatch_host)"
 source = "guess: 9 GiB over build_disk_free_gib (15) and 6 GiB under the 30.3 GiB free on 2026-11-16, when the dispatch host's 31 GiB eviction line closed dispatch for over an hour and a half (north#1632); the largest growth on that host between two keeps settles it"
 fallback = "none: the dispatch host's bound is this line unless the policy sets its own"
-consumers = ["crates/north-shared-config/src/disk_bound.rs", "crates/north-pacing/src/pacing/placement/hosts.rs", "crates/north-base/src/platform/disk_budget.rs"]
-
-[build_disk_reserve_gib]
+consumers = ["crates/north-shared-config/src/disk_bound.rs", "crates/north-base/src/platform/disk_budget.rs"][build_disk_reserve_gib]
 value = 5
 allowed = { min = 0, max = 65536 }
 unit = "GiB of root disk admission sets aside for each heavy build already running and for the one asking, before comparing what is left with build_disk_free_gib"
@@ -1606,7 +1586,7 @@ consumers = ["crates/north-graph-ingest/src/run.rs"]
 value = 45
 allowed = { min = 30, max = 3650 }
 unit = "days of withdrawn fact-graph history north graph retain keeps; asOf or since below the resulting horizon is refused as snapshot expired"
-source = "coordinator: the longest history reader north had when the horizon was chosen was the climb archive, which read each candidate asOf its landing seq over dispatch's 30-day ARM_WINDOW (crates/north-dispatch/src/dispatch/tier.rs; the archive went with north-climb in bce9c60404, north#970); route replay reads 14 days (docs/rationale/nearest-routing.md); 45 is that 30 plus half again, so a reader that runs late or a horizon taken from an hour-old time mark never meets the edge (north#882, 2026-11-08)"
+source = "coordinator: the longest history reader north had when the horizon was chosen was the climb archive, which read each candidate asOf its landing seq over a 30-day window (the archive went with north-climb in bce9c60404, north#970); route replay reads 14 days (docs/rationale/nearest-routing.md); 45 is that 30 plus half again, so a reader that runs late or a horizon taken from an hour-old time mark never meets the edge (north#882, 2026-11-08)"
 fallback = "none: the verb panics without it, since a guessed horizon would delete history a reader needs"
 consumers = ["crates/north-graph-ingest/src/run.rs"]
 
@@ -1618,46 +1598,6 @@ source = "measured: on 2026-11-11 the GPU host read 3% free after dispatch kept 
 fallback = "none: the host's room is always the smaller of its memory and disk room"
 consumers = ["crates/north-capacity/src/capacity/saturation.rs"]
 
-[placement_session_cores]
-value = 2
-allowed = { min = 0, max = 64 }
-unit = "cores of a host's one-minute load a session launch counts for each session live there and for each launch placed there inside placement_reserve_seconds, when placement compares hosts by demand per thread"
-source = "prior: docs/rationale/placement.md (north#1036) sets 2 until a day of watchdog rows measures a session's share; on 2026-11-11 at 7:45 AM the four hosts carried load 219 with 40 sessions, a peak that included land checks"
-fallback = "none: a host without a backlog reading ranks after every host with one"
-consumers = ["crates/north-pacing/src/pacing/placement/recent.rs"]
-
-[placement_reserve_seconds]
-value = 120
-allowed = { min = 0, max = 3600 }
-unit = "seconds a session launch's placement counts against the host it went to before that host's own reading is trusted to show it"
-source = "derived: the saturation reading is cached up to 60 s and the one-minute load average needs about another minute to show a new session; on 2026-11-12 21 launches decided inside 100 ms against one 1.5 s old reading all went to the first host in order (north#1191); docs/rationale/placement.md (north#1036) names the same 120 s for the host-side reservation that replaces this count"
-fallback = "none: a placement older than the window counts only through the host's reading"
-consumers = ["crates/north-pacing/src/pacing/placement/recent.rs"]
-
-[draft_daily_count]
-value = 40
-allowed = { min = 0, max = 400 }
-unit = "drafts north fleet dispatch starts in a rolling 24 hours, recomputes included, before it starts no more"
-source = "prior: on 2026-11-11 26 qualifying boxes landed and 14 qualifying boxes were open, so 40 drafts covers a day's qualifying boxes once (north#1240 plan)"
-fallback = "none: the pass starts no draft past it"
-consumers = ["crates/north-dispatch/src/dispatch/drafting.rs"]
-
-[draft_daily_tokens]
-value = 4000000
-allowed = { min = 0, max = 40000000 }
-unit = "ledger tokens all drafts of a rolling 24 hours may hold before the pass starts no more"
-source = "prior: 40 drafts at the small model's p90 of 93,480 ledger tokens per band run (runs ledger 2026-11-05 to 2026-11-12) is 3.74M, rounded up (north#1240 plan)"
-fallback = "none: the pass starts no draft past it"
-consumers = ["crates/north-dispatch/src/dispatch/drafting.rs"]
-
-[draft_daily_usd]
-value = 1.5
-allowed = { min = 0.0, max = 20.0 }
-unit = "API-equivalent dollars all drafts of a rolling 24 hours may hold before the pass starts no more"
-source = "prior: 40 drafts at the small model's p90 of $0.034 per band run (runs ledger 2026-11-05 to 2026-11-12) is $1.36, rounded up (north#1240 plan)"
-fallback = "none: the pass starts no draft past it"
-consumers = ["crates/north-dispatch/src/dispatch/drafting.rs"]
-
 [after_landing_at_lander_rank]
 value = true
 allowed = {}
@@ -1665,22 +1605,6 @@ unit = "whether an after-landing run's offloaded checks take the lander's own ra
 source = "coordinator: the after-landing run now gates every promotion (north#1022), so it is the floor of written-to-live (north#1036, 2026-11-13)"
 fallback = "an unreadable value reads as true"
 consumers = ["crates/north-land-checks/src/land/slots/runner/arguments.rs"]
-
-[launch_line_wait]
-value = 1
-allowed = { min = 0, max = 1 }
-unit = "1 holds a code-work launch while every build host's expected wait for a landing slot is over launch_line_wait_s, 0 launches whatever the lines hold"
-source = "prior: owner's bar of hand-in to origin/main in 60 s at the median (north#1247, 2026-11-13); the pre-queue check waited 361 s at the median in a build host's slot line (north#1247)"
-fallback = "a launch starts whatever the build hosts' lines hold"
-consumers = ["crates/north-pacing/src/pacing/placement/line_wait.rs"]
-
-[launch_line_wait_s]
-value = 60
-allowed = { min = 1, max = 600 }
-unit = "seconds of expected wait for a landing slot above which a build host's line holds a launch"
-source = "prior: owner's bar of hand-in to origin/main in 60 s at the median (north#1247, 2026-11-13)"
-fallback = "60"
-consumers = ["crates/north-pacing/src/pacing/placement/line_wait.rs"]
 
 [capacity_line_wait]
 value = false
@@ -1739,7 +1663,7 @@ fallback = "a missing value or any value but on reads as off"
 consumers = ["crates/north-land-checks/src/land/slots/runner/queue_checks.rs"]
 
 [trust_boundary_paths]
-value = ["harness/", ".safe-push", ".github/", "bin/", "flake.nix", "flake.lock", "crates/north-broker/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-credentials/src/credentials/", "crates/north-github-broker/src/gh_broker/", "crates/north-check-environment/src/credential.rs", "crates/north-landing/src/land/credential.rs", "crates/north-fleet/src/fleet/peer_row.rs", "crates/north-session-host/src/row_delivery.rs", "src/cli/fleet/admission.rs", "src/cli/fleet/need.rs", "src/cli/fleet/placement.rs", "src/cli/operator.rs", "src/cli/operator/", "crates/north-trusted-mirror/", "crates/north-remote-serve/", "crates/north-guard/src/guard/tripwire/", "crates/north-pacing/src/pacing/placement/", "crates/north-capacity/src/capacity/host_table.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-providers/src/providers/claude/tool_server.rs", "crates/north-providers/src/providers/claude/fleet.rs", "crates/north-fleet/src/fleet/model.rs", "crates/north-fleet/src/fleet/remote.rs", "src/cli/fleet/router.rs", "src/cli/fleet/revive.rs", "crates/north-build-system/", "crates/north-graph-change/", "crates/north-base/src/platform/session_scope.rs", "crates/north-providers/src/providers/claude/session_env.rs", "crates/north-fleet-supervisor/src/fleet/registry/", "crates/north-fleet-supervisor/src/fleet/tick/", "crates/north-fleet-store/", "crates/north-warm-spares/", "crates/north-agent-starts/", "crates/north-capacity/src/capacity/gate.rs", "crates/north-capacity/src/capacity/dev_shell.rs", "crates/north-pace/src/spend/", "crates/north-providers/src/providers/claude/api_pool.rs", "crates/north-land-scans/src/disclosure_judge/judge.rs", "src/cli/oneshot/judge_model.rs", "crates/north-dispatch/src/dispatch/survey.rs", "crates/north-dispatch/src/dispatch/plan.rs", "**/Cargo.toml", "Cargo.lock", "**/BUCK", "build/", "third-party/", "toolchains/", "crates/north-github-broker/", "src/bin/verify_north/login.rs", "crates/north-base/src/platform/login.rs", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-fleet/src/fleet/claims.rs", "crates/north-threads/src/threads/claims/", "src/cli/fleet/claims.rs", "crates/north-fleet/src/fleet/claim_releases.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/records_mirror.rs", "crates/north-base/src/build_inputs.rs", ".config/", ".cargo/", "rust-toolchain.toml", ".buckconfig", ".buckroot", "build.rs", "lint/", "mode/", ".language-allowlist.json", ".stub-exec-allowlist.json", ".commit-emails", "concerns.toml", "ambient-test-inputs.tsv", "ambient-test-clocks.tsv", "ambient-test-fleets.tsv"]
+value = ["harness/", ".safe-push", ".github/", "bin/", "flake.nix", "flake.lock", "crates/north-broker/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-credentials/src/credentials/", "crates/north-github-broker/src/gh_broker/", "crates/north-check-environment/src/credential.rs", "crates/north-landing/src/land/credential.rs", "crates/north-fleet/src/fleet/peer_row.rs", "crates/north-session-host/src/row_delivery.rs", "src/cli/fleet/admission.rs", "src/cli/fleet/need.rs", "src/cli/fleet/placement.rs", "src/cli/operator.rs", "src/cli/operator/", "crates/north-trusted-mirror/", "crates/north-remote-serve/", "crates/north-guard/src/guard/tripwire/", "crates/north-capacity/src/capacity/host_table.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-providers/src/providers/claude/tool_server.rs", "crates/north-providers/src/providers/claude/fleet.rs", "crates/north-fleet/src/fleet/model.rs", "crates/north-fleet/src/fleet/remote.rs", "src/cli/fleet/router.rs", "src/cli/fleet/revive.rs", "crates/north-build-system/", "crates/north-graph-change/", "crates/north-base/src/platform/session_scope.rs", "crates/north-providers/src/providers/claude/session_env.rs", "crates/north-fleet-supervisor/src/fleet/registry/", "crates/north-fleet-supervisor/src/fleet/tick/", "crates/north-fleet-store/", "crates/north-warm-spares/", "crates/north-agent-starts/", "crates/north-capacity/src/capacity/gate.rs", "crates/north-capacity/src/capacity/dev_shell.rs", "crates/north-pace/src/spend/", "crates/north-providers/src/providers/claude/api_pool.rs", "crates/north-land-scans/src/disclosure_judge/judge.rs", "src/cli/oneshot/judge_model.rs", "**/Cargo.toml", "Cargo.lock", "**/BUCK", "build/", "third-party/", "toolchains/", "crates/north-github-broker/", "src/bin/verify_north/login.rs", "crates/north-base/src/platform/login.rs", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-fleet/src/fleet/claims.rs", "crates/north-threads/src/threads/claims/", "src/cli/fleet/claims.rs", "crates/north-fleet/src/fleet/claim_releases.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/records_mirror.rs", "crates/north-base/src/build_inputs.rs", ".config/", ".cargo/", "rust-toolchain.toml", ".buckconfig", ".buckroot", "build.rs", "lint/", "mode/", ".language-allowlist.json", ".stub-exec-allowlist.json", ".commit-emails", "concerns.toml", "ambient-test-inputs.tsv", "ambient-test-clocks.tsv", "ambient-test-fleets.tsv"]
 allowed = { min_len = 1 }
 unit = "paths from the repository root (a trailing / names a directory, a leading **/ names a file of that name in any directory, else one file) whose change crosses a host's trust boundary: the credential broker and credentials, peer-host rows, fleet admission, placement, routing and revival over an operator login, the fleet registry, tick and store, agent starts, session scope and environment, the capacity gate and the dev shell it enters, the API spend hold and its readers in dispatch, the API pool and the disclosure judge, the agent runtime and its tool server, the harness, land and build configuration (manifests, lock file, Buck2 files and modes, the lint gate, the toolchain pin, the build script, cargo and nextest configuration) and the gate allowlists and configuration at the root (the language, stub-exec and ambient-test allowlists, the commit-email allowlist, concerns.toml) and the after-landing test selection; the files of landing_path_paths cross it too; a lane that changes one lands only on a reviewer's accept of its patch (the land scan review-accept), and its test line runs after the landing like every lane's"
 source = "north#1036 second review (2026-11-13): with runtime promotion on landing, a trust-boundary change that skipped its test line would go live on every host before the after-landing run could revert it, and a landing path change that breaks landing could not land its own revert"
@@ -1828,7 +1752,7 @@ fallback = "none: the probe and placement read it from the bundled defaults"
 consumers = ["crates/north-capacity/src/capacity/agent_load.rs"]
 
 [seat_stall_units]
-value = ["north-land@*", "north-land-rest.*", "north-land-adopt*", "north-runtime-follow.*", "fleet-tick.*", "agents-flow-stall.*", "pace-enforcement.*", "north-dispatch-mirror.*", "usage-sample.*", "north-watch.*", "laptop-auto.*", "laptop-runner.*", "firn-host-follow.*", "north-land-shadow.*", "harness-health.*", "north-github-mirror.*", "ssh-master-probe.*"]
+value = ["north-land@*", "north-land-rest.*", "north-land-adopt*", "north-runtime-follow.*", "fleet-tick.*", "agents-flow-stall.*", "pace-enforcement.*", "usage-sample.*", "north-watch.*", "laptop-auto.*", "laptop-runner.*", "firn-host-follow.*", "north-land-shadow.*", "harness-health.*", "north-github-mirror.*", "ssh-master-probe.*"]
 allowed = { min_len = 1 }
 unit = "systemd user unit patterns of the fleet's units on the laptop that the seat probe's breaker stops on a stall and `north capacity seat-stall resume` starts again: the landers, runtime follow, the fleet tick and the periodic fleet timers with their services; the credential broker, the ssh masters, the capacity watchdog and the sessions' own scopes stay out, and a slice holding a session is never frozen (decision of 2026-10-15)"
 source = "north#1553, coordinator's measurement of 2026-11-16: with these units stopped on the laptop, device writes fell from a mean of 1,287 a second to a median of 7 and no stall of 4 s or more followed"

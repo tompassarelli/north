@@ -1,6 +1,0 @@
-[[crate_dag.crate]]
-name = "north-pacing"
-layer = 5
-paths = ["crates/north-pacing/src/**"]
-may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-shared-config", "north-ssh-spare", "north-threads", "north-capacity-host"]
-

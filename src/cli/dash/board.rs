@@ -9,7 +9,6 @@ use crate::platform::host_load::HostReading;
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::{self, Runway};
 
-use super::escalations::Escalations;
 use super::scoreboard::ready::{self, Verdict};
 use super::spend::Spend;
 use super::Screen;
@@ -96,16 +95,7 @@ fn work_panel(screen: &Screen, window: &str) -> Panel {
         }
         Err(why) => panel.unread.push(format!("first tries unread: {why}")),
     }
-    if let Ok((runs, _)) = &screen.runs {
-        let escalations = Escalations::of(&screen.launches, runs, screen.since as f64, screen.now as f64);
-        if !escalations.rows.is_empty() {
-            panel.lines.push(escalations.summary(window));
-            for row in escalations.rows.iter().take(DETAIL_ROWS) {
-                let lift = row.lift_delta().map_or_else(|| "-".to_owned(), |delta| format!("{:+.0} pts", delta * 100.0));
-                panel.lines.push(format!("escalation {}: {} climbed, {} landed, lift {lift}", row.rung, row.escalations, first_try(row.landed, row.finished)));
-            }
-        }
-    } else if let Err(why) = &screen.runs {
+    if let Err(why) = &screen.runs {
         panel.unread.push(format!("runs unread: {why}"));
     }
     panel
@@ -295,12 +285,7 @@ fn percent(share: f64) -> String {
     if share > 0.0 && share < 0.5 { "<1%".to_owned() } else { format!("{share:.0}%") }
 }
 
-fn first_try(landed: usize, tries: usize) -> String {
-    match tries {
-        0 => "-".to_owned(),
-        tries => format!("{landed} of {tries} ({:.0}%)", landed as f64 / tries as f64 * 100.0),
-    }
-}
+
 
 #[derive(Clone, Copy)]
 enum Align {

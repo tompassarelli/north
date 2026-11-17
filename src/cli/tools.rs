@@ -37,21 +37,12 @@ const UNIFORM: &[(&str, Run)] = &[
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
     ("pin-retire", crate::lanes::pin_retire),
     ("graph", graph),
-    ("resident-cap", crate::resident_cap::run),
     ("docs", north_docs::docs::run),
-    ("spend", super::spend::run),
     ("fetch-fleet", super::fetch_fleet::run),
     ("fleet-for", super::fleet_for::run),
     ("fleet-issue", super::fleet_issue::run),
     ("proof-run", super::proof_run::run),
     ("control-plane", super::control_plane::run),
-    ("coordinator", |arguments| match arguments.first().map(String::as_str) {
-        Some("calls") => {
-            eprintln!("did you mean: north config coordinator {}", arguments.join(" "));
-            2
-        }
-        _ => super::fleet::coordinator(arguments),
-    }),
     ("ops", ops),
     ("private-check", crate::private_check::run),
     ("ssh-argv", crate::platform::ssh::run),
@@ -60,10 +51,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("gh-session", |arguments| crate::platform::gh_session::run(arguments, crate::guard::gh_screen::screen)),
     ("ssh-session", crate::platform::ssh_session::run),
     ("ssh-master", crate::platform::ssh_master::run),
-    ("placement-survey", |arguments| crate::pacing::placement::keep_surveys(arguments, crate::dispatch::refresh_fleet_listings)),
-    ("ssh-spare", crate::pacing::placement::hold_spares),
-    ("spare-fill", super::fleet::fill_spares),
-    ("spare-retire", super::fleet::retire_spares),
     ("git-credential", crate::platform::git_credential::run),
     ("gh-broker", crate::gh_broker::run),
     ("broker", north_broker::run),
@@ -88,12 +75,9 @@ const DIRECT: &[(&str, Run)] = &[
 pub(super) enum Tool {
     Uniform(&'static str),
     Direct(&'static str),
-    Pace,
     Capacity,
     SessionUnit,
-    Dispatch,
     Fleet(&'static str),
-    Laptop,
     Config,
     Work,
     Test,
@@ -123,12 +107,7 @@ const OPERATIONS: &[(&str, Tool)] = &[
 
 impl Tool {
     pub(super) fn fleet_verb(verb: &str) -> Option<Self> {
-        match verb {
-            "dispatch" => Some(Self::Dispatch),
-            "pace" => Some(Self::Pace),
-            "laptop" => Some(Self::Laptop),
-            _ => named(FLEET, verb).map(Self::Fleet),
-        }
+        named(FLEET, verb).map(Self::Fleet)
     }
 
     pub(super) fn named(command: &str) -> Option<Self> {
@@ -145,12 +124,10 @@ impl Tool {
                 super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
             }
             Self::Direct(name) => ExitCode::from(runner(DIRECT, name).map_or(2, |run| run(arguments))),
-            Self::Dispatch => ExitCode::from(super::fleet::dispatch(arguments)),
             Self::Fleet(name) => {
                 let run = runner(FLEET, name);
                 super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
             }
-            Self::Laptop => ExitCode::from(crate::laptop::run(arguments)),
             Self::Config => super::in_runtime(async move { Ok(ExitCode::from(config(arguments))) }),
             Self::Work => super::in_runtime(async move { Ok(ExitCode::from(work(arguments))) }),
             Self::Test => match arguments.split_first() {
@@ -160,7 +137,6 @@ impl Tool {
                     ExitCode::from(2)
                 }
             },
-            Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load, workers: crate::dispatch::fleet_workers }, super::token_usage::read)),
             Self::Capacity => match arguments.split_first() {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(north_capacity::run_bounded::run(rest)),
                 Some((verb, rest)) if verb == "dev-shell" && rest.first().is_some_and(|run| run == "run") => ExitCode::from(crate::capacity::dev_shell::command(rest, &|command| capacity::gate::lease_class(command, &capacity_host()).is_some())),
@@ -180,19 +156,13 @@ fn call_check(arguments: &[String]) -> u8 {
     super::call_check::run(arguments, defines)
 }
 
-/// Whether one more worker session may start on the subscription account `account` now, by the spend view pace admission reads.
-fn subscription_admitted(account: &str) -> Result<(), String> {
-    let fleet = super::fleet::open_fleet().map_err(|error| error.user_message())?;
-    let view = super::fleet::spend_now(&fleet, &fleet.roster())?;
-    view.admit(&format!("claude:{account}"), north_pace::spend::Starter::Worker).map_err(|refusal| refusal.to_string())
-}
 
 const CHECK: &[(&str, Run)] = &[
     ("calls", call_check),
     ("concerns", concerns),
     ("harness", agent_config_check::run),
     ("disclosure", disclosure_judge),
-    ("oneshot", |arguments| super::oneshot::ask::run(arguments, &super::agents::claude_access(), &subscription_admitted)),
+    ("oneshot", |arguments| super::oneshot::ask::run(arguments, &super::agents::claude_access(), &|_| Ok(()))),
     ("issue-boxes", issue_box_lint::run),
     ("provenance", provenance::run),
 ];
@@ -255,5 +225,5 @@ fn work(arguments: &[String]) -> u8 {
 }
 
 fn capacity_host() -> capacity::effects::Host {
-    capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, gpu_slots: crate::pacing::placement::local_gpu_slots, offload: north_offload::land_offload::run, stage_runtime: north_runtime::runtime::stage_on, reenter_outside: crate::worker_sandbox::reenter_outside, build_offload: north_offload::build_offload::offload, hand_over: north_offload::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, build_host: north_offload::land_offload::builds_for_peers, session_builds: crate::pacing::placement::local_session_builds, reclaim_disk, tend_disk: north_offload::offload_cache::tend, keep_disk, tend_slots: north_offload::land_offload::warm::tend, run_lease: north_capacity_host::capacity::host::run }
+    capacity::effects::Host { serving: |_| None, warcraft_clients: || None, bar1_margin_mib: || None, gpu_slots: || None, offload: north_offload::land_offload::run, stage_runtime: north_runtime::runtime::stage_on, reenter_outside: crate::worker_sandbox::reenter_outside, build_offload: north_offload::build_offload::offload, hand_over: north_offload::build_offload::hand_over, lease_builds: north_capacity_host::capacity::mode::leases_own_builds, build_host: north_offload::land_offload::builds_for_peers, session_builds: || crate::platform::orchestration::read().is_ok_and(|cfg| crate::platform::orchestration::builds_for_sessions(&cfg, &crate::platform::host::name())), reclaim_disk, tend_disk: north_offload::offload_cache::tend, keep_disk, tend_slots: north_offload::land_offload::warm::tend, run_lease: north_capacity_host::capacity::host::run }
 }

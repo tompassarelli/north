@@ -4,7 +4,6 @@ use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 use super::{Hold, Lift, bounded};
-use crate::foundation::clock::Timestamp;
 
 const STABLE_PIN: &str = ".local/state/north/channel/stable";
 const ASK: Duration = Duration::from_secs(10);
@@ -12,21 +11,6 @@ const ASK: Duration = Duration::from_secs(10);
 fn modified(path: &Path) -> Option<i64> {
     let at = fs::metadata(path).ok()?.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     i64::try_from(at.as_secs()).ok()
-}
-
-fn at(text: &str) -> Option<i64> {
-    Timestamp::parse_rfc3339(text).map(Timestamp::unix_seconds)
-}
-
-pub(super) fn dispatch_pause(home: &Path) -> Option<Hold> {
-    let (pause, path) = crate::dispatch::recorded_pause(home)?;
-    let lifts = match (pause.check, pause.until.as_deref().and_then(at)) {
-        (Some(check), Some(until)) => Lift::CheckOrUntil(check, until),
-        (Some(check), None) => Lift::Check(check),
-        (None, Some(until)) => Lift::Until(until),
-        (None, None) => Lift::Unnamed("nothing recorded: it stands until `north fleet dispatch resume`".into()),
-    };
-    Some(Hold { host: String::new(), kind: "dispatch pause".into(), set_by: pause.set_by, why: pause.reason, since: at(&pause.since).or_else(|| modified(&path)), lifts, lifts_when: String::new(), red: None })
 }
 
 pub(super) fn stable_pin(home: &Path) -> Option<Hold> {
@@ -94,11 +78,4 @@ fn review_hold(hold: north_worker_sandbox::hold_ledger::Standing) -> Hold {
         lifts_when: String::new(),
         red: None,
     }
-}
-
-pub(super) fn laptop_word() -> Option<Hold> {
-    let said = crate::laptop::Ctx::from_env().main(&["status".to_owned(), "--json".to_owned()]).ok()?;
-    let word = crate::laptop::hand_word(&said)?;
-    let lifts = word.until.as_deref().and_then(|until| at(until).or_else(|| Timestamp::parse(until).ok().map(Timestamp::unix_seconds))).map_or_else(|| Lift::Named("the next window edge, or `north fleet laptop open`".into()), Lift::Until);
-    Some(Hold { host: "laptop".into(), kind: format!("laptop drain switch ({})", word.state), set_by: word.by, why: word.reason, since: at(&word.since).or_else(|| Timestamp::parse(&word.since).ok().map(Timestamp::unix_seconds)), lifts, lifts_when: String::new(), red: None })
 }

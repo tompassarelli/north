@@ -1,12 +1,10 @@
 //! A cloud session's turn: polling it to its end, spotting a stall, nudging it, sweeping sessions
-//! waiting on a human, and recording the row of a launch that finished.
+//! waiting on a human.
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-
-use crate::foundation::clock::Timestamp;
 
 use super::api::{Api, events, field, pages, request, save};
 
@@ -209,44 +207,3 @@ pub(super) fn finish(
     }
 }
 
-/// The finished row of a session `north cloud launch` started: from its launch to now, with its last reply as the report.
-pub(super) fn finished_row(
-    id: &str,
-    events: &[Value],
-    launches: &[crate::dispatch::CloudLaunch],
-    now: Timestamp,
-) -> Option<Value> {
-    let launch = launches.iter().rev().find(|launch| launch.session == id)?;
-    let report = events
-        .iter()
-        .rev()
-        .filter(|event| field(event, "type") == "assistant")
-        .map(reply_text)
-        .find(|text| !text.trim().is_empty())
-        .unwrap_or_default();
-    Some(crate::providers::claude::runs::cloud::finished(
-        id,
-        Timestamp::from_unix_seconds_f64(launch.at),
-        now,
-        &report,
-    ))
-}
-
-pub(super) fn record_finished(id: &str, saved: &Path) {
-    let events: Vec<Value> = std::fs::read_to_string(saved)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect();
-    let Some(row) = finished_row(
-        id,
-        &events,
-        &crate::dispatch::cloud_launches(),
-        Timestamp::now(),
-    ) else {
-        return;
-    };
-    if let Err(error) = crate::threads::client::ingest(format!("{row}\n").as_bytes()) {
-        eprintln!("north cloud wait: the run row for {id} went unrecorded: {error}");
-    }
-}

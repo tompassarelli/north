@@ -16,6 +16,7 @@ use toml_edit::DocumentMut;
 
 use north_worker_sandbox::agent_contain;
 use north_capacity::capacity::host_table::{self, config};
+use north_base::platform::host::name as hostname;
 use north_base::platform::ssh;
 use north_base::platform::ssh_session::shell_quote;
 use north_base::platform::process::run_within;
@@ -161,7 +162,7 @@ pub fn drain(inputs: &Inputs) -> u8 {
         eprintln!("laptop-runner: {}: {error}", inputs.logs.display());
         return 1;
     }
-    let me = north_pacing::laptop::hostname();
+    let me = hostname();
     let mut ran = 0;
     for ledger in &inputs.ledgers {
         while let Some(places) = inputs.places() {
@@ -191,7 +192,7 @@ fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
     let (errors, output) = match opened {
         Ok(files) => files,
         Err(error) => {
-            let message = format!("rc=1 log={}:{}\ncannot open the log: {error}", north_pacing::laptop::hostname(), log.display());
+            let message = format!("rc=1 log={}:{}\ncannot open the log: {error}", hostname(), log.display());
             let _ = ledger.threads(&["queue", "msg", &id, "failed", &message]);
             return;
         }
@@ -214,7 +215,7 @@ fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
         }
     };
     let status = if stopped { "requeued" } else if code == 0 { "done" } else { "failed" };
-    let message = format!("rc={code} log={}:{}\n{}", north_pacing::laptop::hostname(), log.display(), tail(&log));
+    let message = format!("rc={code} log={}:{}\n{}", hostname(), log.display(), tail(&log));
     let _ = ledger.threads(&["queue", "msg", &id, status, &message]);
 }
 

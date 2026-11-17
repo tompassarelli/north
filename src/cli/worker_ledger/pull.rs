@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use super::{Ids, Options};
-use crate::pacing::placement::{self, gate};
+use north_capacity::capacity::host_table::{config, machines, Machine};
 use crate::platform::process::run_with_input_within;
 
 #[cfg(test)]
@@ -12,12 +12,12 @@ mod tests;
 const LIMIT: Duration = Duration::from_secs(180);
 
 pub(super) fn hosts(options: &Options, ids: &Ids, rows: &mut Vec<u8>) {
-    let Ok(cfg) = placement::config() else { return };
+    let Ok(cfg) = config() else { return };
     let Ok(input) = serde_json::to_vec(ids) else { return };
-    pull_among(gate::machines(&cfg), &crate::platform::host::name(), "ssh", options, &input, rows);
+    pull_among(machines(&cfg), &crate::platform::host::name(), "ssh", options, &input, rows);
 }
 
-fn pull_among(machines: Vec<gate::Machine>, here: &str, ssh: &str, options: &Options, input: &[u8], rows: &mut Vec<u8>) {
+fn pull_among(machines: Vec<Machine>, here: &str, ssh: &str, options: &Options, input: &[u8], rows: &mut Vec<u8>) {
     for machine in machines.into_iter().filter(|machine| machine.name != here) {
         match pulled(ssh, &machine.ssh, options, input) {
             Ok(batch) => {

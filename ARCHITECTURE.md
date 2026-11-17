@@ -33,7 +33,7 @@ The crates under [crates/](crates/), by the layer each sits in; a crate depends 
 - **4 workspace**, makes and reaps the worktree each change is written in: [north-lanes](crates/north-lanes/)
 - **4 landing**, checks a handed-in change and lands it on main, or refuses it with the reason: [north-land-checks](crates/north-land-checks/), [north-land-sandbox](crates/north-land-sandbox/), [north-lander](crates/north-lander/), [north-landing](crates/north-landing/), [north-safe-push](crates/north-safe-push/)
 - **4 capacity**, leases machine room to builds and sessions: [north-capacity-host](crates/north-capacity-host/)
-- **5 orchestration**, chooses what runs next, where, and on which build: [north-dispatch](crates/north-dispatch/), [north-offload](crates/north-offload/), [north-pacing](crates/north-pacing/), [north-runtime](crates/north-runtime/), [north-worker-sandbox](crates/north-worker-sandbox/)
+- **5 orchestration**, chooses what runs next, where, and on which build: [north-offload](crates/north-offload/), [north-runtime](crates/north-runtime/), [north-worker-sandbox](crates/north-worker-sandbox/)
 - **6 operations**, watches, measures, tunes, reports and repairs; nothing below depends on it: [north-ci](crates/north-ci/), [north-credentials](crates/north-credentials/), [north-docs](crates/north-docs/), [north-graph-ingest](crates/north-graph-ingest/), [north-reclaim](crates/north-reclaim/), [north-remote-serve](crates/north-remote-serve/)
 <!-- end layout -->
 
@@ -106,8 +106,6 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 4 landing | north-lander | The lander service: enqueue, serve batches, promote, and the hand-in road. |
 | 4 landing | north-safe-push | The safe-push entry: request, gates, publication, restore. |
 | 4 capacity | north-capacity-host | Host leases, the dependency box, the watchdog and the PATH gate. |
-| 5 orchestration | north-pacing | Placement of work on hosts and accounts, laptop state and the resident cap. |
-| 5 orchestration | north-dispatch | The dispatch decision: which box runs next, on which tier, with which brief. |
 | 5 orchestration | north-runtime | Runtime update: the order and the pin of the build each host runs. The worker sandbox, the offload and the timers move out (L18 to L22, docs/rationale/architecture-layers.md); agent containment and the laptop runner have no planned owner yet. |
 | 5 orchestration | north-offload | Running a land check, a session's build and the compiler cache on another host: which host has room, the slot a run holds and the script that ships and starts it. |
 | 6 operations | north-docs | The north docs command: each generated index written from its per-unit source tree. |
@@ -124,8 +122,8 @@ A fleet command reaches a session by one path: an authorized fleet operation, th
 
 ## The life of a task
 
-1. **Brief.** The text is composed in north-dispatch from the vocabulary in north-pace, over the board in north-threads.
-2. **Launch.** `north fleet launch` is parsed in `src/cli/fleet/launch.rs`. north-pacing admits and places it. north-fleet-supervisor records the start, north-providers builds the provider's command and north-session-host holds the process.
+1. **Brief.** The text is composed from the vocabulary in north-pace, over the board in north-threads.
+2. **Launch.** A worker host starts a session from the runtime it has installed, since `north fleet launch` left main with north-dispatch (north#1650 E4). north-fleet-supervisor records the start, north-providers builds the provider's command and north-session-host holds the process.
 3. **Lane.** north-lanes creates the worktree and the worker sandbox confines the session to it.
 4. **Tool calls.** north-guard judges each tool call before it runs (`crates/north-guard/src/hook.rs`).
 5. **Finish call.** The finish tool reaches `src/cli/remote_land.rs`, which wires the road into north-lander's hand-in (`crates/north-lander/src/land/hand_in.rs`) and north-safe-push.

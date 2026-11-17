@@ -13,7 +13,7 @@ pub use cpu::{Cpu, detach_metered, metered};
 use starts::write_starts;
 use far::{cache_far, deliver_far, drop_far, far_hosts, take_far};
 use super::registry::{Fleet, HandedIn};
-use super::stage::{Detached, Late, detach};
+use super::stage::{Detached, Late};
 use super::store::{Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LeaseTable, LedgerHost, WaitKey};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -105,33 +105,6 @@ pub struct Pulls {
     pub spools: Arc<dyn FarSpools + Send>,
     pub always: Vec<FarHost>,
     pub starts: Option<StartWriter>,
-}
-
-pub struct Probed {
-    pub lines: Vec<String>,
-    pub settled: Vec<WaitKey>,
-}
-
-pub struct ProbeJob {
-    pub name: &'static str,
-    pub own: Option<Duration>,
-    pub run: Box<dyn FnOnce(Fleet) -> Probed + Send>,
-}
-
-pub trait WaitProbes: Sync {
-    fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
-        None
-    }
-
-    fn jobs(&self) -> Vec<ProbeJob>;
-}
-
-pub struct NoProbes;
-
-impl WaitProbes for NoProbes {
-    fn jobs(&self) -> Vec<ProbeJob> {
-        Vec::new()
-    }
 }
 
 struct Clock {
@@ -244,35 +217,15 @@ impl Ticked {
     }
 }
 
-pub fn tick(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, probes: &dyn WaitProbes, now_ms: u64, budgets: Budgets) -> NorthResult<Ticked> {
+pub fn tick(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, now_ms: u64, budgets: Budgets) -> NorthResult<Ticked> {
     let clock = Clock::new();
     let mut ticked = Ticked::default();
-    let placing = probes.placement().map(|place| {
-        let began = Instant::now();
-        (began, detach("placement", move || {
-            let ((), cpu) = metered(place);
-            (Instant::now(), cpu)
-        }))
-    });
     let late = exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budgets))?;
-    if let Some((began, placing)) = placing {
-        match placing.by(began + budgets.placement) {
-            Ok((ended, cpu)) => clock.record("placement", began, ended, Some(cpu)),
-            Err(late) => {
-                clock.record("placement", began, Instant::now(), None);
-                ticked.put_off("placement", &late, budgets.placement);
-            }
-        }
-    }
-    probe_and_prune(fleet, ledger, probes, clock, ticked, budgets, |clock, ticked| finish_late_exchange(late, (fleet, ledger, pulls), clock, ticked, budgets))
+    prune(fleet, ledger, clock, ticked, budgets, |clock, ticked| finish_late_exchange(late, (fleet, ledger, pulls), clock, ticked, budgets))
 }
 
-pub fn probe_pass(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, budgets: Budgets) -> NorthResult<Ticked> {
-    probe_and_prune(fleet, ledger, probes, Clock::new(), Ticked::default(), budgets, |_, _| Ok(()))
-}
-
-fn probe_and_prune(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: Clock, mut ticked: Ticked, budgets: Budgets, finish: impl FnOnce(&Clock, &mut Ticked) -> NorthResult<()>) -> NorthResult<Ticked> {
-    settle(fleet, ledger, probes, &clock, &mut ticked, budgets)?;
+fn prune(fleet: &Fleet, ledger: &OpenLedger, clock: Clock, mut ticked: Ticked, budgets: Budgets, finish: impl FnOnce(&Clock, &mut Ticked) -> NorthResult<()>) -> NorthResult<Ticked> {
+    settle(fleet, ledger, &clock, &mut ticked, budgets)?;
     finish(&clock, &mut ticked)?;
     if let Err(error) = clock.time("watchdogs", || fleet.start_watchdogs()) {
         eprintln!("north fleet: committed watchdog starts were not delivered: {}", error.user_message());
@@ -359,10 +312,8 @@ fn finish_late_exchange(late: Option<Exchanging>, (fleet, ledger, pulls): (&Flee
     }
 }
 
-fn settle(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: &Clock, ticked: &mut Ticked, budgets: Budgets) -> NorthResult<()> {
-    let probed = probe(fleet, probes.jobs(), clock, budgets.probes);
-    ticked.probed = probed.lines;
-    let settled: Vec<WaitKey> = fleet.unsettled_waits().into_iter().chain(probed.settled).collect();
+fn settle(fleet: &Fleet, ledger: &OpenLedger, clock: &Clock, ticked: &mut Ticked, budgets: Budgets) -> NorthResult<()> {
+    let settled: Vec<WaitKey> = fleet.unsettled_waits();
     if settled.is_empty() {
         return Ok(());
     }
@@ -382,59 +333,6 @@ fn settle(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: &C
         }
     };
     fleet.set_unsettled_waits(&left)
-}
-
-fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) -> Probed {
-    let started = Instant::now();
-    let deadline = started + budget;
-    let (own, shared): (Vec<ProbeJob>, Vec<ProbeJob>) = jobs.into_iter().partition(|job| job.own.is_some());
-    let beside: Vec<_> = own
-        .into_iter()
-        .map(|ProbeJob { name, own, run }| {
-            let fleet = fleet.clone();
-            let by = own.map_or(deadline, |own| (started + own).min(deadline));
-            (name, by, detach(name, move || {
-                let (probed, cpu) = metered(|| run(fleet));
-                (probed, Instant::now(), cpu)
-            }))
-        })
-        .collect();
-    let mut probed = Probed { lines: Vec::new(), settled: Vec::new() };
-    for ProbeJob { name, run, .. } in shared {
-        if Instant::now() >= deadline {
-            probed.lines.push(format!("deferred {name} to the next tick: probes spent their {}ms budget before it began", budget.as_millis()));
-            continue;
-        }
-        let fleet = fleet.clone();
-        let running = detach_metered(name, move || run(fleet));
-        let answer = clock.wait(name, &running, deadline);
-        probed.hear(name, answer, || format!("still running when probes spent their {}ms budget", budget.as_millis()));
-    }
-    for (name, by, running) in beside {
-        let answer = running.by(by).map(|(probed, ended, cpu)| {
-            clock.record(name, started, ended, Some(cpu));
-            probed
-        });
-        if answer.is_err() {
-            clock.record(name, started, Instant::now(), None);
-        }
-        probed.hear(name, answer, || format!("still running when it spent its own {}ms budget", by.saturating_duration_since(started).as_millis()));
-    }
-    probed
-}
-
-impl Probed {
-    fn hear(&mut self, name: &str, answer: Result<Probed, Late>, running: impl FnOnce() -> String) {
-        match answer {
-            Ok(Probed { lines, settled }) => {
-                self.lines.extend(lines);
-                self.settled.extend(settled);
-            }
-            Err(Late::Running) => self.lines.push(format!("deferred {name} to the next tick: {}", running())),
-            Err(Late::Panicked) => self.lines.push(format!("{name} failed: it panicked")),
-            Err(Late::Unstarted(error)) => self.lines.push(format!("deferred {name} to the next tick: its thread did not start: {error}")),
-        }
-    }
 }
 
 fn joined<R>(handle: std::thread::ScopedJoinHandle<'_, R>) -> R {

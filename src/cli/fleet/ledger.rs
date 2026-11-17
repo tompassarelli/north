@@ -3,35 +3,13 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::jobs::JobLeases;
 use crate::fleet::model::Machine;
-use crate::fleet::store::{Addressee, Claim, FleetRow, Exchange, Exchanged, LedgerHost, Registered, Registrar, Registration, SessionRow, Store, WaitKey};
+use crate::fleet::store::{Claim, Registered, Registrar, Registration, SessionRow, Store};
 use crate::threads::client;
 use crate::platform::orchestration;
 
-const EXCHANGED: &[&str] = &["north", "fleet", "row", "exchange"];
-const SETTLED: &[&str] = &["north", "fleet", "row", "settle"];
 const REGISTER: &[&str] = &["north", "fleet", "row", "register"];
 const LEASED: &[&str] = &["north", "fleet", "row", "leased"];
 const RETIRE: &[&str] = &["north", "fleet", "row", "retire"];
-const ADDRESSED: &[&str] = &["north", "fleet", "row", "addressed"];
-
-pub(super) struct Ledger;
-
-impl LedgerHost for Ledger {
-    fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
-        match client::ask_ledger_host(EXCHANGED, &serde_json::to_vec(exchange)?)? {
-            Some(answer) => Ok(serde_json::from_slice(&answer)?),
-            None => placed_store()?.exchange(exchange),
-        }
-    }
-
-    fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()> {
-        match client::forward_to_ledger_host(SETTLED, &serde_json::to_vec(waits)?)? {
-            Some(0) => Ok(()),
-            Some(code) => Err(NorthError::Refused(format!("the ledger host did not settle the waits (exit {code}); the next tick retries"))),
-            None => Store::open(&client::ledger_path()?)?.settle_all(waits),
-        }
-    }
-}
 
 pub(super) struct LedgerRegistrar {
     far_machine: fn(&str) -> bool,
@@ -66,12 +44,7 @@ impl Registrar for LedgerRegistrar {
     }
 }
 
-pub(super) fn addressed(addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
-    match client::ask_ledger_host(ADDRESSED, &serde_json::to_vec(addressees)?)? {
-        Some(answer) => Ok(serde_json::from_slice(&answer)?),
-        None => Store::open(&client::ledger_path()?)?.addressed_to(addressees),
-    }
-}
+
 
 pub(super) fn placed_store() -> NorthResult<Store> {
     Ok(Store::open(&client::ledger_path()?)?.placing(orchestration::placed_hosts(&orchestration::path())))

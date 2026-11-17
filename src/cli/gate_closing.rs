@@ -1,7 +1,7 @@
 //! Closes the open gates nobody can act on any more: a box-scoped gate whose box was ticked, and a gate whose asking session is gone and whose issue closed.
 use serde_json::Value;
 
-use crate::dispatch::{IssueRef, OWNER, references};
+use super::issue_ref::{IssueRef, OWNER, references};
 use crate::error::NorthResult;
 use crate::fleet::gates::{Closure, Gate};
 use crate::fleet::registry::Fleet;

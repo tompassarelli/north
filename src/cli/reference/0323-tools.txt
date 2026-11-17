@@ -1,9 +1,6 @@
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
   finish --brief-trailers SESSION               Keep the brief's Item, Box and Check lines read from standard input for the session's commit messages
   finish --judge-message SESSION                Judge a commit message read from standard input for the session
-  coordinator [--interactive]                         Attach to the coordinator session, reviving or launching it; --interactive resumes its conversation in claude
-  coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the coordinator session to an account with headroom
-  spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
   control-plane where                           Print the host that holds the control plane's lease, with its epoch
   control-plane move --to HOST                  Move the control plane to HOST by two compare-and-swap steps on the lease, the break-glass move
   control-plane move --finish                    Finish a move under way: the lease goes to the host the move names

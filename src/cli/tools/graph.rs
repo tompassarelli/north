@@ -6,8 +6,21 @@ use crate::cli::oneshot::session::{self as oneshot, Ask};
 
 const PLANNING_LIMIT: Duration = Duration::from_secs(600);
 
+const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "makgora"];
+
 pub(super) fn admits(repository: &str) -> bool {
-    crate::platform::orchestration::snapshot().is_ok_and(|policy| crate::pacing::placement::gate::public(repository, &policy))
+    crate::platform::orchestration::snapshot().is_ok_and(|policy| {
+        let rules = policy.get("placement");
+        let mut public = strings(rules.and_then(|placement| placement.get("public_repos")));
+        if public.is_empty() {
+            public = PUBLIC_REPOS.iter().map(|name| (*name).to_owned()).collect();
+        }
+        !repository.is_empty() && !strings(rules.and_then(|placement| placement.get("private_repos"))).iter().any(|name| name == repository) && public.iter().any(|name| name == repository)
+    })
+}
+
+fn strings(item: Option<&toml_edit::Item>) -> Vec<String> {
+    item.and_then(toml_edit::Item::as_array).map(|array| array.iter().filter_map(|value| value.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
 
 pub(super) fn ask(question: &Question) -> Result<Answer, String> {

@@ -8,7 +8,7 @@ use crate::fleet::gates::{Decision, Gate, GateRequest, Withdrawer, due};
 use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::sender::Sender;
-use crate::dispatch::{IssueRef, OWNER, product_boxes};
+use super::issue_ref::{IssueRef, OWNER, product_boxes};
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use crate::platform::attribution::{self, Cause};
 use super::gate_list::{list, list_aside};

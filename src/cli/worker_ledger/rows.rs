@@ -56,10 +56,7 @@ pub(super) fn rows(options: &Options, ids: &Ids) -> Option<Rows> {
 fn deepseek_rows(shared: &Shared, rows: &mut Vec<u8>) -> crate::error::NorthResult<()> {
     let ledger = crate::ledger::Ledger::open_default()?;
     let (turns, prompts) = (ledger.runs()?, ledger.first_prompts()?);
-    let mut reviewed: HashMap<String, Vec<String>> = HashMap::new();
-    for verdict in crate::dispatch::deepseek::sampling::read(&crate::dispatch::launch_directory()) {
-        reviewed.entry(verdict.session).or_default().push(verdict.sha);
-    }
+    let reviewed: HashMap<String, Vec<String>> = HashMap::new();
     let nodes = crate::providers::ledger_rows::fleet_nodes();
     let pushes = crate::fleet::landings::pushes(&crate::fleet::landings::push_log());
     let sources = opencode::runs::Sources { turns: &turns, prompts: &prompts, nodes: nodes.as_deref(), pushes: &pushes, reviewed: &reviewed };

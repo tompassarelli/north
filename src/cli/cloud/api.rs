@@ -179,8 +179,22 @@ pub(in crate::cli) fn save(events: &[Value], out: &Path) -> Result<(), String> {
     file.flush().map_err(error)
 }
 
+struct Login {
+    home: PathBuf,
+    credentials: PathBuf,
+}
+
+fn current_login() -> Result<Login, String> {
+    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()) {
+        let dir = PathBuf::from(dir);
+        return Ok(Login { credentials: dir.join(".credentials.json"), home: dir });
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?);
+    Ok(Login { credentials: home.join(".claude/.credentials.json"), home })
+}
+
 pub(super) fn credentials() -> Result<Curl, String> {
-    let login = crate::dispatch::cloud_login()?;
+    let login = current_login()?;
     let read = |path: PathBuf, pointer: &str| {
         let text = std::fs::read_to_string(&path)
             .map_err(|error| format!("{}: {error}", path.display()))?;

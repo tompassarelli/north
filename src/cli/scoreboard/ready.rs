@@ -2,9 +2,8 @@
 //! work, read per repository from the same records as the weekly scoreboard. The thresholds are the
 //! `ready` class of north's concerns.toml; days in a row counts the newest consecutive 24 h windows in
 //! which every bar passed (docs/rationale/scoreboard.md).
-use std::fs;
 
-use crate::cli::scoreboard::{Sources, Window, state_root};
+use crate::cli::scoreboard::{Sources, Window};
 
 use self::bar::{Bar, DAYS, DAY_S, Goals, REPOS, Reading, Standing, counts};
 use self::records::Records;
@@ -25,10 +24,7 @@ fn last(now: i64, minutes: i64) -> Window {
     Window { start: now - minutes * 60 + 1, end: now + 1 }
 }
 
-/// Records the open priority:now counts for the history the ready table reads.
-pub fn record(now: i64) {
-    records::record(now);
-}
+
 
 /// One bar's readings for one repository: the last 1 h carries the verdict, 10 min, 3 h, 6 h and 24 h are context.
 struct Cells {
@@ -79,28 +75,7 @@ pub fn run(now: i64, view: View) -> Result<String, String> {
     Ok(table::render(&repos, &goals, now, view))
 }
 
-const TOLD: &str = "north/scoreboard/ready-told";
 
-/// What the coordinator hears first each day: the ready verdict of every repository as one line, so Tom reads whether the harness is ready without asking.
-pub fn report(now: i64) -> Vec<String> {
-    let path = state_root().join(TOLD);
-    let last = fs::read_to_string(&path).ok().and_then(|text| text.trim().parse::<i64>().ok()).unwrap_or(0);
-    if (0..DAY_S).contains(&(now - last)) {
-        return Vec::new();
-    }
-    let line = match (Goals::read(), Records::read(&Sources::live(), now)) {
-        (Ok(goals), Ok(records)) => {
-            let heads: Vec<String> = shown(false).into_iter().map(|repo| table::headline(&assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now))).collect();
-            format!("ready bar: {} (north dash --bars prints the table)", heads.join("; "))
-        }
-        (Err(why), _) | (_, Err(why)) => format!("ready bar not read: {why}"),
-    };
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let _ = fs::write(&path, now.to_string());
-    vec![line]
-}
 
 /// Where a target stands: missed over the last 1 h, met now but missed over the window, or met on both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]

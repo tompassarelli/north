@@ -13,7 +13,6 @@ mod job_run;
 mod cloud_handback;
 pub(crate) mod concern_history;
 mod cloud_land;
-mod cloud_reap;
 mod token_usage;
 mod alarm_stats;
 mod box_path;
@@ -24,6 +23,7 @@ mod proof_run;
 mod fleet;
 mod steps;
 mod gate;
+mod issue_ref;
 mod gate_closing;
 mod gate_list;
 mod gate_relay;
@@ -48,7 +48,6 @@ pub(crate) mod oneshot;
 pub(crate) mod scoreboard;
 mod send;
 mod session;
-mod spend;
 #[cfg(test)]
 mod usage_error_tests;
 #[cfg(test)]

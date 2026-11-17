@@ -207,13 +207,7 @@ fn harness_lanes(sources: &Sources, now: i64) -> String {
     }
 }
 
-pub fn tick(now: i64) -> Vec<String> {
-    ready::record(now);
-    audit::tick(now);
-    let mut told = ready::report(now);
-    told.extend(weekly::tick(now));
-    told
-}
+
 
 fn rework(request: &cause::Request) -> u8 {
     let now = Timestamp::now().unix_seconds();

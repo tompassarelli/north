@@ -43,10 +43,7 @@ pub(super) struct Records {
     usage: Facts,
 }
 
-/// Records the open priority:now counts for the history the ready table reads.
-pub(super) fn record(now: i64) {
-    note(now);
-}
+
 
 fn priority_count(repo: &str) -> Option<usize> {
     let copy = north_github_mirror::store::Mirror::local().read(&north_github_mirror::store::key(repo, north_github_mirror::store::OPEN_ISSUES))?;

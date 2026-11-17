@@ -130,19 +130,15 @@ Commands:
   remote-serve --peer HOST [--repos REPO,...] [--threads-only] [--log FILE]  The ssh forced command for a peer key: run SSH_ORIGINAL_COMMAND only if the allowlist and the peer's guards admit it (with --threads-only, only a threads verb), exit 126 on a refusal, and log one row per call
   remote-serve audit --peer HOST [--log FILE] [--keys FILE]  Count a peer's logged calls and refusals and print its key's days to expiry-time from authorized_keys
   cloud list                                    List the cloud sessions
-  cloud launch REPO SLUG BRIEF [--item REPO#N]  Start a brief with its landing steps as a cloud session
   cloud events SESSION_ID OUT.jsonl             Save a session's events
   cloud sweep OUT_DIR                           Archive cloud-run sessions waiting on a human
   cloud send SESSION_ID FILE                    Post FILE as a user message to a session
   cloud wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS]  Wait until a session's latest turn ended, then save its events
   cloud collect EVENTS.jsonl OUT.mbox           Decode a saved handback to an mbox
   cloud land EVENTS.jsonl [--repo DIR]          Apply a handback in a fresh lane and land it
-  cloud reap                                    Land every finished handback launched in the last 7 days
   fetch-fleet [VIEW [ARGS...]]                  Run git fetch, north fleet VIEW (list when none is named) and git fetch again in one call
   fleet-for NAME...                             Run north fleet list, north fleet show NAME for each NAME and north fleet list again in one call
   fleet-issue [ARGS...]                         Run north fleet list, gh issue ARGS (list when none is named) and north fleet list again in one call
-  fleet dispatch [--dry-run] [--draft REPO#N...]      Launch ready boxes of every unpaused project in orchestration.toml (its dispatch_repos, else repos) on every free worker slot; --draft computes a draft of each named issue's qualifying ready box on slots the round leaves free, launching nothing else
-  coordinator [--interactive] | coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Open the coordinator, or move its terminal window to the account with the most week headroom (the fleet tick runs --auto)
   config operator paths [--class CLASS]         One line per path north reads from the operator repository, as PATH<TAB>CLASS in the inventory's order; class is schema, generic method, private value or secret
   config operator check [DIR] [--only NAME,...] [--distinct-from OWNER]  Read the operator repository's schema-class files against their typed keys; each finding prints as FILE: KEY: reason and the command exits 1; with --distinct-from a string a template DIR holds at an identifying key (id, name, email, repo, path, host, source and the like) that equals the owner repository OWNER's string at that key is also a finding naming the file and key, never the value; DIR defaults to the resolved operator root, NAME is costs, claude-accounts, credentials or infra
   config operator init [--check] DIR                    Create the operator repository DIR (which must not exist or be empty) holding synthetic values for every file north reads from it (accounts, costs, credentials, policy lists, orchestration, privacy lists, infra, a secrets note, the schema marker and a landing configuration) and a catalog registering each skill of north's structure registry; `north config operator check DIR` passes on it; init --check DIR exits 1 naming each file of DIR that differs from, lacks or adds to that output; init --sync DIR rewrites DIR in place to that output, with no git repository, as the lander does for examples/operator
@@ -151,15 +147,12 @@ Commands:
   policy off | policy on                         Take north's hooks, skills, instructions and the git checks on your own commits and pushes away on this host, or put back exactly what policy off took; stops nothing. Runs as north-switch, without the runtime
   glance                                        One line (layer 0): whether anything is broken, whether money is all right and whether any gate waits on Tom
   ledger runs [--json]                          Fleet turn records
-  fleet orders list                             List Tom's standing orders, rendered into every fleet launch and revive
+  fleet orders list                             List Tom's standing orders, rendered into every fleet session
   fleet orders add TEXT...                      Add a standing order
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
   gate [open --session S --question Q --option O... --recommend N [--default N --default-after D | --ask-once CATEGORY [--amount TEXT]] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | withdraw ID --reason TEXT | list [--json] | digest [--peek]]  Open, answer or withdraw a decision gate (a gate with no --default names its ask-once category with --ask-once); withdraw closes a gate opened in error with its reason, for its asking session or the coordinator; digest prints the for-Tom gates still open and the defaults applied since the last look
   fleet digest [--since DURATION]  Retired view: the digest prints as `north work --since DURATION`
   fleet held [--since DURATION]    Print the messages held back from waking their recipient, page-flood folds included (default the last 10m)
-  fleet drafts                     List each draft computed for an open box before its launch: age, check result, tokens, cost and whether main moved under its files
-  fleet need HOST REASON [--item REPO#N]            Record the host or local need (laptop, native, a host name) that can finish this worker's box, so dispatch places the next try there
-  fleet reap [--dry-run]                            Retire idle or parked sessions that nothing would wake once their final report was taken, free their lanes and print each verdict
   fleet off [--force] | fleet on                 Stop the whole fleet on every host (dispatch, landing, sessions after their current step, every fleet unit; --force kills at once) and record it; `fleet on` starts exactly that. Runs as north-switch, without the runtime
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity dev-shell run [--dir D] (--prepare | -- COMMAND...)  Run COMMAND inside the flake default dev shell, entering it once offline from its GC root; --prepare realises the root
@@ -194,13 +187,6 @@ Commands:
   capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
-  fleet laptop open                             Open the laptop for placement on the ledger host
-  fleet laptop close                            Close the laptop to placement
-  fleet laptop drain                            Let running work finish and place nothing new
-  fleet laptop toggle                           Flip the laptop between open and closed
-  fleet laptop status                           Read the laptop's placement availability
-  fleet laptop tick                             Apply the daily laptop window
-  fleet laptop observe SAMPLE                   Record an idle and battery sample from the laptop
   laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
   agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
   lane reclaim [--dry-run] [--idle-hours H]  Remove Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
@@ -259,15 +245,10 @@ Commands:
   land mutant-runs                              Build each tree's tests with the build system this host runs, then run the named tests in each and record pass or fail per test in its .mutant-results (names and trees from MUTANT_TESTS and MUTANT_TREES)
   land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
   land missed --since DATE [--repo DIR]               List each failing full run on main since DATE (GitHub Actions Cargo runs and the coverage record) and the failed tests the change graph's after-landing selection for its landing range left out
-  fleet pace place ...                          Place a launch on a machine and account
-  fleet pace sample                             Sample account usage
-  fleet pace gate PROVIDER                      Gate a launch on a provider's usage
   private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
   provider-capacity events [--minutes N]        Read provider capacity events
   provider-capacity status [--minutes N]        Read provider capacity state
   fleet report                                        Retired view: `north work` prints the report
-  resident-cap gate claude|codex [ARG...]       Refuse a launch over this host's resident session cap, exiting 3 with the Hold line
-  resident-cap status                           Print this host's live session count and cap
   capacity bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
   session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND  Link a remote session unit
   session-unit SYSTEMD-RUN-ARGS...              Run systemd-run in the fleet session's scope (systemd-run's own --help passes through)
@@ -276,10 +257,6 @@ Commands:
   ssh-argv SSH-ARGS...                          Print the attributed ssh argv, NUL separated
   ssh-session REAL_SSH [ARGS...]                Run ssh with session attribution
   ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers
-  placement-survey keep                         Keep every build host's placement survey under 30 s old while launches place work, stopping 5 min after the last one
-  ssh-spare hold DESTINATION                    Keep six spare shells open to a build host so a survey question costs one round trip, stopping 10 min after the last one is taken or when the runtime changes
-  spare-fill NAME                               Keep spare workers on the build host of the worker NAME for the next launch like it, retiring those whose policy text, settings or runtime changed
-  spare-retire HOST DIR                         Retire every spare on build host HOST whose directory is DIR or under it, printing one line for each (name, age, why) and exiting 0 when there is none; spares elsewhere stay
   lane seed [DIR]                               Seed a lane's cargo target from the shared one
   fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`
   help                                          Show the operator and agent commands
@@ -292,7 +269,7 @@ Commands:
   buck compare-cases NAME...                       Print per crate the cases Buck2 runs of it at the checked-out commit and those cargo nextest lists of its library, binaries and integration tests, and each case on one side only; exits 1 on a difference, an unreadable side or a crate with no case; a host case of build/host-cases.list counts as Cargo's, and one nextest does not list is a difference
   buck host-cases --filter [PACKAGE...]        Print the host cases of build/host-cases.list, or of the named packages, as one nextest filter for the declared Cargo line
   buck host-cases --prune                      Drop each host case of build/host-cases.list and the manifests whose test function the tree no longer has, printing each file rewritten
-  holds list [--here] [--json]                  Every stop set by hand on each host (dispatch pause, issue holds, laptop drain switch, stable-pin hold, a lock a unit holds): who set it, why, since when and what lifts it, red once it outlives its lift by 10 minutes or names none
+  holds list [--here] [--json]                  Every stop set by hand on each host (issue holds, stable-pin hold, review holds, a lock a unit holds): who set it, why, since when and what lifts it, red once it outlives its lift by 10 minutes or names none
   box path REPO#N [--box K]                     Each state one box passed through from its claim to the runtime holding its landing (claimed, launching, working, handing-in, queued, checking, landed, reported, delivered, verified, promoted), with its start, the time spent in it and its source record; a state no record holds prints as unrecorded with its gap
   land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]  Print each landing's wall time split by category from the span traces, the same split summed with p50 and p90, and the longest leaf spans, then each hand-in refused before its ticket with the seconds from hand-in to the refusal
   land urgent TICKET --reason TEXT [--repo DIR]  Move a queued ticket to the front of the urgent tickets (the latest mark goes first) and print the place the lander gives it
@@ -304,10 +281,7 @@ Commands:
   land follow                                   Run after each landing: ingest the fact graph from every source on this host
   land static-gates [--repo DIR]                Judge the lane's committed changes against every refusal that reads only the diff (generated registry, language, build-cache, dependency, stub-exec, commit trailers, test admission, code health, policy sweep, dependency age and advisory, guard suite, revert guard), the same function the hand-in runs before its checks take a build-host slot, and print the first refusal with its seconds
   depbox fetch|run -- COMMAND [ARGS...]         Run a command in the dependency sandbox: home masked except the checkout, no sudo, and under run no network; fetch may reach the network
-  fleet need HOST REASON [--item REPO#N]         Record that a session needs a host or local need (laptop, native) that only another host can satisfy
-  fleet wait RUN [NAME]                         Register a run (job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME) and park the session until it is over
-  fleet waits                                   Revive each parked session whose run is over with the run's result
-  fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry, api-spend) that a far host's tick calls over ssh
+  fleet spool ...                               Machine-side verbs of the fleet spool (take, drop, set-aside, deliver, cache, registry) that a far host's tick calls over ssh
   graph retain [--db PATH]                       Delete graph history no reader needs: occurrences, withdrawals and terms older than the retention horizon, then vacuum
   runtime settle                                Run the core-loop probes on the promoted runtime here, then ship it to the other hosts only when every probe passed
   runtime status                                Print the pinned runtime SHA, when it was promoted, and the promotions and fast paths of the last 24 hours
@@ -321,9 +295,6 @@ Commands:
   finish --check COMMAND --message TEXT [--files JSON|-] [--] PATH...  Run the check, and only when it passes commit the named paths, queue the lane and return the ticket
   finish --brief-trailers SESSION               Keep the brief's Item, Box and Check lines read from standard input for the session's commit messages
   finish --judge-message SESSION                Judge a commit message read from standard input for the session
-  coordinator [--interactive]                         Attach to the coordinator session, reviving or launching it; --interactive resumes its conversation in claude
-  coordinator move [--to ACCOUNT] [--effort LEVEL] [--auto]  Move the coordinator session to an account with headroom
-  spend [--json]                                Print the week points left across accounts, the worker sessions working and the waste of the last 24 hours
   control-plane where                           Print the host that holds the control plane's lease, with its epoch
   control-plane move --to HOST                  Move the control plane to HOST by two compare-and-swap steps on the lease, the break-glass move
   control-plane move --finish                    Finish a move under way: the lease goes to the host the move names

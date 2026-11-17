@@ -15,8 +15,6 @@ use crate::platform::{host_load::{self, HostReading}, land_queue, records_mirror
 
 pub(crate) use crate::cli::infra::manifest as billing;
 mod board;
-mod dispatch;
-mod escalations;
 mod habits;
 mod render;
 mod spend;
@@ -35,8 +33,6 @@ pub struct Screen {
     pub runs: Result<(Vec<WindowRun>, ClosedReport), String>,
     pub graded: Result<ClosedReport, String>,
     pub attempts: Result<Vec<workers::Attempt>, String>,
-    /// The dispatch records inside the window, from which each escalation and lift check are read.
-    pub launches: Vec<north_dispatch::dispatch::LaunchRecord>,
     pub habits: Result<Vec<habits::Row>, String>,
     /// The runs of the last 7 days, from which each subscription's week is sized in dollars.
     pub week_runs: Result<Vec<WindowRun>, String>,
@@ -159,7 +155,7 @@ pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Scr
         Ok((runs, spent, every)) => (Ok((runs, spent)), Ok(every)),
         Err(why) => (Err(why.clone()), Err(why)),
     };
-    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, graded, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work, waiting, hosts })
+    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, graded, attempts, habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work, waiting, hosts })
 }
 
 /// Colour only for a person at a terminal: never into a pipe or file, under NO_COLOR, or on a dumb terminal.
@@ -208,11 +204,6 @@ fn figures(screen: &Screen) -> Value {
             "plan": screen.billing.as_ref().ok().and_then(|billing| billing.plans.get(&account.account)),
         })).collect::<Vec<_>>().into()
     });
-    let mixes = dispatch::Mixes::of(screen);
-    let escalations = match &screen.runs {
-        Ok((runs, _)) => json!(escalations::Escalations::of(&screen.launches, runs, screen.since as f64, screen.now as f64)),
-        Err(why) => json!({"unread": why}),
-    };
     let spent = spend::Spend::of(screen).map(|spent| json!({"classes": spent.classes.iter().map(|class| json!({"mix": class.mix, "runs": class.runs, "usd": class.usd, "week_pct": class.week_pct, "all_pct": class.all_pct})).collect::<Vec<_>>(), "api_credit": {"runs": spent.api.runs, "usd": spent.api.usd}}));
     let habits = screen.habits.as_ref().map(|rows| {
         let rewrites: usize = rows.iter().map(|row| row.rewrites).sum();
@@ -225,9 +216,7 @@ fn figures(screen: &Screen) -> Value {
         "bars": section(screen.bars.as_ref().map(|bars| json!(bars))),
         "accounts": section(accounts),
         "api_credit_left": screen.credit.iter().map(|org| json!({"account": format!("api:{}", org.name), "left_usd": org.left, "estimate_usd": org.estimated, "read_by": org.reading.as_ref().map(|reading| reading.source.label()), "exhausted": org.exhausted, "figure": org.figure()})).collect::<Vec<_>>(),
-        "spend": section(mixes.as_ref().map(|mixes| json!(mixes.spend))),
         "subscription_spend": section(spent.as_ref().cloned()),
-        "spend_by_model": section(mixes.as_ref().map(|mixes| json!(mixes.models))),
         "infra": match &screen.infra {
             Ok((resources, unread)) => json!({"resources": resources, "unread": unread, "total": crate::cli::infra::report::Report::of(Timestamp::from_unix_seconds(screen.now).iso(), resources.clone(), unread.clone()).total_line()}),
             Err(why) => json!({"unread": why}),
@@ -236,9 +225,6 @@ fn figures(screen: &Screen) -> Value {
             Ok(work) => json!({"sessions": work.sessions.iter().map(|session| json!({"name": session.name, "status": session.status, "task": session.task})).collect::<Vec<_>>(), "gates": work.gates.len(), "landed": work.landed.len(), "held": work.held}),
             Err(why) => json!({"unread": why}),
         },
-        "dispatch": section(mixes.as_ref().map(|mixes| json!(mixes.rows))),
-        "cells": section(mixes.as_ref().map(|mixes| json!(mixes.cells))),
-        "escalations": escalations,
         "habits": section(habits),
         "handovers_per_week": screen.handovers.as_ref().ok().map(|handovers| handovers.per_week),
         "handover_first_turn_cache_write_usd": screen.handovers.as_ref().ok().map(|handovers| handovers.first_turn_cache_write_usd),

@@ -1,6 +1,6 @@
 use super::super::Options;
 use super::pull_among;
-use crate::pacing::placement::gate;
+use north_capacity::capacity::host_table;
 use std::process::Command;
 use toml_edit::DocumentMut;
 
@@ -19,7 +19,7 @@ fn ssh_destination_planted_in_orchestration_toml_never_reaches_the_worker_ledger
     let value = format!("ssh = \"-oProxyCommand=touch {}/p gex45\"", root.path().display());
     let cfg: DocumentMut = HOSTS.replace("ssh = \"tom@gex45\"", &value).parse().unwrap();
     let mut rows = Vec::new();
-    pull_among(gate::machines(&cfg), "whiterabbit", ssh.to_str().unwrap(), &options(), b"{}", &mut rows);
+    pull_among(host_table::machines(&cfg), "whiterabbit", ssh.to_str().unwrap(), &options(), b"{}", &mut rows);
     assert!(!root.path().join("p").exists());
     let unchecked = cfg["hosts"]["gex45"]["ssh"].as_str().unwrap().to_owned();
     let _ = Command::new(&ssh).args(["-o", "BatchMode=yes", &unchecked, "north", "ledger", "worker", "--emit"]).status();

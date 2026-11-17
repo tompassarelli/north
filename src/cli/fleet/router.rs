@@ -1,19 +1,13 @@
-use crate::fleet::launch_queue::Priority;
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use crate::error::{NorthError, NorthResult};
-use crate::platform::attribution::{self, Cause, Harness};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
-use crate::fleet::hops;
-use crate::fleet::model::{Delivery, ProviderName};
-use crate::fleet::route::Route;
+use crate::fleet::model::ProviderName;
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::{SESSION_ENV, now_ms};
 use crate::fleet::runtimes::Runtimes;
-use crate::pacing::placement::{self as pacing_placement, config};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::providers::opencode::Deepseek;
@@ -21,40 +15,21 @@ use crate::providers::pi::PI;
 use crate::providers::standin::Standin;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
 
-use super::placement::Overrides;
-use super::{admission, desktop, gated, spend_queue, tier};
-use super::run_ingest::IngestRuns;
-use super::usage_ingest::IngestUsage;
-use super::accounts;
+use super::{desktop, interactive};
 use super::adopt;
 use super::ask;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
-use super::lineage;
-use super::launch::{LaunchParts, launch_parts};
-use super::usage::usage;
-use super::interactive;
-use super::relaunch;
-use super::revive;
 use super::row;
 use super::show;
-use super::need;
-use super::waits;
-use super::tick;
 use crate::cli::{gate, orders, send};
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let listed = match words.as_slice() {
-        ["accounts", flags @ ..] => accounts::listed(flags),
-        _ => None,
-    };
-    let result = listed.unwrap_or_else(|| {
-        open_fleet_claiming(ThreadsCli::for_verb(arguments), &words).and_then(|fleet| {
-            crate::cli::gate_closing::close_moot(&fleet);
-            sweep_gates(&fleet);
-            release_exited_claims(&fleet, arguments);
-            dispatch(fleet, arguments)
-        })
+    let result = open_fleet_claiming(ThreadsCli::for_verb(arguments), &words).and_then(|fleet| {
+        crate::cli::gate_closing::close_moot(&fleet);
+        sweep_gates(&fleet);
+        release_exited_claims(&fleet, arguments);
+        dispatch(fleet, arguments)
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -99,11 +74,15 @@ pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
 
 fn open_fleet_claiming(claims: ThreadsCli, words: &[&str]) -> NorthResult<Fleet> {
     let ledger = send::ledger_for(words)?;
-    Fleet::open(runtimes(), Arc::new(ledger), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).reckoning_with(Arc::new(super::promises::Laptop)).showing_coordinator_on(Arc::new(desktop::Desktop)).following_rewrites(Arc::new(super::rewrites::Recorded)))
+    Fleet::open(runtimes(), Arc::new(ledger), Arc::new(claims), Arc::new(LedgerRegistrar::new(|_| false)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(usage_ingest_of())).recording_runs(Arc::new(run_ingest_of())).showing_coordinator_on(Arc::new(desktop::Desktop)).following_rewrites(Arc::new(super::rewrites::Recorded)))
 }
 
-fn far_machine(host: &str) -> bool {
-    config().is_ok_and(|cfg| pacing_placement::gate::spool_pulled(&cfg, host))
+fn usage_ingest_of() -> super::usage_ingest::IngestUsage {
+    super::usage_ingest::IngestUsage::default()
+}
+
+fn run_ingest_of() -> super::run_ingest::IngestRuns {
+    super::run_ingest::IngestRuns
 }
 
 pub fn host_watch(config: &HostConfig) -> Option<FrameWatch> {
@@ -117,47 +96,37 @@ pub fn host_watch(config: &HostConfig) -> Option<FrameWatch> {
     }
 }
 
-
 fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        [] => Err(super::usage::usage()),
-        ["need", rest @ ..] => need::run(rest),
-        [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
+        [] => Err(NorthError::Usage(super::usage::USAGE.into())),
         ["hold", rest @ ..] => claims::hold(&fleet, rest),
-        ["accounts", flags @ ..] => accounts::run(&fleet, flags),
         ["digest", ..] => {
             eprintln!("north fleet digest moved to `north work --since DURATION`; it prints the same landed, in-flight, gate, stall and held sections");
             Ok(())
         }
-        ["launch", rest @ ..] => super::spooled_verbs::told_on_failure(&fleet, &words, launch(&fleet, rest)),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
-        ["tick", rest @ ..] => tick::run(&fleet, rest),
-        ["reap", rest @ ..] => waits::reap(&fleet, rest),
         ["send", rest @ ..] => send::run(&fleet, rest),
         ["ask", name, rest @ ..] => ask::run(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
-        words => super::views::run(&fleet, words).unwrap_or_else(|| super::spooled_verbs::told_on_failure(&fleet, words, dispatch_session(&fleet, words))),
+        words => super::views::run(&fleet, words).unwrap_or_else(|| dispatch_session(&fleet, words)),
     }
 }
 
 fn dispatch_session(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
-        ["revive", name, rest @ ..] if !fleet.writes_records() => super::spooled_verbs::revive(fleet, name, rest),
-        ["relaunch", name, rest @ ..] => relaunch::run(fleet, name, rest),
         ["interactive", name] => interactive::run(fleet, name, false),
         ["interactive", name, interactive::AFTER_TURN] => interactive::run(fleet, name, true),
         ["forget", name, flags @ ..] if !flags.is_empty() => {
-            let (force, successor) = super::forget_flags::parse(flags).ok_or_else(usage)?;
+            let (force, successor) = super::forget_flags::parse(flags).ok_or_else(|| NorthError::Usage(super::usage::USAGE.into()))?;
             forget(fleet, name, force, successor)
         }
         [SWEEP_VERB] => claims::sweep(fleet),
         [verb, name] => session_verb(fleet, verb, name),
-        ["revive", name, rest @ ..] => revive::revive_with(fleet, name, rest),
         ["show", name, flag] => show::run(fleet, name, flag),
-        _ => Err(usage()),
+        _ => Err(NorthError::Usage(super::usage::USAGE.into())),
     }
 }
 
@@ -166,14 +135,11 @@ pub(super) fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult
         "interrupt" => controlled(fleet, ControlVerb::Interrupt, name),
         "stop" => controlled(fleet, ControlVerb::Stop, name),
         "forget" => forget(fleet, name, None, None),
-        "revive" if fleet.revivable(name).is_err() => controlled(fleet, ControlVerb::Revive, name),
-        "revive" => revive::revive(fleet, name, None, None, Overrides::default()),
         "show" => show::show(fleet, name, false),
         "watchdog" => fleet.guard(name),
-        _ => Err(usage()),
+        _ => Err(NorthError::Usage(super::usage::USAGE.into())),
     }
 }
-
 
 fn controlled(fleet: &Fleet, verb: ControlVerb, name: &str) -> NorthResult<()> {
     told(fleet.control(verb, name)?, verb, name);
@@ -189,7 +155,6 @@ fn told(controlled: Controlled, verb: ControlVerb, name: &str) {
     }
 }
 
-
 fn forget(fleet: &Fleet, name: &str, force: Option<&str>, successor: Option<&str>) -> NorthResult<()> {
     let forgotten = fleet.forget_unless_queued(name, force, successor)?;
     for lane in &forgotten.overrode {
@@ -197,112 +162,6 @@ fn forget(fleet: &Fleet, name: &str, force: Option<&str>, successor: Option<&str
     }
     told(forgotten.controlled, ControlVerb::Forget, name);
     Ok(())
-}
-
-
-pub(in crate::cli) fn fleet_load() -> NorthResult<std::collections::BTreeMap<String, i64>> {
-    super::placement::machine_load(&open_fleet()?)
-}
-
-pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    super::spooled_verbs::or_spool(fleet, words, launch_seated)
-}
-
-fn launch_seated(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    let queued = std::env::var(super::tick::QUEUE_ENTRY).ok();
-    super::lead_seat::forwarded(fleet, words, queued.as_deref()).unwrap_or_else(|| launch_here(fleet, words))
-}
-
-fn launch_here(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    let entered_ms = now_ms();
-    let caller = std::env::var(SESSION_ENV).ok();
-    fleet.admit_launch_from(caller.as_deref())?;
-    let coordinator = lineage::coordinator_reachable(fleet, caller.as_deref(), words);
-    let mut parts = launch_parts(&fleet.providers(), words, caller.clone(), coordinator)?;
-    let second = parts.request.route.as_deref().and_then(Route::parse).is_some_and(|route| matches!(route, Route::Second { .. })).then(|| (parts.request.name.clone(), parts.request.parent.clone()));
-    let queued = std::env::var(super::tick::QUEUE_ENTRY).ok().filter(|name| *name == parts.request.name);
-    let relaunch = super::relaunch_unblock::Relaunch::admit(caller.as_deref(), queued.is_some(), &parts.request, parts.issue.as_deref(), now_ms() / 1000)?;
-    let cgroup = std::fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
-    fleet.admit_gates_aside(parts.request.gates_aside, &parts.request.name, caller.as_deref(), queued.as_deref(), &cgroup)?;
-    fleet.admit_container_shell(parts.request.container_shell, &parts.request.name, caller.as_deref(), queued.as_deref(), &cgroup)?;
-    if let Some(why) = fleet.urgent_denied(parts.request.urgent, &parts.request.name, caller.as_deref(), queued.as_deref(), &cgroup) {
-        eprintln!("fleet launch: {why}");
-        (parts.request.urgent, parts.priority) = (false, Priority::Normal);
-    }
-    let result = launch_prepared(fleet, parts, caller, queued.as_deref(), entered_ms);
-    super::relaunch_unblock::Relaunch::settle(relaunch.as_ref(), &result);
-    if let (Err(error), Some((name, parent))) = (&result, second) {
-        second_rung_refused(fleet, &name, parent.as_deref(), &error.user_message());
-    }
-    if let Some(name) = queued.filter(|_| !matches!(&result, Err(NorthError::Saturated(_)))) {
-        let _ = fleet.remove_queued(&name);
-    }
-    result
-}
-
-fn second_rung_refused(fleet: &Fleet, name: &str, parent: Option<&str>, why: &str) {
-    attribution::record(name, "launch", Cause::Harness(Harness::LaunchRefusal), why);
-    if let Some(parent) = parent {
-        fleet.tell(parent, &format!("[from {name}] route: the second rung did not start: {why}"), Delivery::Queued);
-    }
-}
-
-fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>, entered_ms: u64) -> NorthResult<()> {
-    let LaunchParts { mut request, mut overrides, wait, take_over, priority, words, .. } = parts;
-    lineage::inherit(fleet, &mut request, caller.as_deref(), take_over)?;
-    lineage::reader(fleet, &mut request, caller.as_deref())?;
-    super::claude_only::admit(&request)?;
-    let mut issues = super::claim_box::IssueReads::github();
-    super::claim_box::admit(&request, &mut issues)?;
-    tier::admit_class(&request)?;
-    let written = request.prompt.clone();
-    let started = tier::apply(&mut request, &mut overrides, &mut issues)?;
-    let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
-    let operator = super::placement::operator_launcher(fleet, caller.as_deref(), queued);
-    let placing_ms = now_ms();
-    let settled = admission::admitted(&request.name, waiting, |first| super::placement::placed(fleet, &request, &written, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first, operator), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
-    let mut placed = match settled {
-        Ok(placed) => placed,
-        Err(refusal) if queued.is_none() && refusal.queues(request.provider.label()) => {
-            let why = refusal.to_string();
-            spend_queue::enqueue(fleet, spend_queue::Refused { request: &request, overrides: &overrides, take_over, priority, caller, words: &words, why: why.clone() })?;
-            eprintln!("fleet launch: {} is queued at {} priority: {why}", request.name, priority.label());
-            println!("queued {}", request.name);
-            return Ok(());
-        }
-        Err(super::placement::Refusal::Spend(why) | super::placement::Refusal::Line(why)) => return Err(NorthError::Saturated(why)),
-        Err(super::placement::Refusal::Saturated(why)) => return Err(NorthError::Saturated(why)),
-        Err(refusal) => return Err(refusal.into()),
-    };
-    let placed_ms = now_ms();
-    if let Some(account) = placed.account.take() {
-        request.account = account;
-    }
-    if let Some(model) = placed.model.take() {
-        request.model = Some(model);
-        request.effort = placed.effort.or(request.effort);
-    }
-    gated::admit(fleet, &mut request)?;
-    (request.placement, request.capacity_need) = (placed.note, placed.need);
-    request.machine = placed.machine.or(request.machine);
-    if let Some(prompt) = super::agent_root::for_machine(&request.prompt, request.machine.as_ref()) {
-        request.prompt = prompt;
-    }
-    let launching_ms = now_ms();
-    let record = if take_over { fleet.take_over(&request) } else { fleet.launch(&request) }.inspect_err(|error| failed_to_start(&request.name, error))?;
-    tier::recorded(started, &request, &record.name);
-    if let Ok(dir) = fleet.session_dir(&record.name) {
-        hops::record_command(&hops::trace_in(&dir), &record.name, record.created_ms, [entered_ms, placing_ms, placed_ms, launching_ms]);
-    }
-    println!("{}", record.name);
-    Ok(())
-}
-
-/// Records a launch placement let through that failed before its session started, the loss the runtime watch judges a new runtime by; a refusal, a queue or a usage error is a decision, not a failure.
-fn failed_to_start(name: &str, error: &NorthError) {
-    if !matches!(error, NorthError::Refused(_) | NorthError::Saturated(_) | NorthError::Usage(_)) {
-        attribution::record(name, "launch", Cause::Harness(Harness::LaunchFailure), &error.user_message());
-    }
 }
 
 #[cfg(test)]

@@ -102,12 +102,7 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
         Err(why) => format!("Landed today: unread: {why}\n"),
     };
     let turns = crate::ledger::worker_turns(window).map_err(|error| error.user_message());
-    let round = crate::dispatch::round::last();
-    let round_line = match &round {
-        Ok(round) => round.line(),
-        Err(why) => format!("Dispatch's last round unread: {why}"),
-    };
-    let text = format!("{headline}{round_line}\n\n{}{}", text(window, &digest, &sessions, &tree, &report, &losses), turn_section(&turns));
+    let text = format!("{headline}\n\n{}{}", text(window, &digest, &sessions, &tree, &report, &losses), turn_section(&turns));
     let json = json!({
         "worker_turns": match &turns {
             Ok(found) => Value::Array(found.iter().map(|turn| json!({"agent": turn.agent, "provider": turn.provider, "started": turn.started, "minutes": turn.minutes, "tokens_in": turn.tokens_in, "tokens_out": turn.tokens_out, "outcome": turn.outcome, "landed": turn.landed, "landed_sha": turn.landed_sha})).collect()),
@@ -118,10 +113,6 @@ pub fn read(window: &str, at: Timestamp) -> Result<Work, String> {
         "window": window,
         "landed_today": match &today {
             Ok(landed) => landed.json(),
-            Err(why) => json!({"unread": why}),
-        },
-        "dispatch_round": match &round {
-            Ok(round) => json!(round),
             Err(why) => json!({"unread": why}),
         },
         "landed": books.landed.iter().map(|landing| json!({"task": landing.task_ref, "sha": landing.sha, "landed_ms": landing.landed_ms})).collect::<Vec<_>>(),

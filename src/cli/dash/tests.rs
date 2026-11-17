@@ -55,7 +55,6 @@ fn the_screen_names_each_plan_and_machine_within_fifty_lines_of_120_characters_a
         runs: Err("unread".to_owned()),
         graded: Err(String::new()),
         attempts: Err("unread".to_owned()),
-        launches: Vec::new(),
         habits: Err("unread".to_owned()),
         week_runs: Err("unread".to_owned()),
         handovers: Ok(Default::default()),
@@ -93,7 +92,7 @@ fn a_class_uses_the_share_of_a_week_its_dollars_are_of_the_week_sized_from_the_s
     let week_runs = vec![run("claude-c", ("opus", "high"), &in_week, 40.0), run("claude-b", ("opus", "high"), &in_week, 100.0), run("claude-b", ("opus", "high"), "2000-01-01T00:00:00Z", 900.0)];
     let window_runs = vec![run("claude-b", ("opus", "high"), &in_week, 10.0), run("claude-api", ("sonnet", "high"), &in_week, 7.0)];
     let account = |letter: &str, used: f64| AccountOutlook { account: letter.to_owned(), week_used: Some(used), week_resets: Some(resets), five_hour_used: None, five_hour_resets: None, burn_per_hour: None, runway: Runway::Lasts };
-    let screen = Screen { window: "24h".to_owned(), now: 0, since: -86_400, bars: Err(String::new()), accounts: Ok(vec![account("b", 50.0), account("c", 99.0)]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), graded: Err(String::new()), attempts: Err(String::new()), launches: Vec::new(), habits: Err(String::new()), week_runs: Ok(week_runs), handovers: Ok(Default::default()), billing: Err(String::new()), infra: Err(String::new()), credit: Vec::new(), work: work(), waiting: Vec::new(), hosts: Ok(Vec::new()) };
+    let screen = Screen { window: "24h".to_owned(), now: 0, since: -86_400, bars: Err(String::new()), accounts: Ok(vec![account("b", 50.0), account("c", 99.0)]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), graded: Err(String::new()), attempts: Err(String::new()), habits: Err(String::new()), week_runs: Ok(week_runs), handovers: Ok(Default::default()), billing: Err(String::new()), infra: Err(String::new()), credit: Vec::new(), work: work(), waiting: Vec::new(), hosts: Ok(Vec::new()) };
     let spent = super::spend::Spend::of(&screen).unwrap();
     assert_eq!(spent.classes.len(), 1);
     assert!((spent.classes[0].week_pct["b"] - 5.0).abs() < 1e-9, "{:?}", spent.classes[0]);
@@ -113,7 +112,6 @@ fn the_board_names_each_waiting_ticket_and_each_hosts_load() {
         runs: Err("unread".to_owned()),
         graded: Err(String::new()),
         attempts: Err("unread".to_owned()),
-        launches: Vec::new(),
         habits: Err("unread".to_owned()),
         week_runs: Err("unread".to_owned()),
         handovers: Ok(Default::default()),

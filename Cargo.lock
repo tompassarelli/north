@@ -521,7 +521,6 @@ dependencies = [
  "north-coverage",
  "north-credentials",
  "north-diff-gates",
- "north-dispatch",
  "north-docs",
  "north-fleet-store",
  "north-fleet-supervisor",
@@ -542,7 +541,6 @@ dependencies = [
  "north-mutants",
  "north-offload",
  "north-pace",
- "north-pacing",
  "north-providers",
  "north-reclaim",
  "north-registries",
@@ -832,39 +830,6 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "tempfile",
- "time",
- "toml_edit",
-]
-
-[[package]]
-name = "north-dispatch"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-calibration",
- "north-capacity",
- "north-capacity-host",
- "north-cli-reference",
- "north-fleet-store",
- "north-fleet-supervisor",
- "north-foundation",
- "north-github-mirror",
- "north-graph",
- "north-graph-ground",
- "north-graph-loops",
- "north-pace",
- "north-pacing",
- "north-providers",
- "north-shared-config",
- "north-strategy-types",
- "north-threads",
- "north-trusted-mirror",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
  "tempfile",
  "time",
  "toml_edit",
@@ -1279,33 +1244,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "north-pacing"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-calibration",
- "north-capacity",
- "north-capacity-host",
- "north-fleet-supervisor",
- "north-foundation",
- "north-pace",
- "north-providers",
- "north-shared-config",
- "north-ssh-spare",
- "north-strategy-types",
- "north-threads",
- "proptest",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "tempfile",
- "time",
- "toml_edit",
-]
-
-[[package]]
 name = "north-providers"
 version = "0.1.0"
 dependencies = [
@@ -1389,7 +1327,6 @@ dependencies = [
  "north-capacity",
  "north-foundation",
  "north-offload",
- "north-pacing",
  "north-runtime-follow",
  "north-runtime-records",
  "north-trusted-mirror",

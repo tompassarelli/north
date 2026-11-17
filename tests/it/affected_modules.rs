@@ -69,7 +69,7 @@ fn spawners_of_tree() -> BTreeSet<String> {
 
 #[test]
 fn a_tree_wide_module_runs_for_a_lane_that_changes_any_crate() {
-    let files = ["crates/north-dispatch/src/dispatch/stops.rs".to_owned(), "crates/north-dispatch/src/dispatch/tries.rs".to_owned()];
+    let files = ["crates/north-base/src/platform/host.rs".to_owned(), "crates/north-base/src/build_inputs.rs".to_owned()];
     let selection = select(&read(STRUCTURE), &read(TABLE), &spawners_of_tree(), &files).unwrap();
     let runs = |module: &str| selection.runs_module(module);
     assert!(runs("agent_text_reads") && runs("affected_modules"), "a replay of f0e87b7c09 selects the tree-wide modules: {selection:?}");

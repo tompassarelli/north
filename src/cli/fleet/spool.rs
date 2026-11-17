@@ -22,8 +22,6 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["set-aside"] => spool.set_aside(&ids_on_stdin()?)?,
         ["cache"] => fleet.cache_table(&serde_json::from_reader::<_, FleetTable>(std::io::stdin())?)?,
         ["registry"] => println!("{}", serde_json::to_string(&tick::registry(fleet, &fleet.sessions()?, now_ms())?)?),
-        ["api-spend"] => println!("{}", serde_json::to_string(&super::api_spend::take(fleet)?)?),
-        ["api-exhausted"] => println!("{}", serde_json::to_string(&super::api_spend::swap_marks(&serde_json::from_reader(std::io::stdin())?)?)?),
         ["deliver"] => println!("{}", serde_json::to_string(&tick::hand_in_all(fleet, &serde_json::from_reader::<_, Vec<FleetRow>>(std::io::stdin())?, Instant::now(), DELIVER_BUDGET))?),
         ["job", "start", session, key, text] => spool_job(fleet, RowKind::JobStart, session, key, None, text).map(drop)?,
         ["job", "beat", session, key] => spool_job(fleet, RowKind::JobBeat, session, key, None, "").map(drop)?,

@@ -87,12 +87,12 @@ fn home() -> PathBuf {
 
 fn here() -> Vec<Hold> {
     let (home, now, host) = (home(), Timestamp::now().unix_seconds(), crate::platform::host::name());
-    let mut holds: Vec<Hold> = sources::dispatch_pause(&home).into_iter().collect();
+    let mut holds: Vec<Hold> = Vec::new();
     holds.extend(sources::stable_pin(&home));
     holds.extend(locks::holds(&home.join(".local/state/north"), std::path::Path::new("/proc"), sources::unit_description));
     holds.extend(sources::session_holds(now));
     holds.extend(sources::review_holds(&home));
-    holds.into_iter().map(|hold| Hold { host: host.clone(), ..hold.judged(now, &crate::dispatch::pause_check_passes) }).collect()
+    holds.into_iter().map(|hold| Hold { host: host.clone(), ..hold.judged(now, &|_| false) }).collect()
 }
 
 fn asked(destination: &str) -> Result<Vec<Hold>, String> {
@@ -109,13 +109,11 @@ fn asked(destination: &str) -> Result<Vec<Hold>, String> {
 }
 
 fn fleet_wide() -> Listing {
-    let now = Timestamp::now().unix_seconds();
     let others = std::thread::scope(|scope| {
         let asking: Vec<_> = north_offload::land_offload::other_destinations().into_iter().map(|destination| scope.spawn(move || (asked(&destination), destination))).collect();
         asking.into_iter().filter_map(|asking| asking.join().ok()).collect::<Vec<_>>()
     });
     let mut listing = Listing { holds: here(), unread: Vec::new() };
-    listing.holds.extend(sources::laptop_word().into_iter().map(|hold| hold.judged(now, &|_| false)));
     for (answer, destination) in others {
         match answer {
             Ok(holds) => listing.holds.extend(holds),

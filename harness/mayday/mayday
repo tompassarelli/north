@@ -12,8 +12,8 @@ while (($#)); do case $1 in
   [0-4]|L[0-4]) level=${1#L} ;; --dry-run) dry=1 ;; --no-launch) launch="" ;; --stop-north) stop_north=1 ;;
   --relink-stable) relink=1 ;; --self-test) self_test=1 ;; --t3) t3=1 ;; --account) account=$2; shift ;; --repo) repo=$2; shift ;;
   *) echo "mayday: unknown argument $1; $usage" >&2; exit 64 ;; esac; shift; done
-fleet_local="fleet-tick.timer north-dispatch-mirror.timer"
-fleet_remote=${MAYDAY_DISPATCH_HOST:-nexus}:north-dispatch.timer
+fleet_local="fleet-tick.timer"
+fleet_remote=${MAYDAY_DISPATCH_HOST:-nexus}:fleet-tick.timer
 north_globs="north-*.timer north-*.service agent-runtime-update.timer verify-north.timer"
 elapsed() { printf '%s' $((($(date +%s%N) - t0) / 1000000)); }
 run() { if [[ -n "$dry" ]]; then printf 'would run: %s\n' "$*"; else "$@" || printf 'mayday: failed (continuing): %s\n' "$*" >&2; fi; }

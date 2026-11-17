@@ -13,23 +13,17 @@ capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
 lane_gc_journeys north-guard
 runtime_update north-runtime
-worker_sandbox north-worker-sandbox north-runtime north
-hand_in_tool north-worker-sandbox north-runtime north-providers north-lander north-safe-push north
-refusal_wake north-lander north-landing north-base north-resume north-fleet-supervisor north
 support north
 threads_ledger north-threads
 threads_snapshot north-threads
 capacity_agent_compile north-capacity north-capacity-host north-runtime
 cargo_config north
-fleet_launch north-fleet north-dispatch
-fleet_hand_in north-fleet north-fleet-supervisor north-providers
 fleet_spool north-fleet
 fleet_compaction north-fleet north-fleet-supervisor north-providers
 fleet_state_root north-providers north-fleet-supervisor
 threads_resume north-threads
 agent_text_reads north # tree-wide: counts agent-text reads in every Rust source under src/ and crates/
 affected_modules north-landing north north-land-checks north-lander # tree-wide: reads every tests/it module and every crate the crate DAG names
-golden_path north-fleet north-landing north-land-checks north-lander
 land_checks north-landing north-land-checks north-lander
 land_enqueue north-landing north-land-checks north-lander
 land_rebase north-landing north-land-checks north-lander
@@ -39,3 +33,5 @@ safe_push north-capacity north-capacity-host north-landing north-safe-push north
 safe_push_tag north-landing north-safe-push north-land-checks north-lander
 mutant_worker_lane north-land-scans north-landing-gates north-mutants north-build-system north
 public_text_accounts north-guard north-base north
+hand_in_tool north-worker-sandbox north-runtime north-providers north-lander north-safe-push north
+worker_sandbox north-worker-sandbox north-runtime north

@@ -7,8 +7,7 @@ use std::process::{Command, Stdio};
 
 use super::{Range, git};
 
-const DECIDES: [&str; 14] = [
-    "crates/north-pacing/src/pacing/placement/",
+const DECIDES: [&str; 13] = [
     "crates/north-capacity/src/capacity/",
     "crates/north-landing/src/land/bisect.rs",
     "crates/north-landing/src/land/checks.rs",

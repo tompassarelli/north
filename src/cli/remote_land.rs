@@ -2,7 +2,6 @@ use std::path::Path;
 
 use toml_edit::{DocumentMut, Item};
 
-use crate::pacing::placement;
 use north_lander::land::hand_in::{Lane, Road};
 use north_safe_push::entry::{self, HostFacts};
 
@@ -108,7 +107,7 @@ pub fn ledger_client(config: &DocumentMut, here: &str) -> bool {
 }
 
 fn host_facts() -> HostFacts {
-    HostFacts { ledger_client: placement::config().is_ok_and(|config| ledger_client(&config, &crate::platform::host::name())), abandon }
+    HostFacts { ledger_client: north_capacity::capacity::host_table::config().is_ok_and(|config| ledger_client(&config, &crate::platform::host::name())), abandon }
 }
 
 fn abandon(arguments: &[String]) -> u8 {

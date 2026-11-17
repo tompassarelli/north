@@ -15,12 +15,11 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
-| runs.eta_min | north ledger worker, from the brief's `ETA:` head line (row.rs eta in the Claude runs provider), else the first ETA its text names | crates/north-calibration/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta; the walk-forward `eta_pred` scale also multiplies the dispatch brief's ETA in crates/north-dispatch/src/dispatch/grounds.rs | read | ac79788c |
+| runs.eta_min | north ledger worker, from the brief's `ETA:` head line (row.rs eta in the Claude runs provider), else the first ETA its text names | crates/north-calibration/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
 | runs.minutes | north ledger worker | crates/north-calibration/src/threads/calibration/recommend.rs recommend_eta (the wall p75 printed after the active-minute figures) | read | |
 | runs.outcome, follows, landed, expects_landing | north ledger worker | crates/north-calibration/src/threads/calibration/read.rs succeeded; crates/north-pace/src/usage/ctx.rs routing success | read | 4a58f21e |
 | runs.tier | north ledger worker | crates/north-calibration/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | crates/north-threads/src/threads/runs/brief.rs | crates/north-calibration/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
-| runs.arm | crates/north-threads/src/threads/runs | crates/north-dispatch/src/dispatch/shares.rs: each category's live arms and the share of its next boxes each launch draws, from each arm's kept boxes | read | lane H |
 | runs.lens, flaws | north ledger worker | crates/north-calibration/src/threads/calibration/summary.rs lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | north ledger worker | crates/north-calibration/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |
@@ -43,7 +42,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | run_costs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs/mod.rs rolls into runs.cost_usd | read | |
 | usage | crates/north-pace/src/usage/refresh/ | crates/north-pace/src/usage/store.rs latest, routing and the pace gate | read | |
 | claims.eta_min | crates/north-threads/src/threads/claims/ledger.rs take | crates/north-threads/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; src/cli/work_items.rs:155 | read | |
-| tier_predictions (item, tier, p, at, source) | crates/north-calibration/src/threads/calibration/verbs.rs recommend_with: `threads recommend` with an Item and no Follows line stores each listed tier's shrunk success, and `--launched TIER` from crates/north-dispatch/src/dispatch/effects.rs predict stores the launched tier's | crates/north-calibration/src/threads/calibration/predictions.rs score, printed by `north tune` as each category's walk-forward Brier against its base rate's | read | |
+| tier_predictions (item, tier, p, at, source) | crates/north-calibration/src/threads/calibration/verbs.rs recommend_with: `threads recommend` with an Item and no Follows line stores each listed tier's shrunk success | crates/north-calibration/src/threads/calibration/predictions.rs score, printed by `north tune` as each category's walk-forward Brier against its base rate's | read | |
 | tier_choice | crates/north-threads/src/threads/runs | crates/north-calibration/src/threads/calibration/verbs.rs incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |

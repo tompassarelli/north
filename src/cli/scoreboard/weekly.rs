@@ -5,14 +5,12 @@
 use std::fs;
 use std::path::PathBuf;
 
-use north_graph_loops::scoreboard::{self, Reading, Told};
+use north_graph_loops::scoreboard::{self, Reading};
 use time::OffsetDateTime;
 
 use super::{Better, Measure, Sources, WEEK_S, Weekly, measure, state_root};
-use crate::foundation::clock::Timestamp;
 
 const SCORE: &str = "north/scoreboard/week.txt";
-const TOLD: &str = "north/scoreboard/told.txt";
 const MIN_SAMPLE: usize = 5;
 const MARGIN: f64 = 0.10;
 
@@ -76,25 +74,7 @@ impl Record {
             .collect()
     }
 
-    fn told(told: &Told) -> Option<Self> {
-        let recorded_at = told.at?;
-        let weeks = [week_label(recorded_at), week_label(recorded_at - WEEK_S)];
-        let mut numbers: Vec<Number> = Vec::new();
-        for reading in &told.readings {
-            let better = if reading.higher_is_better { Better::Higher } else { Better::Lower };
-            if numbers.last().is_none_or(|number| number.name != reading.number) {
-                numbers.push(Number { name: reading.number.clone(), better, now: None, before: None });
-            }
-            let number = numbers.last_mut()?;
-            let headline = Some((reading.figure, reading.observations));
-            match weeks.iter().position(|week| *week == reading.week) {
-                Some(0) => number.now = headline,
-                Some(_) => number.before = headline,
-                None => {}
-            }
-        }
-        Some(Self { recorded_at, numbers })
-    }
+
 
     pub fn worsened(&self) -> Vec<&str> {
         self.numbers.iter().filter(|number| number.worse() == Some(true)).map(|number| number.name.as_str()).collect()
@@ -127,32 +107,6 @@ pub fn record(sources: &Sources, now: i64) -> Result<(Record, Weekly), String> {
     Ok((record, report))
 }
 
-fn stored() -> Result<Option<Record>, String> {
-    let graph = north_graph::default_path();
-    if !graph.exists() {
-        return Ok(None);
-    }
-    Ok(Record::told(&scoreboard::read(&graph)?))
-}
 
-/// What the coordinator's fleet tick says: the record is refreshed when a week old, and the numbers that got
-/// worse are told once per recording.
-pub fn tick(now: i64) -> Vec<String> {
-    let current = match stored() {
-        Ok(record) => record.filter(|record| (0..WEEK_S).contains(&(now - record.recorded_at))),
-        Err(why) => return vec![format!("scoreboard not read: {why}")],
-    };
-    let record = match current {
-        Some(record) => record,
-        None => match self::record(&Sources::live(), now) {
-            Ok((record, _)) => record,
-            Err(why) => return vec![format!("scoreboard not recorded: {why}")],
-        },
-    };
-    let told = fs::read_to_string(file(TOLD)).ok().and_then(|text| text.trim().parse::<i64>().ok());
-    if record.worsened().is_empty() || told == Some(record.recorded_at) {
-        return Vec::new();
-    }
-    let _ = write(TOLD, &record.recorded_at.to_string());
-    vec![format!("{} (recorded {}; north dash --weekly prints the figures)", record.score(), Timestamp::from_unix_seconds(record.recorded_at).local_twelve_hour())]
-}
+
+

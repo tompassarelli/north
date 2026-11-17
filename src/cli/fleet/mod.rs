@@ -1,78 +1,34 @@
-mod admission;
-mod relaunch_unblock;
-mod class_review;
 mod rewrites;
-mod agent_root;
 mod forget_flags;
 mod ask;
-mod accounts;
-mod api_spend;
 mod adopt;
-mod budget_notices;
 mod claims;
-mod claim_box;
-mod claude_only;
 mod hops;
 mod desktop;
-mod dispatch_tick;
-mod gated;
-mod held;
-mod launch;
-mod lead_seat;
-mod need;
 mod interactive;
 mod ledger;
-mod limit;
 mod lineage;
 pub(super) mod page_flood;
 mod list;
-mod placement;
-mod promises;
 mod typed;
-mod coordinator;
-mod rebooted;
-mod relaunch;
-mod reports;
-mod revive;
 mod router;
 mod row;
 mod show;
 mod spend;
-mod spares;
-mod spend_queue;
 mod spool;
-mod spooled_verbs;
-mod tick;
-mod tier;
 mod tree;
 mod turn_json;
 pub(super) mod usage;
 pub(crate) mod coordinator_chain;
-mod coordinator_move;
 mod withheld;
-mod drafts;
 mod view;
 mod views;
 mod run_ingest;
 mod usage_ingest;
-mod waits;
-mod merge_bases;
 
-pub(super) use router::fleet_load;
-pub(super) use coordinator::run as coordinator;
-pub(super) use spares::{fill as fill_spares, retire as retire_spares};
-pub(super) use placement::spend_now;
 pub(super) use router::{account_home, host_watch, open_fleet, roster, run};
 pub(super) use typed::coordinator_turn;
 pub(super) use lineage::from_coordinator;
 pub(super) use view::Registry;
 #[cfg(test)]
 pub(super) use row::{admitted_exchange, admitted_put, entered};
-
-/// `north fleet dispatch`; inside the round unit the fleet tick starts, the round ends itself at its limit and records itself finished.
-pub(super) fn dispatch(arguments: &[String]) -> u8 {
-    match std::env::var(dispatch_tick::ROUND_ENV).ok().and_then(|began| began.parse::<f64>().ok()) {
-        Some(began) => dispatch_tick::round(began, &crate::dispatch::launch_directory(), || crate::pacing::placement::resident_clis(&crate::platform::host::name(), ""), || crate::dispatch::run(arguments, roster)),
-        None => crate::dispatch::run(arguments, roster),
-    }
-}

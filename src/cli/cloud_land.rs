@@ -4,7 +4,6 @@ use std::process::{Command, Stdio};
 use serde_json::Value;
 
 use super::cloud_handback;
-use crate::dispatch::CloudLaunch;
 use crate::fleet::runtime::SESSION_ENV;
 
 /// Runs a program in a directory, for the fleet session it names, and returns its output.
@@ -109,9 +108,9 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// The fleet session a cloud lane's ticket names, which the lander tells its verdict: the session running the landing, else the one whose `north cloud launch` started the cloud session.
-pub(super) fn queuing_session(caller: Option<String>, launch: Option<&CloudLaunch>) -> Option<String> {
-    caller.filter(|session| !session.is_empty()).or_else(|| launch.and_then(|launch| launch.owner.clone()))
+/// The fleet session a cloud lane's ticket names, which the lander tells its verdict: the session running the landing.
+pub(super) fn queuing_session(caller: Option<String>) -> Option<String> {
+    caller.filter(|session| !session.is_empty())
 }
 
 pub(super) fn land(events: &[Value], transcript: &Path, repo: &Path, state: &Path, queued_for: Option<&str>, call: &mut Run) -> Outcome {
@@ -219,7 +218,7 @@ pub(super) fn read_events(transcript: &Path) -> Result<Vec<Value>, String> {
         .map_err(|error| format!("{}: {error}", transcript.display()))
 }
 
-pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool, launch: Option<&CloudLaunch>) -> u8 {
+pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool) -> u8 {
     let events = match read_events(transcript) {
         Ok(events) => events,
         Err(error) => {
@@ -227,7 +226,7 @@ pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool, launch: O
             return 1;
         }
     };
-    let queued_for = queuing_session(std::env::var(SESSION_ENV).ok(), launch);
+    let queued_for = queuing_session(std::env::var(SESSION_ENV).ok());
     let outcome = if only_handback {
         land_handback(&events, transcript, repo, &state_dir(), queued_for.as_deref(), &mut run_program)
     } else {

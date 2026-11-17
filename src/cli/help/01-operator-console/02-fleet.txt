@@ -1,2 +1,2 @@
 fleet
-Sessions, dispatch, pace, usage, laptop, orders, digest, report
+Sessions, spool, gates, orders, digest

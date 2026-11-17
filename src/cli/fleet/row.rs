@@ -178,9 +178,7 @@ fn wait(peer: Option<&str>) -> NorthResult<()> {
     record(&admitted_wait(&input, peer, ledger_sessions)?, &input, peer)
 }
 
-pub(super) fn record_wait(request: &WaitRequest) -> NorthResult<()> {
-    record(request, &serde_json::to_vec(request)?, None)
-}
+
 
 fn record(request: &WaitRequest, input: &[u8], peer: Option<&str>) -> NorthResult<()> {
     match client::forward_to_ledger_host(&forwarded(FORWARDED_WAIT, peer), input)? {

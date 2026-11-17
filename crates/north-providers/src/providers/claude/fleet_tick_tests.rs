@@ -170,10 +170,10 @@ fn a_row_pulled_from_a_far_spool_is_dropped_there_only_after_the_ledger_host_com
     let far = Arc::new(Far::holding("tom@gex45", vec![far_message("m-far", "gex45")]));
     let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")], starts: None };
 
-    assert!(tick(&host.fleet, &open_ledger(|| Ok(Unreachable)), &pulls, &NoProbes, NOW_MS, BUDGET).is_err());
+    assert!(tick(&host.fleet, &open_ledger(|| Ok(Unreachable)), &pulls, NOW_MS, BUDGET).is_err());
     assert_eq!(far.left_on("tom@gex45"), ["m-far"], "a row whose commit is unknown stays on its machine");
 
-    let ticked = tick(&host.fleet, &host.opened(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&host.fleet, &host.opened(), &pulls, NOW_MS, BUDGET).unwrap();
 
     assert_eq!(ticked.pulled, 1);
     assert!(ticked.pull_failed.is_empty());
@@ -188,7 +188,7 @@ fn a_row_this_build_cannot_decode_is_set_aside_on_its_machine_with_a_notice_and_
     far.undecodable.lock().unwrap().insert("tom@gex45".into(), vec!["m-old-answer".into()]);
     let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")], starts: None };
 
-    let ticked = tick(&host.fleet, &host.opened(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&host.fleet, &host.opened(), &pulls, NOW_MS, BUDGET).unwrap();
 
     assert!(ticked.pull_failed.is_empty(), "{ticked:?}");
     assert_eq!(*far.aside.lock().unwrap(), ["m-old-answer"]);

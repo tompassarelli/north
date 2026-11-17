@@ -7,7 +7,7 @@ Run north with no arguments to print this help.
 Operator console:
   glance                One line: anything broken, the money, and what waits on Tom
   dash                  The board: landings and boxes per hour, then four concern panels
-  fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
+  fleet                 Sessions, spool, gates, orders, digest
   gate                  Open, answer or list decision gates
   ledger                Fleet runs and cost; worker tiers and incidents
   task                  Record a verdict, or tick boxes whose check passes

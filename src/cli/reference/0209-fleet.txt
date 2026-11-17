@@ -1,1 +1,0 @@
-  fleet laptop toggle                           Flip the laptop between open and closed

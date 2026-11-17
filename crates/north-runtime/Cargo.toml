@@ -32,10 +32,6 @@ toml_edit.workspace = true
 tokio.workspace = true
 north-capacity = { path = "../north-capacity" }
 north-foundation = { path = "../north-foundation" }
-north-pacing = { path = "../north-pacing" }
-
-[dev-dependencies]
-north-pacing = { path = "../north-pacing", features = ["test-support"] }
 
 [lints]
 workspace = true
