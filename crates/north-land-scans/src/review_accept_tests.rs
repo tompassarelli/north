@@ -186,6 +186,64 @@ fn a_lane_that_changes_a_trust_boundary_path_lands_on_one_review_accept_from_eit
     assert!(check(&south, &south_base, &script, &accepts, &[]).unwrap_err().contains("holds no review accept"), "an eval script that the repository's own list names needs an accept");
     accept(&accepts, &south, &south_base, &script, "reviewer-a");
     assert_eq!(check(&south, &south_base, &script, &accepts, &[]), Ok(()), "one accept lands it under the repository's own list");
+    ring_zero_touched_covers_reverted_commits_quoted_paths_defaults_keys_safe_push_and_ignores_base_merges(root.path());
+}
+
+fn ring_zero_touched_covers_reverted_commits_quoted_paths_defaults_keys_safe_push_and_ignores_base_merges(root: &Path) {
+    let repo = root.join("ring0-repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_in(&repo, &["init", "-q", "-b", "main"]);
+    let defaults_base = format!("{}\n[ring0_knob]\nvalue = 1\nconsumers = ['crates/north-lander/src/lib.rs']\n", north_lists());
+    let base = commit(&repo, &[(LANDER, "a\n"), ("crates/north-lander/src/lib.rs", "pub fn x() {}\n"), ("src/a.rs", "a\n"), (DEFAULTS, &defaults_base)], "base");
+
+    git_in(&repo, &["checkout", "-q", "-b", "reverted-ring0", &base]);
+    commit(&repo, &[("crates/north-worker-sandbox/src/worker_sandbox/grant.rs", "pub fn g() {}\n")], "touch sandbox");
+    git_in(&repo, &["rm", "-q", "crates/north-worker-sandbox/src/worker_sandbox/grant.rs"]);
+    git_in(&repo, &["commit", "-q", "-m", "revert sandbox"]);
+    let reverted_head = commit(&repo, &[("src/a.rs", "b\n")], "plain edit");
+    assert_eq!(ring_zero_touched(&repo, &base, &reverted_head), Ok(vec!["crates/north-worker-sandbox/src/worker_sandbox/grant.rs".to_owned()]));
+
+    git_in(&repo, &["checkout", "-q", "-b", "quoted-ring0", &base]);
+    let quoted = "crates/north-worker-sandbox/src/worker_sandbox/café \"quoted\".rs";
+    let quoted_head = commit(&repo, &[(quoted, "pub fn q() {}\n")], "quoted ring-0 path");
+    assert_eq!(ring_zero_touched(&repo, &base, &quoted_head), Ok(vec![quoted.to_owned()]));
+
+    git_in(&repo, &["checkout", "-q", "-b", "defaults-reverted", &base]);
+    let defaults_changed = defaults_base.replace("value = 1", "value = 2");
+    commit(&repo, &[(DEFAULTS, &defaults_changed)], "flip ring-0 key");
+    let defaults_reverted = commit(&repo, &[(DEFAULTS, &defaults_base), ("src/a.rs", "c\n")], "restore ring-0 key");
+    let defaults_touched = ring_zero_touched(&repo, &base, &defaults_reverted).unwrap();
+    assert!(defaults_touched.iter().any(|entry| entry.contains("key ring0_knob")), "{defaults_touched:?}");
+    git_in(&repo, &["checkout", "-q", "-b", "treesame-merge", &base]);
+    commit(&repo, &[("src/a.rs", "first-parent\n")], "first parent plain edit");
+    git_in(&repo, &["merge", "-q", "--no-ff", "defaults-reverted", "-X", "theirs", "-m", "merge side branch with reverted defaults key"]);
+    let treesame_head = git_in(&repo, &["rev-parse", "HEAD"]);
+    let treesame_touched = ring_zero_touched(&repo, &base, &treesame_head).unwrap();
+    assert!(treesame_touched.iter().any(|entry| entry.contains("key ring0_knob")), "{treesame_touched:?}");
+    git_in(&repo, &["config", "log.showRoot", "false"]);
+    git_in(&repo, &["checkout", "--orphan", "orphan-ring0"]);
+    git_in(&repo, &["rm", "-rf", "-q", "."]);
+    commit(&repo, &[("crates/north-worker-sandbox/src/worker_sandbox/grant.rs", "pub fn r() {}\n"), ("src/a.rs", "a\n")], "orphan root touches sandbox");
+    git_in(&repo, &["rm", "-q", "crates/north-worker-sandbox/src/worker_sandbox/grant.rs"]);
+    let orphan_head = commit(&repo, &[("src/a.rs", "b\n")], "orphan removes sandbox");
+    assert!(ring_zero_touched(&repo, &base, &orphan_head).unwrap().iter().any(|path| path == "crates/north-worker-sandbox/src/worker_sandbox/grant.rs"));
+
+    git_in(&repo, &["checkout", "-q", "main"]);
+    let advanced_main = commit(&repo, &[(LANDER, "main-ring0\n"), (DEFAULTS, &defaults_changed)], "main advances ring-0");
+    git_in(&repo, &["checkout", "-q", "-b", "worker-merges-main", &base]);
+    commit(&repo, &[("src/a.rs", "worker\n")], "worker plain edit");
+    git_in(&repo, &["merge", "-q", "--no-ff", &advanced_main, "-m", "merge main"]);
+    let merged_head = git_in(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(ring_zero_touched(&repo, &advanced_main, &merged_head), Ok(Vec::new()), "merging base must not attribute base's ring-0 changes to the worker lane");
+
+    let bare_lists = root.join("no-defaults");
+    std::fs::create_dir(&bare_lists).unwrap();
+    git_in(&bare_lists, &["init", "-q", "-b", "main"]);
+    let no_defaults_base = commit(&bare_lists, &[(".safe-push", "[land]\n"), ("modules/a.nix", "{}\n")], "base");
+    let nix_edit = commit(&bare_lists, &[("modules/a.nix", "{ a = 1; }\n")], "module edit");
+    assert_eq!(ring_zero_touched(&bare_lists, &no_defaults_base, &nix_edit), Ok(Vec::new()));
+    let safe_push_edit = commit(&bare_lists, &[(".safe-push", "[land]\n\tcheck = true\n")], "touch safe-push");
+    assert_eq!(ring_zero_touched(&bare_lists, &no_defaults_base, &safe_push_edit), Ok(vec![".safe-push".to_owned()]));
 }
 
 #[test]

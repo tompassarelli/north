@@ -295,7 +295,7 @@ pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (Stri
     for (name, value) in own {
         match name.as_str() {
             "PATH" => path = Some(value),
-            MARK | LANE_ONLY | SOCKETS_HIDDEN | CONFINED | REMOVAL_ROOTS | SESSION_ENV | PROVED_ENV => {}
+            MARK | LANE_ONLY | SOCKETS_HIDDEN | CONFINED | REMOVAL_ROOTS | SESSION_ENV | PROVED_ENV | session_scope::ROLE_ENV => {}
             _ if name.starts_with("GIT_CONFIG") => {}
             _ => kept.push((name, value)),
         }
@@ -303,6 +303,7 @@ pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (Stri
     kept.push(("PATH".to_owned(), shimmed_path(home, path.as_deref().unwrap_or_default())?));
     kept.push((SESSION_ENV.to_owned(), session.name.clone()));
     kept.push((PROVED_ENV.to_owned(), "1".to_owned()));
+    kept.push((session_scope::ROLE_ENV.to_owned(), "worker".to_owned()));
     let own = repository(&session.lane)?;
     kept.extend(git_credential::session_env_with(&GIT_HARDENING).into_iter().map(|(name, value)| if value == git_credential::HELPER { (name, format!("{value} {} {own}", git_credential::LANE)) } else { (name, value) }));
     Ok(kept)

@@ -403,7 +403,10 @@ fn the_token_sent_for_a_sessions_lane_push_is_scoped_to_its_repository() {
     git(&lane, &["init", "-q"]);
     git(&lane, &["remote", "add", "origin", "https://github.com/tompassarelli/north.git"]);
     let session = super::Session { name: "w".to_owned(), task: "tompassarelli/north#1397".to_owned(), lane };
-    let env = super::environment(&session, [("PATH".to_owned(), "/usr/bin".to_owned())], &home).unwrap();
+    let role_env = north_base::platform::session_scope::ROLE_ENV;
+    let env = super::environment(&session, [("PATH".to_owned(), "/usr/bin".to_owned()), (role_env.to_owned(), "coordinator".to_owned())], &home).unwrap();
+    let roles: Vec<&str> = env.iter().filter(|(name, _)| name == role_env).map(|(_, value)| value.as_str()).collect();
+    assert_eq!(roles, ["worker"], "lane_grant::environment strips caller ROLE_ENV and sets worker");
     let helper = &env.iter().find(|(name, value)| name.starts_with("GIT_CONFIG_VALUE_") && value.starts_with(git_credential::HELPER) && value != git_credential::HELPER).expect("the lane push names its own helper").1;
     let mut asked: Vec<String> = helper.strip_prefix(git_credential::HELPER).unwrap().split_whitespace().map(str::to_owned).collect();
     asked.push("get".to_owned());

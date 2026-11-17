@@ -68,7 +68,7 @@ impl Lane {
 
     fn try_enqueue_scanning(&self, host: &str, shape: super::Shape, facts: Option<super::Facts>, denylist: &Denylist) -> Result<super::Queued, String> {
         let state = self.dir.path().join("state");
-        let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, waits: false, denylist, queue_checks: self.queue_checks, north: &self.north };
+        let environment = super::Environment { called_micros: 0, state_home: &state, host, session: None, confined_worker: false, waits: false, denylist, queue_checks: self.queue_checks, north: &self.north };
         super::enqueue(&self.repo, shape, false, &environment, facts)
     }
 
@@ -232,7 +232,7 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
     let lane = Lane::new();
     let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
     let enqueue_as = |session: &str| {
-        let environment = super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: Some(session), waits: false, denylist: &denylist, queue_checks: crate::land::slots::runner::judge_queue_checks_until, north: &lane.north };
+        let environment = super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: Some(session), confined_worker: false, waits: false, denylist: &denylist, queue_checks: crate::land::slots::runner::judge_queue_checks_until, north: &lane.north };
         super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment, None)
     };
     let queued = enqueue_as("worker-1").unwrap();
@@ -534,9 +534,62 @@ fn slot_source_stops_the_wait(_root: &Path, _base: &str, _head: &str, _north: &s
     Err(QueueRefusal::Unjudged(STOPPED.to_owned()))
 }
 
+fn a_confined_worker_is_refused_at_enqueue_on_ring_zero_paths_while_an_unconfined_session_queues() {
+    use super::refuse::confined_worker;
+    assert!(confined_worker(true, Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-worker-outside.service\n")));
+    assert!(!confined_worker(false, Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-worker-outside.service\n")));
+    assert!(confined_worker(false, Some("0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-session-w1.scope\n")));
+    assert!(confined_worker(false, Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-w1-0a1b2c3d.service\n")));
+    assert!(!confined_worker(false, Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-coordinator-0a1b2c3d.service\n")));
+    assert!(confined_worker(false, Some("0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-coordinator-helper-0a1b2c3d.service\n")));
+    assert!(confined_worker(false, None));
+    assert!(!confined_worker(false, Some("0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-terminal-1.scope\n")));
+
+    let lane = Lane::new();
+    let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
+    let origin = lane.dir.path().join("origin.git");
+    fs::create_dir_all(lane.repo.join("harness")).unwrap();
+    fs::write(lane.repo.join("harness/defaults.toml"), "[trust_boundary_paths]\nvalue = ['.safe-push', 'crates/north-worker-sandbox/src/worker_sandbox/']\n[ring_zero_paths]\nvalue = ['.safe-push', 'crates/north-worker-sandbox/src/worker_sandbox/']\n[ring0_knob]\nvalue = 1\nconsumers = ['crates/north-worker-sandbox/src/worker_sandbox/grant.rs']\n").unwrap();
+    run(&lane.repo, &["add", "harness/defaults.toml"]);
+    run(&lane.repo, &["commit", "-q", "-m", "add ring_zero_paths"]);
+    run(&lane.repo, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    run(&origin, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    let main_head = run(&lane.repo, &["rev-parse", "HEAD"]);
+    lane.commit("worker non-ring-0 edit", &[]);
+    let enqueue_role = |confined_worker: bool| {
+        let environment = super::Environment { called_micros: 0, state_home: &state, host: "fixture-host", session: Some("worker-1"), confined_worker, waits: false, denylist: &denylist, queue_checks: crate::land::slots::runner::judge_queue_checks_until, north: &lane.north };
+        super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment, None)
+    };
+    enqueue_role(true).unwrap();
+
+    fs::create_dir_all(lane.repo.join("crates/north-worker-sandbox/src/worker_sandbox")).unwrap();
+    fs::write(lane.repo.join("crates/north-worker-sandbox/src/worker_sandbox/grant.rs"), "pub fn grant() {}\n").unwrap();
+    run(&lane.repo, &["add", "crates/north-worker-sandbox/src/worker_sandbox/grant.rs"]);
+    run(&lane.repo, &["commit", "-q", "-m", "touch ring-0 worker_sandbox"]);
+    let denied = enqueue_role(true).unwrap_err();
+    assert!(denied.contains("ring-0 paths are write-denied to workers") && denied.contains("crates/north-worker-sandbox/src/worker_sandbox/grant.rs"), "{denied}");
+    enqueue_role(false).unwrap();
+
+    run(&lane.repo, &["reset", "-q", "--hard", &main_head]);
+    fs::write(lane.repo.join(".safe-push"), "[land]\n").unwrap();
+    run(&lane.repo, &["add", ".safe-push"]);
+    run(&lane.repo, &["commit", "-q", "-m", "touch .safe-push"]);
+    let denied_safe_push = enqueue_role(true).unwrap_err();
+    assert!(denied_safe_push.contains(".safe-push"), "{denied_safe_push}");
+
+    run(&lane.repo, &["reset", "-q", "--hard", &main_head]);
+    let updated_defaults = fs::read_to_string(lane.repo.join("harness/defaults.toml")).unwrap().replace("value = 1", "value = 2");
+    fs::write(lane.repo.join("harness/defaults.toml"), updated_defaults).unwrap();
+    run(&lane.repo, &["add", "harness/defaults.toml"]);
+    run(&lane.repo, &["commit", "-q", "-m", "touch ring-0 defaults key"]);
+    let denied_defaults = enqueue_role(true).unwrap_err();
+    assert!(denied_defaults.contains("key ring0_knob"), "{denied_defaults}");
+}
+
 #[test]
 fn a_hand_in_whose_checks_wait_for_a_slot_is_never_queued_unjudged_and_a_hand_in_already_on_main_is_refused_before_the_queue() {
     a_hand_in_whose_head_is_already_on_main_is_refused_before_the_queue_naming_its_uncommitted_paths_while_a_lane_behind_main_with_its_own_commit_still_queues();
+    a_confined_worker_is_refused_at_enqueue_on_ring_zero_paths_while_an_unconfined_session_queues();
     let mut lane = Lane::new();
     lane.queue_checks = slot_source_stops_the_wait;
     lane.commit("add a land check every build host's slot line refuses", &[]);

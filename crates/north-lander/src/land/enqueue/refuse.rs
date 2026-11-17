@@ -154,8 +154,42 @@ impl DiffOnly<'_> {
     }
 }
 
+pub(in crate::land::enqueue) fn confined_worker(confined_role: bool, cgroup: Option<&str>) -> bool {
+    if confined_role {
+        return true;
+    }
+    let Some(cgroup) = cgroup else { return true };
+    let units: Vec<&str> = cgroup.lines().flat_map(|line| line.split('/')).collect();
+    if units.iter().any(|unit| unit.starts_with(north_base::platform::session_scope::WORKER_BROKER_UNIT)) {
+        return false;
+    }
+    let coordinator_held = format!("north-fleet-{}-", north_base::platform::session_scope::COORDINATOR_ROLE);
+    let is_coordinator_held = units.iter().any(|unit| {
+        unit.strip_prefix(&coordinator_held)
+            .and_then(|rest| rest.strip_suffix(".service"))
+            .is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    });
+    north_base::platform::session_scope::fleet_session_cgroup(cgroup) && !is_coordinator_held
+}
+
+pub(in crate::land::enqueue) fn confined_worker_here() -> bool {
+    confined_worker(north_base::platform::session_scope::confined_session(), std::fs::read_to_string("/proc/self/cgroup").ok().as_deref())
+}
+
+pub(super) fn refuse_worker_ring_zero(root: &Path, base: &str, head: &str, confined_worker: bool) -> Result<(), String> {
+    if !confined_worker {
+        return Ok(());
+    }
+    let touched = north_land_scans::review_accept::ring_zero_touched(root, base, head)?;
+    if touched.is_empty() {
+        return Ok(());
+    }
+    Err(format!("ring-0 paths are write-denied to workers ({}); make this change from a session the owner types into", touched.join(", ")))
+}
+
 pub(super) fn refuse_diff_only(diff: DiffOnly<'_>) -> Result<Option<String>, String> {
     let (root, base, head, timings) = (diff.root, diff.base, diff.head, diff.timings);
+    timings.stage("ring-0 write-denial", || refuse_worker_ring_zero(root, base, head, diff.environment.confined_worker))?;
     timings.stage("generated registry", || crate::land::scans::generated_registry::check(root, base, head))?;
     if let Err(gate) = timings.stage("static gates", || refuse_static_gates(root, base, head)) {
         diff.judged(gate, Err(format!("{gate} refused the landing")))?;

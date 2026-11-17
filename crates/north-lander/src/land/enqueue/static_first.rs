@@ -3,7 +3,7 @@ use std::path::Path;
 use north_base::platform::harness::{DEFAULTS, document};
 use north_base::platform::north_binary::land_north;
 
-use super::refuse::{DiffOnly, refuse_diff_only};
+use super::refuse::{DiffOnly, confined_worker_here, refuse_diff_only};
 use super::{Environment, Timings, checkout, default_branch, fetch_base, git, lander_ledger_at, queue, record_refused, repositories, setting, state_home};
 use crate::land::scans::outgoing::denylist::Denylist;
 use crate::land::slots::runner::{self, QueueRefusal, STOPPED, Stop};
@@ -37,7 +37,7 @@ fn run_diff_only(root: &Path, base: &str, head: &str, timings: &Timings) -> Resu
     let origin = git(root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
     let state_home = state_home();
     let (host, denylist, north) = (repositories::local_host(), Denylist::from_env(), land_north());
-    let environment = Environment { called_micros: 0, state_home: &state_home, host: &host, session: None, waits: false, denylist: &denylist, queue_checks: runner::judge_queue_checks_until, north: &north };
+    let environment = Environment { called_micros: 0, state_home: &state_home, host: &host, session: None, confined_worker: confined_worker_here(), waits: false, denylist: &denylist, queue_checks: runner::judge_queue_checks_until, north: &north };
     let lander_host = setting::landing(root, &format!("refs/remotes/origin/{}", default_branch(root)), "landing.lander-host");
     let ledger = lander_ledger_at(&lander_host, &queue::directory(&state_home, &origin), &environment);
     refuse_diff_only(DiffOnly { environment: &environment, timings, root, branch: &branch, base, head, ledger, record: false })

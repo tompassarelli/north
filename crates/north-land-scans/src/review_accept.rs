@@ -19,7 +19,7 @@ const DEPENDENCY_SOURCES: &str = "dependency_source_paths";
 const REVERTS: [&str; 2] = ["This reverts commit ", "Reverts: "];
 
 fn changed(directory: &Path, fork: &str, head: &str) -> Option<Vec<String>> {
-    git::text(directory, &["diff", "--name-only", "--no-renames", fork, head]).map(|names| names.lines().map(str::to_owned).collect())
+    git::text(directory, &["diff", "-z", "--name-only", "--no-renames", fork, head]).map(|names| names.split('\0').filter(|name| !name.is_empty()).map(str::to_owned).collect())
 }
 
 fn lists_at(directory: &Path, base: &str) -> Result<DocumentMut, String> {
@@ -91,6 +91,50 @@ pub fn needed(directory: &Path, base: &str, head: &str) -> Result<Vec<String>, S
     let fork = git::merge_base(directory, base, head);
     let files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
     needing_review(directory, base, &fork, head, &files)
+}
+
+fn commit_ring_zero_defaults(directory: &Path, fork: &str, head: &str, ring: &[&str]) -> Result<BTreeSet<String>, String> {
+    const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+    let mut found: BTreeSet<String> = ring_zero_defaults::changed(directory, fork, head, ring).into_iter().collect();
+    let listed = git::text(directory, &["log", "--full-history", "--format=%H %P", &format!("{fork}..{head}"), "--", DEFAULTS]).ok_or_else(|| format!("git could not list {DEFAULTS} commits in {fork}..{head}"))?;
+    for line in listed.lines() {
+        let mut shas = line.split_whitespace();
+        let Some(commit) = shas.next() else { continue };
+        let parents: Vec<&str> = shas.collect();
+        let per_parent: Vec<BTreeSet<String>> = if parents.is_empty() {
+            vec![ring_zero_defaults::changed(directory, EMPTY_TREE, commit, ring).into_iter().collect()]
+        } else {
+            parents.into_iter().map(|parent| ring_zero_defaults::changed(directory, parent, commit, ring).into_iter().collect()).collect()
+        };
+        if let Some((first, rest)) = per_parent.split_first() {
+            found.extend(first.iter().filter(|key| rest.iter().all(|other| other.contains(*key))).cloned());
+        }
+    }
+    Ok(found)
+}
+
+pub fn ring_zero_touched(directory: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+    git::text(directory, &["rev-parse", "--verify", "--quiet", &format!("{base}^{{commit}}")]).ok_or_else(|| format!("git could not resolve {base}"))?;
+    let fork = git::merge_base(directory, base, head);
+    let tracked = git::text(directory, &["ls-tree", "-z", "-r", "--name-only", base, "--", DEFAULTS]).ok_or_else(|| format!("git could not inspect {DEFAULTS} at {base}"))?;
+    let lists = if tracked.trim_matches('\0').is_empty() { None } else { Some(lists_at(directory, base)?) };
+    let mut files = changed(directory, &fork, head).ok_or_else(|| format!("git could not diff {fork}..{head}"))?;
+    let commit_files = git::text(directory, &["log", "-z", "-c", "--root", "--full-history", "--format=", "--name-only", "--no-renames", &format!("{fork}..{head}")]).ok_or_else(|| format!("git could not list commit paths in {fork}..{head}"))?;
+    files.extend(commit_files.split('\0').filter(|name| !name.is_empty()).map(str::to_owned));
+    files.sort();
+    files.dedup();
+    let mut touched = BTreeSet::new();
+    if let Some(lists) = &lists {
+        let ring = trust_boundary::ring_zero(lists, &files).ok_or_else(|| format!("{DEFAULTS} at {base} lists no trust_boundary_paths, so no change can be told to cross one"))?;
+        touched.extend(ring.into_iter().map(str::to_owned));
+        if let Some(ring) = trust_boundary::listed_in(lists, trust_boundary::RING_ZERO).filter(|_| files.iter().any(|file| file == DEFAULTS)) {
+            touched.extend(commit_ring_zero_defaults(directory, &fork, head, &ring)?);
+        }
+    }
+    if files.iter().any(|file| file == ".safe-push") {
+        touched.insert(".safe-push".to_owned());
+    }
+    Ok(touched.into_iter().collect())
 }
 
 /// The review a lane `fork..head` needs, read from the harness/defaults.toml at `listed_at`: each file it changes under ring_zero_paths,

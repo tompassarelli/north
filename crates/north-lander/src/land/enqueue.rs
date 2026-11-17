@@ -27,7 +27,7 @@ use timings::Timings;
 mod alone;
 use alone::checked_alone;
 pub use facts::Facts;
-use refuse::{DiffOnly, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
+use refuse::{DiffOnly, confined_worker_here, refused_finish, refuse_archived, refuse_conflict, refuse_diff_only, refuse_nothing_to_land};
 use super::scans::outgoing;
 use north_landing::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::{Denylist, Seen};
@@ -56,6 +56,7 @@ pub struct Environment<'a> {
     pub state_home: &'a Path,
     pub host: &'a str,
     pub session: Option<&'a str>,
+    pub confined_worker: bool,
     pub waits: bool,
     pub denylist: &'a Denylist,
     pub queue_checks: QueueChecks,
@@ -337,7 +338,7 @@ pub fn run_called(arguments: &[String], called_micros: u128) -> u8 {
     let state_home = state_home();
     let sources = Denylist::from_env();
     let north = land_north();
-    let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), waits: parsed.wait, denylist: &sources, queue_checks: runner::judge_queue_checks_until, north: &north };
+    let environment = Environment { called_micros, state_home: &state_home, host: &host, session: session.as_deref(), confined_worker: confined_worker_here(), waits: parsed.wait, denylist: &sources, queue_checks: runner::judge_queue_checks_until, north: &north };
     match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment, Facts::kept()) {
         Ok(queued) => {
             match &queued.squash {
