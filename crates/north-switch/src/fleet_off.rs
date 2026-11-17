@@ -1,7 +1,7 @@
 //! `north fleet off`: on every fleet host at once, freeze landing and stop the units that start work (dispatch,
 //! the tick and every other fleet timer), give working sessions until the grace runs out to finish their step,
 //! then stop the fleet's sessions and units and kill whatever still runs at the deadline. `--force` kills them at
-//! once. It records what it stopped for `north fleet on` and parks the stopped sessions in the cached fleet table.
+//! once. It disables each enabled unit it stops, so a restart of the user manager or the host leaves it stopped. It records what it stopped for `north fleet on` and parks the stopped sessions in the cached fleet table.
 
 use std::collections::BTreeSet;
 use std::env;
@@ -93,10 +93,10 @@ fn run(mode: Mode) -> Result<ExitCode, String> {
     }
     let units = entries.iter().filter(|entry| matches!(entry, Entry::Unit { .. })).count();
     if clean {
-        println!("north fleet off: nothing of the fleet runs on {} hosts; `north fleet on` starts the {units} units it stopped", hosts.len());
+        println!("north fleet off: nothing of the fleet runs on {} hosts; `north fleet on` enables and starts the {units} units it stopped", hosts.len());
         return Ok(ExitCode::SUCCESS);
     }
-    println!("north fleet off: not everything stopped (above); `north fleet off --force` kills what is left, and `north fleet on` starts the {units} units it stopped");
+    println!("north fleet off: not everything stopped (above); `north fleet off --force` kills what is left, and `north fleet on` enables and starts the {units} units it stopped");
     Ok(ExitCode::from(1))
 }
 
@@ -172,6 +172,10 @@ impl Fleet<'_> {
                 return;
             }
         };
+        let enabled: Vec<String> = described.iter().filter(|unit| unit.enabled).map(|unit| unit.name.clone()).collect();
+        if let Err(error) = units::disable(host, &enabled) {
+            reach.problems.push(format!("disable: {error}"));
+        }
         let stopped = if names.iter().all(|name| units::is_trigger(name)) { units::stop(host, names) } else { units::stop_now(host, names) };
         if let Err(error) = stopped {
             reach.problems.push(format!("stop: {error}"));
@@ -249,10 +253,11 @@ fn report(name: &str, reach: &Reach) {
         println!("north fleet off: {host}: landing frozen");
     }
     let stopped: Vec<&str> = reach.stopped.iter().filter_map(|entry| if let Entry::Unit { name, .. } = entry { Some(name.as_str()) } else { None }).collect();
+    let disabled = reach.stopped.iter().filter(|entry| matches!(entry, Entry::Unit { disabled: true, .. })).count();
     match stopped.is_empty() {
         true if reach.hostname.is_empty() => {}
         true => println!("north fleet off: {host}: no fleet unit was running"),
-        false => println!("north fleet off: {host}: stopped {}: {}", stopped.len(), stopped.join(" ")),
+        false => println!("north fleet off: {host}: stopped {} ({disabled} also disabled until `north fleet on`): {}", stopped.len(), stopped.join(" ")),
     }
     if !reach.left.is_empty() {
         println!("north fleet off: {host}: still running: {}", reach.left.join(" "));

@@ -1,6 +1,6 @@
 //! What `north fleet off` stopped, one line each in `$XDG_STATE_HOME/north/fleet-off`: `unit HOST NAME
-//! transient|kept` or `freeze HOST`. A second `off` adds to it, and `north fleet on` starts what it lists and
-//! keeps only the lines it could not put back.
+//! transient|kept|disabled` (`disabled`: kept, and enabled until `off` disabled it) or `freeze HOST`. A second
+//! `off` adds to it, and `north fleet on` enables and starts what it lists and keeps only the lines it could not put back.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -11,13 +11,13 @@ use crate::units::Unit;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Entry {
-    Unit { host: String, name: String, transient: bool },
+    Unit { host: String, name: String, transient: bool, disabled: bool },
     Freeze { host: String },
 }
 
 impl Entry {
     pub fn unit(host: &str, unit: &Unit) -> Self {
-        Self::Unit { host: host.to_owned(), name: unit.name.clone(), transient: unit.transient }
+        Self::Unit { host: host.to_owned(), name: unit.name.clone(), transient: unit.transient, disabled: unit.enabled }
     }
 
     pub fn host(&self) -> &str {
@@ -28,14 +28,14 @@ impl Entry {
 
     fn line(&self) -> String {
         match self {
-            Self::Unit { host, name, transient } => format!("unit {host} {name} {}", if *transient { "transient" } else { "kept" }),
+            Self::Unit { host, name, transient, disabled } => format!("unit {host} {name} {}", if *transient { "transient" } else if *disabled { "disabled" } else { "kept" }),
             Self::Freeze { host } => format!("freeze {host}"),
         }
     }
 
     fn parse(line: &str) -> Option<Self> {
         match line.split_whitespace().collect::<Vec<_>>().as_slice() {
-            ["unit", host, name, kind] if valid_name(host) => Some(Self::Unit { host: (*host).to_owned(), name: (*name).to_owned(), transient: *kind == "transient" }),
+            ["unit", host, name, kind] if valid_name(host) => Some(Self::Unit { host: (*host).to_owned(), name: (*name).to_owned(), transient: *kind == "transient", disabled: *kind == "disabled" }),
             ["freeze", host] if valid_name(host) => Some(Self::Freeze { host: (*host).to_owned() }),
             _ => None,
         }

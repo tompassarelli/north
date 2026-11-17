@@ -1,5 +1,5 @@
 //! A host's systemd user units as `north fleet off` and `on` see them: which are active, which are transient
-//! (gone once stopped, so nothing can start them again), and the stop, kill and start that act on them.
+//! (gone once stopped, so nothing can start them again), and the stop, kill, start, disable and enable that act on them.
 
 use crate::host::{Host, quote};
 
@@ -10,6 +10,7 @@ const TRIGGERS: [&str; 3] = [".timer", ".path", ".socket"];
 pub struct Unit {
     pub name: String,
     pub transient: bool,
+    pub enabled: bool,
 }
 
 pub struct Listing {
@@ -44,13 +45,14 @@ pub fn described(host: &Host, names: &[String]) -> Result<Vec<Unit>, String> {
     if names.is_empty() {
         return Ok(Vec::new());
     }
-    let shown = host.run(&format!("systemctl --user show --property=Id,Transient -- {}", words(names)))?;
+    let shown = host.run(&format!("systemctl --user show --property=Id,Transient,UnitFileState -- {}", words(names)))?;
     Ok(names
         .iter()
         .map(|name| {
             let block = shown.split("\n\n").find(|block| block.lines().any(|line| line.strip_prefix("Id=") == Some(name)));
             let transient = block.is_some_and(|block| block.lines().any(|line| line == "Transient=yes"));
-            Unit { name: name.clone(), transient }
+            let enabled = block.is_some_and(|block| block.lines().any(|line| line == "UnitFileState=enabled"));
+            Unit { name: name.clone(), transient, enabled }
         })
         .collect())
 }
@@ -65,6 +67,14 @@ pub fn stop_now(host: &Host, names: &[String]) -> Result<(), String> {
 
 pub fn kill(host: &Host, names: &[String]) -> Result<(), String> {
     act(host, "kill --signal=SIGKILL", names)
+}
+
+pub fn disable(host: &Host, names: &[String]) -> Result<(), String> {
+    act(host, "disable", names)
+}
+
+pub fn enable(host: &Host, names: &[String]) -> Result<(), String> {
+    act(host, "enable", names)
 }
 
 pub fn start(host: &Host, names: &[String]) -> Result<(), String> {

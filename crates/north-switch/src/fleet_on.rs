@@ -1,4 +1,4 @@
-//! `north fleet on`: starts on each host exactly what `north fleet off` recorded stopping there and lifts the landing
+//! `north fleet on`: enables the units `north fleet off` disabled, then starts on each host exactly what `north fleet off` recorded stopping there and lifts the landing
 //! freeze it placed. A service its recorded timer starts is left to that timer; a transient unit, a session among
 //! them, is gone once stopped, so it is named and not restarted. Only lines it could not put back stay recorded.
 
@@ -56,10 +56,15 @@ fn run() -> Result<ExitCode, String> {
 }
 
 fn restore(host: &Host, entries: Vec<Entry>) -> Restore {
-    let stopped: Vec<Unit> = entries.iter().filter_map(|entry| if let Entry::Unit { name, transient, .. } = entry { Some(Unit { name: name.clone(), transient: *transient }) } else { None }).collect();
+    let stopped: Vec<Unit> = entries.iter().filter_map(|entry| if let Entry::Unit { name, transient, disabled, .. } = entry { Some(Unit { name: name.clone(), transient: *transient, enabled: *disabled }) } else { None }).collect();
     let gone: Vec<String> = stopped.iter().filter(|unit| unit.transient).map(|unit| unit.name.clone()).collect();
     let startable: Vec<String> = stopped.iter().filter(|unit| !unit.transient && units::triggered_by(&unit.name, &stopped).is_none()).map(|unit| unit.name.clone()).collect();
     let mut restore = Restore { started: Vec::new(), gone, unfrozen: false, kept: Vec::new(), problems: Vec::new() };
+    let disabled: Vec<String> = stopped.iter().filter(|unit| unit.enabled).map(|unit| unit.name.clone()).collect();
+    if let Err(error) = units::enable(host, &disabled) {
+        restore.problems.push(format!("enable: {error}"));
+        restore.kept.extend(entries.iter().filter(|entry| matches!(entry, Entry::Unit { disabled: true, .. })).cloned());
+    }
     if let Err(error) = units::start(host, &startable) {
         restore.problems.push(format!("start: {error}"));
         let active = units::list(host).map(|listing| listing.active).unwrap_or_default();
