@@ -158,8 +158,8 @@ Before it: steps 1 to 4 for the lanes noted. Green after it: as in step 2, with 
 - Lane 5a3, review-call and review-fetch out (about 400 lines), together with the review-call verdict store, review request and lane fetch in north-landing. Before it: the lander makes the one-shot security read of a held lane itself (crates/north-landing/src/land/security_read.rs, north#1650), so no review-routing caller is left. The hold kind and crates/north-runtime/src/runtime/review_accept.rs stay with review-accept.
 - Lane 5b, the sandbox crate (about 9,700 lines moved, about 400 changed): the riskiest lane.
   - `git mv` `crates/north-runtime/src/worker_sandbox/` and `crates/north-runtime/src/agent_contain/` into a fresh bucket 3 crate.
-  - Take crates/north-runtime/src/runtime/review_accept.rs, `update::pull_held` and the hold ledger along, so the new crate depends on nothing in `north-runtime`. `north-runtime` then depends on it (canary probes, `laptop_runner`), never the reverse.
-  - Move crates/north-runtime-records/src/failure.rs into `north-runtime`.
+  - Take `review_accept` and the hold ledger along, and pass `update::pull_held` through `worker_sandbox::Runtime`, so `north-worker-sandbox` depends on nothing in `north-runtime`. `north-runtime` then depends on it (`laptop_runner`), never the reverse.
+  - Move `failure.rs` out of `north-runtime-records` into `crates/north-foundation/src/foundation/failure.rs`, shared by `hold_ledger`, `review_accept` and `north-runtime`.
   - Update in the same commit: src/main.rs:28; the `worker_sandbox` paths in `trust_boundary_paths` and `landing_path_paths` (harness/defaults.toml:1986-1997), so the moved sandbox stays ring-0 for review-accept; tests/it/crates.txt; `structure/`; `BUCK`.
 - Lane 5c1, the canary out (about 2,330 lines of whole files removed, about 50 edited): `crates/north-runtime/src/runtime/canary/` and crates/north-runtime/src/runtime/canary.rs, its calibration and providers edges, and hold H4 in harness/holdlist.toml.
 - Lane 5c2, promotion out (about 2,700 lines of whole files removed, about 150 edited), with holds H2 and H3 in harness/holdlist.toml:
