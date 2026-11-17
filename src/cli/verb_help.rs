@@ -117,6 +117,17 @@ fn literals<'a>(entry: &Entry<'a>) -> Vec<&'a str> {
     usage.split_whitespace().take_while(|token| literal(token)).collect()
 }
 
+fn subcommands<'a>(contract: &'a str, prefix: &[&str]) -> Vec<&'a str> {
+    let Some((_, rest)) = contract.split_once(&format!("north {} ", prefix.join(" "))) else { return Vec::new() };
+    let tokens: Vec<&str> = rest.split_whitespace().collect();
+    let first = tokens.first().map(|token| token.trim_start_matches('['));
+    first.into_iter().chain(tokens.windows(2).filter(|pair| pair[0] == "|").map(|pair| pair[1])).filter(|token| literal(token)).collect()
+}
+
+fn contract_lists(path: &[String]) -> bool {
+    CONTRACTS.iter().filter(|(prefix, _)| path.len() > prefix.len() && starts_with(path, prefix)).any(|(prefix, contract)| subcommands(contract, prefix).iter().any(|token| names(token, &path[prefix.len()])))
+}
+
 fn agrees(literals: &[&str], path: &[String]) -> bool {
     literals.iter().zip(path).all(|(token, word)| names(token, word))
 }
@@ -153,7 +164,7 @@ fn listing(reference: &str, path: &[String]) -> Result<Resolution, String> {
 
 /// How this runtime reads one north call. Its dispatcher answers for the verb; below the verb, the command table is not
 /// closed (a verb may dispatch subcommands it does not list), so a path counts as dropped only when the `live` runtime's
-/// table lists it and `reference` no longer does.
+/// table lists it and `reference` no longer does and the verb's own usage contract does not list it either.
 pub(super) fn resolve(reference: &str, live: &str, path: &[String], defined: impl Fn(&str) -> bool) -> Resolution {
     let Some(verb) = path.first() else { return Resolution::Command };
     if !defined(verb) {
@@ -163,6 +174,7 @@ pub(super) fn resolve(reference: &str, live: &str, path: &[String], defined: imp
     }
     match listing(reference, path) {
         Ok(resolution) => resolution,
+        Err(_) if contract_lists(path) => Resolution::Command,
         Err(reason) if matches!(listing(live, path), Ok(Resolution::Command | Resolution::Group)) && !tables(live, verb).is_empty() => Resolution::Unknown(format!("{reason}, though the live runtime lists it")),
         Err(_) => Resolution::Command,
     }
