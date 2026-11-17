@@ -14,7 +14,11 @@ pub fn tell_coordinator(key: &str, text: Option<&str>) -> Result<(), String> {
         (true, None) => format!("cleared: {key}"),
         _ => return Ok(()),
     };
-    eprintln!("{message}");
+    let running = std::env::current_exe().ok().filter(|exe| exe.file_name().is_some_and(|name| name == "north"));
+    let status = std::process::Command::new(running.unwrap_or_else(|| "north".into())).args(["fleet", "send", "--from", "service:north-alarm", "coordinator"]).arg(&message).env_remove("NORTH_RUNTIME_LINK").stdin(std::process::Stdio::null()).status().map_err(|error| format!("cannot run north fleet send: {error}"))?;
+    if !status.success() {
+        return Err(format!("north fleet send coordinator: {status}"));
+    }
     if text.is_some() {
         told.insert(key.to_owned());
     } else {

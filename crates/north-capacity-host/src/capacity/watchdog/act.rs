@@ -9,13 +9,13 @@ use north_base::platform::process::status_within;
 
 const COMMAND_WAIT: Duration = Duration::from_secs(15);
 
-pub(super) fn perform(actions: &[Action], incidents: &Path) {
+pub(super) fn perform(actions: &[Action], incidents: &Path, north: &Path) {
     for action in actions {
         match action {
             Action::Incident(incident) => record(incidents, incident),
             Action::Cap(cap) => limit(cap, &format!("CPUQuota={}%", cap.cpu_quota_percent), &format!("CPUWeight={}", cap.cpu_weight)),
             Action::Release(cap) => limit(cap, "CPUQuota=", "CPUWeight="),
-            Action::Send { to, text } => deliver(to, text),
+            Action::Send { to, text } => deliver(north, to, text),
         }
     }
 }
@@ -34,8 +34,10 @@ fn limit(cap: &Cap, quota: &str, weight: &str) {
     finish(&mut systemctl, &format!("set-property {} {quota} {weight}", cap.unit));
 }
 
-fn deliver(to: &str, text: &str) {
-    eprintln!("north capacity watchdog: for {to}: {text}");
+fn deliver(north: &Path, to: &str, text: &str) {
+    let mut send = Command::new(north);
+    send.args(["fleet", "send", "--now", "--from", "service:north-capacity-watchdog", to, text]);
+    finish(&mut send, &format!("fleet send {to}"));
 }
 
 fn finish(command: &mut Command, what: &str) {
