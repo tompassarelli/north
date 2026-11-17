@@ -79,7 +79,7 @@ To find a behaviour, ask what it does: talks to something outside north (platfor
 | 3 rules | north-code-health | The code-health report, its gates, the layers check and the Rust habit checks. |
 | 3 rules | north-implicit-state | The implicit-state shapes: rules that find state kept outside a typed lifecycle. |
 | 3 rules | north-diff-gates | The gates that judge a diff: dependencies, language, provenance, build cache, stubs. |
-| 3 rules | north-landing-gates | The gates that judge an issue or a lane: box lint, follows-release, abandon, fails-first. |
+| 3 rules | north-landing-gates | The gates that judge an issue or a lane: box lint, abandon, fails-first. |
 | 3 rules | north-land-scans | The scans a landing runs over a tree: docs, generated files, policy, test admission. |
 | 3 rules | north-check-environment | Which check environment a landing runs in and the credential it may hold. |
 | 3 rules | north-concerns | Each project's concerns as named checks with a bound judged on each measured value. |

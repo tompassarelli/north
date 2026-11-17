@@ -89,16 +89,14 @@ pub fn run(arguments: &[String]) -> u8 {
     let spans = if work {
         post_landing(&landed)
     } else {
-        let mut spans = records(&landed);
-        spans.extend(match placement(landed.repo) {
+        match placement(landed.repo) {
             Placement::Here => post_landing(&landed),
             Placement::On { host, login } => elsewhere(&landed, &host, &login),
             Placement::Unplaced(why) => {
                 println!("north land follow: the post-landing work of {head} is skipped: {why}");
                 Vec::new()
             }
-        });
-        spans
+        }
     };
     trace::record(&spans);
     0
@@ -117,14 +115,6 @@ impl Landed<'_> {
         step(&program(), arguments);
         Span::new(self.head, name, category, start, epoch()).on(&trace::this_host()).with(PHASE, AFTER)
     }
-}
-
-/// What the lander's host keeps of a landing's follow: the release follow-ups, a GitHub call.
-fn records(landed: &Landed) -> Vec<Span> {
-    let os = OsStr::new;
-    vec![
-        landed.timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), landed.repo.as_os_str()]),
-    ]
 }
 
 /// The post-landing work, which `post_landing_host` places: the runtime follow, the after-landing gates and the graph ingest.

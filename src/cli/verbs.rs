@@ -37,7 +37,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("evidence", Diagnosis),
     ("finish", Landing),
     ("fleet", Status),
-    ("follows-release", Diagnosis),
     ("gh-broker", Bookkeeping),
     ("gh-session", Bookkeeping),
     ("git-credential", Bookkeeping),

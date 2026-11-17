@@ -5,7 +5,7 @@ use self::graph::graph;
 use self::work_split::work_split;
 use self::subverbs::{Run, code_health, home, lane, land, ops, runner, runtime};
 use crate::{
-    agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
+    agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, issue_box_lint,
     provenance,
 };
 
@@ -29,7 +29,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("safe-push", super::remote_land::safe_push),
     ("hand-in", super::remote_land::hand_in),
     ("finish", super::remote_land::finish),
-    ("follows-release", follows_release::run),
     ("job-run", super::job_run::run),
     ("cloud", super::cloud::run),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),

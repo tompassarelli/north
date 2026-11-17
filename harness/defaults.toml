@@ -1202,7 +1202,7 @@ consumers = ["crates/north-landing/src/land/after/follow.rs"]
 [post_landing_host]
 value = "build-host"
 allowed = { one_of = ["build-host", "lander"] }
-unit = "the host class that runs a landing's post-landing work, the runtime follow (promotion), the after-landing gates, the graph ingest and the build-ahead requests: build-host runs it on this host only when this host is a build host (`offload_builds = true` in orchestration), else on the build host `north capacity offload choose` gives, under the operator login at the same checkout path, and skips it with a line in the follow log when none answers; lander runs it on the lander's host; the box ticks, the issue-body drain and follows-release stay on the lander's host either way"
+unit = "the host class that runs a landing's post-landing work, the runtime follow (promotion), the after-landing gates, the graph ingest and the build-ahead requests: build-host runs it on this host only when this host is a build host (`offload_builds = true` in orchestration), else on the build host `north capacity offload choose` gives, under the operator login at the same checkout path, and skips it with a line in the follow log when none answers; lander runs it on the lander's host"
 source = "tom: the owner ruled on 2026-11-16 that his laptop stays the fallback that lands with every server down, so its lander only lands and everything heavier runs on a build host or is skipped (north#1553); measured on the laptop that day: 4 landings in 15 minutes wrote 8,212 MB in agent.slice where the landers run, a 9 s desktop stall followed, and the graph ingest ran 72% of wall time"
 fallback = "any value but lander reads as build-host"
 consumers = ["crates/north-landing/src/land/after/follow.rs"]
