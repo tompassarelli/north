@@ -27,7 +27,8 @@ with what authority and budget, it's the fleet.
 ## NorthThread
 
 A **NorthThread** is North's work-tracking primitive: an item with its claims, queue,
-notes and ledger, managed through the `north threads` command and stored in `threads.db`.
+notes and ledger, which the `north threads` command kept in `threads.db` until Phase 2 of north#1650
+removed it (2026-11-17); the native-item guards keep the name.
 In prose, use **NorthThread** or **NorthThreads**, never bare "thread(s)" or "North Threads"
 for this primitive. Command and file names, environment variables, code identifiers,
 and quoted commands keep their existing spelling. Provider conversation threads,
