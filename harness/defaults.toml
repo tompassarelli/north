@@ -1017,20 +1017,20 @@ consumers = ["crates/north-runtime/src/runtime/replay.rs"]
 
 [coordinator_role]
 value = [
-  { class = "launch", owner = "coordinator", what = "start or restaff a fleet session: `north fleet launch|revive|relaunch`" },
-  { class = "send", owner = "coordinator", what = "message a fleet session: `north fleet send|interrupt`, SendMessage" },
-  { class = "ask", owner = "coordinator", what = "put a question to a running session: `north fleet ask`" },
-  { class = "stop", owner = "coordinator", what = "stop or forget a session: `north fleet stop|forget`, TaskStop" },
-  { class = "adopt", owner = "coordinator", what = "adopt a session as the coordinator's child: `north fleet adopt`" },
-  { class = "gate", owner = "coordinator", what = "open, answer and relay gates: `north gate`" },
+  { class = "launch", owner = "coordinator", what = "start a plain worker session or Explore/Plan subagent" },
+  { class = "send", owner = "coordinator", what = "message a running session: SendMessage" },
+  { class = "ask", owner = "coordinator", what = "put a question to a running session" },
+  { class = "stop", owner = "coordinator", what = "stop a session or background task: TaskStop" },
+  { class = "adopt", owner = "coordinator", what = "coordinate across plain sessions" },
+  { class = "gate", owner = "coordinator", what = "put a decision to the owner" },
   { class = "issue-box", owner = "coordinator", what = "read an issue and add, tick or close its boxes: `gh issue view|edit|close`, `north task check`" },
-  { class = "status", owner = "coordinator", what = "read reports and the status verbs: `north fleet tree|show|accounts`, `north land status`" },
+  { class = "status", owner = "coordinator", what = "read reports and the status verbs: `north land status`, `north runtime status`" },
   { class = "placement-look", owner = "coordinator", what = "one bounded look to choose where work goes" },
-  { class = "source-read", owner = "worker", what = "read a file under a repository checkout to find a cause (rg, cat, sed, git show, git log -p); budget 0, refused before it runs, `git log --oneline` stays open" },
-  { class = "remote-read", owner = "worker", what = "ssh past `north fleet|threads|gate` and the status verbs, or a trace, journal or process table on any host (strace, journalctl, ps, top); budget 0, refused before it runs" },
+  { class = "source-read", owner = "coordinator", what = "read repository files and git history" },
+  { class = "remote-read", owner = "worker", what = "unbounded foreground ssh past 30 s; background remote commands instead" },
   { class = "build", owner = "worker", what = "build a repository: cargo, bun, nix, make" },
   { class = "test", owner = "worker", what = "run a repository's tests" },
-  { class = "repository-edit", owner = "worker", what = "edit any repository file; the coordinator's scratch directory and issue bodies stay its own" },
+  { class = "repository-edit", owner = "coordinator", what = "edit, commit and safe-push in a lane worktree; main checkouts stay untouched" },
 ]
 allowed = { min_len = 14 }
 unit = "what the coordinator does itself (owner coordinator) and what it writes a brief and launches a worker for (owner worker), one row per class the coordinator-role guard sorts a call into; `north config coordinator role` prints it"

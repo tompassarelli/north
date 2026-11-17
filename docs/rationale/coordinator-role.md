@@ -298,11 +298,11 @@ the streaks of a transcript between hand-offs, without a limit.
 
 The coordinator reach guard (north#1106) was removed with break-glass in north#1650, so the coordinator's reads are not refused. The role guard still refuses builds and tests in any
 runner (cargo, bun, npm, make, go, pytest, nix build) and shell writes into a repository (redirect,
-tee, patch, git apply) from the coordinator.
+tee, patch, git apply) from the coordinator. File edits, `git commit` and `safe-push` in `worktrees/<lane>` stay open.
 
 All of this reads one table, `coordinator_role` in `harness/defaults.toml` (north#1106): one row per class of
-call, owned by the coordinator (launch, send, ask, stop, adopt, gate, issue-box, status, placement-look) or by
-a worker it briefs (source-read, remote-read, build, test, repository-edit).
+call, owned by the coordinator (launch, send, ask, stop, adopt, gate, issue-box, status, placement-look, source-read, repository-edit) or by
+a worker session (remote-read, build, test).
 `crates/north-guard/src/guard/coordinator_table.rs` reads it into typed rows, refusing a missing, duplicated or
 unknown class, and `north config coordinator role` prints it. Section 7 records the removed `north fleet break-glass`.
 

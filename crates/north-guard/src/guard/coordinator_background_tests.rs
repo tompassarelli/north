@@ -66,34 +66,31 @@ fn bounded_bash(command: &str, timeout_ms: u64) -> HookInput {
 fn the_coordinator_backgrounds_a_call_that_waits() {
     let coordinator = Role("coordinator");
     for (command, class) in [
-        ("north fleet launch --task north#1048", "a fleet launch"),
-        ("north fleet revive coordinator", "a fleet launch"),
-        ("north fleet dispatch", "a fleet launch"),
-        ("ssh nexus 'north fleet launch --task north#1048'", "a fleet launch"),
-        ("north job-run nightly -- north fleet tick", "a job"),
+        ("north cloud launch --task north#1048", "a cloud launch"),
+        ("scp /tmp/a nexus:/tmp/b", "a remote copy"),
+        ("ssh nexus 'north runtime status'", "a remote command"),
+        ("north job-run nightly -- true", "a job"),
     ] {
         let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash(command, false)) else { panic!("{command} held the coordinator's turn open in the foreground") };
         assert!(reason.contains(class), "{command}: {reason}");
-        assert!(reason.contains("run_in_background: true") && reason.contains("north fleet launch"), "{command}: {reason}");
+        assert!(reason.contains("run_in_background: true") && !reason.contains("north fleet launch"), "{command}: {reason}");
         assert_eq!(coordinator_role::decide(&coordinator, &bash(command, true)), Verdict::Allow, "{command} in the background");
     }
     for open in [
-        "north fleet tree",
-        "north fleet launch --help",
+        "north cloud launch --help",
         "gh issue view 1048",
-        "timeout 30 north fleet launch --task north#1048",
-        "timeout 20s ssh nexus north fleet tree",
-        "north job-run --notify nightly -- north fleet tick",
-        "ssh nexus north fleet tree",
+        "timeout 30 north cloud launch --task north#1048",
+        "timeout 20s ssh nexus north runtime status",
+        "north job-run --notify nightly -- true",
         "ssh -T nexus -- 'north land status | head -20'",
-        "bash -c 'north fleet tree'",
+        "bash -c 'gh issue view 1048'",
     ] {
         assert_eq!(coordinator_role::decide(&coordinator, &bash(open, false)), Verdict::Allow, "{open}");
     }
-    let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash("timeout 120 north fleet launch --task north#1048", false)) else { panic!("a 120 s bound still lets a launch wait past 30 s") };
-    assert!(reason.contains("a fleet launch"), "{reason}");
-    let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash("bash -c 'north fleet launch --task north#1048'", false)) else { panic!("a shell wrapper hid the launch") };
-    assert!(reason.contains("a fleet launch"), "{reason}");
-    assert_eq!(coordinator_role::decide(&coordinator, &bounded_bash("north fleet launch --task north#1048", 30_000)), Verdict::Allow, "the tool's own 30 s bound");
-    assert_eq!(coordinator_role::decide(&Role("worker"), &bash("north fleet launch --task north#1048", false)), Verdict::Allow, "a worker is not the coordinator");
+    let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash("timeout 120 north cloud launch --task north#1048", false)) else { panic!("a 120 s bound still lets a launch wait past 30 s") };
+    assert!(reason.contains("a cloud launch"), "{reason}");
+    let Verdict::Deny(reason) = coordinator_role::decide(&coordinator, &bash("bash -c 'north cloud launch --task north#1048'", false)) else { panic!("a shell wrapper hid the launch") };
+    assert!(reason.contains("a cloud launch"), "{reason}");
+    assert_eq!(coordinator_role::decide(&coordinator, &bounded_bash("north cloud launch --task north#1048", 30_000)), Verdict::Allow, "the tool's own 30 s bound");
+    assert_eq!(coordinator_role::decide(&Role("worker"), &bash("north cloud launch --task north#1048", false)), Verdict::Allow, "a worker is not the coordinator");
 }

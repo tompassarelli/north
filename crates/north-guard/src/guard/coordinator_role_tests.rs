@@ -66,7 +66,7 @@ fn bash(command: &str) -> HookInput {
 }
 
 fn denied(world: &Fake, input: &HookInput) -> bool {
-    matches!(decide(world, input), Verdict::Deny(reason) if reason.contains("north fleet launch"))
+    matches!(decide(world, input), Verdict::Deny(reason) if reason.contains("coordinator-role-guard") && !reason.contains("north fleet launch"))
 }
 
 #[test]
@@ -95,6 +95,15 @@ fn the_coordinator_cannot_build_test_or_edit_a_repository() {
         assert!(denied(&coordinator(), &bash(command)), "{command}");
         assert_eq!(decide(&worker(), &bash(command)), Verdict::Allow, "a worker may run {command}");
     }
+    let main_edits = [
+        tool("Edit", json!({"file_path": "/home/tom/code/north/main/crates/north-guard/src/guard/coordinator_role.rs", "old_string": "a", "new_string": "b"})),
+        tool("Write", json!({"file_path": "/home/tom/code/north/main/docs/landing.md", "content": "x"})),
+        tool("MultiEdit", json!({"file_path": "~/code/north/main/README.md", "edits": []})),
+        tool("NotebookEdit", json!({"notebook_path": "/home/tom/code/north/main/notes.ipynb", "new_source": "x"})),
+    ];
+    for edit in &main_edits {
+        assert!(denied(&coordinator(), edit), "{:?}", edit.tool_input);
+    }
     let lane_edits = [
         tool("Edit", json!({"file_path": format!("{LANE}/crates/north-guard/src/guard/coordinator_role.rs"), "old_string": "a", "new_string": "b"})),
         tool("Write", json!({"file_path": format!("{LANE}/docs/landing.md"), "content": "x"})),
@@ -102,7 +111,7 @@ fn the_coordinator_cannot_build_test_or_edit_a_repository() {
         tool("NotebookEdit", json!({"notebook_path": format!("{LANE}/notes.ipynb"), "new_source": "x"})),
     ];
     for edit in &lane_edits {
-        assert!(denied(&coordinator(), edit), "{:?}", edit.tool_input);
+        assert_eq!(decide(&coordinator(), edit), Verdict::Allow, "a coordinator may edit its lane: {:?}", edit.tool_input);
         assert_eq!(decide(&worker(), edit), Verdict::Allow, "a worker may edit its lane: {:?}", edit.tool_input);
     }
     let open = ["bun run script.ts", "npm view left-pad", "nix develop -c true", "echo x > /tmp/note", "echo x 2>&1 | cat", "git apply --check /tmp/fix.diff", "go version", "north fleet list"];
@@ -147,24 +156,21 @@ const PLAINTEXT: &str = "token: fixture-not-a-credential\n";
 fn proxy_lands_its_own_config_lane() {
     let lane = |files: &'static [&'static str]| Fake { lane: Some(files), content: Some(SEALED), ..coordinator() };
     let landing = ["git commit -qm south", "safe-push --to main"];
-    let config: [&'static [&'static str]; 3] = [&["agents/rules.toml"], &["secrets/south.yaml"], &["harness/defaults.toml"]];
-    for files in config {
+    let allowed: [&'static [&'static str]; 5] = [
+        &["agents/rules.toml"],
+        &["secrets/south.yaml"],
+        &["harness/defaults.toml"],
+        &["agents/rules.toml", "agents/other.toml"],
+        &["crates/north-guard/src/guard/coordinator_role.rs"],
+    ];
+    for files in allowed {
         for landing_command in landing {
             let command = format!("cd {LANE} && {landing_command}");
             assert_eq!(decide(&lane(files), &bash(&command)), Verdict::Allow, "{command} over {files:?}");
         }
     }
-    let refused: [&'static [&'static str]; 4] = [
-        &["agents/rules.toml", "agents/other.toml"],
-        &["agents/nested/rules.toml"],
-        &["agents/rules.md"],
-        &["crates/north-guard/src/guard/coordinator_role.rs"],
-    ];
-    for files in refused {
-        for landing_command in landing {
-            let command = format!("cd {LANE} && {landing_command}");
-            assert!(denied(&lane(files), &bash(&command)), "{command} over {files:?}");
-        }
+    for landing_command in landing {
+        assert!(denied(&lane(&["README.md"]), &bash(landing_command)), "{landing_command} in main checkout");
     }
     let plaintext = Fake { lane: Some(&["secrets/plain.yaml"]), content: Some(PLAINTEXT), ..coordinator() };
     for landing_command in landing {

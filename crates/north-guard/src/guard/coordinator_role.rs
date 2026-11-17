@@ -147,7 +147,7 @@ fn own_profile(world: &impl World) -> Option<String> {
 }
 
 fn message(action: &str) -> String {
-    format!("BLOCKED ({UNIT}): the coordinator routes and judges and does no implementation itself, so it does not {action}. Staff the work instead: `north fleet launch --task REPO#N ...` (workers skill), then judge the report. Reads, `north fleet|threads|gate`, `gh` reads and Explore/Plan subagents stay open.")
+    format!("BLOCKED ({UNIT}): the coordinator edits, commits and lands in a lane worktree under ~/code/<project>/worktrees/ and runs builds on a build host, so it does not {action}. Work in a lane worktree or start a plain worker session; reads, `north land`, `gh` reads and Explore/Plan subagents stay open.")
 }
 
 fn refusal(world: &impl World, input: &HookInput) -> Option<String> {
@@ -164,26 +164,33 @@ fn refusal(world: &impl World, input: &HookInput) -> Option<String> {
     }
 }
 
+fn in_worktree(path: &str, home: &str) -> bool {
+    let Some(rest) = path.strip_prefix(&format!("{home}/code/")) else { return false };
+    let mut parts = rest.split('/');
+    matches!((parts.next(), parts.next(), parts.next()), (Some(project), Some("worktrees"), Some(lane)) if !project.is_empty() && !lane.is_empty())
+}
+
 fn edit_under_code(world: &impl World, input: &HookInput) -> Option<String> {
     let home = world.var("HOME")?;
     let path = input.tool_input["file_path"].as_str().or_else(|| input.tool_input["notebook_path"].as_str())?;
     let path = expanduser(path, &home);
     let path = normpath(&join(input.cwd().unwrap_or(&home), &path));
     let code = format!("{home}/code");
-    (path == code || path.starts_with(&format!("{code}/"))).then(|| format!("edit {path}"))
+    ((path == code || path.starts_with(&format!("{code}/"))) && !in_worktree(&path, &home)).then(|| format!("edit {path}"))
 }
 
 fn shell_refusal(world: &impl World, input: &HookInput, command: &str) -> Option<String> {
     let first = shell_action(command, false)?;
-    if LANDING.contains(&first.as_str()) && lane_is_one_doc_or_config(world, input, command) {
+    if LANDING.contains(&first.as_str()) && lane_is_sealed(world, input, command) {
         return shell_action(command, true);
     }
     Some(first)
 }
 
-fn lane_is_one_doc_or_config(world: &impl World, input: &HookInput, command: &str) -> bool {
-    let Some(dir) = input.cwd().and_then(|cwd| acting_dir(command, cwd, world.var("HOME").as_deref())) else { return false };
-    world.lane_files(&dir).is_some_and(|files| matches!(files.as_slice(), [file] if is_doc_or_config(file) && sealed_in_lane(world, &dir, file)))
+fn lane_is_sealed(world: &impl World, input: &HookInput, command: &str) -> bool {
+    let Some(home) = world.var("HOME") else { return false };
+    let Some(dir) = input.cwd().and_then(|cwd| acting_dir(command, cwd, Some(&home))) else { return false };
+    in_worktree(&dir, &home) && world.lane_files(&dir).is_some_and(|files| files.iter().all(|file| sealed_in_lane(world, &dir, file)))
 }
 
 fn sealed_in_lane(world: &impl World, dir: &str, file: &str) -> bool {
@@ -240,26 +247,6 @@ fn resolve_dir(base: &str, word: &str, home: Option<&str>) -> Option<String> {
         (true, None) => return None,
     };
     Some(normpath(&join(base, &word)))
-}
-
-fn is_doc_or_config(file: &str) -> bool {
-    if file.split('/').any(|part| part == "..") {
-        return false;
-    }
-    if let Some(rest) = file.strip_prefix("agents/") {
-        return rest.ends_with(".toml") && !rest.contains('/');
-    }
-    if let Some(rest) = file.strip_prefix("harness/") {
-        return is_harness_config(rest);
-    }
-    file.starts_with("docs/") || secrets_seal::governs(file)
-}
-
-fn is_harness_config(rest: &str) -> bool {
-    if rest.ends_with(".toml") && !rest.contains('/') {
-        return true;
-    }
-    rest.strip_prefix("skills/").is_some_and(|skill| skill.split_once('/').is_some_and(|(_, tail)| tail == "SKILL.md" || tail.starts_with("references/")))
 }
 
 pub fn shell_action(command: &str, lane_ok: bool) -> Option<String> {

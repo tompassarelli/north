@@ -37,7 +37,7 @@ pub(super) fn refusal(input: &HookInput, status_verb: &dyn Fn(&[&str]) -> bool) 
 
 fn message(what: &str) -> String {
     format!(
-        "BLOCKED ({UNIT}): the coordinator stays free to answer, so it does not hold its turn open in the foreground on {what}, which can wait longer than {LIMIT_SECONDS:.0} s. Run it with run_in_background: true and read the completion note it sends, whether that is a `north fleet launch`, a remote `ssh` command or a `north job-run` job; the report it produces then never waits behind the coordinator's own work. Foreground sends, gates and reads stay open."
+        "BLOCKED ({UNIT}): the coordinator stays free to answer, so it does not hold its turn open in the foreground on {what}, which can wait longer than {LIMIT_SECONDS:.0} s. Run it with run_in_background: true and read the completion note it sends, whether that is a remote `ssh` command, a remote copy or a `north job-run` job; the report it produces then never waits behind the coordinator's own work. Foreground status reads stay open."
     )
 }
 
@@ -127,7 +127,6 @@ fn wait_class(program: &str, args: &[String], depth: usize, status_verb: &dyn Fn
 fn north_wait(args: &[String]) -> Option<&'static str> {
     let mut words = args.iter().map(String::as_str).filter(|word| !word.starts_with('-'));
     match (words.next()?, words.next()) {
-        ("fleet", Some("launch" | "revive" | "relaunch" | "dispatch")) => Some("a fleet launch"),
         ("cloud", Some("launch")) => Some("a cloud launch"),
         ("job-run", _) if !args.iter().any(|word| word == "--notify") => Some("a job"),
         _ => None,
