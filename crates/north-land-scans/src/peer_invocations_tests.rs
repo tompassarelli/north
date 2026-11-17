@@ -77,4 +77,9 @@ fn a_removal_with_a_caller_in_another_checkout_fails_its_landing() {
     git_in(&wisp, &["update-ref", PEER_MAIN, "HEAD"]);
     let (refused, out) = run(&north, &base, &enforcing, &home, &state);
     assert!(!refused && out.is_empty(), "callers that no longer run --depth pass: {out}");
+
+    let dropped = Dropped { flags: BTreeSet::new(), names: BTreeSet::from(["fleet".to_owned()]) };
+    let found = invocations("modules/north-switch/default.nix", "  enable = \"`north fleet off` and `north fleet on` stay; north fleet send x\";\n");
+    let refused: Vec<String> = found.iter().flat_map(|invocation| problems(invocation, &dropped, &mut |_| None)).collect();
+    assert_eq!(refused, vec!["modules/north-switch/default.nix:1: runs `north fleet`, a subcommand this lane drops".to_owned()]);
 }

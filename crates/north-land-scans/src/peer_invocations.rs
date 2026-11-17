@@ -20,6 +20,7 @@ const OWN_SOURCES: [&str; 2] = ["src/", "crates/"];
 const COMMAND_OPENERS: [char; 9] = ['"', '\'', '(', '|', '&', ';', '`', '{', '='];
 const COMMAND_KEYWORDS: [&str; 4] = ["exec", "then", "do", "else"];
 const HELP_LIMIT: Duration = Duration::from_secs(10);
+const SWITCH_VERBS: [[&str; 2]; 4] = [["fleet", "off"], ["fleet", "on"], ["policy", "off"], ["policy", "on"]];
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Invocation {
@@ -108,6 +109,9 @@ fn is_name(word: &str) -> bool {
 
 pub fn problems(invocation: &Invocation, dropped: &Dropped, ask: &mut dyn FnMut(&[&str]) -> Option<String>) -> Vec<String> {
     let leading: Vec<&str> = invocation.words.iter().map(String::as_str).take_while(|word| is_name(word)).collect();
+    if SWITCH_VERBS.iter().any(|verb| leading.starts_with(verb)) {
+        return Vec::new();
+    }
     let flags: Vec<&str> = invocation.words.iter().map(String::as_str).take_while(|word| *word != "--").filter_map(|word| word.split('=').next().filter(|flag| flag.starts_with("--"))).filter(|flag| dropped.flags.contains(*flag)).collect();
     let unknown_name = leading.iter().any(|word| dropped.names.contains(*word));
     if leading.is_empty() || (flags.is_empty() && !unknown_name) {
