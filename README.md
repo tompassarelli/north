@@ -1,12 +1,11 @@
 <p align="center"><img src="docs/assets/north-logo.jpeg" alt="North" width="720"></p>
 
-North turns an issue with a runnable check into a change landed on main, with no person in the loop.
-You write what you want and the command that proves it is done; north writes a brief, staffs a coding
-agent on a model and account that has room, guards each of its tool calls, checks the change it hands
-in, lands it on main, and reverts it if main breaks. It drives the command-line clients you already
-use (Claude Code, Codex, OpenCode and Pi), so it adds the staffing, the guards and the landing, not
-another model. You direct the fleet from `north`, one terminal screen for talking to the coordinator,
-starting work, answering decisions and seeing what landed.
+North checks and lands changes from coding agents on main, with no person in the loop.
+An agent works in its own lane worktree inside the worker sandbox, checks its change against the
+repository's deterministic gates and public-repo scans, and hands it in; the lander rebases the
+lane onto main, runs a one-shot security read when ring-0 paths or dependencies change, pushes,
+and reverts a lane whose after-landing checks fail. It wraps the command-line clients you already
+use (Claude Code, OpenCode and Pi), adding the sandbox, the policy switches and the lander.
 
 ## Measured result
 
@@ -24,19 +23,17 @@ nix run github:tompassarelli/north#setup
 ```
 <!-- end quickstart -->
 
-Then put `~/code/north/main/target/debug` on your `PATH` and run `north` to open the fleet screen.
+Then put `~/code/north/main/target/debug` on your `PATH` and run `north --help` to list its commands.
 
 ## How a change lands
 
 1. **Box.** An issue's box carries a `Done when:` line with a command, the check that closes it.
-2. **Work.** A worker session runs in its own worktree. Every tool call passes north's guards first, which
-   keep it out of the main checkout, other lanes and secrets.
-3. **Hand-in.** The worker calls the finish tool. North runs the box's check, commits only the paths
-   named and queues the lane.
+2. **Work.** A worker session runs in its own worktree. Confined workers stay out of the main
+   checkout, other lanes, secrets and ring-0 paths.
+3. **Hand-in.** The session checks the lane against the repository's pre-queue gates, commits only
+   the named paths and queues a ticket for the lander.
 4. **Landing.** The lander rebases the lane on main, runs the checks the change touches and pushes it,
    then runs the full suite once per batch and reverts a lane that breaks main ([docs/landing.md](docs/landing.md)).
-5. **Record.** Each run's tokens, time and verdict go to a ledger, and north tunes its estimates and
-   routing from it ([docs/feedback-loop.md](docs/feedback-loop.md)).
 
 The words follow [docs/terms.md](docs/terms.md): a **model** is the weights, the **harness** turns a
 model into an **agent**, and a **fleet** is many agents with roles, staffing and policy.
@@ -45,7 +42,7 @@ model into an **agent**, and a **fleet** is many agents with roles, staffing and
 
 - [src/](src/): the `north` command, one file per command
 - [crates/](crates/): the libraries behind it, one crate per responsibility in seven layers ([ARCHITECTURE.md](ARCHITECTURE.md))
-- [harness/](harness/): the hooks, skills, policy and tuned defaults north installs into each agent
+- [harness/](harness/): the hooks, skills, policy and defaults north installs into each agent
 - [docs/](docs/): concept pages, one record per feature, and the rationale for each choice
 - [evals/](evals/): the runners that measure north against other harnesses
 - [examples/](examples/): a working operator repository with synthetic values
