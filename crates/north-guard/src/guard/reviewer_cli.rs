@@ -23,8 +23,8 @@ fn refuses<'a>(text: &'a str, pattern: &Regex) -> Option<&'a str> {
     pattern.captures_iter(text).find_map(|hit| hit.name("tool").map(|tool| tool.as_str()))
 }
 
-/// The tool a command runs in command position that no agent may start itself: a non-Claude model as a reviewer, or
-/// opencode or pi outside the launcher that owns them.
+/// The tool a command runs in command position that no agent may start itself: Gemini outside `north check oneshot`,
+/// Codex as a reviewer, or opencode or pi outside the launcher that owns them.
 pub(super) fn refused_tool(command: &str) -> Option<String> {
     if let Some(tool) = north_base::shell::started(command, &DEEPSEEK_PROVIDERS) {
         return Some(tool);
@@ -42,8 +42,11 @@ pub fn decide(input: &HookInput) -> Verdict {
         Some(tool @ ("opencode" | "pi")) => Verdict::Deny(format!(
             "No. {tool} runs only through `north fleet launch --provider {tool}`, which fixes its model and confines it to one lane; started here it would send repo data to a model nobody routed it to."
         )),
+        Some("agy" | "antigravity" | "gemini") => Verdict::Deny(
+            "No. Gemini runs only through `north check oneshot --model gemini-4-carbon|gemini-4-hydrogen --effort E --system TEXT < INPUT`, one headless call with no tools, no files and no API key, for public code only; agy started here would hand a model tools and the repository.".into(),
+        ),
         Some(_) => Verdict::Deny(
-            "No. Tom's standing order is Claude only: no Gemini, Codex or other non-Claude model as a reviewer. Get the review from a fresh Claude reviewer of a different tier (Opus for a Sonnet author, or Sonnet for an Opus author) by spawning one.".into(),
+            "No. Reviews stay with Claude: no Codex or other outside model CLI as a reviewer. Get the review from a fresh Claude reviewer of a different tier (Opus for a Sonnet author, or Sonnet for an Opus author) by spawning one.".into(),
         ),
     }
 }

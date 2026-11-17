@@ -35,7 +35,7 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | Wine, Proton, steam-run or Warcraft .exe launches run inside a machine-capacity native session | `native-launch-guard` through `north-hook` | Claude |
 | Rust PreBash routes cargo test, TypeScript builds and multi-file Bun tests through machine-capacity; refuses unleased builds, full suites, renders and CPU throttles | `heavy-command-guard` through `north-hook` | Claude, Codex |
 | Rust PreBash refuses a foreground sleep or `until`/`while` sleep loop that can wait over 60 s, naming `north job-run --notify` and Monitor | `poll-loop-guard` through `north-hook` | Claude, Codex |
-| Claude only: no non-Claude model CLI as a reviewer, per Tom's standing order | `reviewer_cli` in `north-hook` | Claude, Codex |
+| Gemini only through `north check oneshot --model gemini-...` (one headless agy call, no tools, no files, no API key), and no Codex or other outside model CLI as a reviewer | `reviewer_cli` in `north-hook` | Claude, Codex |
 | No agent wl-copy or niri screenshot actions, because they replace Tom's pending paste | `clipboard-guard` through `north-hook` | Claude, Codex |
 | No window focus, move, fullscreen, close or typed input on Tom's desktop unless the seat is idle 60 seconds, the private desktop is the target, or a sanctioned tool restores focus | `north-hook` | Claude, Codex |
 | No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated_policy` in `north-hook` | Claude, Codex |

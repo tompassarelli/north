@@ -173,7 +173,9 @@ checked = 2026-10-11
 # Gemini runs through the Antigravity CLI `agy` on Tom's Google AI plan; it takes
 # no staffing band. Keys follow `agy models` (checked 2026-11-08); north ledger worker records its runs as
 # "<model> <effort>". `agy models` also offers claude-opus-5-5 and claude-sonnet-5-5 (low, medium, high) and
-# gpt-oss-120b-medium; they have no entry because Claude work stays on Claude Code. The usage refresh compares
+# gpt-oss-120b-medium; they have no entry because Claude work stays on Claude Code. The 4-carbon and 4-hydrogen keys
+# follow `agy models` (checked 2026-11-17); Carbon takes Opus-level work and Hydrogen Sonnet-level work (north#1650),
+# reached through `north check oneshot`. The usage refresh compares
 # the gemini keys with `agy models` and reports any difference.
 
 [models."gemini:4-argon-high"]
@@ -234,6 +236,62 @@ strengths = []
 benchmarks = [
   { name = "BenchLM coding (Gemini 3.8 Flash; model-level, effort not stated)", rank = 19, score = 60.0, source = "https://benchlm.ai/coding", checked = 2026-11-08 },
 ]
+value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
+
+[models."gemini:4-carbon-high"]
+model = "gemini-4-carbon"
+effort = "high"
+restriction = "public code only: never ~/code/clients or other private repositories, secrets or private transcripts (Google may use prompts to train)"
+strengths = []
+benchmarks = []
+value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
+
+[models."gemini:4-carbon-medium"]
+model = "gemini-4-carbon"
+effort = "medium"
+restriction = "public code only: never ~/code/clients or other private repositories, secrets or private transcripts (Google may use prompts to train)"
+strengths = []
+benchmarks = []
+value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
+
+[models."gemini:4-carbon-low"]
+model = "gemini-4-carbon"
+effort = "low"
+restriction = "public code only: never ~/code/clients or other private repositories, secrets or private transcripts (Google may use prompts to train)"
+strengths = []
+benchmarks = []
+value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
+
+[models."gemini:4-hydrogen-xhigh"]
+model = "gemini-4-hydrogen"
+effort = "xhigh"
+restriction = "public code only: never ~/code/clients or other private repositories, secrets or private transcripts (Google may use prompts to train)"
+strengths = []
+benchmarks = []
+value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
+
+[models."gemini:4-hydrogen-high"]
+model = "gemini-4-hydrogen"
+effort = "high"
+restriction = "public code only: never ~/code/clients or other private repositories, secrets or private transcripts (Google may use prompts to train)"
+strengths = []
+benchmarks = []
+value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
+
+[models."gemini:4-hydrogen-medium"]
+model = "gemini-4-hydrogen"
+effort = "medium"
+restriction = "public code only: never ~/code/clients or other private repositories, secrets or private transcripts (Google may use prompts to train)"
+strengths = []
+benchmarks = []
+value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
+
+[models."gemini:4-hydrogen-low"]
+model = "gemini-4-hydrogen"
+effort = "low"
+restriction = "public code only: never ~/code/clients or other private repositories, secrets or private transcripts (Google may use prompts to train)"
+strengths = []
+benchmarks = []
 value = { plan = "Tom's Google AI Pro via agy", monthly_price = 20, currency = "USD", monthly_price_note = "Tom's plan; Google publishes no US price on its plan page (aggregators list 19.99)", source = "https://www.cloudzero.com/blog/google-antigravity-pricing/", checked = 2026-10-11, discounts = "promotion: USD 5/month for 3 months from 11 Oct (Tom)", discount_expiry = "about 2027-01-11, unconfirmed", discount_source = "Tom, 2026-10-11", discount_checked = 2026-10-11 }
 
 # Grok: Tom adds it when he signs in; one more north ledger worker adapter then records its runs.

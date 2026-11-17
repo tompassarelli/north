@@ -8,6 +8,7 @@ use north_fleet_supervisor::fleet::runtime::Invocation;
 use north_fleet_supervisor::fleet::runtimes::Runtimes;
 
 pub(super) mod ask;
+pub(super) mod gemini;
 pub(super) mod judge_model;
 pub(super) mod session;
 

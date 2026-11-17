@@ -107,6 +107,9 @@ pub fn run(arguments: &[String], access: &RuntimeAccess, admit: &dyn Fn(&str) ->
         return 2;
     }
     let question = oneshot::Ask { model: &options.model, effort: &options.effort, system: &options.system, input: &input };
+    if super::gemini::serves(&options.model) {
+        return gemini(&question, &options);
+    }
     if options.json {
         return json(&question, &options, access);
     }
@@ -120,6 +123,23 @@ pub fn run(arguments: &[String], access: &RuntimeAccess, admit: &dyn Fn(&str) ->
             AT_LIMIT
         }
         Asked::Failed(reason) => {
+            eprintln!("north check oneshot: {reason}");
+            2
+        }
+    }
+}
+
+fn gemini(question: &oneshot::Ask, options: &Options) -> u8 {
+    if options.json {
+        eprintln!("north check oneshot: --json counts Claude tokens into the ledger; a Gemini call takes no --json");
+        return 2;
+    }
+    match super::gemini::ask(question, options.limit) {
+        Ok(answer) => {
+            print!("{answer}");
+            0
+        }
+        Err(reason) => {
             eprintln!("north check oneshot: {reason}");
             2
         }

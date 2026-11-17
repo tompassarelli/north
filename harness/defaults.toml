@@ -1779,10 +1779,10 @@ fallback = "a missing list asks no accept for a change to these files beyond wha
 consumers = ["crates/north-land-scans/src/review_accept.rs"]
 
 [review_call_models]
-value = ["claude-opus-5-5:high"]
+value = ["gemini-4-carbon:high"]
 allowed = { min_len = 1 }
 unit = "MODEL:EFFORT of the security read the lander makes of a lane held for a review accept, under harness/review/commit-reviewer.md; the lander reads this list at main, never from the lane"
-source = "north#1610 plan, conditions of the reviewers and of p-agent-user-slice4: a call on a trust-boundary patch runs at Opus tier"
+source = "north#1610 plan, conditions of the reviewers and of p-agent-user-slice4: a call on a trust-boundary patch runs at Opus tier; north#1650 (2026-11-17): the read runs at Opus level on Gemini 4 Carbon through north check oneshot"
 fallback = "a missing or malformed list fails the security read, which refuses the held lane with the reason"
 consumers = ["crates/north-landing/src/land/security_read.rs"]
 
