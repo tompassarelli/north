@@ -188,7 +188,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let stale = std::env::var_os("LANE_GC_STALE_FILE").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/stale.json"), PathBuf::from);
     let code = run_in(&home, Inputs { fleet: None, now_ms: now_ms(), stale, proc_root: PathBuf::from("/proc") }, arguments);
     if code == 0 && fleet_reach::on_registry_host(&home) && !arguments.iter().any(|word| word == "--sessions-stdin" || word == "--remote") {
-        fleet_reach::sweep_build_hosts(&home, arguments.iter().any(|word| word == "--dry-run"));
+        fleet_reach::sweep_build_hosts();
     }
     code
 }

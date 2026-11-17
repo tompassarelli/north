@@ -13,8 +13,6 @@ mod job_run;
 mod cloud_handback;
 pub(crate) mod concern_history;
 mod cloud_land;
-mod alarm_stats;
-mod box_path;
 mod proof_run;
 mod holds;
 mod hook_verb;
@@ -23,7 +21,6 @@ mod moved;
 mod operator;
 pub(crate) mod remote_land;
 mod draft_road;
-mod land_adopt;
 mod control_plane;
 mod remote_serve;
 #[cfg(test)]
@@ -51,7 +48,6 @@ enum Command {
     Help,
     HelpAll,
     DesktopIdleState(Option<String>),
-    Alarm(Vec<String>),
     Hook(Vec<String>),
     Nix(Vec<String>),
     Task(Vec<String>),
@@ -64,7 +60,6 @@ enum Command {
     BuildCacheGate(Vec<String>),
     Holds(Vec<String>),
     Operator(Vec<String>),
-    BoxPath(Vec<String>),
     GuardLanguage,
     RemoteServe(Vec<String>),
     VerbHelp(Vec<String>),
@@ -112,7 +107,6 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
 type Forward = fn(&str, Vec<String>) -> Command;
 
 const FORWARDED: &[(&str, Forward)] = &[
-    ("alarm", |_, rest| Command::Alarm(rest)),
     ("hook", |_, rest| Command::Hook(rest)),
     ("threads", |_, rest| Command::Threads(rest)),
     ("nix", |_, rest| Command::Nix(rest)),
@@ -124,7 +118,6 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("language-gate", |_, rest| Command::LanguageGate(rest)),
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
     ("holds", |_, rest| Command::Holds(rest)),
-    ("box", |_, rest| Command::BoxPath(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
     ("policy", |name, rest| Command::Switch([vec![name.to_owned()], rest].concat())),
 ];
@@ -158,13 +151,6 @@ fn dispatch(command: Command) -> ExitCode {
         Command::DesktopIdleState(state) => match state {
             Some(value) if guard::desktop_action::record_idle(value == "idle").is_ok() => ExitCode::SUCCESS,
             _ => ExitCode::from(1),
-        },
-        Command::Alarm(arguments) => match alarm_stats::run(&arguments) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(message) => {
-                eprintln!("{message}");
-                ExitCode::from(2)
-            }
         },
         Command::Hook(arguments) => hook_verb::run(arguments),
         Command::Nix(arguments) => match nix_explain::run(&arguments) {
@@ -205,10 +191,6 @@ fn dispatch(command: Command) -> ExitCode {
             Err(error) => failure(error),
         },
         Command::Operator(arguments) => match operator::run(&arguments) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => failure(error),
-        },
-        Command::BoxPath(arguments) => match box_path::run(&arguments) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure(error),
         },

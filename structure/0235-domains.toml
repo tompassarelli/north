@@ -2,9 +2,5 @@
 max_islands = 10
 
 [[domains.allow]]
-crate = "north-fleet"
-reason = "14 islands on main (2026-11-15), over the bound of 10; allowed until its split is filed under north#1435"
-
-[[domains.allow]]
 crate = "north-land-scans"
 reason = "11 islands on main (2026-11-15), over the bound of 10: the disclosure judge reads only north-base, so it joins no other scan; allowed until the scans split by what they read, under north#1487"

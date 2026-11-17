@@ -111,5 +111,5 @@ fn host_facts() -> HostFacts {
 }
 
 fn abandon(arguments: &[String]) -> u8 {
-    north_landing_gates::land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)
+    north_landing_gates::land_abandon::abandon(arguments, &super::abandon_witness::PushWitness)
 }

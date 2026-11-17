@@ -1261,62 +1261,6 @@ source = "prior: the run stops at the first caught mutant, and a warm offload sl
 fallback = "none; the land check reads this value"
 consumers = ["crates/north-land-scans/src/test_admission/limits.rs"]
 
-[ask_once_cost]
-value = ["billing", "overage", "extra usage", "usage credits", "auto-purchase", "paid plan", "subscription", "spend money", "spends money", "costs money", "pay", "buy", "purchase"]
-allowed = { min_len = 1 }
-unit = "words and phrases that put a gate question or option in the cost ask-once class, which carries no default"
-source = "tom: ask-once decisions wait for his answer; cost is one of them (north#670, 2026-11-06)"
-fallback = "a gate naming none of the ask-once words keeps its default"
-consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
-
-[ask_once_accounts]
-value = ["new account", "create an account", "create account", "sign up", "sign-up"]
-allowed = { min_len = 1 }
-unit = "words and phrases that put a gate question or option in the accounts ask-once class, which carries no default"
-source = "tom: ask-once decisions wait for his answer; creating accounts is one of them (north#670, 2026-11-06)"
-fallback = "a gate naming none of the ask-once words keeps its default"
-consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
-
-[ask_once_credentials]
-value = ["credential", "credentials", "password", "passwords", "api key", "private key", "ssh key", "deploy key", "keyring", "sops", "access token", "widen access", "widens access", "widening access", "give access", "gives access", "grant access", "grants access", "access to the repo", "access to the repository", "access to a credential"]
-allowed = { min_len = 1 }
-unit = "words and phrases that put a gate question or option in the credentials-or-access ask-once class, which carries no default"
-source = "tom: ask-once decisions wait for his answer; exposing credentials or widening access is one of them (north#670, 2026-11-06)"
-fallback = "a gate naming none of the ask-once words keeps its default"
-consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
-
-[ask_once_public]
-value = ["make public", "go public", "publish", "publishes", "open source", "open-source", "private repo public", "make it public", "repo public", "repository public"]
-allowed = { min_len = 1 }
-unit = "words and phrases that put a gate question or option in the making-something-public ask-once class, which carries no default"
-source = "tom: ask-once decisions wait for his answer; making private code or data public is one of them (north#670, 2026-11-06)"
-fallback = "a gate naming none of the ask-once words keeps its default"
-consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
-
-[ask_once_deletion]
-value = ["delete data", "deleting data", "delete the database", "delete the ledger", "delete transcripts", "delete the repo", "delete the repository", "delete backups", "wipe", "purge", "destroy"]
-allowed = { min_len = 1 }
-unit = "words and phrases that put a gate question or option in the deleting-valuable-data ask-once class, which carries no default"
-source = "tom: ask-once decisions wait for his answer; deleting hard-to-restore data is one of them (north#670, 2026-11-06)"
-fallback = "a gate naming none of the ask-once words keeps its default"
-consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
-
-[ask_once_tom_name]
-value = ["in tom's name", "in your name", "under your name", "under tom's name", "on tom's behalf", "send as tom", "sign as tom", "post as tom", "from tom's account"]
-allowed = { min_len = 1 }
-unit = "words and phrases that put a gate question or option in the sending-in-Tom's-name ask-once class, which carries no default"
-source = "tom: ask-once decisions wait for his answer; sending in his name is one of them (north#641, 2026-11-06)"
-fallback = "a gate naming none of the ask-once words keeps its default"
-consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
-
-[ask_once_direction]
-value = ["direction", "dependency", "dependencies", "outside contributions", "license"]
-allowed = { min_len = 1 }
-unit = "words and phrases that put a gate question or option in the core-direction-and-dependencies ask-once class, which carries no default"
-source = "tom: ask-once decisions wait for his answer; a core-project call that shifts direction, scope, dependencies or outside contributions is one of them (north#670, 2026-11-06)"
-fallback = "a gate naming none of the ask-once words keeps its default"
-consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
-
 [credential_expiry_notice_days]
 value = 30
 allowed = { min = 1, max = 365 }
@@ -1340,22 +1284,6 @@ unit = "words that, on the same line as a sign-in phrase, show the line is descr
 source = "tom: the box that builds the machine path has to be able to say what it removes, so a line like 'no agent work depends on a human sign-in' must launch (north#522, 2026-11-06)"
 fallback = "no line is exempt, so a brief that merely mentions a sign-in is refused"
 consumers = ["crates/north-base/src/platform/signin.rs"]
-
-[fleet_stale_hours]
-value = 2
-allowed = { min = 1, max = 168 }
-unit = "hours an idle or parked fleet session may stay quiet, with no registered wait, open gate, queued lane, live child or running job, before the fleet tick retires it"
-source = "measured: dry run of north fleet reap on the laptop, 2026-11-06 2:40 PM: of 122 idle or parked sessions 82 retire on their report or past 12 h, 13 are held by a wait, queued lane, live child or a named commit not yet on origin/main, and 27 were quiet 8 min to 12 h; idle_exit ends a host after 10 min, so a session quiet 2 h with nothing to wake it is not working, and 2 is the smallest whole-hour value that leaves under 20 idle or parked"
-fallback = "a session the fleet tick does not retire stays addressable until the coordinator forgets it"
-consumers = ["crates/north-fleet-supervisor/src/fleet/reaper.rs"]
-
-[fleet_digest_minutes]
-value = 30
-allowed = { min = 1, max = 1440 }
-unit = "minutes between the digests the reaper sends one parent about its retired sessions' unlanded lanes: the first after a quiet interval goes at once, later ones accumulate into one message sent when the interval since the last send ends"
-source = "measured: on 2026-11-13 the stale-session sweep retired a few old sessions per reaper tick and one-line digests woke the coordinator every few minutes (north#1235); half an hour bounds a parent to at most two such wakes an hour while a lane that needs landing is still told within the half hour"
-fallback = "a parent is told once per reaper tick, as before north#1235"
-consumers = ["crates/north-fleet-supervisor/src/fleet/digest.rs"]
 
 [help_visible_ceiling]
 value = 27
@@ -1557,7 +1485,7 @@ fallback = "a missing value or any value but on reads as off"
 consumers = ["crates/north-land-checks/src/land/slots/runner/queue_checks.rs"]
 
 [trust_boundary_paths]
-value = ["harness/", ".safe-push", ".github/", "bin/", "flake.nix", "flake.lock", "crates/north-broker/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-credentials/src/credentials/", "crates/north-github-broker/src/gh_broker/", "crates/north-check-environment/src/credential.rs", "crates/north-landing/src/land/credential.rs", "crates/north-fleet/src/fleet/peer_row.rs", "crates/north-session-host/src/row_delivery.rs", "src/cli/fleet/admission.rs", "src/cli/fleet/need.rs", "src/cli/fleet/placement.rs", "src/cli/operator.rs", "src/cli/operator/", "crates/north-trusted-mirror/", "crates/north-remote-serve/", "crates/north-guard/src/guard/tripwire/", "crates/north-capacity/src/capacity/host_table.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-fleet/src/fleet/model.rs", "crates/north-fleet/src/fleet/remote.rs", "src/cli/fleet/router.rs", "src/cli/fleet/revive.rs", "crates/north-build-system/", "crates/north-graph-change/", "crates/north-base/src/platform/session_scope.rs", "crates/north-fleet-supervisor/src/fleet/registry/", "crates/north-fleet-supervisor/src/fleet/tick/", "crates/north-fleet-store/", "crates/north-warm-spares/", "crates/north-agent-starts/", "crates/north-capacity/src/capacity/gate.rs", "crates/north-capacity/src/capacity/dev_shell.rs", "crates/north-pace/src/spend/", "crates/north-land-scans/src/disclosure_judge/judge.rs", "src/cli/oneshot/judge_model.rs", "**/Cargo.toml", "Cargo.lock", "**/BUCK", "build/", "third-party/", "toolchains/", "crates/north-github-broker/", "src/bin/verify_north/login.rs", "crates/north-base/src/platform/login.rs", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-fleet/src/fleet/claims.rs", "crates/north-threads/src/threads/claims/", "src/cli/fleet/claims.rs", "crates/north-fleet/src/fleet/claim_releases.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/records_mirror.rs", "crates/north-base/src/build_inputs.rs", ".config/", ".cargo/", "rust-toolchain.toml", ".buckconfig", ".buckroot", "build.rs", "lint/", "mode/", ".language-allowlist.json", ".stub-exec-allowlist.json", ".commit-emails", "concerns.toml", "ambient-test-inputs.tsv", "ambient-test-clocks.tsv", "ambient-test-fleets.tsv"]
+value = ["harness/", ".safe-push", ".github/", "bin/", "flake.nix", "flake.lock", "crates/north-broker/", "crates/north-base/src/platform/broker_client.rs", "crates/north-base/src/platform/broker_wire.rs", "crates/north-base/src/platform/gh_broker_route.rs", "crates/north-base/src/platform/git_credential.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-credentials/src/credentials/", "crates/north-github-broker/src/gh_broker/", "crates/north-check-environment/src/credential.rs", "crates/north-landing/src/land/credential.rs", "crates/north-session-host/src/row_delivery.rs", "src/cli/operator.rs", "src/cli/operator/", "crates/north-trusted-mirror/", "crates/north-remote-serve/", "crates/north-guard/src/guard/tripwire/", "crates/north-capacity/src/capacity/host_table.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-build-system/", "crates/north-graph-change/", "crates/north-base/src/platform/session_scope.rs", "crates/north-warm-spares/", "crates/north-agent-starts/", "crates/north-capacity/src/capacity/gate.rs", "crates/north-capacity/src/capacity/dev_shell.rs", "crates/north-pace/src/spend/", "crates/north-land-scans/src/disclosure_judge/judge.rs", "src/cli/oneshot/judge_model.rs", "**/Cargo.toml", "Cargo.lock", "**/BUCK", "build/", "third-party/", "toolchains/", "crates/north-github-broker/", "src/bin/verify_north/login.rs", "crates/north-base/src/platform/login.rs", "crates/north-guard/src/guard/sops_decrypt.rs", "crates/north-threads/src/threads/claims/", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/review_accept.rs", "crates/north-base/src/platform/records_mirror.rs", "crates/north-base/src/build_inputs.rs", ".config/", ".cargo/", "rust-toolchain.toml", ".buckconfig", ".buckroot", "build.rs", "lint/", "mode/", ".language-allowlist.json", ".stub-exec-allowlist.json", ".commit-emails", "concerns.toml", "ambient-test-inputs.tsv", "ambient-test-clocks.tsv", "ambient-test-fleets.tsv"]
 allowed = { min_len = 1 }
 unit = "paths from the repository root (a trailing / names a directory, a leading **/ names a file of that name in any directory, else one file) whose change crosses a host's trust boundary: the credential broker and credentials, peer-host rows, fleet admission, placement, routing and revival over an operator login, the fleet registry, tick and store, agent starts, session scope and environment, the capacity gate and the dev shell it enters, the API spend hold and its readers in dispatch, the API pool and the disclosure judge, the agent runtime and its tool server, the harness, land and build configuration (manifests, lock file, Buck2 files and modes, the lint gate, the toolchain pin, the build script, cargo and nextest configuration) and the gate allowlists and configuration at the root (the language, stub-exec and ambient-test allowlists, the commit-email allowlist, concerns.toml) and the after-landing test selection; the files of landing_path_paths cross it too; a lane that changes one lands only on a reviewer's accept of its patch (the land scan review-accept), and its test line runs after the landing like every lane's"
 source = "north#1036 second review (2026-11-13): with runtime promotion on landing, a trust-boundary change that skipped its test line would go live on every host before the after-landing run could revert it, and a landing path change that breaks landing could not land its own revert"

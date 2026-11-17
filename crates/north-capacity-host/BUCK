@@ -25,7 +25,6 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-capacity:north-capacity",
-        "//crates/north-fleet-store:north-fleet-store",
         "//crates/north-foundation:north-foundation",
         "//crates/north-graph-loops:north-graph-loops",
         "//crates/north-runtime-follow:north-runtime-follow",
@@ -53,7 +52,6 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-capacity:north-capacity",
-        "//crates/north-fleet-store:north-fleet-store",
         "//crates/north-foundation:north-foundation",
         "//crates/north-graph-loops:north-graph-loops",
         "//crates/north-runtime-follow:north-runtime-follow",

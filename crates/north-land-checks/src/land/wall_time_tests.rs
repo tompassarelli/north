@@ -14,9 +14,8 @@ const MEASURED: &str = r"(took|elapsed|duration|latency|wall|(stage|own|wall|run
 const THIS_FILE: &str = "crates/north-land-checks/src/land/wall_time_tests.rs";
 const SUB_SECOND_BUDGET: &str = r"[(,]\s*Duration::from_millis\(\s*\d{1,3}\s*\)\s*[,)]";
 const INJECTED_CLOCK: &str = r"&\|\|";
-const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 4] = [
+const SUB_SECOND_BUDGET_TESTS: [(&str, &str); 3] = [
     ("crates/north-base/src/platform/process.rs", "a negative wait: load can only end the 200 ms wait later, never make the gated command finish, so the assertion holds at any budget"),
-    ("crates/north-fleet/src/fleet/rebooted_tests.rs", "the revive is held until its release, so the 100 ms budget only bounds how promptly the pass returns and the deferral does not depend on it"),
     ("crates/north-capacity-host/src/capacity/watchdog/sampler_tests.rs", "a negative wait: load can only end the 200 ms wait later, never make the process left alone exit, so the assertion holds at any budget"),
     ("crates/north-capacity/src/capacity/seat_stall/probe_tests.rs", "the sync is held until the test releases it after seeing the trip, so load can only make the 50 ms trip and 10 ms poll fire later, never keep the held sync from tripping"),
 ];
@@ -101,7 +100,7 @@ fn no_land_check_or_test_reads_wall_time_or_host_load() {
     let budgeted = tests.iter().filter(|(path, _)| !SUB_SECOND_BUDGET_TESTS.iter().any(|(allowed, _)| path.as_str() == *allowed));
     let budgets = found_sub_second(budgeted);
     assert!(budgets.is_empty(), "a test hands the code under test a sub-second wall-clock budget, so it passes or fails on host load; decide by events through an injected clock or raise the budget:\n{}", budgets.join("\n"));
-    let reaper = "crates/north-fleet-supervisor/src/fleet/reaper_tests.rs";
+    let reaper = "crates/example/src/reaper_tests.rs";
     let recorded = found_sub_second(&[(reaper.to_string(), OLD_REAPER_BUDGET.to_string())]);
     assert_eq!(recorded.len(), 1, "the recorded line, which failed a loaded batch on 2026-11-11, is reported: {recorded:?}");
     assert!(recorded[0].contains("Duration::from_millis(300)"), "{recorded:?}");

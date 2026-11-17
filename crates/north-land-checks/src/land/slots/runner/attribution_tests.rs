@@ -44,7 +44,7 @@ impl Repository for Tree {
         match name {
             JUDGE_TEST => vec![JUDGE_FILE.to_owned()],
             LANDING_TEST => vec!["tests/it/land_checks.rs".to_owned()],
-            "fleet::tests::a_launch_keeps_its_account" => vec!["crates/north-fleet/src/lib.rs".to_owned()],
+            "fleet::tests::a_launch_keeps_its_account" => vec!["crates/north-landing/src/lib.rs".to_owned()],
             _ => Vec::new(),
         }
     }
@@ -79,7 +79,7 @@ fn a_lane_is_refused_only_for_its_own_failure() {
     assert_eq!(judged(BUCK_CHECK, &same, &base, &["crates/north-buck/src/lib.rs"]), Attribution::Touches(vec!["crates/north-buck/src/lib.rs".to_owned()]), "a lane that changes the check's own code owns its failure");
 
     let red_main = test_log(&[JUDGE_TEST]);
-    assert_eq!(judged(TESTS, &red_main, &red_main, &["crates/north-fleet/src/lib.rs"]), Attribution::Base, "the disclosure-judge test broken on main since 598ce8b7b1 does not refuse a lane that never touched it");
+    assert_eq!(judged(TESTS, &red_main, &red_main, &["crates/north-landing/src/lib.rs"]), Attribution::Base, "the disclosure-judge test broken on main since 598ce8b7b1 does not refuse a lane that never touched it");
     assert_eq!(judged(TESTS, &red_main, &red_main, &[JUDGE_FILE]), Attribution::Touches(vec![JUDGE_FILE.to_owned()]), "a lane that edits the failing test owns its failure");
     assert_eq!(judged(TESTS, &red_main, &red_main, &["crates/north-land-scans/src/private_kinds.rs"]), Attribution::Touches(vec!["crates/north-land-scans/src/private_kinds.rs".to_owned()]), "a lane that breaks the code a red test exercises fails that same test, so the test's package is the check's own");
 
@@ -93,17 +93,17 @@ fn a_lane_is_refused_only_for_its_own_failure() {
     assert!(matches!(judged(TESTS, &unfound, &unfound, &["docs/rationale/landing-train.md"]), Attribution::Unjudged(_)), "a red test no file defines by name exercises code no one can tell, so it cannot clear a lane");
 
     let turned =test_log(&[JUDGE_TEST, "fleet::tests::a_launch_keeps_its_account"]);
-    assert_eq!(judged(TESTS, &turned, &red_main, &["crates/north-fleet/src/lib.rs"]), Attribution::Lane(vec!["cargo fleet::tests::a_launch_keeps_its_account".to_owned()]), "a lane that turns a passing test red is refused");
+    assert_eq!(judged(TESTS, &turned, &red_main, &["crates/north-landing/src/lib.rs"]), Attribution::Lane(vec!["cargo fleet::tests::a_launch_keeps_its_account".to_owned()]), "a lane that turns a passing test red is refused");
 
     let stopped = format!("{red_main}warning: 1272/1273 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)\n");
-    assert!(matches!(judged(TESTS, &stopped, &red_main, &["crates/north-fleet/src/lib.rs"]), Attribution::Unjudged(_)), "a run that stopped at main's failure never ran the lane's other tests");
+    assert!(matches!(judged(TESTS, &stopped, &red_main, &["crates/north-landing/src/lib.rs"]), Attribution::Unjudged(_)), "a run that stopped at main's failure never ran the lane's other tests");
 
     let compile = "error[E0425]: cannot find value `x` in this scope\n  --> crates/north-base/src/lib.rs:3:5\nerror: could not compile `north-base` (lib) due to 1 previous error\nwarning: build failed, waiting for other jobs to finish...\n";
-    assert!(matches!(judged(TESTS, compile, compile, &["crates/north-fleet/src/lib.rs"]), Attribution::Unjudged(_)), "cargo stops at main's compile error, so a crate the lane breaks may never have compiled");
+    assert!(matches!(judged(TESTS, compile, compile, &["crates/north-landing/src/lib.rs"]), Attribution::Unjudged(_)), "cargo stops at main's compile error, so a crate the lane breaks may never have compiled");
 
     let unsummarized = "error[E0425]: cannot find value `x` in this scope\n  --> crates/north-base/src/lib.rs:3:5\n";
-    assert!(matches!(judged(TESTS, unsummarized, unsummarized, &["crates/north-fleet/src/lib.rs"]), Attribution::Unjudged(_)), "a test check that ran no test while main fails to compile judged nothing of the lane");
+    assert!(matches!(judged(TESTS, unsummarized, unsummarized, &["crates/north-landing/src/lib.rs"]), Attribution::Unjudged(_)), "a test check that ran no test while main fails to compile judged nothing of the lane");
 
     let offline = "error: failed to download `serde v1.0.0`\n--offline was specified\n";
-    assert!(matches!(judged(TESTS, offline, offline, &["crates/north-fleet/src/lib.rs"]), Attribution::Unjudged(_)), "a check that failed in its environment on both trees judged neither");
+    assert!(matches!(judged(TESTS, offline, offline, &["crates/north-landing/src/lib.rs"]), Attribution::Unjudged(_)), "a check that failed in its environment on both trees judged neither");
 }

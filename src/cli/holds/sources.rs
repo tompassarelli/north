@@ -35,31 +35,6 @@ pub(super) fn unit_description(unit: &str) -> Option<String> {
     Some(said.trim().to_owned())
 }
 
-pub(super) fn session_holds(now: i64) -> Vec<Hold> {
-    let Ok(root) = crate::fleet::registry::root_here() else { return Vec::new() };
-    let mut holds = Vec::new();
-    for entry in fs::read_dir(&root).into_iter().flatten().flatten().filter(|entry| !entry.file_name().to_string_lossy().starts_with('.')) {
-        let Ok(record) = crate::fleet::records::read_record(&entry.path()) else { continue };
-        if record.extra_tasks.is_empty() {
-            continue;
-        }
-        let ended = record.ended().then(|| modified(&crate::fleet::records::record_file(&entry.path()))).flatten();
-        for task in &record.extra_tasks {
-            holds.push(Hold {
-                host: String::new(),
-                kind: format!("issue hold on {task}"),
-                set_by: record.name.clone(),
-                why: format!("{} holds it beside its own task, so dispatch staffs no one else on it", record.name),
-                since: i64::try_from(record.created_ms / 1000).ok(),
-                lifts: Lift::Named(format!("`north fleet hold --release {task}` from {}, or that session ends and is retired", record.name)),
-                lifts_when: String::new(),
-                red: ended.filter(|ended| now - ended >= super::OUTLIVED_SECS).map(|_| format!("{} has ended and it still stands", record.name)),
-            });
-        }
-    }
-    holds
-}
-
 pub(super) fn review_holds(home: &Path) -> Vec<Hold> {
     let environment: Vec<(String, String)> = ["NORTH_VERDICT_CACHE_DIR", "XDG_STATE_HOME"].into_iter().filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?))).collect();
     let Ok(standing) = north_worker_sandbox::hold_ledger::standing(&environment, home) else { return Vec::new() };

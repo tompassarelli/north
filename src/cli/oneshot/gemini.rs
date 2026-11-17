@@ -5,7 +5,6 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use north_base::platform::process;
-use north_fleet_supervisor::fleet::install;
 
 use super::session::Ask;
 
@@ -57,7 +56,7 @@ pub(crate) fn ask(question: &Ask, limit: Duration) -> Result<String, String> {
     let workspace = tempfile::tempdir().map_err(|error| format!("no empty workspace for agy: {error}"))?;
     let agents = workspace.path().join(".agents/agents");
     fs::create_dir_all(&agents).and_then(|()| fs::write(agents.join(format!("{AGENT_NAME}.md")), AGENT)).map_err(|error| format!("no toolless agent for agy in its workspace: {error}"))?;
-    let mut command = Command::new(install::runtime("agy"));
+    let mut command = Command::new(agy_program());
     command.current_dir(workspace.path()).stdin(Stdio::null()).env("AGY_CLI_DISABLE_AUTO_UPDATE", "1").env("BROWSER", "false").env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
     for key in API_KEYS {
         command.env_remove(key);
@@ -70,4 +69,10 @@ pub(crate) fn ask(question: &Ask, limit: Duration) -> Result<String, String> {
     } else {
         Err(super::child_failure("agy", output.status.code(), &output.stderr))
     }
+}
+
+fn agy_program() -> std::path::PathBuf {
+    let chosen = std::env::var_os("AGY_RUNTIME").map(std::path::PathBuf::from);
+    let installed = std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/lib/agy/current/bin/agy"));
+    chosen.or(installed).filter(|path| path.is_file()).unwrap_or_else(|| "agy".into())
 }

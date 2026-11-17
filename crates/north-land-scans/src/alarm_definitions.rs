@@ -11,10 +11,8 @@ use super::{Range, git};
 pub const USAGE: &str = "usage: north land scan alarm-definitions BASE..HEAD";
 
 const REGISTRY: &str = "harness/alarms.toml";
-const FOLD: &str = "crates/north-fleet-store/src/fold.rs";
 
 static SENDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"service:(north-[a-z0-9-]+)").expect("sender pattern"));
-static ALARM_UNITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)const ALARMS: \[&str; \d+\] = \[(.*?)\];").expect("alarm list pattern"));
 
 /// The sources `text` defines, or each way a row fails to name its action and owner.
 pub fn defined(text: &str) -> Result<BTreeSet<String>, Vec<String>> {
@@ -41,12 +39,6 @@ pub fn defined(text: &str) -> Result<BTreeSet<String>, Vec<String>> {
     }
 }
 
-/// The alarm units fold.rs lists, which every alarm definition set must cover.
-pub fn folded_units(fold: &str) -> BTreeSet<String> {
-    let list = ALARM_UNITS.captures(fold).map_or("", |found| found.get(1).map_or("", |all| all.as_str()));
-    list.split(',').filter_map(|word| word.trim().strip_prefix('"')?.strip_suffix('"')).map(str::to_owned).collect()
-}
-
 /// The `service:UNIT` senders the lane's diff adds to code outside tests.
 pub fn added_senders(patch: &str) -> BTreeSet<String> {
     let mut file = "";
@@ -71,7 +63,7 @@ pub fn refusals(directory: &Path, base: &str, head: &str) -> Vec<String> {
     let patch = git::text(directory, &["diff", "--unified=0", base, head, "--", "*.rs"]).unwrap_or_default();
     let existing = git::text(directory, &["grep", "-h", "-o", "-E", SENDER.as_str(), base, "--", "*.rs", ":(exclude)*tests*"]).unwrap_or_default();
     let existing: BTreeSet<String> = existing.lines().filter_map(|line| line.strip_prefix("service:")).map(str::to_owned).collect();
-    let needed = folded_units(&at(FOLD).unwrap_or_default()).into_iter().chain(added_senders(&patch).into_iter().filter(|unit| !existing.contains(unit)));
+    let needed = added_senders(&patch).into_iter().filter(|unit| !existing.contains(unit));
     needed.filter(|unit| !sources.contains(unit)).collect::<BTreeSet<_>>().into_iter().map(|unit| format!("{REGISTRY}: the alarm service {unit} has no row naming its action and owner")).collect()
 }
 

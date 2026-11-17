@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use serde_json::Value;
 
 use super::cloud_handback;
-use crate::fleet::runtime::SESSION_ENV;
+use north_base::platform::session_scope::SESSION as SESSION_ENV;
 
 /// Runs a program in a directory, for the fleet session it names, and returns its output.
 pub(super) type Run<'a> = dyn FnMut(&Path, &str, &[&str], Option<&str>) -> Result<String, String> + 'a;

@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde_json::Value;
 
 use north_foundation::foundation::offload::URGENT_ENV;
 use north_base::platform::session_scope::{SESSION_UNIT_PREFIX, WORKER_BROKER_UNIT};
@@ -35,7 +38,7 @@ impl Places {
 
     pub fn cgroup(&self, cgroup: &str) -> bool {
         match self.holder(cgroup) {
-            Some(Holder::Session(unit)) => north_fleet_store::session_files::launched_urgent_in(&self.fleet, &unit),
+            Some(Holder::Session(unit)) => launched_urgent_in(&self.fleet, &unit),
             Some(Holder::Held(urgent)) => urgent,
             Some(Holder::Broker) => false,
             None => self.member(cgroup).is_some_and(|pid| self.process(&pid)),
@@ -49,7 +52,7 @@ impl Places {
             let Some(cgroup) = self.read(&current, "cgroup") else { return false };
             let Some(parent) = self.parent(&current) else { return false };
             match self.holder(&cgroup) {
-                Some(Holder::Session(unit)) => return north_fleet_store::session_files::launched_urgent_in(&self.fleet, &unit),
+                Some(Holder::Session(unit)) => return launched_urgent_in(&self.fleet, &unit),
                 Some(Holder::Held(urgent)) => return urgent,
                 Some(Holder::Broker) if !self.read(&parent, "cgroup").is_some_and(|above| matches!(self.holder(&above), Some(Holder::Broker))) => {
                     return below.is_some_and(|started| self.mark(&started).as_deref() == Some("1"));
@@ -71,7 +74,7 @@ impl Places {
             if segment.starts_with(SESSION_UNIT_PREFIX) && segment.ends_with(".scope") {
                 return Some(Holder::Session(segment.to_owned()));
             }
-            if let Some(urgent) = segment.ends_with(".service").then(|| north_fleet_store::session_files::held_urgent(&self.fleet, &self.home, segment)).flatten() {
+            if let Some(urgent) = segment.ends_with(".service").then(|| held_urgent(&self.fleet, &self.home, segment)).flatten() {
                 return Some(Holder::Held(urgent));
             }
             broker_unit(segment).then_some(Holder::Broker)
@@ -105,4 +108,21 @@ fn broker_unit(segment: &str) -> bool {
 
 fn account_home(passwd: &str, uid: u32) -> Option<PathBuf> {
     passwd.lines().map(|line| line.split(':').collect::<Vec<_>>()).find(|fields| fields.len() >= 7 && fields[2] == uid.to_string() && !fields[5].is_empty()).map(|fields| PathBuf::from(fields[5]))
+}
+
+const RECORD: &str = "session.json";
+
+fn launched_urgent_in(root: &Path, unit: &str) -> bool {
+    let named = |entry: &fs::DirEntry| fs::read_to_string(north_base::platform::session_host_files::scope_path(&entry.path())).is_ok_and(|scope| scope.trim() == unit);
+    let urgent = |entry: &fs::DirEntry| fs::read_to_string(entry.path().join(RECORD)).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|record| record["urgent"] == Value::Bool(true));
+    fs::read_dir(root).into_iter().flatten().flatten().any(|entry| named(&entry) && urgent(&entry))
+}
+
+fn held_urgent(root: &Path, home: &Path, unit: &str) -> Option<bool> {
+    let conversation = fs::read_to_string(home.join(north_base::platform::session_host_files::HELD).join(unit).join(north_base::platform::session_host_files::BOUND_CONVERSATION)).ok()?.trim().to_owned();
+    if conversation.is_empty() || !conversation.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
+        return None;
+    }
+    let record = fs::read_to_string(root.join(north_base::platform::session_host_files::PLACED).join(conversation).join(RECORD)).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    Some(record.is_some_and(|record| record["urgent"] == Value::Bool(true)))
 }

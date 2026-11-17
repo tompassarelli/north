@@ -40,8 +40,8 @@ impl Live {
             let session = entry.file_name().to_string_lossy().into_owned();
             let parent = parents.get(&session).cloned().flatten();
             let owner = Owner { session, parent };
-            for prior in north_fleet_store::detached::Prior::all(&entry.path()) {
-                owners.insert(prior.unit, owner.clone());
+            for unit in prior_units(&entry.path()) {
+                owners.insert(unit, owner.clone());
             }
             owners.insert(unit.trim().to_owned(), owner);
         }
@@ -121,4 +121,9 @@ impl Owners for Live {
     fn parent(&mut self, session: &str) -> Option<String> {
         self.loaded().parents.get(session).cloned().flatten()
     }
+}
+
+fn prior_units(dir: &std::path::Path) -> Vec<String> {
+    let text = fs::read_to_string(dir.join("host.priors")).unwrap_or_default();
+    text.lines().filter_map(|line| line.split_once(' ')).filter(|(_, host)| host.parse::<u32>().is_ok()).map(|(unit, _)| unit.to_owned()).collect()
 }

@@ -27,7 +27,6 @@ Build output stays in the worktree's `target/`.
 ## Routers
 
 - Before changing `crates/north-safe-push`, `.safe-push` or `crates/north-landing/src/landing/mod.rs`, read [docs/landing.md](docs/landing.md) for how a lane reaches main.
-- Before changing `crates/north-fleet/src/fleet/mod.rs`, read [ARCHITECTURE.md](ARCHITECTURE.md) and the [fleet sessions](docs/features/03-fleet-sessions/) features.
 - Before changing `crates/north-threads/src/threads/staffing/mod.rs` or `crates/north-pace/src/router.rs`, read [docs/briefing.md](docs/briefing.md) and the [staffing and routing](docs/features/02-staffing-and-routing/) features.
 - Before changing `crates/north-capacity/src/capacity/admission/` or a tuned number in `harness/defaults.toml`, read the [machine-capacity skill](harness/skills/machine-capacity/SKILL.md) and the [capacity](docs/features/08-machines-capacity-and-scheduled-jobs/) features.
 - Before changing `harness/policy-owners.toml`, the hook dispatcher `crates/north-guard/src/hook.rs` or a skill per `harness/SKILL-ARCHITECTURE.md`, read [docs/operator-repository.md](docs/operator-repository.md) and the [agent-policy skill](harness/skills/agent-policy/SKILL.md).

@@ -8,7 +8,6 @@ use north_capacity_host::capacity;
 use north_agent_policy::{agent_catalog, agent_config_check, agent_policy_contract};
 use north_base::{autoland_status, platform::{self, entry_points::{self, EntryPoint}}, run_time_data};
 use north_foundation::{error, foundation};
-use north_fleet_supervisor::{fleet};
 use north_pace::router;
 use north_code_health::code_health;
 use north_guard::{guard, hook, nix_explain};

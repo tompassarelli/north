@@ -513,7 +513,6 @@ dependencies = [
  "north-capacity-host",
  "north-check-environment",
  "north-ci",
- "north-cli-reference",
  "north-code-health",
  "north-concerns",
  "north-control-plane",
@@ -521,8 +520,6 @@ dependencies = [
  "north-credentials",
  "north-diff-gates",
  "north-docs",
- "north-fleet-store",
- "north-fleet-supervisor",
  "north-foundation",
  "north-github-broker",
  "north-github-mirror",
@@ -545,12 +542,10 @@ dependencies = [
  "north-remote-serve",
  "north-runtime",
  "north-safe-push",
- "north-session-host",
  "north-shared-config",
  "north-strategy-types",
  "north-threads",
  "north-unblocks",
- "north-warm-spares",
  "north-worker-sandbox",
  "percent-encoding",
  "regex",
@@ -683,7 +678,6 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-capacity",
- "north-fleet-store",
  "north-foundation",
  "north-graph-loops",
  "north-runtime-follow",
@@ -822,71 +816,6 @@ name = "north-docs"
 version = "0.1.0"
 dependencies = [
  "north-registries",
- "serde_json",
- "tempfile",
- "toml_edit",
-]
-
-[[package]]
-name = "north-fleet"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-claude-stream",
- "north-fleet-store",
- "north-foundation",
- "north-pace",
- "north-resume",
- "north-session-host",
- "north-ssh-spare",
- "north-warm-spares",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "toml_edit",
-]
-
-[[package]]
-name = "north-fleet-store"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-foundation",
- "north-publish",
- "north-resume",
- "north-strategy-types",
- "north-warm-spares",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "toml_edit",
-]
-
-[[package]]
-name = "north-fleet-supervisor"
-version = "0.1.0"
-dependencies = [
- "north-agent-starts",
- "north-base",
- "north-fleet",
- "north-foundation",
- "north-graph-loops",
- "north-pace",
- "north-resume",
- "north-runtime-follow",
- "north-session-host",
- "north-warm-spares",
- "regex",
- "rustix 0.38.44",
- "serde",
  "serde_json",
  "tempfile",
  "toml_edit",

@@ -90,7 +90,6 @@ fn here() -> Vec<Hold> {
     let mut holds: Vec<Hold> = Vec::new();
     holds.extend(sources::stable_pin(&home));
     holds.extend(locks::holds(&home.join(".local/state/north"), std::path::Path::new("/proc"), sources::unit_description));
-    holds.extend(sources::session_holds(now));
     holds.extend(sources::review_holds(&home));
     holds.into_iter().map(|hold| Hold { host: host.clone(), ..hold.judged(now, &|_| false) }).collect()
 }

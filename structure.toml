@@ -56,11 +56,6 @@ reason = "the pick's verdict is the lander's report line, parsed here once to de
 
 [[implicit_state.allow]]
 shape = "status-string"
-path = "crates/north-fleet-supervisor/src/fleet/strays.rs"
-reason = "the status is the text column of a session-table row, read once per sweep and never held as state (north#722)"
-
-[[implicit_state.allow]]
-shape = "status-string"
 path = "src/cli/scoreboard/chain.rs"
 reason = "the outcome is the text column the ledger's runs table stores, read here as rows and never held as state (north#722)"
 
@@ -273,7 +268,7 @@ name = "north-capacity-host"
 layer = 4
 family = "capacity"
 paths = ["crates/north-capacity-host/src/**"]
-may_use = ["north-capacity", "north-fleet", "north-graph-loops", "north-runtime-follow"]
+may_use = ["north-capacity", "north-graph-loops", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-capacity"
@@ -391,26 +386,6 @@ family = "sessions"
 paths = ["crates/north-resume/src/**"]
 may_use = ["north-base"]
 
-[[crate_dag.crate]]
-name = "north-fleet-store"
-layer = 2
-paths = ["crates/north-fleet-store/src/**"]
-may_use = ["north-base", "north-strategy-types", "north-publish", "north-warm-spares"]
-
-[[crate_dag.crate]]
-name = "north-fleet"
-layer = 4
-family = "sessions"
-paths = ["crates/north-fleet/src/**"]
-may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resume", "north-session-host", "north-warm-spares"]
-
-[[crate_dag.crate]]
-name = "north-fleet-supervisor"
-layer = 4
-family = "sessions"
-paths = ["crates/north-fleet-supervisor/src/**"]
-may_use = ["north-agent-starts", "north-fleet", "north-resume", "north-session-host", "north-warm-spares", "north-graph-loops", "north-runtime-follow"]
-
 [review]
 commits = 600
 hand_lines_added = 20000
@@ -428,7 +403,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/bin/push_trace_git.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["north_warm_spares", "runtime_records", "agent_starts", "strategy_types", "mutants", "cli", "fleet", "guard", "threads", "landing", "catalog", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "concerns", "graph_ground", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks", "broker", "verify", "build_system", "rust_files", "runtime_follow", "check_offload", "unblocks", "platform.host", "platform.store"]
+may_use = ["north_warm_spares", "runtime_records", "agent_starts", "strategy_types", "mutants", "cli", "fleet", "guard", "threads", "landing", "catalog", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "concerns", "graph_ground", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "graph_loops", "graph_change", "git_locks", "broker", "verify", "build_system", "rust_files", "runtime_follow", "check_offload", "unblocks", "platform.host", "platform.store"]
 
 [[module]]
 name = "git_locks"
@@ -588,13 +563,7 @@ may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness", "strate
 name = "fleet"
 paths = ["crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/session_host/**", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
-may_use = ["north_warm_spares", "agent_starts", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform", "platform.harness", "graph_loops", "runtime_follow", "platform.host", "platform.ssh", "usage"]
-
-[[module]]
-name = "fleet_store"
-paths = ["crates/north-fleet-store/src/**"]
-responsibility = "The fleet's durable rows and their exchange: the sessions, messages, waits and gates in the SQLite store, the spool and ssh exchange between hosts, gate requests and their lifecycle, and the sender, status and delivery words they carry."
-may_use = ["north_warm_spares", "crate-roots", "domain", "foundation", "land_ticket", "lifecycle", "platform.harness", "platform.process", "strategy_types"]
+may_use = ["north_warm_spares", "agent_starts", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "platform", "platform.harness", "graph_loops", "runtime_follow", "platform.host", "platform.ssh", "usage"]
 
 [[module]]
 name = "claude_stream"
@@ -714,7 +683,7 @@ may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
 name = "capacity"
 paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "fleet_store", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow", "platform.store", "platform.git", "graph", "platform.host"]
+may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "runtime_follow", "platform.store", "platform.git", "graph", "platform.host"]
 
 [[module]]
 name = "lanes"
@@ -822,7 +791,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["north_warm_spares", "strategy_types", "buck", "build_system", "autoland_status", "fleet", "guard", "threads", "landing", "catalog", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "platform.harness", "platform.host", "platform.store", "coverage", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "dispatch_pause_lifecycle", "runtime_records", "unblocks", "build_inputs"]
+may_use = ["north_warm_spares", "strategy_types", "buck", "build_system", "autoland_status", "fleet", "guard", "threads", "landing", "catalog", "capacity", "lanes", "ops", "docs", "usage", "code_health", "build_time", "domain", "shell", "foundation", "crate-roots", "coordinator", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "graph_ground", "concerns", "mutants", "lifecycle", "platform", "platform.github", "platform.process", "platform.harness", "platform.git", "platform.host", "platform.store", "coverage", "graph_loops", "graph_change", "broker", "land_ticket", "dispatch_pause_lifecycle", "runtime_records", "unblocks", "build_inputs"]
 
 [[module]]
 name = "verify"
@@ -1028,27 +997,12 @@ fixture = "take time as a value from an injected clock and order events by waiti
 input = "fleet"
 allowlist = "ambient-test-fleets.tsv"
 fixtures = ["crates/north-land-scans/src/peer_invocations_tests.rs", "crates/north-runtime/src/runtime/probe_tests.rs"]
-fixture = "start it in a tempdir and set NORTH_TEST_ROOT to that directory before the launch, as tests/it/fleet_launch.rs and tests/it/land_serve/mod.rs do, so a write outside it is refused before the session or lander writes; each file in fixtures only reads the words and starts no process"
-
-[[rust_habits.allow]]
-rule = "shared-mutability"
-path = "crates/north-fleet-supervisor/src/fleet/registry/fixtures.rs"
-reason = "Test fixture, doc(hidden) and public since 895bb0e6f; a fake session's frames are shared between its reader thread and the test."
+fixture = "start it in a tempdir and set NORTH_TEST_ROOT to that directory before the launch, as tests/it/land_serve/mod.rs does, so a write outside it is refused before the session or lander writes; each file in fixtures only reads the words and starts no process"
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
 path = "crates/north-session-host/src/session_host.rs"
 reason = "Activity, the prompt counter and the frame watcher are shared between the stdin writer and stdout reader threads of one session."
-
-[[rust_habits.allow]]
-rule = "shared-mutability"
-path = "crates/north-fleet-supervisor/src/fleet/registry/hand_in.rs"
-reason = "A thread's held delivery locks, so a hand-in nested in one it already holds, such as a revive's carry-on, shares the lock instead of flocking the same file again and waiting on itself; the guard cannot be passed down the prompt, revive and send chain between them (north#637)."
-
-[[rust_habits.allow]]
-rule = "shared-mutability"
-path = "crates/north-fleet-supervisor/src/fleet/registry/start_lock.rs"
-reason = "A thread's held start locks, so a take-over holding a name's lock across archiving the old session and starting the new one shares it with the stop and first-turn delivery nested inside, instead of flocking the same file again and waiting on itself; the guard cannot be passed down the archive, halt, prompt and wake chain between them (north#1017)."
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
@@ -1059,24 +1013,6 @@ reason = "rusqlite needs &mut Connection for transactions while Board hands out 
 rule = "shared-mutability"
 path = "src/bin/verify_north/notes.rs"
 reason = "One driver stdin pipe written from the observer threads of verify-north."
-
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/books.rs"
-item = "WatchBooks"
-reason = "Trait alias bundling the RunSink, Books, ReceiptBook and GateBook ports through a blanket impl; each port has its own test double."
-
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/books.rs"
-item = "FleetBooks"
-reason = "Trait alias over WatchBooks and GateBook through a blanket impl; each port has its own test double."
-
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-fleet-supervisor/src/fleet/test_support.rs"
-item = "Internals"
-reason = "Test seam behind the test-support feature: north-core's Claude-runtime fleet tests reach Fleet's crate-private accessors through it, so they stay crate-private in production."
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
@@ -1205,10 +1141,6 @@ may_use = ["north-base"]
 max_islands = 10
 
 [[domains.allow]]
-crate = "north-fleet"
-reason = "14 islands on main (2026-11-15), over the bound of 10; allowed until its split is filed under north#1435"
-
-[[domains.allow]]
 crate = "north-land-scans"
 reason = "11 islands on main (2026-11-15), over the bound of 10: the disclosure judge reads only north-base, so it joins no other scan; allowed until the scans split by what they read, under north#1487"
 [[module]]
@@ -1234,3 +1166,8 @@ responsibility = "Which files under secrets/ may land (north#1626): sops-encrypt
 name = "disk_bound"
 paths = ["crates/north-shared-config/src/disk_bound.rs"]
 responsibility = "The free GiB a host's disk is held to, from the operator policy's [hosts.NAME] disk_free_gib, else the dispatch host's harness default (north#1632), so placement and the disk budget read one rule."
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-landing/src/land/after/route.rs"
+item = "Courier"
+reason = "route decides the host and the message; the north fleet send and ssh transport lives in follow and is swapped out when the fleet sessions are evicted."

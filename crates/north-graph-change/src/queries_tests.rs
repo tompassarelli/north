@@ -26,14 +26,14 @@ fn changed(paths: &[&str], hunks: Hunks) -> Change {
     Change { files: paths.iter().map(|path| Changed { path: (*path).to_owned(), status: Status::Modified }).collect(), hunks, ..Change::default() }
 }
 
-const GATE_ROWS: &str = "test:north-fleet-supervisor::gate::gate_rows";
-const LOOP_TICK: &str = "test:north-fleet-supervisor::tick::loop_tick";
+const GATE_ROWS: &str = "test:north-landing::gate::gate_rows";
+const LOOP_TICK: &str = "test:north-landing::tick::loop_tick";
 
 #[test]
 fn a_data_file_a_test_reads_selects_that_test_without_a_code_edge() {
     let graph = graph(&[
-        (GATE_ROWS, "in-binary", "north-fleet-supervisor"),
-        (LOOP_TICK, "in-binary", "north-fleet-supervisor"),
+        (GATE_ROWS, "in-binary", "north-landing"),
+        (LOOP_TICK, "in-binary", "north-landing"),
         (GATE_ROWS, "reads", "harness/defaults.toml"),
         (GATE_ROWS, "read-set", "set-1"),
         (LOOP_TICK, "read-set", "set-2"),
@@ -42,7 +42,7 @@ fn a_data_file_a_test_reads_selects_that_test_without_a_code_edge() {
     let facts = Facts::read(&graph, "north").unwrap();
     let cone = cone::of(&facts, &changed(&["harness/defaults.toml"], Hunks::new()), None).unwrap();
     assert_eq!(cone.untraced, None);
-    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-fleet-supervisor", "gate::gate_rows")]);
+    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-landing", "gate::gate_rows")]);
     assert!(cone.always.is_empty());
 }
 
@@ -53,14 +53,14 @@ fn blame_points_each_failure_at_the_lanes_holding_it_in_their_cone_their_added_t
         ("test:north::it::fleet_relay", "in-binary", "north::it"),
         ("coverage:north", "commit", "c0ffee"),
         ("fn:src/cli/scoreboard/losses.rs:10-40", "in-file", "src/cli/scoreboard/losses.rs"),
-        ("fn:crates/north-fleet/src/fleet/upward.rs:5-30", "in-file", "crates/north-fleet/src/fleet/upward.rs"),
+        ("fn:crates/north-landing/src/land/upward.rs:5-30", "in-file", "crates/north-landing/src/land/upward.rs"),
         ("test:north::it::agent_text_reads", "reaches", "fn:src/cli/scoreboard/losses.rs:10-40"),
-        ("test:north::it::fleet_relay", "reaches", "fn:crates/north-fleet/src/fleet/upward.rs:5-30"),
+        ("test:north::it::fleet_relay", "reaches", "fn:crates/north-landing/src/land/upward.rs:5-30"),
     ]);
     let facts = Facts::read(&graph, "north").unwrap();
     let hunk = |file: &str, line: u32| parse(&format!("--- a/{file}\n+++ b/{file}\n@@ -{line} +{line} @@\n"));
     let losses = cone::of(&facts, &changed(&["src/cli/scoreboard/losses.rs"], hunk("src/cli/scoreboard/losses.rs", 20)), Some(&Hunks::new())).unwrap();
-    let relay = cone::of(&facts, &changed(&["crates/north-fleet/src/fleet/upward.rs"], hunk("crates/north-fleet/src/fleet/upward.rs", 12)), Some(&Hunks::new())).unwrap();
+    let relay = cone::of(&facts, &changed(&["crates/north-landing/src/land/upward.rs"], hunk("crates/north-landing/src/land/upward.rs", 12)), Some(&Hunks::new())).unwrap();
     let climb = Cone { untraced: Some("Cargo.lock does not parse".to_owned()), files: vec!["Cargo.lock".to_owned(), "crates/north-climb/src/lineage.rs".to_owned()], ..Cone::default() };
     let claims = Cone { added: vec![Added { package: "north-threads".to_owned(), name: "a_refused_claim_release_row".to_owned() }], files: vec!["crates/north-threads/src/threads/client/tests.rs".to_owned()], ..Cone::default() };
     let suspects = [Suspect { name: "n909-relay", cone: &relay }, Suspect { name: "n903-losses", cone: &losses }, Suspect { name: "n882-climb", cone: &climb }, Suspect { name: "n706-claims", cone: &claims }];
@@ -219,18 +219,18 @@ fn a_test_the_graph_does_not_know_runs_when_the_lane_changes_a_crate_its_package
 
 #[test]
 fn a_selection_miss_edge_selects_its_test_for_the_file_it_guards() {
-    let graph = graph(&[(GATE_ROWS, "in-binary", "north-fleet-supervisor"), (GATE_ROWS, "read-set", "set-1"), (GATE_ROWS, "guards", "harness/gates.toml"), ("reads:north", "reads-commit", "bde3db9c6")]);
+    let graph = graph(&[(GATE_ROWS, "in-binary", "north-landing"), (GATE_ROWS, "read-set", "set-1"), (GATE_ROWS, "guards", "harness/gates.toml"), ("reads:north", "reads-commit", "bde3db9c6")]);
     let facts = Facts::read(&graph, "north").unwrap();
     let cone = cone::of(&facts, &changed(&["harness/gates.toml"], Hunks::new()), None).unwrap();
-    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-fleet-supervisor", "gate::gate_rows")], "rule 2 of docs/rationale/test-selection.md: a (test :guards FILE) fact selects the test whenever the lane changes FILE");
+    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-landing", "gate::gate_rows")], "rule 2 of docs/rationale/test-selection.md: a (test :guards FILE) fact selects the test whenever the lane changes FILE");
 }
 
 #[test]
 fn a_bare_selection_miss_edge_selects_its_test_in_whichever_binary_holds_it() {
-    let graph = graph(&[(GATE_ROWS, "in-binary", "north-fleet-supervisor"), (GATE_ROWS, "read-set", "set-1"), ("test:gate::gate_rows", "guards", "harness/gates.toml"), ("test:worker_sandbox::confined", "guards", "harness/gates.toml"), ("reads:north", "reads-commit", "bde3db9c6")]);
+    let graph = graph(&[(GATE_ROWS, "in-binary", "north-landing"), (GATE_ROWS, "read-set", "set-1"), ("test:gate::gate_rows", "guards", "harness/gates.toml"), ("test:worker_sandbox::confined", "guards", "harness/gates.toml"), ("reads:north", "reads-commit", "bde3db9c6")]);
     let facts = Facts::read(&graph, "north").unwrap();
     let cone = cone::of(&facts, &changed(&["harness/gates.toml"], Hunks::new()), None).unwrap();
-    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-fleet-supervisor", "gate::gate_rows")], "north land missed tells test:NAME when no map holds the binary; a known name resolves to its binary");
+    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-landing", "gate::gate_rows")], "north land missed tells test:NAME when no map holds the binary; a known name resolves to its binary");
     assert_eq!(cone.added, vec![cone::Added { package: String::new(), name: "worker_sandbox::confined".to_owned() }], "an unknown bare name runs by name in every binary rather than as binary worker_sandbox");
 }
 

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::Gc;
-use super::exec::{command, git, real, text, verified};
+use super::exec::{git, real, text, verified};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct Trees {
@@ -31,18 +31,10 @@ pub(super) fn alive_status(session: &Value) -> bool {
 
 impl Gc {
     pub(super) fn fleet_sessions(&mut self) -> Result<&[Value], String> {
-        if self.fleet.is_none() {
-            let listed = command(&["north", "fleet", "list", "--json"]);
-            if !listed.ok {
-                return Err(format!("Fleet sessions unavailable: {}", listed.last_err_line()));
-            }
-            let sessions: Value = serde_json::from_str(&listed.out).map_err(|error| error.to_string())?;
-            let Value::Array(sessions) = sessions else {
-                return Err("Fleet session list malformed".into());
-            };
-            self.fleet = Some(sessions);
+        match self.fleet.as_deref() {
+            Some(sessions) => Ok(sessions),
+            None => Err("Fleet sessions unavailable: no session source".into()),
         }
-        Ok(self.fleet.as_deref().unwrap_or_default())
     }
 
     pub(super) fn owner(&mut self, name: &str) -> Result<String, String> {

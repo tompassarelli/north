@@ -160,10 +160,6 @@ path = "crates/north-capacity/src/capacity/mod.rs"
 kind = "lines"
 
 [[set]]
-path = "crates/north-fleet/src/fleet/mod.rs"
-kind = "lines"
-
-[[set]]
 path = "crates/north-guard/src/guard/mod.rs"
 kind = "lines"
 

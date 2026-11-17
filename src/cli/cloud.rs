@@ -78,7 +78,7 @@ pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Res
         Cloud::Send(id, file) => {
             let text = std::fs::read_to_string(&file)
                 .map_err(|error| format!("{}: {error}", file.display()))?;
-            let uuid = crate::fleet::runtime::new_uuid().map_err(|error| error.user_message())?;
+            let uuid = new_uuid()?;
             let status = send(api, &id, &uuid, &text)?;
             let _ = writeln!(out, "{status} {uuid}");
             return Ok(if (200..300).contains(&status) { 0 } else { 1 });
@@ -88,7 +88,7 @@ pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Res
                 polls: timeout / POLL.as_secs(),
                 sleep: &mut || std::thread::sleep(POLL),
                 uuid: &mut || {
-                    crate::fleet::runtime::new_uuid().map_err(|error| error.user_message())
+                    new_uuid()
                 },
                 report: &mut *out,
             };
@@ -154,4 +154,8 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+fn new_uuid() -> Result<String, String> {
+    std::fs::read_to_string("/proc/sys/kernel/random/uuid").map(|uuid| uuid.trim().to_owned()).map_err(|error| error.to_string())
 }

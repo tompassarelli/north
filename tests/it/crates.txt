@@ -19,8 +19,6 @@ threads_ledger north-threads
 threads_snapshot north-threads
 capacity_agent_compile north-capacity north-capacity-host north-runtime
 cargo_config north
-fleet_spool north-fleet
-threads_resume north-threads
 agent_text_reads north # tree-wide: counts agent-text reads in every Rust source under src/ and crates/
 affected_modules north-landing north north-land-checks north-lander # tree-wide: reads every tests/it module and every crate the crate DAG names
 land_checks north-landing north-land-checks north-lander

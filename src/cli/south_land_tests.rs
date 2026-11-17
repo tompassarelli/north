@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use north_fleet_supervisor::fleet::attachments::base64;
 use north_remote_serve::remote_serve::south_land::{self, Config, Refusal, TOKEN_FILE};
 use north_remote_serve::remote_serve::south_policy;
 use tempfile::TempDir;
@@ -96,7 +95,7 @@ fn south_land_the_push_reads_its_token_only_from_the_credentials_directory() {
     world.commit("agents/decisions/new.md", "landed\n");
     let record = world.record_push_header();
     south_land::land(&world.config("true"), &world.environment(), &world.mbox()).expect("lands");
-    let expected = format!("Authorization: Basic {}", base64(format!("x-access-token:{FILE_TOKEN}").as_bytes()));
+    let expected = "Authorization: Basic eC1hY2Nlc3MtdG9rZW46Z2hzX2Zyb21fdGhlX2NyZWRlbnRpYWxzX2ZpbGU=";
     assert_eq!(fs::read_to_string(record).expect("hook ran"), expected);
 }
 

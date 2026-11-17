@@ -115,7 +115,7 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.scope_class(), &unit));
             let usual = Usual::of(request.estimate.as_ref().map(|estimate| &estimate["duration"]), timeout_seconds);
-            let overrun = Overrun::watch(env(north_fleet_store::runtime::SESSION_ENV), subject, usual);
+            let overrun = Overrun::watch(env(north_base::platform::session_scope::SESSION), subject, usual);
             let code = supervise(child, &unit, terminations, overrun).await;
             start = subject_start::start(&witness, launched, now_ms() / 1000.0);
             let exit = Exit::judge(code, &witness);

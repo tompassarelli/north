@@ -65,12 +65,12 @@ fn a_lane_changing_only_harness_data_runs_the_tests_that_read_it() {
     let (base, head) = harness_data_repo(&repo);
     let commands = super::super::select::Config::load(&repo, &head).commands(&repo, &base, &head).unwrap();
     assert!(commands.iter().any(|command| command.contains("SAFE_PUSH_LAND_IT")), "the Rust test check fires for a harness-data-only lane: {commands:?}");
-    let answer = r#"{"tests":["north-fleet fleet::supervisor::tests::reads_defaults"],"always":[],"added":[],"files":[],"untraced":null,"known":1}"#;
+    let answer = r#"{"tests":["north-landing fleet::supervisor::tests::reads_defaults"],"always":[],"added":[],"files":[],"untraced":null,"known":1}"#;
     let graph = graph_stub(directory.path(), "graph", &format!("printf '%s' '{answer}'"));
-    let selection = selection_asking_with(&graph, &repo, &base, &head, Stage::BeforePush, |_| listing(&["north-fleet fleet::supervisor::tests::reads_defaults"])).unwrap();
+    let selection = selection_asking_with(&graph, &repo, &base, &head, Stage::BeforePush, |_| listing(&["north-landing fleet::supervisor::tests::reads_defaults"])).unwrap();
     a_change_only_inside_a_separate_workspace_runs_no_test_before_the_push_when_the_graph_reaches_none();
-    assert!(selection.arguments().contains("(binary_id(north-fleet)&(test(=fleet::supervisor::tests::reads_defaults)))"), "the test that reads harness/defaults.toml runs: {}", selection.arguments());
-    assert!(selection.packages().contains("north-fleet"), "the package of that test is built: {:?}", selection.packages());
+    assert!(selection.arguments().contains("(binary_id(north-landing)&(test(=fleet::supervisor::tests::reads_defaults)))"), "the test that reads harness/defaults.toml runs: {}", selection.arguments());
+    assert!(selection.packages().contains("north-landing"), "the package of that test is built: {:?}", selection.packages());
 
     let traced = super::super::graph_selection::Tests::parse(r#"{"tests":["north-a a::whole","north-gone gone::test"],"added":[{"package":"north-a","name":"a::unknown"}],"known":2}"#).unwrap();
     let listed = BTreeMap::from([

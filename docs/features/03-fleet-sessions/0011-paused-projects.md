@@ -1,1 +1,0 @@
-- Paused projects (north#636): a `[projects.NAME]` table in orchestration.toml with `paused = true` sets that project aside: `north fleet dispatch` prints `paused NAME` once and launches none of its issues.

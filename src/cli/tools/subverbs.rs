@@ -71,8 +71,7 @@ fn mutant_runs(arguments: &[String]) -> u8 {
 }
 
 const LAND: &[(&str, Run)] = &[
-    ("adopt", super::super::land_adopt::run),
-    ("abandon", |arguments| land_abandon::abandon(arguments, &super::super::abandon_witness::FleetWitness)),
+    ("abandon", |arguments| land_abandon::abandon(arguments, &super::super::abandon_witness::PushWitness)),
     ("actions", land_actions::run),
     ("fails-first-runs", fails_first_runs),
     ("mutant-runs", mutant_runs),
