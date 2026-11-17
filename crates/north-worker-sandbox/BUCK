@@ -71,7 +71,6 @@ north_rust_test(
         "//crates/north-broker:north-broker",
         "//crates/north-capacity-host:north-capacity-host",
         "//crates/north-capacity:north-capacity",
-        "//crates/north-control-plane:north-control-plane",
         "//crates/north-foundation:north-foundation",
         "//crates/north-lanes:north-lanes",
         "//crates/north-offload:north-offload",

@@ -5,8 +5,10 @@ use std::process::Output;
 
 
 pub(super) mod ask;
+mod billing;
 pub(super) mod gemini;
 pub(super) mod judge_model;
+mod operational;
 pub(super) mod session;
 
 fn home() -> PathBuf {

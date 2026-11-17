@@ -9,7 +9,7 @@ use crate::land::candidate::git;
 use crate::land::checks::Verdict;
 use crate::land::heartbeat::Step;
 use crate::land::push_refusal::Refusal;
-use crate::land::records::{self, Candidate, Decision};
+use crate::land::records::{self, Decision};
 use crate::land::steps;
 use crate::land::telemetry::Stages;
 use crate::land::watch::{LandedLane, Watch};
@@ -61,7 +61,7 @@ impl Serve<'_> {
                 after::abandon(self);
                 let refusal = format!("failed origin refused the push of {head}: {line}");
                 for (path, ticket) in included {
-                    records::write(self, path, ticket, &Candidate { head, batch_size: included.len(), stages: &stages }, &Decision::Refused { verdict: &refusal });
+                    records::settle(self, ticket, &Decision::Refused { verdict: &refusal });
                     bisect::decide(path, ticket, refusal.clone(), None, base)?;
                 }
                 return Ok(ControlFlow::Break(Flow::Done(Round::Progress)));

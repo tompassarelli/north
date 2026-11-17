@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use std::time::SystemTime;
 
 use north_foundation::foundation::exit::{ALREADY_PLACED_STATUS, NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 
@@ -12,7 +11,7 @@ use north_base::platform::land_queue::ROUND;
 use super::{BASE_FAILS, BROKEN_BASE};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
-use super::{Shared, host_name, say, timeout_row, warn};
+use super::{Shared, host_name, say, warn};
 use super::checkout::BaseTree;
 use super::lane_scope;
 use super::attribution::{self, Attribution, LaneRun};
@@ -50,7 +49,6 @@ impl Shared {
             if base == Base::Exceeded {
                 let _ = timings.exceeded_on_base_too(command, &class, timeout);
             }
-            self.record_timeout(command, timeout, started);
             return self.judge_hang(command, timeout, base, &ran.log);
         }
         let commands = [command.to_owned()];
@@ -61,12 +59,6 @@ impl Shared {
         self.cache_record(0, &commands).await;
         let _ = fs::remove_file(&ran.log);
         0
-    }
-
-    fn record_timeout(&self, command: &str, deadline: u64, started: u64) {
-        let finished = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(started, |since| since.as_secs());
-        let (base, candidate, tree) = (&self.arguments.base, &self.arguments.head, &self.trees.head);
-        timeout_row::record(&self.environment.north, &self.root, &timeout_row::Timeout { base, candidate, tree, command, deadline, started, finished });
     }
 
     async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {

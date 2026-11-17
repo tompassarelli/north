@@ -2,5 +2,5 @@
 name = "north-ci"
 layer = 6
 paths = ["crates/north-ci/src/**"]
-may_use = ["north-base", "north-github-mirror"]
+may_use = ["north-base"]
 

@@ -3,7 +3,7 @@ Tier: worker
 Surface: ts
 Needs: local-state
 
-Goal: a recurring structure and test-value review of {{repo}}, filed as a box by the `code-health-review` flow detector because the review signal fired. The box names the reasons that fired and the cost measured since the last review (north graph, `north-graph-loops` writer `code-health`).
+Goal: a recurring structure and test-value review of {{repo}}, filed as a box by the `code-health-review` flow detector because the review signal fired. The box names the reasons that fired and the cost measured since the last review.
 
 In this brief {{repo}} is the repository the box names, {{checkout}} is `~/code/{{repo}}/main`, and {{list}} is `~/.local/state/agents/handoffs/code-health-{{repo}}-list.md`.
 

@@ -16,11 +16,6 @@ pub(super) fn code_health(arguments: &[String]) -> u8 {
     }
 }
 
-pub(super) fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
-    let words: Vec<String> = std::iter::once(verb.to_owned()).chain(arguments.iter().cloned()).collect();
-    crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread), &[])
-}
-
 fn fails_first_runs(arguments: &[String]) -> u8 {
     let [runs, names @ ..] = arguments else {
         eprintln!("usage: north land fails-first-runs RUNS NAME...");
@@ -82,7 +77,6 @@ const LAND: &[(&str, Run)] = &[
     ("red-check", red_check::run),
     ("release", north_safe_push::entry::release),
     ("tests", land_test_runner::run),
-    ("train", |arguments| ledger_verb("land-train", arguments)),
 ];
 
 pub(super) fn land(arguments: &[String]) -> u8 {

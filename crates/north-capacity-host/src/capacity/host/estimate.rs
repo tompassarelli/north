@@ -1,9 +1,10 @@
-use north_graph_loops::Estimate;
 use regex::Regex;
 use serde_json::{Value, json};
 
 use super::json::{num, opt};
 use super::policy::{high_confidence_runs, learned_minimum_runs, owner_prefix, resource_class, sizing_runs};
+
+type Estimate = std::collections::BTreeMap<String, f64>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TaskSignature {

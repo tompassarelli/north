@@ -7,7 +7,6 @@ use serde_json::Value;
 use super::after::{self, LandedLane};
 use super::candidate::{self, Pick};
 use super::lane_gates;
-use super::incidents::{self, Noticed};
 use super::lander::Lander;
 use super::push_refusal::Refusal;
 use super::queue::Ticket;
@@ -18,7 +17,6 @@ use super::watch;
 use super::withdraw::find;
 
 pub const USAGE: &str = "usage: north land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]";
-pub const CLASS: &str = "lander-break-glass";
 const WORKTREE: &str = "lander-break-glass";
 
 struct Options {
@@ -113,8 +111,6 @@ fn land(lander: &Lander, path: &Path, ticket: &Ticket, reason: &str) -> Result<S
     }
     stages.mark("push");
     let tip = built.tips.first().cloned().unwrap_or_else(|| head.to_owned());
-    let detail = format!("break-glass push of {} as {tip} onto {base}: {reason}", ticket.branch);
-    incidents::record(&lander.queue, path, ticket, Some(Noticed { class: CLASS, key: format!("{CLASS}:{}@{tip}", ticket.branch), noticed_by: "tom", detail: &detail }));
     if let Err(error) = watch::hand_off(lander, &base, head, vec![LandedLane { ticket: ticket.clone(), tip: tip.clone() }]) {
         println!("north land: could not hand the after-landing run of {head} to the lander, which starts it on its next restart: {error}");
     }

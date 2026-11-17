@@ -1,6 +1,0 @@
-[[crate_dag.crate]]
-name = "north-pace"
-layer = 3
-paths = ["crates/north-pace/src/**"]
-may_use = ["north-base", "north-strategy-types"]
-

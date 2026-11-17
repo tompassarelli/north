@@ -14,8 +14,7 @@ use crate::land::heartbeat::Step;
 use crate::land::jobs;
 use crate::land::lander::Lander;
 use crate::land::queue::{self, Ticket};
-use crate::land::records::{self, Candidate, Decision};
-use crate::land::telemetry::Stages;
+use crate::land::records::{self, Decision};
 use crate::land::watch::Watch;
 use crate::land::{lander_fix, pause, steps, unjudged, unreviewed};
 use super::private_kinds;
@@ -184,12 +183,12 @@ impl Serve<'_> {
                     if verdict.starts_with("landed ") {
                         after::cleanup::report(self, path, ticket);
                     }
-                    records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict });
+                    records::settle(self, ticket, &Decision::Refused { verdict });
                     bisect::decide(path, ticket, verdict.to_owned(), None, attempt.base)?;
                     pass.progressed = true;
                 }
                 Pick::Refused(refused) => {
-                    records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict: &refused.verdict });
+                    records::settle(self, ticket, &Decision::Refused { verdict: &refused.verdict });
                     bisect::decide(path, ticket, refused.verdict.clone(), Some(&refused.log), attempt.base)?;
                     pass.progressed = true;
                 }

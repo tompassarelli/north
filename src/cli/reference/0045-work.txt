@@ -1,1 +1,0 @@
-  work close REPO#N --comment RESULT            Close a work item with its result

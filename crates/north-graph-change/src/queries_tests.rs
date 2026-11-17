@@ -62,7 +62,7 @@ fn blame_points_each_failure_at_the_lanes_holding_it_in_their_cone_their_added_t
     let losses = cone::of(&facts, &changed(&["src/cli/scoreboard/losses.rs"], hunk("src/cli/scoreboard/losses.rs", 20)), Some(&Hunks::new())).unwrap();
     let relay = cone::of(&facts, &changed(&["crates/north-landing/src/land/upward.rs"], hunk("crates/north-landing/src/land/upward.rs", 12)), Some(&Hunks::new())).unwrap();
     let climb = Cone { untraced: Some("Cargo.lock does not parse".to_owned()), files: vec!["Cargo.lock".to_owned(), "crates/north-climb/src/lineage.rs".to_owned()], ..Cone::default() };
-    let claims = Cone { added: vec![Added { package: "north-threads".to_owned(), name: "a_refused_claim_release_row".to_owned() }], files: vec!["crates/north-threads/src/threads/client/tests.rs".to_owned()], ..Cone::default() };
+    let claims = Cone { added: vec![Added { package: "north-widgets".to_owned(), name: "a_refused_claim_release_row".to_owned() }], files: vec!["crates/north-widgets/src/threads/client/tests.rs".to_owned()], ..Cone::default() };
     let suspects = [Suspect { name: "n909-relay", cone: &relay }, Suspect { name: "n903-losses", cone: &losses }, Suspect { name: "n882-climb", cone: &climb }, Suspect { name: "n706-claims", cone: &claims }];
     let log = "        FAIL [   3.430s] (  51/1148) north::it agent_text_reads
   stdout ───
@@ -86,10 +86,10 @@ fn blame_points_each_failure_at_the_lanes_holding_it_in_their_cone_their_added_t
   stderr ───
 
     crates/north-climb/src/lineage.rs is not embedded
-        FAIL [   0.120s] (  54/1148) north-threads threads::client::tests::a_refused_claim_release_row
+        FAIL [   0.120s] (  54/1148) north-widgets threads::client::tests::a_refused_claim_release_row
   stderr ───
 
-    thread 'threads::client::tests::a_refused_claim_release_row' panicked at crates/north-threads/src/threads/client/tests.rs:40:9:
+    thread 'threads::client::tests::a_refused_claim_release_row' panicked at crates/north-widgets/src/threads/client/tests.rs:40:9:
     the release row was not sent again
 docs/references.md cites crates/north-climb/src/lineage.rs
 ";

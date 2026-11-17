@@ -1,1 +1,0 @@
-  work release REPO#N [--to NAME]               Release a claim, or hand it to another holder

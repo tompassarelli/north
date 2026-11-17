@@ -21,7 +21,6 @@ north-foundation = { path = "../north-foundation" }
 
 
 [dev-dependencies]
-north-graph-ground = { path = "../north-graph-ground" }
 tempfile.workspace = true
 
 [lints]

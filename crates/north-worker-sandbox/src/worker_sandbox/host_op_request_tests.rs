@@ -78,7 +78,7 @@ impl Reach for Brokers {
     fn run(&self, _destination: Option<&str>, program: &str, arguments: &[String]) -> Result<String, String> {
         let last = arguments.last().map(String::as_str).unwrap_or_default();
         Ok(match (program, last) {
-            ("systemctl", "--state=active") => "north-worker-outside-895305.service loaded active running north\nnorth-pace.service loaded active running pace\n".to_owned(),
+            ("systemctl", "--state=active") => "north-worker-outside-895305.service loaded active running north\nnorth-other.service loaded active running other\n".to_owned(),
             ("systemctl", "north-worker-outside-895305.service") => "3546268\n".to_owned(),
             ("readlink", exe) if exe.ends_with("/3546268/exe") => "/home/tom/.local/state/north/runtimes/acf49643/north\n".to_owned(),
             ("systemctl", _) => "Id=north-worker-outside.service\nActiveState=inactive\n".to_owned(),
@@ -93,5 +93,5 @@ fn the_broker_units_state_names_each_handed_over_broker_with_the_runtime_it_runs
     let lead = host(&scratch.path().canonicalize().unwrap(), "lead");
     let told = serve(ask(&["host-op", "state", "cpx62b", "north-worker-outside.service"]).unwrap(), &Peer::from(Some(SCOPE)), &lead, &Listed::harness(), &Brokers).unwrap();
     assert!(told.contains("broker north-worker-outside-895305.service pid 3546268 runs /home/tom/.local/state/north/runtimes/acf49643/north"), "{told}");
-    assert!(!told.contains("north-pace"), "{told}");
+    assert!(!told.contains("north-other"), "{told}");
 }

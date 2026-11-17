@@ -1,6 +1,0 @@
-[[module]]
-name = "unblocks"
-paths = ["crates/north-unblocks/src/**"]
-responsibility = "The coordinator's manual unblocks by class, and the refusal of the second of one class within a day that names no owned class-fix issue."
-may_use = ["platform.github", "platform.process", "platform.harness", "threads", "github_mirror"]
-

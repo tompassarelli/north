@@ -2,7 +2,6 @@
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Kind {
-    Delegate,
     ChildMessage,
     Brief,
     Bookkeeping,

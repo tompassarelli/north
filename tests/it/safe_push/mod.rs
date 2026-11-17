@@ -237,7 +237,6 @@ impl<'a> Run<'a> {
             .env("HOME", scratch.join("home"))
             .env_remove("SAFE_PUSH_DENYLIST")
             .env_remove("SAFE_PUSH_SOUTH")
-            .env("THREADS_DB", scratch.join("threads.db"))
             .stdin(Stdio::null())
             .stderr(Stdio::from(sink.try_clone().unwrap()))
             .stdout(Stdio::from(sink));

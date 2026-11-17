@@ -17,7 +17,7 @@ use north_base::platform::push_ledger;
 use super::candidate::git;
 use super::queue::{self, Ticket};
 use super::lander::{Lander, state_home};
-use super::records::{self, Candidate, Decision};
+use super::records::{self, Decision};
 use super::telemetry::{self, Stages};
 use super::trace;
 
@@ -131,7 +131,7 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
         if let Err(error) = stages.flush(&state, &repository, &ticket.branch) {
             println!("north land: could not record stages of {}: {error}", ticket.branch);
         }
-        records::write(lander, &path, &ticket, &Candidate { head, batch_size, stages }, &Decision::Landed { sha: &tip });
+        records::settle(lander, &ticket, &Decision::Landed { sha: &tip });
         notify(lander, &name, &ticket, &tip);
         cleanup::report(lander, &path, &ticket);
         println!("north land: {} ({}): landed {tip} in {head}", ticket.branch, ticket.head);

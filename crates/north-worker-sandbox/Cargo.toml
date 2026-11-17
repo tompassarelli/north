@@ -27,7 +27,6 @@ toml_edit.workspace = true
 
 [dev-dependencies]
 north-broker = { path = "../north-broker" }
-north-control-plane = { path = "../north-control-plane" }
 north-lanes = { path = "../north-lanes" }
 
 [lints]

@@ -17,11 +17,6 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 |---|---|---|---|---|
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.role reviewer, judge | crates/north-base/src/platform/run_roles.rs ingest_role (stored at ingest for a finished worker; ROLE_SQL still reads rows stored before 2026-11-04) | calibration, ledger/closed_source.rs | read | |
-| runs.note, report, session, role | crates/north-threads/src/threads/runs | `threads show`, role filters | read | |
-| run_usage | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs/mod.rs allocate into run_costs | read | |
-| run_costs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs/mod.rs rolls into runs.cost_usd | read | |
-| usage | crates/north-pace/src/usage/refresh/ | crates/north-pace/src/usage/store.rs latest, routing and the pace gate | read | |
-| claims.eta_min | crates/north-threads/src/threads/claims/ledger.rs take | crates/north-threads/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; src/cli/work_items.rs:155 | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
 | usage log cores, memory, cwd | crates/north-capacity-host/src/capacity/host/run/outcome.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate_capacity through crates/north-capacity-host/src/capacity/host/usage_log.rs history | read | |
@@ -29,15 +24,9 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | usage log io, diskBusyShare | crates/north-capacity-host/src/capacity/host/run/outcome.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate output | read | |
 | usage log exitCode | crates/north-capacity-host/src/capacity/host/run/outcome.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | usage log command, censored | crates/north-capacity-host/src/capacity/host/run/outcome.rs usage_entry | crates/north-capacity-host/src/capacity/host/usage_log.rs history signs a run by its command; crates/north-capacity-host/src/capacity/host/sizing.rs censored_floor raises a censored command's memory charge | read | |
-| job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs | read | |
 | machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/usage_log.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
-| S:costs.toml | hand | crates/north-pace/src/usage/settings.rs services | read | |
-| costs/*.json | crates/north-pace/src/usage/refresh/digitalocean.rs | crates/north-pace/src/usage/settings.rs service lines | read | |
-| incidents (class, noticed_by, started_at, detected_at, fixed_at, guard, recurred_after_guard) | north ledger incident record from the lander (crates/north-landing/src/land/incidents.rs, every verdict but landed and every held candidate) and north land withdraw | crates/north-threads/src/threads/incidents/report.rs, printed by north ledger flow per 7 days and north ledger incident report | read | |
-| incident_guards (class, guard, landed_at, issue) | north ledger incident guard | crates/north-threads/src/threads/incidents/mod.rs insert marks a later row of the class recurred_after_guard | read | |
-| harness/model-catalog.toml | hand | crates/north-pace/src/usage/settings.rs CATALOG | read | |
 The definitions of the activity columns, attempt chains, rework and unjudged runs, with the dated measurements behind them, are in [learned routing and goal ETA measurements](rationale/learned-routing-and-goal-eta.md#signal-definitions-and-measurements-moved-from-the-feedback-loop).
 
 ## File signals
@@ -46,7 +35,6 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 
 | signal file | reader stamp | writer | cadence | owner |
 |---|---|---|---|---|
-| `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` | crates/north-pace/src/usage/gate.rs | 5m | north#35 |
 | `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-capacity-host/src/capacity/host/usage_log.rs | event | north#35 |
 
 ## Recorded readings

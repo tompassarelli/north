@@ -515,19 +515,15 @@ dependencies = [
  "north-ci",
  "north-code-health",
  "north-concerns",
- "north-control-plane",
  "north-coverage",
  "north-credentials",
  "north-diff-gates",
  "north-docs",
  "north-foundation",
  "north-github-broker",
- "north-github-mirror",
  "north-graph",
  "north-graph-change",
- "north-graph-ground",
  "north-graph-ingest",
- "north-graph-loops",
  "north-guard",
  "north-land-scans",
  "north-lander",
@@ -536,7 +532,6 @@ dependencies = [
  "north-lanes",
  "north-mutants",
  "north-offload",
- "north-pace",
  "north-reclaim",
  "north-registries",
  "north-remote-serve",
@@ -544,8 +539,6 @@ dependencies = [
  "north-safe-push",
  "north-shared-config",
  "north-strategy-types",
- "north-threads",
- "north-unblocks",
  "north-worker-sandbox",
  "percent-encoding",
  "regex",
@@ -679,9 +672,7 @@ dependencies = [
  "north-base",
  "north-capacity",
  "north-foundation",
- "north-graph-loops",
  "north-runtime-follow",
- "north-threads",
  "proptest",
  "regex",
  "rusqlite",
@@ -756,13 +747,6 @@ dependencies = [
  "north-foundation",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "north-control-plane"
-version = "0.1.0"
-dependencies = [
- "north-base",
 ]
 
 [[package]]
@@ -859,17 +843,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "north-github-mirror"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-foundation",
- "rusqlite",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "north-graph"
 version = "0.1.0"
 dependencies = [
@@ -894,17 +867,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "north-graph-ground"
-version = "0.1.0"
-dependencies = [
- "north-foundation",
- "north-graph",
- "regex",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "north-graph-ingest"
 version = "0.1.0"
 dependencies = [
@@ -912,21 +874,11 @@ dependencies = [
  "north-coverage",
  "north-foundation",
  "north-graph",
- "north-graph-ground",
  "regex",
  "rusqlite",
  "serde_json",
  "tempfile",
  "toml_edit",
-]
-
-[[package]]
-name = "north-graph-loops"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-graph",
- "serde_json",
 ]
 
 [[package]]
@@ -1136,25 +1088,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "north-pace"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-foundation",
- "north-strategy-types",
- "proptest",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "time",
- "toml_edit",
-]
-
-[[package]]
 name = "north-publish"
 version = "0.1.0"
 dependencies = [
@@ -1315,42 +1248,10 @@ name = "north-test-cases"
 version = "0.1.0"
 
 [[package]]
-name = "north-threads"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-control-plane",
- "north-foundation",
- "north-publish",
- "north-strategy-types",
- "regex",
- "rusqlite",
- "rustix 0.38.44",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "toml_edit",
-]
-
-[[package]]
 name = "north-trusted-mirror"
 version = "0.1.0"
 dependencies = [
  "tempfile",
-]
-
-[[package]]
-name = "north-unblocks"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-github-mirror",
- "north-threads",
- "rusqlite",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1376,7 +1277,6 @@ dependencies = [
  "north-broker",
  "north-capacity",
  "north-capacity-host",
- "north-control-plane",
  "north-foundation",
  "north-lanes",
  "north-offload",

@@ -55,7 +55,6 @@ echo app-token
 const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
 [ "$1 $2" != "land checks" ] || env >"$LAND_TRACE/after-env"
-if { [ "$1 $2" = "land train" ] || [ "$1" = incident ]; } && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" exec "$LAND_REAL_NORTH" "$@"; fi
 if [ "$1 $2" = "land checks" ] && { [ -e "$LAND_TRACE/post-land-fail" ] || { [ -f "$LAND_TRACE/post-land-red-if" ] && [ -e "$(cat "$LAND_TRACE/post-land-red-if")" ]; }; }; then echo "test after_landing_probe ... FAILED"; outcome=; previous=; for argument in "$@"; do [ "$previous" != --outcome ] || outcome=$argument; previous=$argument; done; [ -z "$outcome" ] || printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
 if [ "$1 $2 $3" = "capacity offload run" ]; then
   tree=; previous=
@@ -116,7 +115,6 @@ fn build_template(root: &Path) {
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "base"]);
     git(&repo, &["push", "-q", "origin", "main"]);
-    fs::write(root.join("threads.db"), b"").unwrap();
     executable(&trace.join("checker"), CHECKER);
     executable(&trace.join("north"), NORTH);
     executable(&trace.join("mint"), MINT);
@@ -201,8 +199,6 @@ impl Fixture {
             .env("LAND_TRACE", &self.trace)
             .env("NORTH_LAND_NORTH", self.trace.join("north"))
             .env("LAND_ORIGIN", &self.origin)
-            .env("LAND_LEDGER", self.root.join("threads.db"))
-            .env("LAND_REAL_NORTH", crate::support::bin_exe!("CARGO_BIN_EXE_north"))
             .env("LAND_REPO", &self.repo)
             .env("FAKE_REMOTE_HOMES", self.root.join("remote-homes"))
             .env("GH_TOKEN", "push-token")

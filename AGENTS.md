@@ -27,11 +27,9 @@ Build output stays in the worktree's `target/`.
 ## Routers
 
 - Before changing `crates/north-safe-push`, `.safe-push` or `crates/north-landing/src/landing/mod.rs`, read [docs/landing.md](docs/landing.md) for how a lane reaches main.
-- Before changing `crates/north-threads/src/threads/staffing/mod.rs` or `crates/north-pace/src/router.rs`, read [docs/briefing.md](docs/briefing.md) and the [staffing and routing](docs/features/02-staffing-and-routing/) features.
 - Before changing `crates/north-capacity/src/capacity/admission/` or a tuned number in `harness/defaults.toml`, read the [machine-capacity skill](harness/skills/machine-capacity/SKILL.md) and the [capacity](docs/features/08-machines-capacity-and-scheduled-jobs/) features.
 - Before changing `harness/policy-owners.toml`, the hook dispatcher `crates/north-guard/src/hook.rs` or a skill per `harness/SKILL-ARCHITECTURE.md`, read [docs/operator-repository.md](docs/operator-repository.md) and the [agent-policy skill](harness/skills/agent-policy/SKILL.md).
 - Before changing the policy gate in `crates/north-agent-policy/src/agent_config_check/gate.rs` or `north config agents sync`, read [docs/onboarding.md](docs/onboarding.md) for how policy is published.
-- Before changing what `crates/north-threads/src/threads/runs/record.rs` records, read [docs/feedback-loop.md](docs/feedback-loop.md) for each signal and the reader that acts on it.
 - Before changing `crates/north-graph/` or what `north graph` reads, read [docs/graph.md](docs/graph.md) for the fact graph.
 - Before citing an outside source in a doc or a commit, record it in [docs/references.md](docs/references.md).
 - Before adding or changing a command, add its entry under `docs/features/`, its kind under `src/cli/verbs/`, its reference line under `src/cli/reference/` and, when `north --help` lists it, its file under `src/cli/help/`; any table of `structure.toml` goes under `structure/`. The features index is not tracked and `src/cli/help.txt`, `src/cli/reference.txt`, `src/cli/verbs.rs` and `structure.toml` are written from those trees: the build writes the compile-time registries before the crate compiles, `north docs` and the lander write the rest, and the lander rewrites any of them a lane commits.

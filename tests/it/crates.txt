@@ -15,8 +15,6 @@ lane_gc_journeys north-guard
 runtime_update north-runtime
 worker_sandbox north-worker-sandbox north-runtime north
 support north
-threads_ledger north-threads
-threads_snapshot north-threads
 capacity_agent_compile north-capacity north-capacity-host north-runtime
 cargo_config north
 agent_text_reads north # tree-wide: counts agent-text reads in every Rust source under src/ and crates/

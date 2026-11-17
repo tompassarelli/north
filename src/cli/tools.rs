@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
 use self::graph::graph;
 use self::work_split::work_split;
-use self::subverbs::{Run, code_health, home, lane, land, ledger_verb, ops, runner, runtime};
+use self::subverbs::{Run, code_health, home, lane, land, ops, runner, runtime};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
     provenance,
@@ -21,7 +21,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("autoland-status", autoland_status::run),
     ("check", check),
     ("land", land),
-    ("cause", |arguments| ledger_verb("cause", arguments)),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
     ("merge-driver", merge_set::run),
@@ -38,12 +37,10 @@ const UNIFORM: &[(&str, Run)] = &[
     ("graph", graph),
     ("docs", north_docs::docs::run),
     ("proof-run", super::proof_run::run),
-    ("control-plane", super::control_plane::run),
     ("ops", ops),
     ("private-check", crate::private_check::run),
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),
-    ("github-mirror", crate::github_mirror::sync::run),
     ("gh-session", |arguments| crate::platform::gh_session::run(arguments, crate::guard::gh_screen::screen)),
     ("ssh-session", crate::platform::ssh_session::run),
     ("ssh-master", crate::platform::ssh_master::run),
@@ -143,7 +140,7 @@ fn disclosure_judge(arguments: &[String]) -> u8 {
 }
 
 fn concerns(arguments: &[String]) -> u8 {
-    north_concerns::run(arguments, &super::concern_history::LedgerHistory)
+    north_concerns::run(arguments, &super::concern_history::NoHistory)
 }
 
 fn check(arguments: &[String]) -> u8 {
@@ -182,7 +179,7 @@ fn config(arguments: &[String]) -> u8 {
 
 const TEST: &[(&str, Run)] = &[
     ("coverage", north_coverage::run),
-    ("mutant", |arguments| north_mutants::cli::run(arguments, &super::mutant_issues::MirrorIssues, crate::land::scans::test_admission::contract_tests)),
+    ("mutant", |arguments| north_mutants::cli::run(arguments, &super::mutant_issues::GhIssues, crate::land::scans::test_admission::contract_tests)),
 ];
 
 fn work(arguments: &[String]) -> u8 {

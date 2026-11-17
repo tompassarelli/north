@@ -1,6 +1,0 @@
-[[module]]
-name = "github_mirror"
-paths = ["crates/north-github-mirror/src/**"]
-responsibility = "The local copy of GitHub issues, CI runs and check results, kept by conditional reads, that pollers read instead of GitHub."
-may_use = ["crate-roots", "foundation", "lifecycle", "platform", "platform.github", "platform.process"]
-

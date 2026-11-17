@@ -259,7 +259,7 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
     fs::write(repo.join(".safe-push"), fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.safe-push")).unwrap()).unwrap();
     fs::write(repo.join("Cargo.toml"), "[workspace]\n").unwrap();
     let base = commit(repo, "main carries north's land lines");
-    for (path, text) in [("crates/north-context-pack/src/pack.rs", "use north_graph_ground::ground;\n"), ("docs/rationale/experiments.toml", "[[experiment]]\nname = \"context-pack\"\n")] {
+    for (path, text) in [("crates/north-context-pack/src/pack.rs", "use north_widgets::ground;\n"), ("docs/rationale/experiments.toml", "[[experiment]]\nname = \"context-pack\"\n")] {
         fs::create_dir_all(repo.join(path).parent().unwrap()).unwrap();
         fs::write(repo.join(path), text).unwrap();
     }

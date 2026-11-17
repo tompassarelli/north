@@ -7,8 +7,7 @@ use crate::land::bisect;
 use crate::land::checks::Verdict;
 use crate::land::lander::Lander;
 use crate::land::queue::{self, Ticket};
-use crate::land::records::{self, Candidate, Decision};
-use crate::land::telemetry::Stages;
+use crate::land::records::{self, Decision};
 use crate::land::watch::Watch;
 use north_base::platform::push_ledger::repository;
 
@@ -40,7 +39,7 @@ pub(super) fn start(lander: &Lander, watch: &mut Watch, (path, ticket): (&PathBu
             watch.alone = Some(flight);
             Ok(false)
         }
-        Err(verdict) => decide(lander, (path, ticket), candidate, base, &log, verdict),
+        Err(verdict) => decide(lander, (path, ticket), base, &log, verdict),
     }
 }
 
@@ -49,7 +48,7 @@ pub(super) fn settle(lander: &Lander, watch: &mut Watch) -> Result<bool, String>
     let Some(flight) = watch.alone.take() else { return Ok(false) };
     let record = flight.record;
     match queue::read(&record.ticket) {
-        Ok(ticket) if ticket.head == record.head => decide(lander, (&record.ticket, &ticket), &record.candidate, &record.base, &record.log, verdict),
+        Ok(ticket) if ticket.head == record.head => decide(lander, (&record.ticket, &ticket), &record.base, &record.log, verdict),
         _ => {
             println!("north land: {} was decided or moved on while its alone check ran; its verdict is dropped", record.branch);
             Ok(true)
@@ -57,7 +56,7 @@ pub(super) fn settle(lander: &Lander, watch: &mut Watch) -> Result<bool, String>
     }
 }
 
-fn decide(lander: &Lander, (path, ticket): (&PathBuf, &Ticket), head: &str, base: &str, log: &Path, verdict: Verdict) -> Result<bool, String> {
+fn decide(lander: &Lander, (path, ticket): (&PathBuf, &Ticket), base: &str, log: &Path, verdict: Verdict) -> Result<bool, String> {
     match verdict {
         Verdict::Green => {
             let checked = Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), ..ticket.clone() };
@@ -66,13 +65,13 @@ fn decide(lander: &Lander, (path, ticket): (&PathBuf, &Ticket), head: &str, base
         }
         Verdict::Refused(_) => {
             let verdict = format!("failed {}", log.display());
-            records::write(lander, path, ticket, &Candidate { head, batch_size: 1, stages: &Stages::empty() }, &Decision::Refused { verdict: &verdict });
+            records::settle(lander, ticket, &Decision::Refused { verdict: &verdict });
             bisect::decide(path, ticket, verdict, Some(log), base)?;
         }
         other if ticket.alone_unsettled.as_deref() == Some(ticket.head.as_str()) => {
             let (class, detail) = other.class();
             let verdict = format!("failed {}: its alone check reached no verdict twice ({class} {detail}), so it steps aside instead of holding the queue", log.display());
-            records::write(lander, path, ticket, &Candidate { head, batch_size: 1, stages: &Stages::empty() }, &Decision::Refused { verdict: &verdict });
+            records::settle(lander, ticket, &Decision::Refused { verdict: &verdict });
             bisect::decide(path, ticket, verdict, Some(log), base)?;
         }
         other => {

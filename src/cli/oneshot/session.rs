@@ -5,7 +5,7 @@ use north_foundation::foundation::limit_clock;
 
 use super::{env_or, home, text};
 use north_base::platform::process;
-use north_pace::spend::billing;
+use super::billing;
 
 const QUIET_WORD: &str = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1";
 /// Claude names its limit reset in this zone, the one `limit_clock` reads.
@@ -181,7 +181,7 @@ pub(crate) fn ask_claude_answered(question: &Ask, limit: Duration, warn: &mut dy
 fn ask_claude_with(question: &Ask, extra: &[&str], limit: Duration, warn: &mut dyn FnMut(String), answered_by: &mut Option<String>) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
     let shared = claude_accounts(&profiles);
-    let reserve = north_base::platform::orchestration::read().map(|policy| north_pace::spend::operational::declared(&policy)).unwrap_or_default();
+    let reserve = north_base::platform::orchestration::read().map(|policy| super::operational::declared(&policy)).unwrap_or_default();
     let answered = std::fs::read_to_string(answered_record()).ok();
     let subscription = subscription_order(shared, &reserve, answered.as_deref());
     let now_s = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
@@ -205,7 +205,7 @@ fn was_answered(reply: &Reply) -> bool {
 }
 
 fn subscription_order(shared: Vec<String>, reserve: &[String], answered: Option<&str>) -> Vec<String> {
-    answered_first(north_pace::spend::operational::order(reserve, shared), reserve, answered.map(str::trim))
+    answered_first(super::operational::order(reserve, shared), reserve, answered.map(str::trim))
 }
 
 fn login_refusal(dir: Option<&Path>) -> Option<String> {

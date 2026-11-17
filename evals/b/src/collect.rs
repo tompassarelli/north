@@ -8,7 +8,7 @@ use crate::proc::{TOOLPATH, rfc3339_epoch, run, ssh};
 
 const OPENCODE: &str = "opencode";
 const STORE: &str = "opencode-steps.jsonl";
-const PRICES: &str = include_str!("../../../crates/north-pace/src/router/prices.json");
+const PRICES: &str = include_str!("../prices.json");
 
 /// The assistant messages of `conversation` in the store of the opencode host that served `name`, one JSON object a line: the host keeps opencode's data under `north-opencode-NAME` in the temp directory of the launch that `--scratch` named.
 fn opencode_steps(name: &str, conversation: &str) -> String {
@@ -78,7 +78,7 @@ pub fn cost(dir: &Path, usage: &Value) -> (Option<f64>, Option<u64>) {
     usage["cost_usd"].as_f64().map_or_else(|| spend(dir), |dollars| (Some(dollars), total))
 }
 
-/// The tokens, models and first request of an opencode session's assistant messages, reasoning counted as output as north's opencode host counts it, priced at the list prices in `crates/north-pace/src/router/prices.json` because the Go plan records every request at zero.
+/// The tokens, models and first request of an opencode session's assistant messages, reasoning counted as output as north's opencode host counts it, priced at the list prices in `evals/b/prices.json` because the Go plan records every request at zero.
 fn opencode(text: &str) -> Value {
     let steps: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let prices: Value = serde_json::from_str(PRICES).unwrap_or(Value::Null);
@@ -97,7 +97,7 @@ fn opencode(text: &str) -> Value {
     json!({
         "first_request_at": steps.first().and_then(|s| s.pointer("/time/created")?.as_f64()).map(|ms| ms / 1000.0),
         "tokens": {"input": tokens[0], "output": tokens[1], "cache_read": tokens[2], "cache_write": tokens[3]},
-        "cost_usd": dollars.map(|d| (d * 1e6).round() / 1e6), "price_source": "crates/north-pace/src/router/prices.json",
+        "cost_usd": dollars.map(|d| (d * 1e6).round() / 1e6), "price_source": "evals/b/prices.json",
         "model_requests": steps.len(), "handins": null, "refusal_mentions": null,
         "models": unique(&|s| Some(model(s))), "efforts": unique(&|s| s["model"]["variant"].as_str().map(str::to_owned)), "claude_code": [],
         "records": steps.len(),

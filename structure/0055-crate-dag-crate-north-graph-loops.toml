@@ -1,6 +1,0 @@
-[[crate_dag.crate]]
-name = "north-graph-loops"
-layer = 2
-paths = ["crates/north-graph-loops/src/**"]
-may_use = ["north-base", "north-graph"]
-

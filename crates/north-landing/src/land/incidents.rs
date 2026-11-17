@@ -1,18 +1,4 @@
-use std::path::Path;
-
 use north_base::platform::attribution::{Cause, Harness};
-use north_base::platform::push_ledger;
-use super::queue::{self, Ticket};
-use super::{records, telemetry};
-
-pub const LANDER: &str = "lander";
-
-pub struct Noticed<'a> {
-    pub class: &'a str,
-    pub key: String,
-    pub noticed_by: &'a str,
-    pub detail: &'a str,
-}
 
 pub fn class(verdict: &str) -> Option<&'static str> {
     if verdict.contains("deadline") || verdict.contains(" hung") {
@@ -40,31 +26,6 @@ pub fn blame(verdict: &str) -> Option<Cause> {
         "lander-refused" | "lander-conflict" => Some(Cause::Worker),
         "lander-transient" | "lander-deferred" | "lander-hang" => Some(Cause::Harness(Harness::LandingRefusal)),
         _ => None,
-    }
-}
-
-pub fn arguments(path: &Path, ticket: &Ticket, noticed: &Noticed, at: f64) -> Vec<String> {
-    let mut arguments: Vec<String> = ["ledger", "incident", "record", "--key", &noticed.key, "--class", noticed.class, "--noticed-by", noticed.noticed_by].iter().map(|word| (*word).to_owned()).collect();
-    let mut flag = |name: &str, value: String| {
-        arguments.push(name.to_owned());
-        arguments.push(value);
-    };
-    flag("--repo", push_ledger::repository(&ticket.origin));
-    flag("--subject", ticket.branch.clone());
-    let queued = queue::queued_micros(path);
-    if queued != u128::MAX {
-        flag("--started-at", (queued as f64 / 1e6).to_string());
-    }
-    flag("--detected-at", at.to_string());
-    flag("--detail", noticed.detail.to_owned());
-    arguments
-}
-
-/// Records the incident through `north ledger incident record` in the background, as the landings row is.
-pub fn record(queue: &Path, path: &Path, ticket: &Ticket, noticed: Option<Noticed>) {
-    let Some(noticed) = noticed else { return };
-    if let Err(error) = records::spawn(queue, &arguments(path, ticket, &noticed, telemetry::epoch())) {
-        println!("north land: could not record the {} incident for {}: {error}", noticed.class, ticket.branch);
     }
 }
 

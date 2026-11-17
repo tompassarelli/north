@@ -78,7 +78,7 @@ fn the_shared_token_refuses_the_top_spenders_only_when_it_is_short_counts_a_roll
     let chain = |lines: &[&str]| lines.iter().map(|line| words(&line.split(' ').collect::<Vec<_>>())).collect::<Vec<_>>();
     assert_eq!(gh_origin::classify(&chain(&["/bin/north threads claim", "/bin/north hook", "bash north-hook.sh"])).kind, Kind::Hook, "a hook's nested north verbs still count as the hook");
     assert_eq!(gh_origin::classify(&chain(&["north fleet dispatch", "north fleet tick"])).kind, Kind::Tick);
-    assert_eq!(gh_origin::classify(&chain(&["bash -c gh", "north threads claim x"])).caller, "north-threads");
+    assert_eq!(gh_origin::classify(&chain(&["bash -c gh", "north work split x"])).caller, "north-work");
 
     let notices = scratch("notices");
     let at = |before, units, now| budget_notices("worker-1", &notices, before, units, 10, now, before + units > 10).into_iter().map(|(recipient, _)| recipient).collect::<Vec<_>>();

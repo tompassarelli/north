@@ -13,8 +13,6 @@ doctest = false
 north-runtime-follow = { path = "../north-runtime-follow" }
 north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
-north-graph-loops = { path = "../north-graph-loops" }
-north-threads = { path = "../north-threads", features = ["test-support"] }
 regex.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true
@@ -24,8 +22,6 @@ tempfile.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
 north-foundation = { path = "../north-foundation" }
-
-
 
 [dev-dependencies]
 north-capacity = { path = "../north-capacity", features = ["test-support"] }

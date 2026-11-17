@@ -1,15 +1,13 @@
 use clap::Parser;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-use super::after::{self, follow};
+use super::after;
 use super::candidate::git;
-use super::incidents::{self, Noticed};
 use super::lander::state_home;
 use super::queue::{self, Ticket};
 use north_base::land_ticket::{self, Phase};
 
-const USAGE: &str = "usage: north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]";
+const USAGE: &str = "usage: north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO]";
 
 #[derive(Parser)]
 #[command(no_binary_name = true, disable_help_flag = true, args_override_self = true)]
@@ -21,13 +19,11 @@ struct Options {
     repo: PathBuf,
     #[arg(long, allow_hyphen_values = true, default_value = "coordinator")]
     noticed_by: String,
-    #[arg(long, allow_hyphen_values = true, default_value = "lander-withdrawn")]
-    class: String,
 }
 
 fn parse(arguments: &[String]) -> Option<Options> {
     let options = Options::try_parse_from(arguments).ok()?;
-    (!options.reason.trim().is_empty() && !options.noticed_by.is_empty() && !options.class.is_empty()).then_some(options)
+    (!options.reason.trim().is_empty() && !options.noticed_by.is_empty()).then_some(options)
 }
 
 /// The queued ticket TICKET names, by file name with or without `.json` or by branch, newest first,
@@ -50,7 +46,7 @@ fn withdraw(queue: &Path, options: &Options) -> Result<String, String> {
     if seen == Some(Phase::Checking) {
         return Err(already(&path));
     }
-    let moved = match queue::withdraw_seen(&path, ticket.clone(), verdict.clone(), seen).map_err(|error| format!("{}: {error}", path.display()))? {
+    let moved = match queue::withdraw_seen(&path, ticket.clone(), verdict, seen).map_err(|error| format!("{}: {error}", path.display()))? {
         Ok(moved) => moved,
         Err(Some(Phase::Checking)) => return Err(already(&path)),
         Err(now) => return Err(format!("{}: its record is {now:?}, so it cannot be withdrawn", path.display())),
@@ -60,10 +56,6 @@ fn withdraw(queue: &Path, options: &Options) -> Result<String, String> {
         let told = after::send(session, &format!("north land: {} ({}) was withdrawn from the landing queue: {}", ticket.branch, ticket.head, options.reason.trim()));
         lines.push(if told { format!("north land: told session {session}") } else { format!("north land: could not tell session {session}") });
     }
-    let noticed = Noticed { class: &options.class, key: format!("withdrawn:{}@{}", moved.file_name().unwrap_or_default().to_string_lossy(), ticket.head), noticed_by: &options.noticed_by, detail: &verdict };
-    let arguments = incidents::arguments(&path, &ticket, &noticed, super::telemetry::epoch());
-    let recorded = Command::new(follow::program()).args(&arguments).status().map_err(|error| format!("{} incident record: {error}", follow::program()))?;
-    lines.push(if recorded.success() { format!("north land: recorded incident {}", noticed.key) } else { format!("north land: incident record exited {recorded}; the ticket stays withdrawn") });
     Ok(lines.join("\n"))
 }
 
@@ -104,7 +96,7 @@ mod tests {
         queue::write(&path, &ticket).unwrap();
         land_ticket::queued(&path, "enqueued").unwrap();
         Records::of(&path).unwrap().checking(std::slice::from_ref(&path)).unwrap();
-        let options = Options { ticket: "lane".into(), reason: "audit".into(), repo: ".".into(), noticed_by: "coordinator".into(), class: "lander-withdrawn".into() };
+        let options = Options { ticket: "lane".into(), reason: "audit".into(), repo: ".".into(), noticed_by: "coordinator".into() };
 
         let refused = withdraw(queue_dir.path(), &options).unwrap_err();
 

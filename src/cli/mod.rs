@@ -21,7 +21,6 @@ mod moved;
 mod operator;
 pub(crate) mod remote_land;
 mod draft_road;
-mod control_plane;
 mod remote_serve;
 #[cfg(test)]
 mod remote_serve_tests;
@@ -39,7 +38,6 @@ mod tools;
 mod verb_help;
 mod verbs;
 mod views;
-mod work_items;
 
 use tools::Tool;
 
@@ -51,10 +49,8 @@ enum Command {
     Hook(Vec<String>),
     Nix(Vec<String>),
     Task(Vec<String>),
-    Threads(Vec<String>),
     Agents(Vec<String>),
     ConfigCheck(Vec<String>),
-    Work(Vec<String>),
     Tool(Tool, Vec<String>),
     LanguageGate(Vec<String>),
     BuildCacheGate(Vec<String>),
@@ -108,13 +104,9 @@ type Forward = fn(&str, Vec<String>) -> Command;
 
 const FORWARDED: &[(&str, Forward)] = &[
     ("hook", |_, rest| Command::Hook(rest)),
-    ("threads", |_, rest| Command::Threads(rest)),
     ("nix", |_, rest| Command::Nix(rest)),
     ("task", |name, rest| Command::Task([vec![name.to_owned()], rest].concat())),
-    ("work", |_, rest| match rest.first().map(String::as_str) {
-        Some("split") => Command::Tool(Tool::Work, rest),
-        _ => Command::Work(rest),
-    }),
+    ("work", |_, rest| Command::Tool(Tool::Work, rest)),
     ("language-gate", |_, rest| Command::LanguageGate(rest)),
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
     ("holds", |_, rest| Command::Holds(rest)),
@@ -164,7 +156,6 @@ fn dispatch(command: Command) -> ExitCode {
             }
         },
         Command::Task(arguments) => task::run(&arguments),
-        Command::Threads(arguments) => ExitCode::from(task::threads(&arguments)),
         Command::VerbHelp(path) => match verb_help::usage(&path) {
             Some(text) => {
                 print!("{text}");
@@ -182,7 +173,6 @@ fn dispatch(command: Command) -> ExitCode {
         }
         Command::Agents(arguments) => agents::config(&arguments),
         Command::ConfigCheck(arguments) => in_runtime(async move { agent_catalog::config_check(&arguments).map(ExitCode::from) }),
-        Command::Work(arguments) => in_runtime(async move { work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS) }),
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),

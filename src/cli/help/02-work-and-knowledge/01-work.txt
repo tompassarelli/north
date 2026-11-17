@@ -1,2 +1,2 @@
 work
-Work items: list, search, show, claim, release, close
+Split a large task into boxes

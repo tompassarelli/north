@@ -13,9 +13,8 @@ use crate::land::bisect;
 use crate::land::candidate;
 use crate::land::lander::Lander;
 use crate::land::queue::{self, Ticket, Unreviewed};
-use crate::land::records::{self, Candidate, Decision};
+use crate::land::records::{self, Decision};
 use crate::land::security_read::{self, Kept, Verdict};
-use crate::land::telemetry::Stages;
 use crate::land::wake::Task;
 
 pub type Lanes = Vec<(PathBuf, Ticket)>;
@@ -136,7 +135,7 @@ fn refuse(lander: &Lander, path: &Path, ticket: &Ticket, patch: &str, answer: &s
     let log = logs.join(format!("{}-{}-review.log", now.as_micros(), ticket.branch));
     std::fs::create_dir_all(&logs).and_then(|()| std::fs::write(&log, format!("{answer}\n"))).map_err(|error| format!("cannot write {}: {error}", log.display()))?;
     let refusal = format!("failed {}: the security read refused the lane's patch {patch}; a changed patch handed in again is read again", log.display());
-    records::write(lander, path, ticket, &Candidate { head: &ticket.head, batch_size: 1, stages: &Stages::empty() }, &Decision::Refused { verdict: &refusal });
+    records::settle(lander, ticket, &Decision::Refused { verdict: &refusal });
     let main = candidate::prepare(&lander.repo, &lander.worktree)?;
     bisect::decide(path, ticket, refusal, Some(&log), &main)
 }

@@ -421,12 +421,11 @@ fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratc
     let cache = state.join("north/private-blobs");
     std::fs::create_dir_all(&cache).unwrap();
     let cache = cache.canonicalize().unwrap();
-    let lease = state.join(north_control_plane::LEASE_DATABASE);
-    let guarded = [cache, lease.clone(), PathBuf::from(format!("{}-wal", lease.display())), PathBuf::from(format!("{}-shm", lease.display()))];
+    let guarded = [cache];
     for land_check in [false, true] {
         let context = Context { home: context.home.clone(), cwd: context.cwd.clone(), uid: 0, user_runtime: context.user_runtime.clone(), tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), eval_lane: None, runtimes: None, session: None, agent_socket: None, offload_slot: None, land_check };
         let (roots, written) = (removable(&context), super::writable(&context, &removable(&context)));
-        assert!(!guarded.iter().any(|guard| roots.iter().chain(&written).any(|path| guard.starts_with(path) || path.starts_with(guard))), "a worker may write or remove one of {guarded:?}: the private-blob cache the private-file refusal trusts, or the control-plane lease the lander's push gate trusts (land check: {land_check})");
+        assert!(!guarded.iter().any(|guard| roots.iter().chain(&written).any(|path| guard.starts_with(path) || path.starts_with(guard))), "a worker may write or remove one of {guarded:?}: the private-blob cache the private-file refusal trusts (land check: {land_check})");
     }
     let written = super::writable(&context, &roots);
     let records = context.home.join(north_foundation::foundation::offload::SLOT_RECORDS);

@@ -84,9 +84,9 @@ fn the_structure_toml_conflict_of_the_fleet_and_spawn_capacity_landings_replays_
 
 #[test]
 fn a_first_word_line_file_merges_a_lane_that_inherited_a_duplicate_main_has_since_removed() {
-    let base = "a north\nb north-threads\nb north-threads north-ops\n";
-    let ours = "a north\nb north-threads north-ops\n";
-    let theirs = "a north\nb north-threads\nb north-threads north-ops\nc north\n";
-    assert_eq!(merge_lines(base, ours, theirs, Identity::FirstWord).unwrap(), "a north\nb north-threads north-ops\nc north\n");
-    assert_eq!(merge_lines(base, base, "a north\nb north-threads\nb north-threads north-ops\nc north\n", Identity::FirstWord).unwrap(), "a north\nb north-threads\nb north-threads north-ops\nc north\n");
+    let base = "a north\nb north-widgets\nb north-widgets north-ops\n";
+    let ours = "a north\nb north-widgets north-ops\n";
+    let theirs = "a north\nb north-widgets\nb north-widgets north-ops\nc north\n";
+    assert_eq!(merge_lines(base, ours, theirs, Identity::FirstWord).unwrap(), "a north\nb north-widgets north-ops\nc north\n");
+    assert_eq!(merge_lines(base, base, "a north\nb north-widgets\nb north-widgets north-ops\nc north\n", Identity::FirstWord).unwrap(), "a north\nb north-widgets\nb north-widgets north-ops\nc north\n");
 }

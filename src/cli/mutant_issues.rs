@@ -1,22 +1,14 @@
-use crate::github_mirror::store::{Mirror, OPEN_ISSUES, OWNER, key};
-use crate::github_mirror::sync::{self, Gh};
 use north_mutants::sweep::Issues;
-use north_foundation::foundation::clock::Timestamp;
 
-pub(super) struct MirrorIssues;
+const OWNER: &str = "tompassarelli";
 
-impl Issues for MirrorIssues {
+pub(super) struct GhIssues;
+
+impl Issues for GhIssues {
     fn body(&self, repo: &str, number: u64) -> Result<String, String> {
-        let mirror = Mirror::local();
-        sync::issues(&Gh, &mirror, repo, Timestamp::now().unix_seconds_f64())?;
-        let copy = mirror.read(&key(repo, OPEN_ISSUES)).ok_or_else(|| format!("the GitHub mirror holds no open issues for {repo}"))?;
-        copy.body
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|node| node["number"].as_u64() == Some(number))
-            .and_then(|node| node["body"].as_str().map(str::to_owned))
-            .ok_or_else(|| format!("{repo}#{number} is not an open issue in the GitHub mirror"))
+        let slug = format!("{OWNER}/{repo}");
+        let issue = north_base::platform::github::json(&["issue", "view", &number.to_string(), "-R", &slug, "--json", "body"])?;
+        issue["body"].as_str().map(str::to_owned).ok_or_else(|| format!("{slug}#{number} has no body"))
     }
 
     fn set_body(&self, repo: &str, number: u64, body: &str) -> Result<(), String> {

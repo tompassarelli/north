@@ -47,7 +47,6 @@ north_rust_test(
         "//crates/north-base:north-base",
         "//crates/north-coverage:north-coverage",
         "//crates/north-foundation:north-foundation",
-        "//crates/north-graph-ground:north-graph-ground",
         "//crates/north-graph:north-graph",
         "//third-party:regex",
         "//third-party:rusqlite",

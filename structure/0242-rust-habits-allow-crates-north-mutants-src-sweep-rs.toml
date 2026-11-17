@@ -1,0 +1,6 @@
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-mutants/src/sweep.rs"
+item = "Issues"
+reason = "Port for the issue bodies a mutant sweep reads and posts to: keeps north-mutants, which the landing machinery also builds, free of gh access; the root crate supplies the gh-backed reader."
+

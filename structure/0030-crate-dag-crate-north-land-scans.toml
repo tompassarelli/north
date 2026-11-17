@@ -2,5 +2,5 @@
 name = "north-land-scans"
 layer = 3
 paths = ["crates/north-land-scans/src/**"]
-may_use = ["north-base", "north-cli-reference", "north-diff-gates", "north-github-mirror", "north-landing-gates", "north-build-system", "north-buck"]
+may_use = ["north-base", "north-cli-reference", "north-diff-gates", "north-landing-gates", "north-build-system", "north-buck"]
 

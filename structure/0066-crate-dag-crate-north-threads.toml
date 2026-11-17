@@ -1,6 +1,0 @@
-[[crate_dag.crate]]
-name = "north-threads"
-layer = 2
-paths = ["crates/north-threads/src/**"]
-may_use = ["north-strategy-types", "north-publish", "north-control-plane"]
-

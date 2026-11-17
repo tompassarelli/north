@@ -6,9 +6,8 @@ use std::time::{Duration, Instant};
 use crate::land::bisect;
 use crate::land::lander::Lander;
 use crate::land::queue::{self, HandIn, Ticket};
-use crate::land::records::{self, Candidate, Decision};
+use crate::land::records::{self, Decision};
 use crate::land::scans::outgoing::denylist::{DenylistVerdict, Stand};
-use crate::land::telemetry::Stages;
 use crate::land::wake::{Task, Wake};
 
 pub type Lanes = Vec<(PathBuf, Ticket)>;
@@ -102,7 +101,7 @@ fn judged(lander: &Lander, path: PathBuf, ticket: Ticket, base: &str, found: Den
             let log = logs.join(format!("{stamp}-{}-private-kinds.log", ticket.branch));
             std::fs::create_dir_all(&logs).and_then(|()| std::fs::write(&log, found.lines.join("\n") + "\n")).map_err(|error| format!("cannot write {}: {error}", log.display()))?;
             let refusal = format!("failed {}", log.display());
-            records::write(lander, &path, &ticket, &Candidate { head: &ticket.head, batch_size: 1, stages: &Stages::empty() }, &Decision::Refused { verdict: &refusal });
+            records::settle(lander, &ticket, &Decision::Refused { verdict: &refusal });
             bisect::decide(&path, &ticket, refusal, Some(&log), base)?;
             return Ok(None);
         }

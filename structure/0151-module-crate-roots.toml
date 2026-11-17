@@ -3,5 +3,5 @@ name = "crate-roots"
 paths = ["crates/*/src/lib.rs"]
 facade = true
 responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
-may_use = ["foundation", "shell", "autoland_status", "domain", "usage", "threads", "fleet"]
+may_use = ["foundation", "shell", "autoland_status", "domain", "fleet"]
 

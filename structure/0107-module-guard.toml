@@ -2,5 +2,5 @@
 name = "guard"
 paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs", "crates/north-guard/src/hook_input.rs", "crates/north-guard/src/nix_explain.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["strategy_types", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "threads", "graph_ground", "lifecycle", "platform", "platform.git", "platform.records", "platform.harness", "platform.process", "unblocks", "coordinator_roles", "north_warm_spares", "platform.github", "platform.store", "secrets_seal"]
+may_use = ["strategy_types", "fleet", "autoland_status", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "lifecycle", "platform", "platform.git", "platform.records", "platform.harness", "platform.process", "coordinator_roles", "north_warm_spares", "platform.github", "platform.store", "secrets_seal"]
 

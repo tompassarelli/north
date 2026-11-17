@@ -2,6 +2,6 @@
 //! overrides its verb's kind for that subcommand, and every verb the CLI dispatches must appear.
 use crate::coordinator::{Kind, VerbKinds};
 
-use Kind::{Bookkeeping, Brief, ChildMessage, Delegate, Diagnosis, Landing, Status};
+use Kind::{Bookkeeping, Brief, ChildMessage, Diagnosis, Landing, Status};
 
 pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[

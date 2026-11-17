@@ -10,8 +10,7 @@ use crate::land::candidate::{self, git, output};
 use crate::land::cause;
 use crate::land::jobs;
 use crate::land::queue::{self, Ticket};
-use crate::land::records::{self, Candidate, Decision};
-use crate::land::telemetry::Stages;
+use crate::land::records::{self, Decision};
 
 const SWEPT: &str = "moved-swept";
 
@@ -36,7 +35,7 @@ impl Serve<'_> {
         for (path, ticket) in open {
             let Some(verdict) = conflict(&self.worktree, &main, ticket, &moved) else { continue };
             let verdict = cause::cite(&self.worktree, &main, &ticket.head, &verdict);
-            records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict: &verdict });
+            records::settle(self, ticket, &Decision::Refused { verdict: &verdict });
             match bisect::decide(path, ticket, verdict, None, &main) {
                 Ok(()) => sent = true,
                 Err(error) => println!("north land: could not send back {} on the moved paths: {error}", ticket.branch),

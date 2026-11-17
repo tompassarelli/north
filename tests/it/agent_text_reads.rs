@@ -89,10 +89,10 @@ fn scorer_attribution_and_routing_read_no_agent_text_beyond_the_listed_inputs() 
 #[test]
 fn a_planted_report_read_in_a_new_file_is_refused() {
     let mut files = workspace();
-    files.insert("crates/north-pace/src/router/planted.rs".into(), "static CAPACITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r\"(?im)^\\W*Stop:\\s*capacity\\b\").unwrap());\n".into());
+    files.insert("crates/north-planted/src/router/planted.rs".into(), "static CAPACITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r\"(?im)^\\W*Stop:\\s*capacity\\b\").unwrap());\n".into());
     let refused = refusals(&files, &allowed());
     assert_eq!(refused.len(), 1, "{refused:?}");
-    assert!(refused[0].starts_with("crates/north-pace/src/router/planted.rs"));
+    assert!(refused[0].starts_with("crates/north-planted/src/router/planted.rs"));
 }
 
 #[test]

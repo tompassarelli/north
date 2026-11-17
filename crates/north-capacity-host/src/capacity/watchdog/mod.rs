@@ -37,9 +37,6 @@ sample      every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clie
             sample also goes through step, which on sustained overload names the top process trees by fleet session,
             caps the offending session scope and sends the owner and coordinators. A north-session-*.scope frozen over
             5 minutes and not listed in the capacity gaming-frozen.json holds is thawed and logged as an incident.
-            On the host that holds the threads ledger, every 60 s it also reads each host's grid line over ssh and pages
-            coordinator once per episode when fewer than 16 remote runners are live across the grid, or when more than half the
-            land-check leases on a host have used under 0.1 cores each for 5 minutes (state: runner-alarm.json).
 report      summarize the last N minutes (default 5 and 30) of samples and incidents with flags. A Codex turn in the
             window that failed with \"Selected model is at capacity\" flags provider-capacity codex.
 replay      run recorded overload samples through the overload decision core and print its actions; with --snapshots,
@@ -52,8 +49,7 @@ rest-check  compare running system and user units, active timers and listening s
             or ~/.config/capacity-watchdog/rest.json, declared per host in firn.
 step        decide on one sample read from stdin.
 grid        print this host's live buildbarn-runner units and its land-check leases with their recent cores, as JSON.
-State: $CAPACITY_WATCHDOG_DIR (default ~/.local/state/agents/watchdog).
-Ledger: $THREADS_DB (default ~/.local/state/threads/threads.db), read only.";
+State: $CAPACITY_WATCHDOG_DIR (default ~/.local/state/agents/watchdog).";
 const STATE_FILE: &str = "overload.json";
 const INCIDENTS_FILE: &str = "incidents.md";
 
@@ -81,9 +77,6 @@ pub(super) fn run(arguments: &[String]) -> u8 {
 }
 
 fn sample(arguments: &[String]) -> Result<(), String> {
-    if !arguments.iter().any(|word| word == "--once") {
-        grid::spawn(&directory(), &north_binary());
-    }
     sampler::run(arguments)
 }
 

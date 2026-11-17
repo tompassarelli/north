@@ -24,7 +24,7 @@ pub struct Threads {
 
 type Typed = (String, Vec<String>, String);
 
-/// Every flag a `north threads` verb declares in north-threads' argument parsers, valued or switch; the broker checks each word against this list, because the parsers are not exported.
+/// Every flag a `north threads` verb declares, valued or switch; the broker checks each word against this list, because the parsers are not exported.
 const FLAGS: &[&str] = &[
     "--by", "--since", "--launched", "--session", "--source", "--cause", "--reason", "--settled", "--ended", "--capacity", "--repo", "--candidate", "--tree", "--base", "--batch-size", "--bisect-depth", "--started-at", "--finished-at", "--outcome", "--command", "--deadline", "--sha", "--red-at", "--green-at", "--cases", "--revert-sha", "--lane", "--branch", "--tip", "--queued-at", "--attempts", "--landed-at", "--landed-sha", "--verdict", "--detail", "--first-commit-at", "--check-started-at", "--check-finished-at", "--at", "--window-minutes", "--landed", "--first-commit-samples", "--refused-alone", "--conflicts", "--queued-now", "--queued-p50", "--queued-p90", "--first-commit-p50", "--first-commit-p90", "--tier", "--parent", "--host", "--started", "--finished", "--rc", "--json", "--to", "--held-by", "--box", "--due", "--body", "--clear", "--key", "--class", "--noticed-by", "--subject", "--detected-at", "--guard", "--issue", "--days", "--until",
 ];

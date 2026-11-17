@@ -1,6 +1,0 @@
-[[crate_dag.crate]]
-name = "north-graph-ground"
-layer = 2
-paths = ["crates/north-graph-ground/src/**"]
-may_use = ["north-base", "north-graph"]
-

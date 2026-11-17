@@ -262,30 +262,9 @@ Each host that keeps a graph runs it once a day around 4:20 AM local from a user
 on a host, which does the full `VACUUM`, is run once by hand. It never runs on the landing path or after each ingest: it
 reads every term and every occurrence.
 
-## Ready set
-
-`north graph ready [--db PATH] [--query ready|held]` lists the backlog as a dependency graph, read-only: each unticked box of
-an open issue with no live wait, in measured order (`ready N`, issue, its figure and rank, box), then each box held by a wait with
-the edge that holds it (`held`, issue, figure and rank, box, `waits on` the box or issue and its text or title). A wait is live while its target box
-is unticked or its target issue is open; `:blocked-by`, `:follows` and `:doc-waits-on` on the issue hold each of its boxes.
-The measured order puts first the issue whose fix removes the most measured usage per dollar of one of its
-boxes: the `losses` ingest source tells each issue the 24 h usage of the harness cause classes it owns (`:loss-usd`, the
-classes `north ledger flow` charges, each owned by the issue `harness_loss_owners` in harness/defaults.toml names) and what
-one of its boxes costs (`:box-usd`, its worker usage per Done run over 14 days, else the fleet's), and the figure prints as
-`7.8 = $9.35 lost 24 h / $1.20 a box`. Priority label (`main-red`, then `priority:now`, then none, then `priority:next`, then
-`priority:later`), then rank, then age (oldest first), then project, then issue number as a number break ties, so an issue that owns no measured loss keeps
-its label and rank order; an issue with no priority label or no rank takes its parent issue's, and boxes of issues with no rank of their own or their parent's come last among equals. `--query ready` and `--query held` print the `north graph ask` query behind each list,
-so `north graph ask "$(north graph ready --query ready)"` prints the same rows as tab-separated terms.
-
-`north fleet dispatch` reads the same set (`crates/north-graph-ground/src/backlog.rs`): it orders issues as `north graph ready` lists their
-ready boxes, issues with no ready box after them by priority label and rank, and skips an issue whose every unticked box is held with `no box is ready: box "..." waits on ...`. The graph is as fresh as the last ingest, which `north land follow` runs after each landing; when the graph cannot
-be read dispatch prints a `note:` and falls back to label and age order and the issue-level waits it reads from text.
-
 ## Grounding
 
-The UserPromptSubmit grounding hook and `north work brief new --category C --item REPO#N` read this graph through
-`crates/north-graph-ground`: for each issue (`north#634`) or file path a message names, up to four, they add the
-neighborhood two hops out, and the hook shows it among its live lines inside its 600 ms retrieval bound.
+The grounding hook reads this graph read-only and, for each issue (`north#634`) or file path a message names, up to four, adds the neighborhood two hops out among its live lines inside its 600 ms retrieval bound.
 
 - An issue: title, state, labels and blockers; its open boxes with owners; each ticked box with the Done claim of its owner,
   shown as a claim, or as observed when `checker` passed the commit the claim names, or as a failed check; recent landings;

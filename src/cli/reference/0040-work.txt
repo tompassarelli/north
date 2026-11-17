@@ -1,1 +1,0 @@
-  work show REPO#N                              Show one work item with its holder

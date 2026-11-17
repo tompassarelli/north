@@ -3,12 +3,10 @@ use std::io::{self, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::remote_serve::{self, Grants, Launch, LedgerJobs, Plan, audit, log};
-use crate::threads::{client, outside::FleetView};
 
 const USAGE: &str = "Usage: north remote-serve --peer HOST [--repos REPO,...] [--threads-only] [--log FILE] | north remote-serve audit --peer HOST [--log FILE] [--keys FILE]";
 const UNLAUNCHED: i32 = 127;
@@ -26,17 +24,16 @@ pub(super) struct Options {
 pub(super) struct Host {
     pub env: BTreeMap<String, String>,
     pub exe: PathBuf,
-    pub fleet: Arc<dyn FleetView>,
 }
 
 pub(super) fn run(arguments: &[String]) -> NorthResult<u8> {
     let options = options(arguments)?;
-    let env = client::ambient_env();
+    let env: BTreeMap<String, String> = std::env::vars_os().filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?))).collect();
     if options.audit {
         print!("{}", audit_text(&options, &env, Timestamp::now().unix_days())?);
         return Ok(0);
     }
-    let host = Host { exe: std::env::current_exe()?, fleet: Arc::new(crate::threads::outside::Unread), env };
+    let host = Host { exe: std::env::current_exe()?, env };
     let command = host.env.get("SSH_ORIGINAL_COMMAND").cloned();
     Ok(exit_byte(serve(&options, command.as_deref(), &host, &mut io::stderr())))
 }
@@ -117,10 +114,6 @@ impl Launch for Host {
         env.extend(plan.env.clone());
         let words: Vec<&str> = plan.argv.iter().map(String::as_str).collect();
         match words.as_slice() {
-            ["threads", ..] | ["north", "threads", ..] => {
-                let skip = if words[0] == "north" { 2 } else { 1 };
-                i32::from(client::run_in(&plan.argv[skip..], env, self.fleet.clone(), &[]))
-            }
             ["north", ..] => spawn(self.exe.as_os_str(), &plan.argv[1..], &env),
             [program, ..] => spawn(program.as_ref(), &plan.argv[1..], &env),
             [] => UNLAUNCHED,

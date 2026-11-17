@@ -2,7 +2,7 @@
 //! overrides its verb's kind for that subcommand, and every verb the CLI dispatches must appear.
 use crate::coordinator::{Kind, VerbKinds};
 
-use Kind::{Bookkeeping, Brief, ChildMessage, Delegate, Diagnosis, Landing, Status};
+use Kind::{Bookkeeping, Brief, ChildMessage, Diagnosis, Landing, Status};
 
 pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("", Status),
@@ -15,7 +15,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("buck", Bookkeeping),
     ("build-cache-gate", Diagnosis),
     ("capacity", Status),
-    ("cause", Bookkeeping),
     ("check disclosure", Diagnosis),
     ("check harness", Diagnosis),
     ("check oneshot", Diagnosis),
@@ -30,7 +29,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("config coordinator", Status),
     ("config operator", Status),
     ("config", Bookkeeping),
-    ("control-plane", Bookkeeping),
     ("denylist", Diagnosis),
     ("dep-gate", Diagnosis),
     ("depbox", Status),
@@ -43,7 +41,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("gh-broker", Bookkeeping),
     ("gh-session", Bookkeeping),
     ("git-credential", Bookkeeping),
-    ("github-mirror", Bookkeeping),
     ("graph retract", Bookkeeping),
     ("graph tell", Bookkeeping),
     ("graph", Diagnosis),
@@ -67,7 +64,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("land scan", Diagnosis),
     ("land status", Status),
     ("land tests", Diagnosis),
-    ("land train", Status),
     ("land", Landing),
     ("landed-tree", Bookkeeping),
     ("lane gc", Bookkeeping),
@@ -110,12 +106,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("test coverage", Diagnosis),
     ("test mutant", Diagnosis),
     ("test", Diagnosis),
-    ("threads claim", Bookkeeping),
-    ("threads close", Bookkeeping),
-    ("threads queue", Delegate),
-    ("threads release", Bookkeeping),
-    ("threads tick", Bookkeeping),
-    ("threads", Status),
     ("work claim", Bookkeeping),
     ("work close", Bookkeeping),
     ("work release", Bookkeeping),

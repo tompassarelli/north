@@ -24,7 +24,7 @@ fn gates(answered_by: &str) -> String {
 }
 
 #[test]
-fn break_glass_lands_a_ticket_straight_onto_main_after_the_secret_scan_and_records_an_incident_only_under_an_approval_tom_answered_himself() {
+fn break_glass_lands_a_ticket_straight_onto_main_after_the_secret_scan_only_under_an_approval_tom_answered_himself() {
     let world = World::new();
     let (bin, calls) = (world.path().join("bin"), world.path().join("bin/north.calls"));
     let gate_file = world.path().join("gates.json");
@@ -55,7 +55,5 @@ fn break_glass_lands_a_ticket_straight_onto_main_after_the_secret_scan_and_recor
     assert!(main.starts_with(&format!("{start} {BRANCH} ")), "the ticket is pushed straight onto main: {main}\n{transcript}");
     let logged = fs::read_to_string(&calls).unwrap_or_default();
     assert!(logged.lines().any(|line| line.starts_with("betterleaks ") && line.contains(&start)), "the secret scan reads the exact commits pushed\n{logged}\n{transcript}");
-    let incident = logged.lines().find(|line| line.starts_with("ledger incident record") && line.contains("--class lander-break-glass")).unwrap_or_default();
-    assert!(incident.contains("--noticed-by tom") && incident.contains("the lander cannot land its own fix"), "the incident names the reason\n{logged}\n{transcript}");
     assert!(!fs::read_dir(&repository.queue).unwrap().flatten().any(|entry| entry.path().extension().is_some_and(|extension| extension == "json")), "the ticket leaves the queue as landed\n{transcript}");
 }

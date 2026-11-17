@@ -9,8 +9,8 @@ Operator console:
   cloud                 Launch, message, land and reap cloud sessions
 
 Work and knowledge:
-  work                  Work items: list, search, show, claim, release, close
-  graph                 Record and query facts, list the ready backlog
+  work                  Split a large task into boxes
+  graph                 Record and query facts
 
 Engineering and landing:
   check                 Citations, concerns, boxes, nix, provenance, privacy, the harness
