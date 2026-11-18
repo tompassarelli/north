@@ -40,6 +40,7 @@ pub mod desktop_aperture;
 pub mod effects;
 pub mod enrich;
 mod admission_record;
+mod agent_load_tests;
 mod build_offload_tests;
 mod handover_tests;
 mod game_reserve_tests;

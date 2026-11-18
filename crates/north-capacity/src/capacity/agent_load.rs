@@ -167,7 +167,12 @@ pub struct Lease {
     pub wrapper_pid: Option<i32>,
     #[serde(default)]
     pub wrapper_start: Option<String>,
+    #[serde(default)]
+    pub owner: String,
 }
+
+/// The owners of the lander's own check runs, which battery and desktop shedding leave running: the laptop's lander keeps landing, and its heavy work runs on the build hosts (north#1650).
+const LANDER_OWNERS: [&str; 2] = ["land-check", "land-offload"];
 
 impl Lease {
     pub fn unit(&self) -> String {
@@ -245,7 +250,7 @@ pub fn plan(observed: &Observed, live: impl Fn(&Lease) -> bool, wrapper_alive: i
 
 impl Plan {
     fn hold(&mut self, observed: &Observed, lease: &Lease, unit: String) {
-        let held = frozen(&lease.class, observed);
+        let held = !LANDER_OWNERS.contains(&lease.owner.as_str()) && frozen(&lease.class, observed);
         let frozen = observed.frozen.contains(&unit);
         if held && !frozen {
             self.freeze.insert(unit);
@@ -347,10 +352,14 @@ pub fn enforce(host: &Host, gaming: bool, pause_heavy: bool, processes: &[Proces
         |lease| lease.scope_dir(host).is_dir(),
         |lease| wrapper_alive(host, lease),
     );
+    let frozen_now = |unit: &str| leases.iter().find(|lease| lease.unit() == unit).is_some_and(|lease| fs::read_to_string(lease.scope_dir(host).join("cgroup.freeze")).is_ok_and(|state| state.trim() == "1"));
     let _ = fs::create_dir_all(&host.capacity);
     let (mut unfrozen, mut unthawed) = (BTreeSet::new(), BTreeSet::new());
     for (verb, units) in [("stop", &plan.stop), ("freeze", &plan.freeze), ("thaw", &plan.thaw)] {
         for unit in units {
+            if verb == "stop" && frozen_now(unit) {
+                systemctl_user(host, "thaw", unit);
+            }
             let done = systemctl_user(host, verb, unit);
             if !done && verb == "freeze" {
                 unfrozen.insert(unit.clone());
