@@ -52,7 +52,6 @@ impl Rig {
         ];
         let rig = Self { root: root.into(), home: home.into(), stubs, env: env.into_iter().map(|(k, v)| (k.into(), v)).collect() };
         rig.stub("ssh", "cat >/dev/null\necho '{\"ok\":true,\"branches\":{}}'\n");
-        rig.stub("supply-alert", "[ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1\nfor arg; do printf '%s|' \"$arg\"; done >>\"$LANE_GC_FIXTURE/alerts\"\necho >>\"$LANE_GC_FIXTURE/alerts\"\n");
         rig.stub(
             "north",
             "case \"$1 $2\" in\n\"fleet list\") cat \"$FLEET_TEST_FILE\" ;;\n\"threads \"*) printf 'item\\tholder\\n' ;;\n\"safe-push abandon\") printf '%s\\n' \"$*\" >>\"$LANE_GC_FIXTURE/abandons\"; git push -q origin \":refs/heads/$4\" ;;\n\"fleet send\") [ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1; printf '%s\\n' \"$*\" >>\"$FLEET_TEST_SENDS\" ;;\n*) exit 1 ;;\nesac\n",
@@ -282,7 +281,7 @@ fn unheld_unlanded_lanes_are_archived_after_a_day_and_held_or_ignored_ones_stay_
         assert!(dry.contains(expected), "{expected}\n{dry}");
     }
     assert!(!dry.contains("would alert"), "{dry}");
-    assert!(fixture.kept_intact() && !fixture.gone("equiv") && !rig.root.join("alerts").exists());
+    assert!(fixture.kept_intact() && !fixture.gone("equiv"));
     assert!(rig.git_ok(&fixture.main, &["config", "--get", "branch.gone.remote"]), "a dry run prunes nothing");
     assert!(dry.contains("north: drop the origin/main upstream of 1 lane branches"), "{dry}");
 
@@ -305,7 +304,7 @@ fn unheld_unlanded_lanes_are_archived_after_a_day_and_held_or_ignored_ones_stay_
     owned.sort();
     let parent = "north-parent".to_string();
     assert_eq!(owned, [("held".into(), parent.clone()), ("wip".into(), parent)]);
-    assert!(!rig.root.join("alerts").exists(), "no parent holds lanes past the alert threshold once the unheld ones are archived");
+    assert!(!out.contains("lane gc: alerted"), "no parent holds lanes past the alert threshold once the unheld ones are archived: {out}");
 
     let bundles: Vec<PathBuf> = fs::read_dir(rig.home.join("archive/lanes/north")).unwrap().map(|entry| entry.unwrap().path()).filter(|path| path.extension().is_some_and(|ext| ext == "bundle")).collect();
     assert_eq!(bundles.len(), 3, "{out}");

@@ -62,7 +62,7 @@ target/ one level below it that no process holds open and that has had no build 
 Everything else is kept: a held lane, and a lane inside its 24 hours. Each is written to the unlanded report
 (default ~/.local/state/agents/lane-gc/unlanded.txt: age, container, path, branch, ahead count,
 dirty, first commit subject, Refs, class) and to stale.json under its Fleet parent with the issues its
-commits cite. Parents with more than 25 or any over 72h get supply-alert.
+commits cite. Parents with more than 25 or any over 72h get a daily alert line in the journal.
 --dry-run prints each lane's class and action. Lanes unlanded for 24h are flagged in stale.json.
 The report class is landed-by-tree or lost (everything else). --unlanded prints that
 report and the count of each class per container. A run ends with git worktree prune and
