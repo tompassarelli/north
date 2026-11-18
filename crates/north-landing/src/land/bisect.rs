@@ -4,8 +4,7 @@ use std::path::Path;
 use crate::landing::check_findings;
 use north_base::platform::attribution::Cause;
 pub use north_base::platform::land_notice::OWNER;
-use north_base::platform::land_notice::{self, Notice};
-use super::after;
+use north_base::platform::land_notice::Notice;
 use super::checks::Verdict;
 use super::incidents;
 use super::queue::{self, Ticket};
@@ -63,23 +62,11 @@ fn refused(ticket: &Ticket, verdict: &str, log: Option<&Path>) -> String {
     text
 }
 
-pub fn notify(ticket: &Ticket, verdict: &str, log: Option<&Path>) {
-    let sessions = land_notice::told(ticket.session.as_deref(), verdict);
-    let Some(first) = sessions.first() else { return };
-    let text = match verdict.strip_prefix("landed ") {
-        Some(sha) => Notice::Landed { branch: ticket.branch.clone(), sha: sha.to_owned() }.text(),
-        None => refused(ticket, verdict, log),
-    };
-    if !sessions.iter().any(|session| after::send(session, &text)) {
-        eprintln!("north land: could not tell session {first} about {}", ticket.branch);
-    }
-}
-
 pub fn decide(path: &Path, ticket: &Ticket, verdict: String, log: Option<&Path>, main: &str) -> Result<(), String> {
     println!("north land: {} ({}): {verdict}", ticket.branch, ticket.head);
     queue::decide(path, Ticket { decided_on: Some(main.to_owned()), ..ticket.clone() }, verdict.clone()).map_err(|error| error.to_string())?;
-    if rejected(&verdict) || verdict.starts_with("landed ") {
-        notify(ticket, &verdict, log);
+    if rejected(&verdict) {
+        println!("{}", refused(ticket, &verdict, log));
     }
     Ok(())
 }

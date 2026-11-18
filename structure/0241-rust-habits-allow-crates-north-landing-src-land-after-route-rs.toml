@@ -1,5 +1,0 @@
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-landing/src/land/after/route.rs"
-item = "Courier"
-reason = "route decides the host and message routing; follow holds the concrete transport and tests supply a mock Courier."

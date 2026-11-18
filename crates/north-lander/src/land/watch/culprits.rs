@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use super::super::after;
 use super::super::after::owner::{self, Reverted};
 use super::super::candidate::{self, git, output};
 use super::super::checks::Verdict;
@@ -26,7 +25,6 @@ pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], detail: 
         if lane.ticket.red_fix.is_some() {
             let message = format!("north land: the post-land checks failed ({detail}) with {}, a red fix; it is not reverted again", lane.ticket.branch);
             println!("{message}");
-            after::send("coordinator", &message);
             continue;
         }
         match revert(lander, lane, since, detail, outcome) {
@@ -37,7 +35,6 @@ pub(super) fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], detail: 
             Err(error) => {
                 let message = format!("north land: the post-land checks of {} failed ({detail}) and its revert could not be queued: {error}", lane.ticket.branch);
                 println!("{message}");
-                after::send("coordinator", &message);
             }
         }
     }
@@ -48,13 +45,11 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
     let [lane] = lanes else {
         let message = format!("north land: Buck2 is red at {head} across {} landed lanes, so none is reverted at once; the Cargo run after the landing decides", lanes.len());
         println!("{message}");
-        after::send("coordinator", &message);
         return false;
     };
     if lane.ticket.red_fix.is_some() {
         let message = format!("north land: Buck2 is red at {head} with {}, a red fix; it is not reverted again", lane.ticket.branch);
         println!("{message}");
-        after::send("coordinator", &message);
         return false;
     }
     let outcome = Outcome { verdict: Verdict::RedMain(BUCK2_RED.to_owned()), search: None, failing: BTreeSet::new(), superseded: false, log: log.to_owned() };
@@ -66,7 +61,6 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
         Err(error) => {
             let message = format!("north land: Buck2 is red at {head} and its revert of {} could not be queued: {error}", lane.ticket.branch);
             println!("{message}");
-            after::send("coordinator", &message);
             false
         }
     }
@@ -75,7 +69,6 @@ pub(super) fn buck2_red(lander: &Lander, head: &str, base: &str, lanes: &[Landed
 fn inherited(head: &str, detail: &str, outcome: &Outcome) {
     let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, so nothing is reverted; log: {}", outcome.log.display());
     println!("{message}");
-    after::send("coordinator", &message);
 }
 
 fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome: &Outcome) -> Result<String, String> {
@@ -100,7 +93,7 @@ fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome
     let head = revert::queue_revert(lander, &worktree, &branch)?;
     let failing = if outcome.failing.is_empty() { detail.to_owned() } else { revert::names(&outcome.failing.iter().cloned().collect::<Vec<_>>()) };
     let reverted = Reverted { branch: &lane.ticket.branch, commit: &lane.tip, revert: &branch, cause: owner::Cause::RedMain { red: &lane.tip, failing: &failing, log: &outcome.log } };
-    println!("north land: {}", owner::tell(&owner::Cli, lane.ticket.session.as_deref(), &reverted));
+    println!("{}", reverted.notice());
     Ok(format!("revert of {} {head} queued as {branch}", lane.ticket.branch))
 }
 

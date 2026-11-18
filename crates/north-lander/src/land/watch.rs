@@ -13,7 +13,6 @@ pub use hand_off::hand_off;
 use journal::{Entry, Journaled, adopt_journal_files, journal, take_journaled};
 use reverted::Reverted;
 
-use super::after;
 use super::alone_pass::Currency;
 use super::after_landing_lifecycle::{self as lifecycle, AfterLandingRun, Run};
 use super::checks::Verdict;
@@ -212,9 +211,6 @@ fn unsettled(batch: &Batch, detail: &str) -> bool {
     }
     let message = format!("north land: the after-landing run of {} reached no verdict {misses} times in a row ({detail}); it ends with that recorded as its verdict and runs no more, so main is unverified until a later landing's run reaches one", batch.head);
     println!("{message}");
-    if misses == UNSETTLED {
-        after::send("coordinator", &message);
-    }
     true
 }
 
@@ -568,9 +564,6 @@ fn unreproduced(lander: &Lander, batch: &Batch, outcome: &Outcome, again: &std::
     record(lander, &[Span::new(&batch.head, "failure unreproduced at the tip".to_owned(), Category::Lander, at, at).with(PHASE, AFTER).with(FINDING, UNREPRODUCED).with("log", outcome.log.display().to_string()).with("rerun_log", again.display().to_string())]);
     let message = format!("north land: the post-land checks of {} failed ({failing}) and did not fail again when rerun once at the tip, so no lane is reverted and main stays unverified; logs {} and {}", short(&batch.head), outcome.log.display(), again.display());
     println!("{message}");
-    if !after::send("coordinator", &message) {
-        println!("north land: could not tell the coordinator that the failure of {} was not reproduced", batch.head);
-    }
 }
 
 fn retire(lander: &Lander, batch: &Batch, cause: &str) {

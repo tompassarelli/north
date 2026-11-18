@@ -144,8 +144,8 @@ impl Serve<'_> {
 
 fn back_off(lander: &Lander, pause: Pause, reason: &str, retire: &AtomicBool) {
     println!("north land: waiting {:?}: {reason}", pause.wait);
-    if pause.alarm && !after::send("coordinator", &format!("north land: {}: {reason}; the lander keeps retrying every {} minutes", lander.repo.display(), pause.wait.as_secs() / 60)) {
-        eprintln!("north land: could not alarm the coordinator about {}", lander.repo.display());
+    if pause.alarm {
+        println!("north land: {}: {reason}; the lander keeps retrying every {} minutes", lander.repo.display(), pause.wait.as_secs() / 60);
     }
     pause.sit_out(retire);
 }
@@ -330,9 +330,6 @@ fn report_overdue(next: &str, running: &HashMap<PathBuf, Serving>) {
     for wait in running.values().flat_map(|serving| serving.waits.iter()).filter(|wait| wait.until <= now) {
         let note = format!("north land: leaving for {next} with {} past its limit, so the restarted lander runs it again and its verdict comes late", wait.describe());
         println!("{note}");
-        if !after::send("coordinator", &note) {
-            eprintln!("north land: could not tell the coordinator that {} passed its limit", wait.what);
-        }
     }
 }
 

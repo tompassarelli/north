@@ -9,7 +9,7 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use model::{Credential, Kind, Renewal};
 
@@ -18,7 +18,6 @@ use north_base::platform::harness::{self, DEFAULTS};
 const USAGE: &str = "Usage: north ops credentials check [--json] | north ops credentials renew [--dry-run] | north ops credentials import-cookies SITE [--from CHROME_PROFILE]";
 const DAY: u64 = 86_400;
 const NOTICE_KEY: &str = "credential_expiry_notice_days";
-const ALERT_WITHIN: Duration = Duration::from_secs(30);
 
 pub struct World {
     pub south: PathBuf,
@@ -96,11 +95,8 @@ impl renew::Effects for Machine {
     }
 
     fn alert(&self, text: &str) -> Result<(), String> {
-        let args = ["fleet", "send", "--from", "service:north-credentials", "coordinator", text];
-        match north_base::platform::process::run_within("north", &args, ALERT_WITHIN) {
-            Some(output) if output.status.success() => Ok(()),
-            _ => Err("north fleet send to the coordinator failed".into()),
-        }
+        eprintln!("north credentials: {text}");
+        Ok(())
     }
 
     fn dry_run(&self) -> bool {

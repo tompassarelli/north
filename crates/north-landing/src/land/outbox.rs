@@ -207,22 +207,17 @@ impl Lander {
 
     fn withdraw(&self, outbox: &Outbox, dir: &str, withdrawn: Vec<(String, Ticket, String)>) -> Result<(), String> {
         let host = &outbox.host;
-        let mut told = Vec::new();
+        let mut names = Vec::new();
         for (name, mut ticket, reason) in withdrawn {
             ticket.verdict = Some(format!("withdrawn by {OFFLOAD_OWNER}: {reason}"));
             let path = self.queue.join(queue::WITHDRAWN).join(&name);
             Records::open(&self.queue).and_then(|mut records| records.moved(&path, Phase::Withdrawn, ticket.verdict.as_deref().unwrap_or_default())).map_err(|error| format!("cannot record {}: {error}", path.display()))?;
             queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
             println!("north land: withdrew {name} from {host}'s outbox: {reason}");
-            told.push((name, ticket, reason));
+            names.push(name);
         }
-        let names: Vec<&str> = told.iter().map(|(name, _, _)| name.as_str()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
         ssh(&outbox.login, &format!("d={dir}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/ && rm -f -- {2}", queue::WITHDRAWN, names.join(" "), bundles(&names)))?;
-        for (_, ticket, reason) in told {
-            if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
-                super::after::send(session, &format!("north land: {} ({}) was withdrawn from {host}'s outbox: {reason}; queue it again from a worktree on its branch", ticket.branch, ticket.head));
-            }
-        }
         Ok(())
     }
 

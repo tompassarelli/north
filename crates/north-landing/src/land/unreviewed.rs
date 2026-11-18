@@ -8,7 +8,6 @@ use north_base::platform::records_mirror::Records;
 use north_base::platform::review_accept::{Accept, Accepts, CALL_SESSION, is_patch_id, patch_id};
 use north_land_scans::review::{Review, review};
 
-use crate::land::after;
 use crate::land::bisect;
 use crate::land::candidate;
 use crate::land::lander::Lander;
@@ -144,9 +143,6 @@ fn note(path: &Path, ticket: Ticket, held: Unreviewed, now: Duration) -> Result<
     let author = ticket.session.as_deref().unwrap_or("a session north does not know");
     let message = format!("north land: {} by {author} has waited {} minutes in the landing queue for a review accept of patch {}, and no review verdict is recorded; it stays held", ticket.branch, age(&ticket, now).as_secs() / 60, held.patch);
     println!("{message}");
-    if !after::send("coordinator", &message) {
-        println!("north land: could not tell the coordinator that {} waits for its review", ticket.branch);
-    }
     write(path.to_owned(), Ticket { unreviewed: Some(Unreviewed { noted: true, ..held }), ..ticket }).map(drop)
 }
 

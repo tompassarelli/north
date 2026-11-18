@@ -74,12 +74,6 @@ if [ "$1 $2 $3" = "capacity offload run" ]; then
 fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
 [ ! -x "$LAND_TRACE/north-hook" ] || exec "$LAND_TRACE/north-hook" "$@"
-if [ "$1" = fleet ] && [ "$2" = send ] && [ "${6%% *}" = landed ]; then
-  branch=$(printf '%s' "$6" | awk '{print $2}')
-  main=$(git -C "$LAND_ORIGIN" rev-parse main)
-  printf '%s %s\n' "$5" "$(git -C "$LAND_REPO" cherry "$main" "$branch" | tr '\n' ' ')" >>"$LAND_TRACE/send-cherry"
-  printf '%s %s\n' "$5" "$6" >>"$LAND_TRACE/sent"
-fi
 "#;
 
 struct Fixture {

@@ -10,7 +10,6 @@ use super::serve::{Repository, World, git, report};
 
 const COUNTED: &str = "#!/bin/sh\npwd >> \"$0.calls\"\necho 'safe-push: verdict green'\n";
 const AFTER_RUNNER: &str = r#"#!/bin/sh
-[ "$1" = fleet ] && { printf '%s\n' "$*" >> "$0.sent"; exit 0; }
 [ "$1" = land ] && [ "$2" = checks ] || exit 0
 eval outcome=\${$#}
 tree=; head=; previous=
@@ -106,8 +105,7 @@ fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts
     north.lane_with("flaky", "origin/main", ("flaky.txt", "flaky\n"), ("flaky (north#1257)", None));
     let journal = serve(&world, &north);
     assert!(!self::subjects(&north).iter().any(|subject| subject == "Revert flaky (north#1257)"), "a failure its rerun at the tip did not reproduce reverted a lane: {journal}");
-    let sent = fs::read_to_string(world.path().join("bin/north.sent")).unwrap_or_default();
-    assert_eq!(sent.lines().filter(|line| line.contains("did not fail again when rerun once at the tip") && line.contains("-again.log")).count(), 1, "{sent}\n{journal}");
+    assert_eq!(journal.lines().filter(|line| line.contains("did not fail again when rerun once at the tip") && line.contains("-again.log")).count(), 1, "{journal}");
 }
 
 #[test]
@@ -118,8 +116,7 @@ fn a_one_lane_batch_is_blamed_only_on_a_rerun_of_its_prefix() {
     north.lane_with("flaky", "origin/main", ("flaky.txt", "flaky\n"), ("flaky (north#1257)", None));
     let journal = serve(&world, &north);
     assert!(!subjects(&north).iter().any(|subject| subject == "Revert flaky (north#1257)"), "a one-lane batch its rerun did not reproduce was blamed: {journal}");
-    let sent = fs::read_to_string(world.path().join("bin/north.sent")).unwrap_or_default();
-    assert!(sent.lines().any(|line| line.contains("did not fail again when rerun once at the tip") && line.contains("-again.log")), "{sent}\n{journal}");
+    assert!(journal.lines().any(|line| line.contains("did not fail again when rerun once at the tip") && line.contains("-again.log")), "{journal}");
 
     let world = World::new();
     let north = world.repository("north");

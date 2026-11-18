@@ -5,16 +5,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use north_base::platform::process::child_within;
-
 use crate::land::telemetry::epoch;
 use super::ingest_gate::{self, Turn};
 use super::route;
 use north_base::platform::harness::{DEFAULTS, document};
-use north_base::platform::{host, land_notice, orchestration};
+use north_base::platform::{host, orchestration};
 use crate::land::trace::{self, AFTER, Category, PHASE, Span};
 
-const SEND_WAIT: Duration = Duration::from_secs(60);
 const USAGE: &str = "usage: north land follow [--work] --repo DIR --git-dir DIR --base SHA --head SHA";
 
 pub use north_base::platform::north_binary::land_north as program;
@@ -162,42 +159,10 @@ fn elsewhere(landed: &Landed, host: &str, login: &str) -> Vec<Span> {
     vec![Span::new(landed.head, "post-landing work", Category::Follow, start, epoch()).on(host).with(PHASE, AFTER)]
 }
 
-struct Fleet;
-
-impl route::Courier for Fleet {
-    fn here(&self, session: &str, message: &str) -> bool {
-        sent(Command::new(program()).args(["fleet", "send", "--from", land_notice::SENDER, session, message]))
-    }
-
-    fn on(&self, host: &str, session: &str, message: &str) -> bool {
-        let Ok(login) = route::session_login(host) else { return false };
-        let script = format!("{} exec \"$n\" fleet send --from {} {} {}", route::REMOTE_NORTH, land_notice::SENDER, route::quote(session), route::quote(message));
-        sent(Command::new("ssh").args(route::SSH_OPTIONS).args(["-T", &login, "--", &script]))
-    }
-}
-
-/// Sends `message` to `session` through the fleet registry of the host the session's name starts with when that host is one the lander pulls an outbox from, since that registry alone lists it; otherwise through this host's.
+/// Writes the notice `message` for `session` to the lander's journal, where every notice goes since the fleet's messages were removed (north#1650); a caller that prints the line itself does not call this.
 pub fn send(session: &str, message: &str) -> bool {
-    let here = trace::this_host();
-    let hosts: Vec<String> = route::fleet_hosts().into_iter().filter(|host| *host != here).collect();
-    route::deliver(&Fleet, &hosts, session, message)
-}
-
-/// Sends `message` under the fleet store's condition `key`, which delivers it once per episode; `cleared` ends the episode.
-pub fn send_condition(session: &str, key: &str, cleared: bool, message: &str) -> bool {
-    let mut command = Command::new(program());
-    command.args(["fleet", "send", "--from", land_notice::SENDER, "--key", key]);
-    if cleared {
-        command.arg("--cleared");
-    }
-    sent(command.args([session, message]))
-}
-
-fn sent(command: &mut Command) -> bool {
-    let Ok(mut child) = command.stdin(Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn() else {
-        return false;
-    };
-    child_within(&mut child, SEND_WAIT).ok().flatten().is_some_and(|status| status.success())
+    println!("{message} (for {session})");
+    true
 }
 
 const PLACEMENT: &str = "post_landing_host";

@@ -1,7 +1,7 @@
 pub mod checkout;
 pub mod cleanup;
 pub mod follow;
-pub use follow::{send, send_condition};
+pub use follow::send;
 pub mod gates;
 pub mod ingest_gate;
 pub mod owner;
@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use north_base::platform::land_notice::Notice;
 use north_base::platform::push_ledger;
 use super::candidate::git;
 use super::queue::{self, Ticket};
@@ -76,22 +75,6 @@ pub fn recovering(lander: &Lander) -> Vec<String> {
     fs::read_to_string(area(lander).join(RECOVERING)).ok().and_then(|text| serde_json::from_str::<Intent>(&text).ok()).map(|intent| intent.tickets).unwrap_or_default()
 }
 
-fn notify(lander: &Lander, name: &str, ticket: &Ticket, head: &str) {
-    let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) else { return };
-    let marker = area(lander).join("notified").join(name);
-    if marker.exists() {
-        return;
-    }
-    if send(session, &Notice::Landed { branch: ticket.branch.clone(), sha: head.to_owned() }.text()) {
-        if let Some(parent) = marker.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let _ = fs::write(&marker, head);
-    } else {
-        println!("north land: could not tell session {session} that {} landed", ticket.branch);
-    }
-}
-
 fn follow_once(lander: &Lander, base: &str, head: &str) {
     let marker = area(lander).join("followed").join(head);
     if let Some(parent) = marker.parent()
@@ -118,7 +101,6 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
     let log = push_ledger::landing_log(&lander.repo, &state, &code_root());
     let mut spans = trace::landing::shared(stages, head);
     for (path, ticket, tip) in tickets {
-        let name = name_of(&path);
         let queued = ticket.queued_micros.map(seconds_of).or_else(|| north_base::platform::land_queue::rfc3339_seconds(&ticket.queued_at)).unwrap_or_else(|| stages.started_at());
         let hand_in = ticket.hand_in.as_ref().map(|hand_in| trace::landing::HandIn { called: seconds_of(hand_in.called_micros), gates: seconds_of(hand_in.gates_micros), asked: seconds_of(hand_in.asked_micros), verdict: hand_in.verdict_micros.map(seconds_of), judge: hand_in.judge.clone() });
         let ticket_name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
@@ -132,7 +114,6 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
             println!("north land: could not record stages of {}: {error}", ticket.branch);
         }
         records::settle(lander, &ticket, &Decision::Landed { sha: &tip });
-        notify(lander, &name, &ticket, &tip);
         cleanup::report(lander, &path, &ticket);
         println!("north land: {} ({}): landed {tip} in {head}", ticket.branch, ticket.head);
         queue::decide(&path, Ticket { decided_on: Some(base.to_owned()), ..ticket }, format!("landed {tip}")).map_err(|error| error.to_string())?;
