@@ -1,4 +1,4 @@
-//! The fleet's host table: South's orchestration.toml and the `[hosts.NAME]` machines it names with an ssh destination, which placement, the offload and the laptop runner read.
+//! The fleet's  table: South's orchestration.toml and the `[hosts.NAME]` machines it names with an ssh destination, which placement, the offload and the laptop runner read.
 
 use toml_edit::{DocumentMut, Item};
 
@@ -48,9 +48,4 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             Some(Machine { name, ssh, agent_ssh })
         })
         .collect()
-}
-
-/// Whether `[hosts.NAME] job_source = true` lets this host take jobs planted in that host's ledger.
-pub fn job_source(cfg: &DocumentMut, host: &str) -> bool {
-    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("job_source")).and_then(Item::as_bool) == Some(true)
 }

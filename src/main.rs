@@ -14,7 +14,7 @@ use north_diff_gates::{build_cache_gate, dep_gate, language_gate, provenance};
 use north_landing_gates::{issue_box_lint, land_abandon};
 use north_ci::private_check;
 use north_github_broker::gh_broker;
-use north_runtime::{laptop_runner, runtime};
+use north_runtime::runtime;
 use north_worker_sandbox::{agent_contain, worker_sandbox};
 use north_credentials::credentials;
 use north_remote_serve::remote_serve;

@@ -1,1 +1,1 @@
-  job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] [--notify] NAME -- CMD...  Run a scheduled job and record its result
+  job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] NAME -- CMD...  Run a scheduled job and exit with its code

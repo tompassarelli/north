@@ -27,8 +27,6 @@ mod remote_serve_tests;
 mod infra;
 pub(crate) mod oneshot;
 #[cfg(test)]
-mod laptop_runner_tests;
-#[cfg(test)]
 mod south_land_tests;
 #[cfg(test)]
 mod south_policy_tests;

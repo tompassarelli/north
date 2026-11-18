@@ -81,7 +81,6 @@ fn the_coordinator_backgrounds_a_call_that_waits() {
         "gh issue view 1048",
         "timeout 30 north cloud launch --task north#1048",
         "timeout 20s ssh nexus north runtime status",
-        "north job-run --notify nightly -- true",
         "ssh -T nexus -- 'north land status | head -20'",
         "bash -c 'gh issue view 1048'",
     ] {

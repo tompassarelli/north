@@ -148,7 +148,6 @@ Commands:
   capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
-  laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
   agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
   lane reclaim [--dry-run] [--idle-hours H]  Remove Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
   retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Mak'gora evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
@@ -196,7 +195,7 @@ Commands:
   git-credential store                          Give no answer; nothing is stored
   git-credential erase                          Give no answer; nothing is erased
   hook HOOK                                     Run an agent hook
-  job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] [--notify] NAME -- CMD...  Run a scheduled job and record its result
+  job-run [--path DIRS] [--user USER] [--class CLASS] [--scratch ROOT] NAME -- CMD...  Run a scheduled job and exit with its code
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land fails-first-runs RUNS NAME...            Build this tree's tests with the build system this host runs, then run the named tests RUNS times and print a verdict per name
   land mutant-runs                              Build each tree's tests with the build system this host runs, then run the named tests in each and record pass or fail per test in its .mutant-results (names and trees from MUTANT_TESTS and MUTANT_TREES)

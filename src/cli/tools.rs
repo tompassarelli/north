@@ -50,7 +50,6 @@ const UNIFORM: &[(&str, Run)] = &[
 
 const DIRECT: &[(&str, Run)] = &[
     ("nexus-ram", north_capacity_host::nexus_ram::run),
-    ("laptop-runner", crate::laptop_runner::run),
     ("agent-contain", crate::agent_contain::run),
     ("retain", north_reclaim::retention::run),
     ("buck", |arguments| north_buck::run(arguments, &north_buck::Cargo { manifests: north_build_system::manifest_graph, features: north_build_system::feature_graph }, &north_buck::Sides { buck2: north_build_system::cases_buck2_runs, nextest: north_build_system::cases_nextest_lists }, &crate::platform::records_mirror::state_home())),

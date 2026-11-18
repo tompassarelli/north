@@ -60,3 +60,11 @@ fn a_laptop_closed_by_its_host_switches_runs_no_check_disk_keep_or_build_ahead_t
     assert!(check_host(standing, "laptop", here, Vec::new(), &[], 6.0).is_err());
     assert!(check_host(Standing::Fallback, "laptop", || None, Vec::new(), &[], 6.0).is_ok(), "unset, the laptop is the fallback that runs it");
 }
+
+#[test]
+fn ssh_destination_from_orchestration_toml_refuses_an_ssh_option_before_ssh_runs() {
+    assert_eq!(HOSTS.matches("ssh = \"tom@gex45\"").count(), 1);
+    let cfg: DocumentMut = HOSTS.replace("ssh = \"tom@gex45\"", "ssh = \"-oProxyCommand=touch /tmp/p gex45\"").parse().expect("fixture");
+    assert!(north_capacity::capacity::host_table::machines(&cfg).is_empty());
+    assert_eq!(pull_sources(&cfg, "whiterabbit"), ["nexus"]);
+}

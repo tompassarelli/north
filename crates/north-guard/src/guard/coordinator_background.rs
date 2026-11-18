@@ -128,7 +128,7 @@ fn north_wait(args: &[String]) -> Option<&'static str> {
     let mut words = args.iter().map(String::as_str).filter(|word| !word.starts_with('-'));
     match (words.next()?, words.next()) {
         ("cloud", Some("launch")) => Some("a cloud launch"),
-        ("job-run", _) if !args.iter().any(|word| word == "--notify") => Some("a job"),
+        ("job-run", _) => Some("a job"),
         _ => None,
     }
 }
