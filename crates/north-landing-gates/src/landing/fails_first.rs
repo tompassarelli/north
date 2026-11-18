@@ -250,7 +250,7 @@ fn on_base(
     let results = trees::results(&tree);
     let text = fs::read_to_string(&log).unwrap_or_default();
     writeln!(out, "fails-first: runner finished in {seconds:.1} s")?;
-    let missing = if !results.is_empty() || text.contains("test result:") {
+    let missing = if !results.is_empty() || text.contains("test result:") || text.contains(trees::UNLISTED) {
         Verdict::Absent
     } else if text.contains("could not compile") {
         Verdict::Uncompiled

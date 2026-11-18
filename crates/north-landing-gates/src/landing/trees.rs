@@ -8,6 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use super::env::{Config, Env, Lease, Stop, git, git_text};
 
 pub const RESULTS: &str = ".mutant-results";
+/// The line `north land mutant-runs` prints for a named test that no test executable of a compiled tree lists, so the test does not exist there.
+pub const UNLISTED: &str = "mutant-runs: no test executable lists ";
 pub const EVERY_TEST: &str = "*";
 /// The variable `land mutant-runs` and any runner read for the cargo target the mutant work builds in, so no mutant build shares the checkout's own `target`.
 pub const TARGET_ENV: &str = "MUTANT_TARGET";

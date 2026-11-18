@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use north_landing_gates::landing::flake::{self, Reported};
-use north_landing_gates::landing::trees::RESULTS;
+use north_landing_gates::landing::trees::{RESULTS, UNLISTED};
 
 
 const RUNS: usize = 1;
@@ -19,6 +19,9 @@ pub fn run(trees: &[PathBuf], names: &BTreeSet<String>, shared: &Path, out: &mut
         match flake::executables(shared, out) {
             Ok(executables) => {
                 let reported = flake::reported(shared, &executables, names, RUNS);
+                for name in names.iter().filter(|name| !reported.contains_key(*name)) {
+                    writeln!(out, "{UNLISTED}{name}")?;
+                }
                 record(tree, &reported)?;
             }
             Err(None) => writeln!(out, "mutant-runs: the tests of {} do not compile, so none of them runs", tree.display())?,
