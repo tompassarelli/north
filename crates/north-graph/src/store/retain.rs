@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter};
 
@@ -13,6 +13,8 @@ const DAY_SECONDS: i64 = 86_400;
 const UNITS_PER_CHUNK: usize = 5_000;
 const TERMS_PER_CHUNK: usize = 10_000;
 const PAGES_PER_STEP: i64 = 2_048;
+/// How long one retain write transaction may run before the next chunk halves: a guess from north#1654, where a 13.3 s transaction tripped the seat breaker; the night's `longest` and the seat probe samples settle it.
+const WRITE_BUDGET: Duration = Duration::from_millis(250);
 const INCREMENTAL: i64 = 2;
 
 #[derive(Clone, Debug)]
@@ -41,6 +43,22 @@ impl Retained {
         let written = write()?;
         self.transactions += 1;
         self.longest_ms = self.longest_ms.max(started.elapsed().as_millis());
+        Ok(written)
+    }
+
+    /// Writes `items` in order, one transaction per chunk: the first chunk holds an eighth of `most`, a chunk that runs past the write budget halves the next, and one under a quarter of it doubles the next up to `most`.
+    fn paced<T, R>(&mut self, items: &[T], most: usize, mut write: impl FnMut(&[T]) -> Result<R>) -> Result<Vec<R>> {
+        let mut size = (most / 8).max(1);
+        let mut rest = items;
+        let mut written = Vec::new();
+        while !rest.is_empty() {
+            let (chunk, after) = rest.split_at(size.min(rest.len()));
+            let started = Instant::now();
+            written.push(self.timed(|| write(chunk))?);
+            let took = started.elapsed();
+            size = if took > WRITE_BUDGET { (size / 2).max(1) } else if took < WRITE_BUDGET / 4 { size.saturating_mul(2).min(most) } else { size };
+            rest = after;
+        }
         Ok(written)
     }
 }
@@ -74,17 +92,14 @@ impl Graph {
         }
         retained.horizon = horizon(&self.connection)?;
         let units = doom_occurrences(&self.connection, &retention.retired, cut)?;
-        for chunk in units.chunks(UNITS_PER_CHUNK) {
-            let (withdrawals, occurrences) = retained.timed(|| delete_units(&self.connection, chunk))?;
+        for (withdrawals, occurrences) in retained.paced(&units, UNITS_PER_CHUNK, |chunk| delete_units(&self.connection, chunk))? {
             retained.withdrawals += withdrawals;
             retained.occurrences += occurrences;
         }
         self.connection.execute_batch("DROP TABLE temp.doomed")?;
         let mut reach = Reach::snapshot(&self.connection)?;
         let candidates = reach.candidates(&self.connection)?;
-        for chunk in candidates.chunks(TERMS_PER_CHUNK) {
-            retained.terms += retained.timed(|| reach.delete(&self.connection, chunk))?;
-        }
+        retained.terms += retained.paced(&candidates, TERMS_PER_CHUNK, |chunk| reach.delete(&self.connection, chunk))?.into_iter().sum::<u64>();
         retained.delete_ms = started.elapsed().as_millis();
         let started = Instant::now();
         retained.full_vacuum = self.reclaim()?;
