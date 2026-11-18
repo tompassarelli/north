@@ -75,3 +75,20 @@ pub(super) fn text(value: &Value) -> Option<&str> {
 pub(super) fn real(path: &Path) -> std::path::PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
+
+pub(super) const HOUR_MS: f64 = 3_600_000.0;
+
+pub(super) fn newest_mtime_ms(paths: &[std::path::PathBuf]) -> f64 {
+    paths
+        .iter()
+        .filter_map(|path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok())
+        .filter_map(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_secs_f64() * 1000.0)
+        .fold(0.0, f64::max)
+}
+
+pub(super) fn modified_within(path: &Path, now_ms: i64, hours: f64) -> bool {
+    let since = now_ms as f64 - hours * HOUR_MS;
+    let listed = git(path, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+    !listed.ok || listed.out.split('\0').filter(|name| !name.is_empty()).any(|name| newest_mtime_ms(&[path.join(name)]) > since)
+}

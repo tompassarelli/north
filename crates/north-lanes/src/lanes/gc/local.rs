@@ -10,7 +10,7 @@ use super::judged::Landed;
 use super::liveness::{holds_git_dir, worktree_admin};
 use super::report::Row;
 use super::state::{LocalStale, Owned};
-use super::strays::modified_within;
+use super::exec::modified_within;
 use super::super::landed_tickets::LandedTickets;
 use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;

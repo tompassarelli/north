@@ -78,4 +78,18 @@ fn a_lane_with_a_recorded_rejection_is_bundled_and_reaped_and_a_half_removed_one
 
     assert!(!stale.exists(), "a bundle lock no process holds and older than an hour is cleared");
     assert!(fresh.exists(), "a recent lock stays");
+
+    let config = home.join(".local/state/north/shared-config/current");
+    fs::create_dir_all(&config).unwrap();
+    let host = north_base::platform::host::name();
+    fs::write(config.join("orchestration.toml"), format!("[hosts.{}]\nserves = [\"laptop\"]\n", host.trim())).unwrap();
+    let active = lane(&main, &worktrees, "active", "active.txt");
+    fs::write(records.join("active"), "test-passes-on-base (review of ds-2)\n").unwrap();
+    let merged = lane(&main, &worktrees, "merged", "merged.txt");
+    git(&merged, &["push", "-q", "origin", "HEAD:main"]);
+    git(&main, &["fetch", "-q", "origin"]);
+    let plain = north_lanes::lanes::LaneGcInputs { fleet: None, now_ms: i64::try_from(now.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap(), stale: root.join("stale.json"), proc_root: root.join("proc") };
+    assert_eq!(north_lanes::lanes::lane_gc_in(&home, plain, &arguments), 0);
+    assert!(!merged.exists(), "on 2026-11-18 lane gc with no session list stopped on every repository and retired no landed lane (north#1655)");
+    assert!(active.exists(), "with no session list, a lane with a file modified in the last day belongs to a live session, so even a rejected one stays");
 }

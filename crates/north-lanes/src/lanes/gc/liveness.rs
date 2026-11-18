@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::Gc;
-use super::exec::{git, real, text, verified};
+use super::exec::{git, modified_within, real, text, verified};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct Trees {
@@ -30,16 +30,9 @@ pub(super) fn alive_status(session: &Value) -> bool {
 }
 
 impl Gc {
-    pub(super) fn fleet_sessions(&mut self) -> Result<&[Value], String> {
-        match self.fleet.as_deref() {
-            Some(sessions) => Ok(sessions),
-            None => Err("Fleet sessions unavailable: no session source".into()),
-        }
-    }
-
     pub(super) fn owner(&mut self, name: &str) -> Result<String, String> {
         let prefix = format!("/code/{name}/");
-        let sessions = self.fleet_sessions()?;
+        let sessions = self.fleet.as_deref().unwrap_or_default();
         let holder = sessions.iter().find(|session| {
             session.get("cwd").and_then(Value::as_str).is_some_and(|cwd| real(Path::new(cwd)).to_string_lossy().contains(&prefix)) && alive_status(session)
         });
@@ -47,9 +40,11 @@ impl Gc {
         Ok(named("parent").or_else(|| named("name")).unwrap_or_else(|| "coordinator".into()))
     }
 
+    /// Whether a session works in the lane at `path`: a listed session whose directory is inside it, or with no session list, as for the plain sessions the owner works from since the fleet left (north#1655), a file of the lane modified in the last 24 hours.
     pub(super) fn session_in(&mut self, path: &Path) -> Result<bool, String> {
         let lane = real(path);
-        Ok(self.fleet_sessions()?.iter().any(|session| {
+        let Some(sessions) = self.fleet.as_deref() else { return Ok(modified_within(path, self.now_ms, 24.0)) };
+        Ok(sessions.iter().any(|session| {
             session.get("cwd").and_then(Value::as_str).is_some_and(|cwd| real(Path::new(cwd)).starts_with(&lane)) && alive_status(session)
         }))
     }
