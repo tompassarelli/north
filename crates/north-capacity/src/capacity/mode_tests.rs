@@ -1,9 +1,10 @@
 #![cfg(test)]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use super::agent_load::Host;
+use super::agent_load::{Host, Lease, Observed, plan};
 use super::game_reserve_tests::settings;
 use super::mode::{self, Limits, Mode};
 use super::mode_tick::{self, Power};
@@ -44,4 +45,19 @@ fn agent_slice_quota_is_the_12_cpu_bound_at_the_desk_and_22_only_while_away() {
     mode::write(&dir, &mode::release(&mode::read(&dir), 1_080)).unwrap();
     assert_eq!(quotas(&tick(root.path(), Some(false), 1_090)), Vec::<String>::new(), "releasing the hold at the desk stays at 12");
     assert_eq!(quotas(&tick(root.path(), Some(true), 1_120)), [BUILD_HOST_QUOTA], "leaving the desk returns 22");
+}
+
+fn heavy(id: &str, owner: &str) -> Lease {
+    Lease { id: id.to_owned(), kind: "run".to_owned(), class: "heavy".to_owned(), aggregate_slice: None, wrapper_pid: None, wrapper_start: Some("1".to_owned()), owner: owner.to_owned() }
+}
+
+#[test]
+fn on_battery_the_landers_own_checks_keep_running_while_other_heavy_work_freezes_north_1650() {
+    let leases = [heavy("a", "land-check"), heavy("b", "gate:worker"), heavy("c", "land-offload")];
+    let frozen = BTreeSet::from([leases[2].unit()]);
+    let observed = Observed { gaming: false, pause_heavy: true, processes: &[], leases: &leases, frozen: &frozen };
+    let planned = plan(&observed, |_| true, |_| true);
+    assert_eq!(planned.freeze, BTreeSet::from([leases[1].unit()]), "on 2026-11-18 battery shedding froze the lander's after-landing checks, so three runs passed their deadline");
+    assert_eq!(planned.thaw, BTreeSet::from([leases[2].unit()]));
+    assert!(planned.stop.is_empty());
 }
