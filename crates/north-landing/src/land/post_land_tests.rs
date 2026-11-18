@@ -202,6 +202,29 @@ fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_on
     selected(&whole, true);
     at(&whole, WHOLE, Verdict::Green);
     assert!(sent.borrow().len() == 6 && green_again(5), "{:?}", sent.borrow());
+
+    {
+        let scratch = tempfile::tempdir().unwrap();
+        let repo = scratch.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        committed_repo(&repo);
+        let git = |arguments: &[&str]| String::from_utf8_lossy(&std::process::Command::new("git").arg("-C").arg(&repo).args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap().stdout).trim().to_owned();
+        let land_checks = |text: &str, message: &str| {
+            std::fs::write(repo.join(".safe-push"), text).unwrap();
+            git(&["add", ".safe-push"]);
+            git(&["commit", "-q", "-m", message]);
+            git(&["rev-parse", "HEAD"])
+        };
+        let red = land_checks("[land]\n\tcheck = src/ :: cargo test kept\n\tcheck = \"src/store/ :: cargo test -E 'test(/old_state/)'\"\n", "add the old-state check");
+        let head = land_checks("[land]\n\tcheck = src/ :: cargo test kept\n\t# check = \"src/store/ :: cargo test -E 'test(/old_state/)'\"\n[mutant]\n\tcheck = cargo test -E 'test(/old_state/)'\n", "drop the old-state check");
+        git(&["checkout", "-q", "-b", "side", &format!("{red}^")]);
+        let side = land_checks("[land]\n", "a side line");
+        let episode = |command: &str| crate::land::red_episode::Episode { head: red.clone(), scope: std::collections::BTreeSet::from(["north-graph".to_owned()]), failing: std::collections::BTreeSet::from([Failure::Step(command.to_owned())]), reds: Default::default() };
+        assert!(episode("cargo test -E 'test(/old_state/)'").ended_by("", false, &repo, &head), "on 2026-11-18 main stayed red on the old-state check after .safe-push dropped it");
+        assert!(!episode("cargo test -E 'test(/old_state/)'").ended_by("", false, &repo, &side), "a green run on a head that does not descend from the red one ends nothing");
+        assert!(!episode("cargo test kept").ended_by("", false, &repo, &head), "a check .safe-push still runs needs a green run of it");
+        assert!(!episode("cargo clippy").ended_by("", false, &repo, &head), "a step .safe-push never listed needs a green run of it");
+    }
 }
 
 #[test]
@@ -374,3 +397,4 @@ fn a_red_lane_scoped_check_over_a_batch_range_enters_no_blame() {
     assert_eq!(blamed, std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned()), Failure::Step("cargo nextest run".to_owned())]), "a lane-scoped check naming a lane is not a failure the batch is searched for, one naming none stays");
     assert_eq!(named, [1], "the red names the lane whose own range failed");
 }
+

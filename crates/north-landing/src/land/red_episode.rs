@@ -63,8 +63,9 @@ impl Episode {
 
     pub fn ended_by(&self, green_log: &str, every: bool, repo: &Path, head: &str) -> bool {
         let descends = |red: &String| red != head && git(repo, &["merge-base", "--is-ancestor", red, head]).is_ok();
-        let whole = every && scope(green_log) == BTreeSet::from([WORKSPACE.to_owned()]) && std::iter::once(&self.head).chain(&self.reds).all(descends);
-        self.covered_by(green_log, whole) || reverted_since(repo, &self.head, head)
+        let after_every_red = std::iter::once(&self.head).chain(&self.reds).all(descends);
+        let whole = every && scope(green_log) == BTreeSet::from([WORKSPACE.to_owned()]) && after_every_red;
+        (after_every_red && removed_checks(repo, &self.head, head, &self.failing)) || self.covered_by(green_log, whole) || reverted_since(repo, &self.head, head)
     }
 
     pub fn rerun_command(&self, host: &str) -> Option<String> {
@@ -105,6 +106,24 @@ fn passed(log: &str) -> BTreeSet<Failure> {
         }
     }
     found
+}
+
+/// Whether every failure of the episode that went red at `red` is a land check `.safe-push` listed there and no longer lists at `head`, so no green run can rerun it: on 2026-11-18 the old-state check left .safe-push after its tests were deleted, and main stayed red on it (north#1650).
+fn removed_checks(repo: &Path, red: &str, head: &str, failing: &BTreeSet<Failure>) -> bool {
+    let (Some(then), Some(now)) = (land_checks(repo, red), land_checks(repo, head)) else { return false };
+    !failing.is_empty() && failing.iter().all(|failure| matches!(failure, Failure::Step(command) if then.contains(command) && !now.contains(command)))
+}
+
+/// The commands of the `land.check` values of `.safe-push` at `at`, as git's config parser reads them, after any `PATHS :: `; none when the file is missing or git cannot read it.
+fn land_checks(repo: &Path, at: &str) -> Option<BTreeSet<String>> {
+    let blob = format!("{at}:.safe-push");
+    git(repo, &["cat-file", "-e", &blob]).ok()?;
+    let output = std::process::Command::new("git").arg("-C").arg(repo).args(["config", "--blob", &blob, "-z", "--get-all", "land.check"]).output().ok()?;
+    if !output.status.success() && output.status.code() != Some(1) {
+        return None;
+    }
+    let values = String::from_utf8_lossy(&output.stdout);
+    Some(values.split('\0').filter(|value| !value.is_empty()).map(|value| value.split_once(" :: ").map_or(value, |(_, command)| command).trim().to_owned()).collect())
 }
 
 fn reverted_since(repo: &Path, red: &str, head: &str) -> bool {
