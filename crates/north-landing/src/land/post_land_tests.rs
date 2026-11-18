@@ -197,7 +197,7 @@ fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_on
     }
     assert!(marker.exists() && sent.borrow().len() == 5, "only every test of the whole workspace at a descendant ends an episode by its scope: {:?}", sent.borrow());
     let whole = commit("docs");
-    let harness = crate::land::red_episode::Episode { head: culprit, scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Harness("harness/a.test.sh".to_owned())]), reds: Default::default() };
+    let harness = crate::land::red_episode::Episode { head: culprit, scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Harness("harness/a.test.sh".to_owned())]), reds: Default::default(), scoped: Default::default() };
     assert!(!harness.ended_by(WHOLE, true, &repo, &whole), "a harness failure still needs a pass by name");
     selected(&whole, true);
     at(&whole, WHOLE, Verdict::Green);
@@ -219,15 +219,27 @@ fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_on
         let head = land_checks("[land]\n\tcheck = src/ :: cargo test kept\n\t# check = \"src/store/ :: cargo test -E 'test(/old_state/)'\"\n[mutant]\n\tcheck = cargo test -E 'test(/old_state/)'\n", "drop the old-state check");
         git(&["checkout", "-q", "-b", "side", &format!("{red}^")]);
         let side = land_checks("[land]\n", "a side line");
-        let episode = |command: &str| crate::land::red_episode::Episode { head: red.clone(), scope: std::collections::BTreeSet::from(["north-graph".to_owned()]), failing: std::collections::BTreeSet::from([Failure::Step(command.to_owned())]), reds: Default::default() };
+        let episode = |command: &str| crate::land::red_episode::Episode { head: red.clone(), scope: std::collections::BTreeSet::from(["north-graph".to_owned()]), failing: std::collections::BTreeSet::from([Failure::Step(command.to_owned())]), reds: Default::default(), scoped: Default::default() };
         assert!(episode("cargo test -E 'test(/old_state/)'").ended_by("", false, &repo, &head), "on 2026-11-18 main stayed red on the old-state check after .safe-push dropped it");
         assert!(!episode("cargo test -E 'test(/old_state/)'").ended_by("", false, &repo, &side), "a green run on a head that does not descend from the red one ends nothing");
         assert!(!episode("cargo test kept").ended_by("", false, &repo, &head), "a check .safe-push still runs needs a green run of it");
         assert!(!episode("cargo clippy").ended_by("", false, &repo, &head), "a step .safe-push never listed needs a green run of it");
-        let mixed = crate::land::red_episode::Episode { failing: std::collections::BTreeSet::from([Failure::Step("cargo test -E 'test(/old_state/)'".to_owned()), Failure::Step("cargo test kept".to_owned())]), ..episode("") };
-        let rerun = "safe-push: the Rust checks cover -p north-graph\nsafe-push: land check: cargo test kept (2 s)\n";
-        assert!(mixed.ended_by(rerun, false, &repo, &head), "on 2026-11-18 main stayed red when a later red step joined the dropped old-state check, though a green run reran the later one");
-        assert!(!mixed.ended_by("safe-push: the Rust checks cover -p north-graph\n", false, &repo, &head), "the step .safe-push still lists needs a green run of it beside a dropped one");
+        let mut joined = episode("cargo test -E 'test(/old_state/)'");
+        joined.joined(&red, "safe-push: the Rust checks cover -p north-lanes\n", std::collections::BTreeSet::from([Failure::Step("cargo test kept".to_owned())]));
+        let marker = scratch.path().join("post-land-red");
+        joined.write(&marker).unwrap();
+        let mixed = crate::land::red_episode::Episode::read(&marker).unwrap();
+        let rerun = |crates: &str| format!("safe-push: the Rust checks cover {crates}\nsafe-push: land check: cargo test kept (2 s)\n");
+        assert!(mixed.ended_by(&rerun("-p north-lanes"), false, &repo, &head), "on 2026-11-18 main stayed red when a later red step joined the dropped old-state check, though a green run reran it over the crates of the run that failed it (north#1656)");
+        assert!(!mixed.ended_by(&rerun("-p north-graph"), false, &repo, &head), "a later step needs its rerun over the crates of the run that failed it");
+        assert!(!mixed.ended_by("safe-push: the Rust checks cover -p north-lanes\n", false, &repo, &head), "the step .safe-push still lists needs a green run of it beside a dropped one");
+        let mut unscoped = episode("cargo test -E 'test(/old_state/)'");
+        unscoped.joined(&red, "", std::collections::BTreeSet::from([Failure::Step("cargo test kept".to_owned())]));
+        unscoped.write(&marker).unwrap();
+        assert!(crate::land::red_episode::Episode::read(&marker).unwrap().ended_by(&rerun("-p north-lanes"), false, &repo, &head), "a later step whose run checked no crates needs only its rerun, once the episode is written and read back");
+        let mut opened_bare = crate::land::red_episode::Episode { failing: Default::default(), ..episode("") };
+        opened_bare.joined(&red, "safe-push: the Rust checks cover -p north-lanes\n", std::collections::BTreeSet::from([Failure::Step("cargo test kept".to_owned())]));
+        assert!(!opened_bare.ended_by(&rerun("-p north-lanes"), false, &repo, &head), "an episode whose opening run named no failure still needs a green run over that run's crates");
     }
 }
 
@@ -304,7 +316,7 @@ fn a_rerun_command_is_composed_for_the_host_that_runs_it() {
     green.store = scratch.path().join("ledger.db");
     let marker = scratch.path().join("post-land-red-owner_repo");
     let failing = std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]);
-    crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing, reds: Default::default() }.write(&marker).unwrap();
+    crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing, reds: Default::default(), scoped: Default::default() }.write(&marker).unwrap();
     let mut landed = landed(&[&head]);
     landed.repo = repo;
     let sent = std::cell::RefCell::new(Vec::new());
@@ -326,7 +338,7 @@ fn a_rerun_command_is_composed_for_the_host_that_runs_it() {
     };
     assert_eq!(super::settle::settle_from(&landed, &green, north_base::platform::wait::after(Duration::ZERO), Verdict::Green.into(), alarm, host, rerun), Verdict::Green);
     assert_eq!(chosen.get(), 1, "the rerun's host is chosen once");
-    let episode = crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]), reds: Default::default() };
+    let episode = crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing: std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]), reds: Default::default(), scoped: Default::default() };
     assert_eq!(Some(asked.borrow().clone()), episode.rerun_command("build-host"), "the command is composed for the host that runs it");
     assert!(asked.borrow().contains("--exact 'drill'") && asked.borrow().contains("land tests 'harness/a.test.sh'"), "{}", asked.borrow());
     assert!(!marker.exists(), "the red record outlived a green rerun of its tests: {:?}", sent.borrow());

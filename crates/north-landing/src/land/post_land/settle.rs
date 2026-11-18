@@ -149,8 +149,7 @@ pub(super) fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: imp
         }
         Verdict::RedMain(_) if matches!(state, Some(Main::Opened | Main::Red)) => {
             if let Some(mut episode) = Episode::read(&marker) {
-                episode.failing.extend(failing(&run.log, &run.outcome));
-                episode.reds.insert(landed.head.clone());
+                episode.joined(&landed.head, &log, failing(&run.log, &run.outcome));
                 let _ = episode.write(&marker);
             }
             state

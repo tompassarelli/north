@@ -261,9 +261,9 @@ impl Gc {
             "status failed"
         } else {
             match self.session_in(&lane.path) {
-                Ok(true) => "live Fleet session in lane",
+                Ok(true) => "live session in lane",
                 Ok(false) => "",
-                Err(_) => "Fleet unavailable",
+                Err(_) => "liveness unavailable",
             }
         };
         why.to_string()

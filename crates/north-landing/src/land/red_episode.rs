@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -15,11 +15,24 @@ pub struct Episode {
     pub scope: BTreeSet<String>,
     pub failing: BTreeSet<Failure>,
     pub reds: BTreeSet<String>,
+    pub scoped: BTreeMap<Failure, BTreeSet<String>>,
 }
 
 impl Episode {
     pub fn opened(head: &str, log: &str, failing: BTreeSet<Failure>) -> Self {
-        Self { head: head.to_owned(), scope: scope(log), failing, reds: BTreeSet::new() }
+        Self { head: head.to_owned(), scope: scope(log), failing, reds: BTreeSet::new(), scoped: BTreeMap::new() }
+    }
+
+    /// Adds the red run of `red`, whose log is `log`, to the episode, each failure it is the first to show kept with that run's crate scope: on 2026-11-18 a tool-removal red joined an episode opened on another run's scope, and a green rerun of it over its own crates left main red (north#1656).
+    pub fn joined(&mut self, red: &str, log: &str, failing: BTreeSet<Failure>) {
+        let packages = scope(log);
+        for failure in failing {
+            if !self.failing.contains(&failure) {
+                self.scoped.insert(failure.clone(), packages.clone());
+                self.failing.insert(failure);
+            }
+        }
+        self.reds.insert(red.to_owned());
     }
 
     pub fn read(marker: &Path) -> Option<Self> {
@@ -35,10 +48,20 @@ impl Episode {
                 Some(("red", red)) => {
                     episode.reds.insert(red.to_owned());
                 }
+                Some(("scoped", rest)) => episode.read_scoped(rest),
                 _ => {}
             }
         }
         Some(episode)
+    }
+
+    fn read_scoped(&mut self, line: &str) {
+        if let Some((package, failure)) = line.split_once('\t').and_then(|(package, key)| Some((package, Failure::from_key(key)?))) {
+            let packages = self.scoped.entry(failure).or_default();
+            if !package.is_empty() {
+                packages.insert(package.to_owned());
+            }
+        }
     }
 
     pub fn write(&self, marker: &Path) -> std::io::Result<()> {
@@ -46,6 +69,10 @@ impl Episode {
         self.scope.iter().for_each(|package| text.push_str(&format!("scope\t{package}\n")));
         self.failing.iter().for_each(|failure| text.push_str(&format!("failure\t{}\n", failure.key())));
         self.reds.iter().for_each(|red| text.push_str(&format!("red\t{red}\n")));
+        for (failure, packages) in &self.scoped {
+            let packages: Vec<&str> = if packages.is_empty() { vec![""] } else { packages.iter().map(String::as_str).collect() };
+            packages.iter().for_each(|package| text.push_str(&format!("scoped\t{package}\t{}\n", failure.key())));
+        }
         fs::write(marker, text)
     }
 
@@ -87,13 +114,27 @@ impl Episode {
 
     fn covered_by(&self, green_log: &str, whole: bool, removed: &BTreeSet<String>) -> bool {
         let named = self.named();
-        if !named.is_empty() {
-            let passed = passed(green_log);
-            return named.iter().all(|failure| passed.contains(*failure) || (whole && matches!(failure, Failure::Cargo(_))));
+        if named.is_empty() {
+            return self.steps_covered(green_log, removed);
         }
+        let passed = passed(green_log);
+        named.iter().all(|failure| passed.contains(*failure) || (whole && matches!(failure, Failure::Cargo(_))))
+    }
+
+    /// Whether the green run of `green_log` covers each failure of an episode that names no test: a step it reran over the crates of the run that failed it, a step `.safe-push` dropped, or any other failure whose crates it checked.
+    fn steps_covered(&self, green_log: &str, removed: &BTreeSet<String>) -> bool {
         let ran = |command: &str| green_log.lines().map(red_check::log_text).any(|line| line.starts_with(CHECK) && line.contains(&format!(": {command} (")));
-        let steps_ran = self.failing.iter().all(|failure| !matches!(failure, Failure::Step(command) if !ran(command) && !removed.contains(command)));
-        steps_ran && self.scope.is_subset(&scope(green_log))
+        let green = scope(green_log);
+        let covered = |failure: &Failure| match failure {
+            Failure::Step(command) if removed.contains(command) => true,
+            Failure::Step(command) => ran(command) && self.scope_of(failure).is_subset(&green),
+            _ => self.scope_of(failure).is_subset(&green),
+        };
+        (self.failing.iter().any(|failure| !self.scoped.contains_key(failure)) || self.scope.is_subset(&green)) && self.failing.iter().all(covered)
+    }
+
+    fn scope_of(&self, failure: &Failure) -> &BTreeSet<String> {
+        self.scoped.get(failure).unwrap_or(&self.scope)
     }
 }
 

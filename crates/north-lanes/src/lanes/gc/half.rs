@@ -90,8 +90,8 @@ impl Gc {
             return format!("touched within {}h", self.options.idle_hours);
         }
         match self.session_in(directory) {
-            Ok(true) => return "live Fleet session in lane".into(),
-            Err(_) => return "Fleet unavailable".into(),
+            Ok(true) => return "live session in lane".into(),
+            Err(_) => return "liveness unavailable".into(),
             Ok(false) => {}
         }
         if let Some(ticket) = land_queue::waiting_on(&land_queue::queues(&self.home.join(".local/state")), &land_queue::local_host(), directory).first() {
