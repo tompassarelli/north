@@ -190,25 +190,6 @@ pub fn record_red(tracker: &mut Gh) -> Result<Option<u64>, String> {
     Ok(tracker.open(ISSUE_TITLE)?.map(|issue| issue.number))
 }
 
-fn lead() -> Option<String> {
-    let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty())?;
-    let output = Command::new("north").args(["fleet", "list", "--json"]).output().ok()?;
-    let rows: Value = serde_json::from_slice(&output.stdout).ok()?;
-    rows.as_array()?
-        .iter()
-        .find(|row| row.get("name").and_then(Value::as_str) == Some(session.as_str()))?
-        .get("parent")?
-        .as_str()
-        .map(str::to_owned)
-}
-
-fn send(target: &str, line: &str) {
-    let sent = Command::new("north").args(["fleet", "send", "--from", "service:north-land-red-check", target, line]).output().is_ok_and(|output| output.status.success());
-    if !sent {
-        eprintln!("red check: could not send the event to {target}");
-    }
-}
-
 pub fn run(arguments: &[String]) -> u8 {
     let (Some(main), Some(log)) = (flag(arguments, "--main"), flag(arguments, "--log")) else {
         eprintln!("{USAGE}");
@@ -253,10 +234,6 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let line = event_line(&request.main, &red, &culprit, issue.as_deref());
     let line = if request.lane.is_empty() { line } else { format!("{line} (seen landing {})", request.lane) };
-    send("coordinator", &line);
-    if let Some(lead) = lead() {
-        send(&lead, &line);
-    }
     println!("red check: {line} ({source})");
     RED_MAIN
 }

@@ -8,7 +8,6 @@ use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
 
 use super::Job;
 
-const RECORD_SECONDS: &str = "30";
 const DEFAULT_BEAT_SECONDS: &str = "60";
 
 pub(super) fn north() -> String {
@@ -85,35 +84,6 @@ impl Beside {
     pub(super) fn stop(self) {
         let _ = pidfd_send_signal(&self.pidfd, Signal::Term);
         let _ = self.reaper.join();
-    }
-}
-
-pub(super) struct Recorder<'a> {
-    launcher: Launcher,
-    job: &'a Job,
-    host: &'a str,
-}
-
-impl<'a> Recorder<'a> {
-    pub(super) fn new(job: &'a Job, host: &'a str) -> Self {
-        Self { launcher: Launcher::new(job), job, host }
-    }
-
-    fn command(&self, rest: &[&str]) -> Command {
-        let mut arguments = words(&[RECORD_SECONDS, &north(), "threads", "job-run", &self.job.name, "--host", self.host]);
-        arguments.extend(words(rest));
-        self.launcher.command("timeout", &arguments)
-    }
-
-    pub(super) fn start(&self, started: &str) -> Option<Beside> {
-        Beside::spawn(self.command(&["--started", started]).stderr(Stdio::null()))
-    }
-
-    pub(super) fn finish(&self, started: &str, finished: &str, code: i32) {
-        let recorded = self.command(&["--started", started, "--finished", finished, "--rc", &code.to_string()]).status();
-        if !recorded.is_ok_and(|status| status.success()) {
-            eprintln!("job-run: recording {} finish failed; the job's result is unaffected", self.job.name);
-        }
     }
 }
 

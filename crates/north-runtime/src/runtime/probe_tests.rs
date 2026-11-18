@@ -54,7 +54,6 @@ impl FakeProc {
                 self.spawn("north", &[&north, "session-host", "--name", &name, "--generation", "1", "--", &north, "session-link", "--ssh", "gex45"]);
             }
             self.spawn("north", &[&north, "session-link", "--ssh", "gex45", "--unit", &name]);
-            self.spawn("north", &[&north, "fleet", "watchdog", &name]);
             self.hold(&unit, false);
         }
     }
@@ -76,7 +75,7 @@ impl FakeProc {
             .output()
             .unwrap();
         let read = sections(&String::from_utf8_lossy(&output.stdout));
-        NorthProcesses::read(&read["north"], &read["held"], Some(LIVE), default_number("north_process_leak_window_sec") as u64)
+        NorthProcesses::read(&read["north"], &read["held"], default_number("north_process_leak_window_sec") as u64)
     }
 
     fn problems(&self) -> (Vec<String>, Value) {
@@ -98,26 +97,6 @@ fn a_session_host_a_land_check_test_runs_from_its_sandbox_build_is_not_a_fleet_r
     let (problems, record) = proc.problems();
     assert_eq!(problems, Vec::<String>::new());
     assert_eq!(record["residents"]["session-host"], json!(1));
-}
-
-#[test]
-fn old_and_ended_session_watchdogs_after_a_runtime_swap_are_no_fault_while_two_live_ones_for_one_session_are_a_leak() {
-    let mut proc = FakeProc::new();
-    proc.sessions(2, 1);
-    let old = north(OLD);
-    proc.spawn("north", &[&old, "fleet", "watchdog", "worker-0"]);
-    proc.spawn("north", &[&old, "fleet", "watchdog", "worker-1"]);
-    proc.spawn("north", &[&north(LIVE), "fleet", "watchdog", "worker-ended"]);
-    let (problems, record) = proc.problems();
-    assert_eq!(problems, Vec::<String>::new());
-    assert_eq!(record["residents"]["fleet watchdog"], json!(2));
-    assert_eq!(record["strayWatchdogs"], json!(3));
-
-    let mut proc = FakeProc::new();
-    proc.sessions(2, 1);
-    proc.spawn("north", &[&north(LIVE), "fleet", "watchdog", "worker-1"]);
-    let (problems, _) = proc.problems();
-    assert_eq!(problems, vec!["2 fleet watchdog processes of the live runtime for live session worker-1".to_owned()]);
 }
 
 #[test]

@@ -11,7 +11,6 @@ use super::mode_tick::{self, Power};
 use north_base::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
-const OBSERVE_WAIT: Duration = Duration::from_secs(40);
 const NOTIFY_WAIT: Duration = Duration::from_secs(5);
 const BATTERY_ALERTED: &str = "battery-warned";
 const DISCHARGING_SINCE: &str = "battery-discharging-since";
@@ -260,38 +259,9 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("{notice}");
         notify_lease(notice, &mut Command::new(&notify), NOTIFY_WAIT);
     }
-    let sample = sample(&host, idle, preparing_for_sleep(), battery);
     shed(&host, on_battery(applied.effects, battery), &processes);
-    let mut laptop = match std::env::var_os("LAPTOP_AUTO_LAPTOP") {
-        Some(program) => {
-            let mut stub = Command::new(program);
-            stub.arg("observe");
-            stub
-        }
-        None => {
-            let mut north = Command::new(north_base::platform::north_binary::north_binary());
-            north.args(["fleet", "laptop", "observe"]);
-            north
-        }
-    };
-    let observed = observe(laptop.arg(sample.to_string()), OBSERVE_WAIT);
     let busctl = std::env::var_os("LAPTOP_AUTO_BUSCTL").unwrap_or_else(|| "busctl".into());
     let level = battery.and_then(|_| warning_level(&mut Command::new(busctl)));
     alert_battery(&host.capacity.join(BATTERY_ALERTED), battery, level, &mut Command::new(notify), NOTIFY_WAIT);
-    observed
-}
-
-pub fn observe(command: &mut Command, limit: Duration) -> u8 {
-    match status_within(command, limit) {
-        Ok(Some(status)) if status.success() => 0,
-        Ok(Some(status)) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1),
-        Ok(None) => {
-            eprintln!("north capacity laptop-auto: laptop observe gave no answer within {}s; the next tick observes again", limit.as_secs());
-            1
-        }
-        Err(error) => {
-            eprintln!("north capacity laptop-auto: laptop observe: {error}");
-            1
-        }
-    }
+    0
 }

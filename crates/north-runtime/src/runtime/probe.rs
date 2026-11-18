@@ -114,7 +114,7 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         units: UNITS.iter().zip(section("units").lines()).map(|(unit, state)| ((*unit).to_owned(), state.trim().to_owned())).collect(),
         psi60: psi60(section("pressure")),
         load_per_core: load_per_core(section("load")),
-        north: sections.get("north").map(|north| NorthProcesses::read(north, section("held"), linked_sha(Path::new(section("runtime").trim())), default_number("north_process_leak_window_sec") as u64)),
+        north: sections.get("north").map(|north| NorthProcesses::read(north, section("held"), default_number("north_process_leak_window_sec") as u64)),
         ..Facts::default()
     };
     if let (true, Some(swap)) = (facts.swaps.is_empty(), host_swap(section("runtime"), section("swapped"))) {
