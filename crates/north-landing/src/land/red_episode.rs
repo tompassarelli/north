@@ -65,7 +65,16 @@ impl Episode {
         let descends = |red: &String| red != head && git(repo, &["merge-base", "--is-ancestor", red, head]).is_ok();
         let after_every_red = std::iter::once(&self.head).chain(&self.reds).all(descends);
         let whole = every && scope(green_log) == BTreeSet::from([WORKSPACE.to_owned()]) && after_every_red;
-        (after_every_red && removed_checks(repo, &self.head, head, &self.failing)) || self.covered_by(green_log, whole) || reverted_since(repo, &self.head, head)
+        let removed = if after_every_red { self.removed_steps(repo, head) } else { BTreeSet::new() };
+        let all_removed = !self.failing.is_empty() && self.failing.iter().all(|failure| matches!(failure, Failure::Step(command) if removed.contains(command)));
+        all_removed || self.covered_by(green_log, whole, &removed) || reverted_since(repo, &self.head, head)
+    }
+
+    /// The failing steps whose command a `land.check` of `.safe-push` listed at a red head of the episode and no longer lists at `head`, so no green run can rerun them: on 2026-11-18 the old-state check left .safe-push after its tests were deleted, and main stayed red on it, first alone and then beside a later red step (north#1650).
+    fn removed_steps(&self, repo: &Path, head: &str) -> BTreeSet<String> {
+        let Some(now) = land_checks(repo, head) else { return BTreeSet::new() };
+        let listed: BTreeSet<String> = std::iter::once(&self.head).chain(&self.reds).filter_map(|red| land_checks(repo, red)).flatten().collect();
+        self.failing.iter().filter_map(|failure| match failure { Failure::Step(command) if listed.contains(command) && !now.contains(command) => Some(command.clone()), _ => None }).collect()
     }
 
     pub fn rerun_command(&self, host: &str) -> Option<String> {
@@ -76,14 +85,14 @@ impl Episode {
         self.failing.iter().filter(|failure| matches!(failure, Failure::Cargo(_) | Failure::Harness(_))).collect()
     }
 
-    fn covered_by(&self, green_log: &str, whole: bool) -> bool {
+    fn covered_by(&self, green_log: &str, whole: bool, removed: &BTreeSet<String>) -> bool {
         let named = self.named();
         if !named.is_empty() {
             let passed = passed(green_log);
             return named.iter().all(|failure| passed.contains(*failure) || (whole && matches!(failure, Failure::Cargo(_))));
         }
         let ran = |command: &str| green_log.lines().map(red_check::log_text).any(|line| line.starts_with(CHECK) && line.contains(&format!(": {command} (")));
-        let steps_ran = self.failing.iter().all(|failure| !matches!(failure, Failure::Step(command) if !ran(command)));
+        let steps_ran = self.failing.iter().all(|failure| !matches!(failure, Failure::Step(command) if !ran(command) && !removed.contains(command)));
         steps_ran && self.scope.is_subset(&scope(green_log))
     }
 }
@@ -106,12 +115,6 @@ fn passed(log: &str) -> BTreeSet<Failure> {
         }
     }
     found
-}
-
-/// Whether every failure of the episode that went red at `red` is a land check `.safe-push` listed there and no longer lists at `head`, so no green run can rerun it: on 2026-11-18 the old-state check left .safe-push after its tests were deleted, and main stayed red on it (north#1650).
-fn removed_checks(repo: &Path, red: &str, head: &str, failing: &BTreeSet<Failure>) -> bool {
-    let (Some(then), Some(now)) = (land_checks(repo, red), land_checks(repo, head)) else { return false };
-    !failing.is_empty() && failing.iter().all(|failure| matches!(failure, Failure::Step(command) if then.contains(command) && !now.contains(command)))
 }
 
 /// The commands of the `land.check` values of `.safe-push` at `at`, as git's config parser reads them, after any `PATHS :: `; none when the file is missing or git cannot read it.

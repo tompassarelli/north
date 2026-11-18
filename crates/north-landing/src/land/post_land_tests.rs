@@ -224,6 +224,10 @@ fn a_red_main_episode_messages_the_coordinator_once_with_the_suspect_and_ends_on
         assert!(!episode("cargo test -E 'test(/old_state/)'").ended_by("", false, &repo, &side), "a green run on a head that does not descend from the red one ends nothing");
         assert!(!episode("cargo test kept").ended_by("", false, &repo, &head), "a check .safe-push still runs needs a green run of it");
         assert!(!episode("cargo clippy").ended_by("", false, &repo, &head), "a step .safe-push never listed needs a green run of it");
+        let mixed = crate::land::red_episode::Episode { failing: std::collections::BTreeSet::from([Failure::Step("cargo test -E 'test(/old_state/)'".to_owned()), Failure::Step("cargo test kept".to_owned())]), ..episode("") };
+        let rerun = "safe-push: the Rust checks cover -p north-graph\nsafe-push: land check: cargo test kept (2 s)\n";
+        assert!(mixed.ended_by(rerun, false, &repo, &head), "on 2026-11-18 main stayed red when a later red step joined the dropped old-state check, though a green run reran the later one");
+        assert!(!mixed.ended_by("safe-push: the Rust checks cover -p north-graph\n", false, &repo, &head), "the step .safe-push still lists needs a green run of it beside a dropped one");
     }
 }
 
