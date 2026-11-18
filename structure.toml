@@ -426,13 +426,13 @@ may_use = ["strategy_types", "foundation", "platform.process", "platform"]
 
 [[module]]
 name = "platform.process"
-paths = ["crates/north-base/src/platform/process.rs", "crates/north-base/src/platform/stdio.rs", "crates/north-base/src/platform/terminal.rs", "crates/north-base/src/platform/session_scope.rs", "crates/north-base/src/platform/session_host_files.rs", "crates/north-base/src/platform/lead_assignment.rs", "crates/north-base/src/platform/north_binary.rs", "crates/north-base/src/platform/coordinator_tell.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-base/src/platform/private_text.rs", "crates/north-base/src/platform/wayland_idle.rs", "crates/north-base/src/platform/entry_points.rs", "crates/north-base/src/platform/hook_commands.rs", "crates/north-base/src/platform/attribution.rs", "crates/north-base/src/platform/shared_target*.rs", "crates/north-base/src/platform/project_status.rs"]
-responsibility = "The process adapter: spawning, stdio, terminals, systemd scopes, the session host pid and scope files, the north binary, the commands hooks run, and the status command each project declares."
+paths = ["crates/north-base/src/platform/process.rs", "crates/north-base/src/platform/stdio.rs", "crates/north-base/src/platform/terminal.rs", "crates/north-base/src/platform/session_scope.rs", "crates/north-base/src/platform/session_host_files.rs", "crates/north-base/src/platform/lead_assignment.rs", "crates/north-base/src/platform/north_binary.rs", "crates/north-base/src/platform/coordinator_tell.rs", "crates/north-base/src/platform/agent_runtime.rs", "crates/north-base/src/platform/private_text.rs", "crates/north-base/src/platform/wayland_idle.rs", "crates/north-base/src/platform/entry_points.rs", "crates/north-base/src/platform/hook_commands.rs", "crates/north-base/src/platform/attribution.rs", "crates/north-base/src/platform/shared_target*.rs"]
+responsibility = "The process adapter: spawning, stdio, terminals, systemd scopes, the session host pid and scope files, the north binary, and the commands hooks run."
 may_use = ["strategy_types", "foundation", "platform.harness", "coordinator_roles"]
 
 [[module]]
 name = "platform.store"
-paths = ["crates/north-base/src/platform/sqlite.rs", "crates/north-base/src/platform/usage_table.rs", "crates/north-base/src/platform/run_roles.rs", "crates/north-base/src/platform/pystats.rs", "crates/north-base/src/platform/toml_json.rs", "crates/north-base/src/json_text.rs"]
+paths = ["crates/north-base/src/platform/sqlite.rs", "crates/north-base/src/platform/toml_json.rs", "crates/north-base/src/json_text.rs"]
 responsibility = "The SQLite adapter and its tables, and the JSON and TOML value codecs."
 may_use = ["strategy_types", "foundation", "platform"]
 
@@ -443,15 +443,9 @@ responsibility = "The git adapter and the repository tools run over a tree: refs
 may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
 
 [[module]]
-name = "platform.host_load"
-paths = ["crates/north-base/src/platform/host_load.rs"]
-responsibility = "The host load reader: one ssh or local probe per configured host, parsed into its runtime, follow state, stable flag and load average, read by the monitor and the dash board."
-may_use = ["platform.process"]
-
-[[module]]
 name = "platform.harness"
-paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/disk_line.rs", "crates/north-base/src/platform/verification_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
-responsibility = "The harness tables other repos read (defaults, orchestration, disk budget, frozen topics, repo names) and the rules read from them."
+paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/trust_boundary.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/disk_line.rs", "crates/north-base/src/platform/verification_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
+responsibility = "The harness tables other repos read (defaults, orchestration, disk budget, repo names) and the rules read from them."
 may_use = ["strategy_types", "foundation", "platform.host", "crate-roots", "disk_bound"]
 
 [[module]]
@@ -463,7 +457,7 @@ may_use = ["strategy_types", "foundation", "platform.harness", "platform.host", 
 [[module]]
 name = "platform"
 paths = ["crates/north-base/src/platform/**"]
-responsibility = "The platform root and the small pure helpers beside the adapters: clean-up headings, Follows: lines, trials and the twister."
+responsibility = "The platform root and the small pure helpers beside the adapters: clean-up headings and Follows: lines."
 may_use = ["strategy_types", "foundation", "platform.git", "crate-roots"]
 
 [[module]]

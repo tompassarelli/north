@@ -16,7 +16,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
 | runs.repeats | none | none | dropped | 4aecdaf9 |
-| runs.role reviewer, judge | crates/north-base/src/platform/run_roles.rs ingest_role (stored at ingest for a finished worker; ROLE_SQL still reads rows stored before 2026-11-04) | calibration, ledger/closed_source.rs | read | |
+| runs.role reviewer, judge | none | none | dropped | north#1591 |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
 | usage log cores, memory, cwd | crates/north-capacity-host/src/capacity/host/run/outcome.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate_capacity through crates/north-capacity-host/src/capacity/host/usage_log.rs history | read | |
