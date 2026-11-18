@@ -700,6 +700,7 @@ fn merge_tree_leaves_main_clean() {
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"])
         .env_clear()
+        .envs(std::env::var_os("LLVM_PROFILE_FILE").map(|profile| ("LLVM_PROFILE_FILE", profile)))
         .env("PATH", std::env::var_os("PATH").unwrap())
         .env("HOME", &home)
         .env(COMMAND, command)

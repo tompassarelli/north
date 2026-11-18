@@ -79,6 +79,7 @@ pub(super) fn a_worker_lane_writes_its_slot_and_finish_records_through_the_broke
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", TEST, "--nocapture"])
         .env_clear()
+        .envs(std::env::var_os("LLVM_PROFILE_FILE").map(|profile| ("LLVM_PROFILE_FILE", profile)))
         .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap()))
         .env("HOME", &home)
         .env("XDG_RUNTIME_DIR", root.join("runtime"))
