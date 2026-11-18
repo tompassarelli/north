@@ -305,7 +305,7 @@ impl Gc {
     }
 
     fn notice(&mut self, repo: &str, branch: &str, action: &str) -> Result<(), String> {
-        let owner = self.owner(repo)?;
+        let owner = self.owner(repo);
         let line = format!("{} {repo} {branch} {action} owner={owner}", Timestamp::from_unix_millis(self.now_ms).iso_millis());
         self.stale.notices.push(line.clone());
         let path = self.stale_path.with_file_name("notices.md");

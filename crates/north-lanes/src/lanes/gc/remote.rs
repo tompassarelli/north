@@ -188,7 +188,7 @@ impl Gc {
     }
 
     fn keep_unlanded(&mut self, name: &str, branch: &Branch, age: i64, split: &mut Split) -> Result<(), String> {
-        let owner = self.owner(name)?;
+        let owner = self.owner(name);
         self.stale.repo(name).remote_stale.push(RemoteStale { branch: branch.name.into(), age_h: age, owner });
         split.kept += 1;
         self.say(format!("{name}: origin {}: KEEP unlanded ({age}h)", branch.name));

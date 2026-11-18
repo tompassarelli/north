@@ -32,7 +32,7 @@ fn stray_in(sweep: &Sweep, path: &Path) -> bool {
     real_path != real(sweep.main) && outside("worktrees") && outside("pins") && !exempt(sweep.code, sweep.home, path)
 }
 
-fn hold(sweep: &Sweep, fields: &BTreeMap<String, String>, path: &Path, in_session: &mut dyn FnMut(&Path) -> Result<bool, String>) -> String {
+fn hold(sweep: &Sweep, fields: &BTreeMap<String, String>, path: &Path, in_session: &mut dyn FnMut(&Path) -> bool) -> String {
     let admin = PathBuf::from(worktree_admin(path));
     let touched = newest_mtime_ms(&[path.to_path_buf(), admin.join("HEAD"), admin.join("index")]);
     if fields.contains_key("locked") {
@@ -46,15 +46,11 @@ fn hold(sweep: &Sweep, fields: &BTreeMap<String, String>, path: &Path, in_sessio
     } else if (sweep.now_ms as f64 - touched) / HOUR_MS < sweep.idle_hours || modified_within(path, sweep.now_ms, sweep.idle_hours) {
         format!("touched within {}h", sweep.idle_hours)
     } else {
-        match in_session(path) {
-            Ok(true) => "live session in lane".into(),
-            Ok(false) => String::new(),
-            Err(_) => "liveness unavailable".into(),
-        }
+        if in_session(path) { "live session in lane".into() } else { String::new() }
     }
 }
 
-pub(super) fn move_idle(sweep: &Sweep, in_session: &mut dyn FnMut(&Path) -> Result<bool, String>) -> Vec<Outcome> {
+pub(super) fn move_idle(sweep: &Sweep, in_session: &mut dyn FnMut(&Path) -> bool) -> Vec<Outcome> {
     let porcelain = git(sweep.main, &["worktree", "list", "--porcelain"]).out;
     let mut outcomes = Vec::new();
     for fields in parse_worktrees(&porcelain) {

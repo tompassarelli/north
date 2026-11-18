@@ -241,7 +241,7 @@ impl Gc {
         let now = Timestamp::from_unix_millis(self.now_ms).iso_millis();
         sweep.local_stale.push(LocalStale {
             flagged_at: sweep.previous.get(&path).filter(|at| !at.is_empty()).cloned().unwrap_or(now),
-            owner: self.owner(&sweep.name)?,
+            owner: self.owner(&sweep.name),
             branch: lane.branch.clone(),
             age_h: lane.age_h.floor() as i64,
             dirty: !lane.dirty.is_empty(),
@@ -259,12 +259,10 @@ impl Gc {
             "protected branch"
         } else if lane.dirty == "status failed" {
             "status failed"
+        } else if self.session_in(&lane.path) {
+            "live session in lane"
         } else {
-            match self.session_in(&lane.path) {
-                Ok(true) => "live session in lane",
-                Ok(false) => "",
-                Err(_) => "liveness unavailable",
-            }
+            ""
         };
         why.to_string()
     }
