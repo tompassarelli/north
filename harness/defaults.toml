@@ -1218,7 +1218,7 @@ consumers = ["crates/north-capacity/src/capacity/agent_load.rs"]
 [seat_stall_units]
 value = ["north-land@*", "north-land-rest.*", "north-land-adopt*", "north-runtime-follow.*", "fleet-tick.*", "agents-flow-stall.*", "pace-enforcement.*", "usage-sample.*", "north-watch.*", "laptop-auto.*", "laptop-runner.*", "firn-host-follow.*", "north-land-shadow.*", "harness-health.*", "ssh-master-probe.*"]
 allowed = { min_len = 1 }
-unit = "systemd user unit patterns of the fleet's units on the laptop that the seat probe's breaker stops on a stall and `north capacity seat-stall resume` starts again: the landers, runtime follow, the fleet tick and the periodic fleet timers with their services; the credential broker, the ssh masters, the capacity watchdog and the sessions' own scopes stay out, and a slice holding a session is never frozen (decision of 2026-10-15)"
+unit = "systemd user unit patterns of the fleet's units on the laptop that the seat probe's breaker stops on a stall and starts again once the seat is calm (or `north capacity seat-stall resume` starts sooner): the landers, runtime follow, the fleet tick and the periodic fleet timers with their services; the credential broker, the ssh masters, the capacity watchdog and the sessions' own scopes stay out, and a slice holding a session is never frozen (decision of 2026-10-15)"
 source = "north#1553, coordinator's measurement of 2026-11-16: with these units stopped on the laptop, device writes fell from a mean of 1,287 a second to a median of 7 and no stall of 4 s or more followed"
 fallback = "an empty list keeps the probe from starting and says so"
 consumers = ["crates/north-capacity/src/capacity/seat_stall/mod.rs"]

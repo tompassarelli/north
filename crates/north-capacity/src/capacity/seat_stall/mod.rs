@@ -1,4 +1,4 @@
-//! The seat probe's log (north#1553): one line for each synced write to the owner's filesystem, and one line each time the breaker stopped the fleet's laptop units or the coordinator resumed them. `north capacity seat-stall` reads it, and placement judges the laptop's seat by it.
+//! The seat probe's log (north#1553): one line for each synced write to the owner's filesystem, and one line each time the breaker stopped the fleet's laptop units or the breaker or an operator started them again. `north capacity seat-stall` reads it, and placement judges the laptop's seat by it.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -20,6 +20,8 @@ pub const INTERVAL_MS: u64 = 2_000;
 pub const SLOW_MS: u64 = 1_000;
 /// Guess: how long a stall keeps placement off the laptop after its synced write returns; the stall log of a week settles it.
 const RECENT_MS: u64 = 60_000;
+/// Guess: how long no synced write may be slow before the breaker starts the units it stopped (2026-11-18: they stayed stopped 6.8 h after the last stall at 4:52 AM, waiting on a resume nobody was told to run); the stall log's stop and resume pairs settle it.
+const CALM_MS: u64 = 15 * 60_000;
 const UNITS: &str = "seat_stall_units";
 const SAMPLES: &str = "samples.log";
 const SAMPLES_OLDER: &str = "samples.log.1";

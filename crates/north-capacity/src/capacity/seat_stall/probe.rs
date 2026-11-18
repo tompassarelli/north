@@ -1,4 +1,4 @@
-//! `north capacity seat-probe`: every 2 s writes and syncs a small file on the owner's filesystem and logs how long the sync took. A watcher apart from the syncing thread trips the breaker once a sync has been out for the trip time, without waiting for it to return, and what the breaker acts with (the unit patterns) is read into memory at start. The log is written by a third thread, so a stalled append holds up neither.
+//! `north capacity seat-probe`: every 2 s writes and syncs a small file on the owner's filesystem and logs how long the sync took. A watcher apart from the syncing thread trips the breaker once a sync has been out for the trip time, without waiting for it to return, and what the breaker acts with (the unit patterns) is read into memory at start. The log is written by a third thread, so a stalled append holds up neither. The breaker starts the units it stopped once no synced write has been slow for `CALM_MS`, and the probe exits for its unit to start the new runtime once the live link moves.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -12,8 +12,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use north_foundation::foundation::clock::Timestamp;
+use north_runtime_follow::Follow;
 
-use super::{EVENTS, Event, INTERVAL_MS, SAMPLES, SLOW_MS, Sample, append, dir, now_ms, trip_ms, unit_patterns};
+use super::report::{resume_stopped, start_units, unit_loaded};
+use super::{CALM_MS, EVENTS, Event, INTERVAL_MS, Log, SAMPLES, SLOW_MS, Sample, append, dir, now_ms, trip_ms, unit_patterns};
 
 const POLL: Duration = Duration::from_millis(100);
 const PROBE_FILE: &str = "probe";
@@ -88,10 +90,55 @@ enum Record {
     Event(Event),
 }
 
+/// The units the breaker stopped and the end of the newest slow synced write, so they start again once the seat has been calm for `CALM_MS`.
+#[derive(Default)]
+pub(super) struct Calm {
+    stopped: Vec<String>,
+    slow_until_ms: u64,
+}
+
+impl Calm {
+    pub(super) fn stopped(&mut self, units: &[String], at_ms: u64) {
+        for unit in units {
+            if !self.stopped.contains(unit) {
+                self.stopped.push(unit.clone());
+            }
+        }
+        self.slow_until_ms = self.slow_until_ms.max(at_ms);
+    }
+
+    /// The stopped units to start once `sample` ends `CALM_MS` with no slow synced write, None before.
+    pub(super) fn after(&mut self, sample: &Sample) -> Option<Vec<String>> {
+        if sample.sync_ms > SLOW_MS {
+            self.slow_until_ms = self.slow_until_ms.max(sample.at_ms + sample.sync_ms);
+        }
+        let calm = sample.at_ms.saturating_sub(self.slow_until_ms) >= CALM_MS;
+        (calm && !self.stopped.is_empty()).then(|| std::mem::take(&mut self.stopped))
+    }
+}
+
 struct Fleet {
     patterns: Vec<String>,
     trip_ms: u64,
     records: Sender<Record>,
+    calm: Calm,
+    runtime: Follow,
+    moved: Option<String>,
+}
+
+impl Fleet {
+    fn resume(&mut self, units: &[String], at_ms: u64) {
+        match resume_stopped(units, unit_loaded, start_units) {
+            Ok(started) => {
+                let _ = self.records.send(Record::Event(Event::Resume { at_ms: now_ms(), units: started.clone() }));
+                page(&format!("seat-probe: no synced write on the owner's laptop was over {:.0} s for {} min, so the breaker started the {} units it stopped: {}", SLOW_MS as f64 / 1000.0, CALM_MS / 60_000, started.len(), started.join(", ")));
+            }
+            Err(error) => {
+                page(&format!("seat-probe: starting the units the breaker stopped failed ({error}); it tries again after another {} calm min", CALM_MS / 60_000));
+                self.calm.stopped(units, at_ms);
+            }
+        }
+    }
 }
 
 impl Breaker for Fleet {
@@ -100,19 +147,30 @@ impl Breaker for Fleet {
         if !units.is_empty() {
             stop(&units);
         }
+        self.calm.stopped(&units, now_ms());
         let _ = self.records.send(Record::Event(Event::Stop { at_ms: now_ms(), stall_since_ms, units: units.clone() }));
         if !units.is_empty() {
             let since = Timestamp::from_unix_millis(i64::try_from(stall_since_ms).unwrap_or(i64::MAX)).iso();
-            page(&format!("seat-probe: a synced write on the owner's laptop has been out over {:.0} s since {since}, so the breaker stopped {} fleet units: {}. Start them with `north capacity seat-stall resume` once the stall ends.", self.trip_ms as f64 / 1000.0, units.len(), units.join(", ")));
+            page(&format!("seat-probe: a synced write on the owner's laptop has been out over {:.0} s since {since}, so the breaker stopped {} fleet units: {}. It starts them once no synced write is over {:.0} s for {} min.", self.trip_ms as f64 / 1000.0, units.len(), units.join(", "), SLOW_MS as f64 / 1000.0, CALM_MS / 60_000));
         }
     }
 
     fn sample(&mut self, mut sample: Sample) -> ControlFlow<()> {
-        if sample.sync_ms > SLOW_MS {
+        let slow = sample.sync_ms > SLOW_MS;
+        if slow {
             sample.units = running(&self.patterns);
         }
+        let due = self.calm.after(&sample);
+        let at_ms = sample.at_ms;
         let _ = self.records.send(Record::Sample(sample));
-        ControlFlow::Continue(())
+        if let Some(units) = due {
+            self.resume(&units, at_ms);
+        }
+        if slow {
+            return ControlFlow::Continue(());
+        }
+        self.moved = self.runtime.replaced();
+        if self.moved.is_some() { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
     }
 }
 
@@ -167,12 +225,24 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("north capacity seat-probe: harness/defaults.toml names no unit in seat_stall_units");
         return 1;
     }
+    let mut calm = Calm::default();
+    if let Ok(Some(log)) = Log::read(&dir)
+        && let Some(Event::Stop { units, .. }) = log.standing_stop()
+    {
+        calm.stopped(units, now_ms());
+    }
     let (records, written) = mpsc::channel();
     let log_dir = dir.clone();
-    thread::spawn(move || write_records(&log_dir, &written));
+    let writer = thread::spawn(move || write_records(&log_dir, &written));
     let trip_ms = trip_ms();
-    let mut fleet = Fleet { patterns, trip_ms, records };
+    let mut fleet = Fleet { patterns, trip_ms, records, calm, runtime: Follow::current(), moved: None };
     watch(FileSeat(dir.join(PROBE_FILE)), &mut fleet, Duration::from_millis(trip_ms), Duration::from_millis(INTERVAL_MS));
-    eprintln!("north capacity seat-probe: the syncing thread ended");
-    1
+    let Some(next) = fleet.moved.take() else {
+        eprintln!("north capacity seat-probe: the syncing thread ended");
+        return 1;
+    };
+    drop(fleet);
+    let _ = writer.join();
+    eprintln!("north capacity seat-probe: the live runtime changed to {next}; exiting so the service restarts on it");
+    0
 }

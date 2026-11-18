@@ -22,6 +22,7 @@ time.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
 north-foundation = { path = "../north-foundation" }
+north-runtime-follow = { path = "../north-runtime-follow" }
 
 
 [features]

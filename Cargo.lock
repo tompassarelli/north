@@ -652,6 +652,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-foundation",
+ "north-runtime-follow",
  "north-strategy-types",
  "proptest",
  "rusqlite",

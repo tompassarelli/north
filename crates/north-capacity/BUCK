@@ -32,6 +32,7 @@ rust_library(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-foundation:north-foundation",
+        "//crates/north-runtime-follow:north-runtime-follow",
         "//crates/north-strategy-types:north-strategy-types",
         "//third-party:rusqlite",
         "//third-party:rustix",
@@ -60,6 +61,7 @@ north_rust_test(
     deps = [
         "//crates/north-base:north-base",
         "//crates/north-foundation:north-foundation",
+        "//crates/north-runtime-follow:north-runtime-follow",
         "//crates/north-strategy-types:north-strategy-types",
         "//third-party:proptest",
         "//third-party:rusqlite",

@@ -1,4 +1,4 @@
-//! `north capacity seat-stall --since DURATION` prints each stall of the seat over 1 s from the probe's log, with its length, the fleet units running then and whether and when the breaker stopped them; `north capacity seat-stall resume` starts the units the breaker stopped, and refuses while a synced write is out past the trip time.
+//! `north capacity seat-stall --since DURATION` prints each stall of the seat over 1 s from the probe's log, with its length, the fleet units running then and whether and when the breaker stopped them; `north capacity seat-stall resume` starts the units the breaker stopped before the probe does on a calm seat, and refuses while a synced write is out past the trip time.
 
 use std::process::{Command, Stdio};
 
@@ -105,7 +105,7 @@ pub(super) fn resume_stopped(units: &[String], loaded: impl Fn(&str) -> bool, st
     Ok(kept)
 }
 
-fn unit_loaded(unit: &str) -> bool {
+pub(super) fn unit_loaded(unit: &str) -> bool {
     Command::new("systemctl")
         .args(["--user", "show", "--property=LoadState", "--value", "--", unit])
         .stdin(Stdio::null())
@@ -113,7 +113,7 @@ fn unit_loaded(unit: &str) -> bool {
         .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() != "not-found")
 }
 
-fn start_units(units: &[String]) -> Result<(), String> {
+pub(super) fn start_units(units: &[String]) -> Result<(), String> {
     match Command::new("systemctl").args(["--user", "start", "--"]).args(units).stdin(Stdio::null()).status() {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(format!("systemctl start exited {status}")),
