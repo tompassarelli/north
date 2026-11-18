@@ -4,6 +4,7 @@
 mod cli;
 mod json;
 mod key;
+mod pace;
 mod query;
 mod store;
 mod sync;

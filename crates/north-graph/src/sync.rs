@@ -1,8 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::error::Result;
+use crate::pace::paced;
 use crate::store::{Action, Graph, Told};
 use crate::term::{Term, Triple};
+
+/// The most actions one sync transaction carries, which the write budget halves under load: a guess at the size of retain's 5,000-unit chunk (north#1654), settled like it by the seat probe on the night's coverage ingest.
+const ACTIONS_PER_WRITE: usize = 5_000;
 
 #[derive(Debug, Default)]
 pub struct Telling {
@@ -61,8 +65,9 @@ impl Graph {
         }
         let mut ordered: Vec<(&str, Vec<Action>)> = batches.into_iter().collect();
         ordered.sort_by(|a, b| a.0.cmp(b.0));
-        let borrowed: Vec<(&str, &[Action])> = ordered.iter().map(|(writer, actions)| (*writer, actions.as_slice())).collect();
-        self.apply_batches(&borrowed)?;
+        for (writer, actions) in &ordered {
+            paced(actions, ACTIONS_PER_WRITE, |chunk| self.apply_batches(&[(*writer, chunk)]))?;
+        }
         Ok(synced)
     }
 
