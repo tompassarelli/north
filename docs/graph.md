@@ -227,8 +227,8 @@ of the issue; `observed` is a commit `checker` passed):
 
 `north graph retain [--db PATH]` removes history no reader needs, Beagle Store's retention rule
 (`crates/north-graph/src/store/retain.rs`). It holds `graph.db.ingest.lock`, so an ingest waits for it, and deletes in
-short write transactions (5,000 withdrawal pairs or 10,000 terms each, a few hundred milliseconds), so a writer never waits
-past its busy timeout. It deletes:
+short write transactions paced by `crates/north-graph/src/pace.rs` (at most 5,000 withdrawal pairs or 10,000 terms each,
+halved after one runs past 250 ms), so a writer never waits past its busy timeout. It deletes:
 
 - every occurrence of a writer listed in `graph_retired_writers` (harness/defaults.toml) whose proposition is not live,
   with the other side of each of its withdrawals and its failed retractions, at any sequence. `north graph ingest`
@@ -245,6 +245,12 @@ the next occurrence a sequence a reader has already seen.
 The first run sets `auto_vacuum = INCREMENTAL` and runs the one full `VACUUM`, which rewrites the file under the write
 lock; every later run reclaims free pages with `PRAGMA incremental_vacuum` in steps of 2,048 pages. Each run then
 truncates the WAL.
+
+On the laptop's btrfs home, `graph.db` is a no-copy-on-write file (`chattr +C`), and a copy that replaces it must be one
+too: btrfs gives each page SQLite rewrites in a copy-on-write file a new extent, the 18 GB graph had grown to 3,310,133
+extents, and the metadata commits that carried them held every fsync on the disk for up to 7 s during the nightly
+coverage ingest even with its writes paced. After the copy without copy-on-write on 2026-11-19 (798 extents), that
+night's retain ran its longest write transaction in 0.56 s with no seat-probe stall (north#1654).
 
 The horizon is the newest sequence known to be at least `graph_retain_days` (45) days old. Time comes from marks: each
 `north graph ingest` and `north graph retain` records the head sequence under `mark/UNIX-SECONDS` in `meta`, at most one an
