@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::Gc;
 use super::evidence::{LaneClass, cited_issues};
-use super::exec::git;
+use super::exec::{command, git};
 use super::state::Owned;
 use north_foundation::foundation::clock::Timestamp;
 
@@ -101,6 +101,10 @@ impl Gc {
             }
             let alerts = self.stale.alerts.get_or_insert_default();
             if alerts.get(&parent).and_then(|at| Timestamp::parse_rfc3339(at)).is_some_and(|at| self.now_ms - at.unix_millis() < DAY_MS) {
+                continue;
+            }
+            if !command(&["supply-alert", "normal", &text, "Unlanded lanes"]).ok {
+                println!("lane gc: supply-alert failed for {parent}");
                 continue;
             }
             alerts.insert(parent, Timestamp::from_unix_millis(self.now_ms).iso_millis());
