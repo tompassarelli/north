@@ -34,7 +34,6 @@ pub use policy::maximum_seconds;
 mod priority;
 mod quiet_holds;
 mod request;
-mod overrun;
 mod requeue;
 mod run;
 #[cfg(test)]

@@ -84,10 +84,6 @@ fn directory() -> PathBuf {
     std::env::var_os("CAPACITY_WATCHDOG_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state/agents/watchdog"))
 }
 
-fn north_binary() -> PathBuf {
-    north_base::platform::north_binary::north_binary()
-}
-
 fn cpus() -> f64 {
     super::host::host_cores()
 }
@@ -104,8 +100,7 @@ fn step_sample(value: &Value) -> Result<(), String> {
     let state_path = dir.join(STATE_FILE);
     let state: State = std::fs::read_to_string(&state_path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let north = north_binary();
-    let mut live = owners::Live::new(home, north);
+    let mut live = owners::Live::new(home);
     let (state, actions) = detect::step(&Settings::bundled(cpus()), &mut live, state, &sample);
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let staged = state_path.with_extension("json.tmp");

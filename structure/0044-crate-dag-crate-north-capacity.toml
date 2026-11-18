@@ -2,5 +2,5 @@
 name = "north-capacity"
 layer = 3
 paths = ["crates/north-capacity/src/**"]
-may_use = ["north-base"]
+may_use = ["north-base", "north-runtime-follow"]
 

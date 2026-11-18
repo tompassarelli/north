@@ -8,7 +8,6 @@ use super::super::json::{Obj, field, num, opt, round, round2, text};
 use super::super::machine::{env, now_ms, scope_cgroup};
 use super::super::measure::{Usage, measure_scope};
 use super::super::usage_log::{self, censored, command_key, current_cache_state};
-use super::super::overrun::{Overrun, Usual};
 use super::super::request::Request;
 use super::super::shape::{command_shape, recorded_command};
 use super::super::state::{advance, ledger};
@@ -114,9 +113,7 @@ pub(super) async fn run_admitted(root: &Path, request: &Request, owner: &str, ti
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.scope_class(), &unit));
-            let usual = Usual::of(request.estimate.as_ref().map(|estimate| &estimate["duration"]), timeout_seconds);
-            let overrun = Overrun::watch(env(north_base::platform::session_scope::SESSION), subject, usual);
-            let code = supervise(child, &unit, terminations, overrun).await;
+            let code = supervise(child, &unit, terminations).await;
             start = subject_start::start(&witness, launched, now_ms() / 1000.0);
             let exit = Exit::judge(code, &witness);
             let exit_code = exit.code();

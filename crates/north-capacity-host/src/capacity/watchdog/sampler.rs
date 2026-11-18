@@ -103,12 +103,11 @@ pub(super) fn run(arguments: &[String]) -> Result<(), String> {
         None => DEFAULT_INTERVAL_SECONDS,
     };
     let dir = super::directory();
-    let north = super::north_binary();
     let mut samples = Samples { dir: dir.clone(), file_start: None };
     let mut state = State::default();
     let mut runtime = north_runtime_follow::Follow::current();
     loop {
-        let stepped = step(state, snapshot(&north));
+        let stepped = step(state, snapshot());
         state = stepped.state;
         let measured = state.has_previous() && stepped.reading.interval_seconds > 0.0;
         if measured {

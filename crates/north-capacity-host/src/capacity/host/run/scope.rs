@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use super::super::json::{Obj, field, show, text};
 use super::super::machine::{env, lease_slice, read_text};
-use super::super::overrun::Overrun;
 use super::super::request::Request;
 use super::super::requeue;
 use super::super::state::exact_lease;
@@ -101,17 +100,9 @@ pub(super) fn children_cpu_seconds() -> f64 {
     (ticks(13) + ticks(14)) / USER_HZ
 }
 
-pub(super) async fn supervise(mut child: tokio::process::Child, unit: &str, terminations: &mut Terminations, mut overrun: Option<Overrun>) -> i32 {
-    let began = tokio::time::Instant::now();
+pub(super) async fn supervise(mut child: tokio::process::Child, unit: &str, terminations: &mut Terminations) -> i32 {
     loop {
-        let due = overrun.as_ref().and_then(Overrun::due);
         tokio::select! {
-            () = tokio::time::sleep_until(began + due.unwrap_or_default()), if due.is_some() => {
-                if let Some((reader, line)) = overrun.as_mut().and_then(|overrun| overrun.next(began.elapsed())) {
-                    let session = overrun.as_ref().map_or_else(String::new, |overrun| overrun.session().to_owned());
-                    tokio::spawn(super::super::overrun::deliver(north_command(), session, reader, line));
-                }
-            }
             status = child.wait() => {
                 return status.map_or(1, |status| {
                     use std::os::unix::process::ExitStatusExt;

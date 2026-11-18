@@ -11,13 +11,11 @@ const SESSION_PREFIX: &str = "north-session-";
 
 pub(super) struct Live {
     home: PathBuf,
-    north: PathBuf,
     loaded: Option<Loaded>,
 }
 
 struct Loaded {
     owners: BTreeMap<String, Owner>,
-    parents: BTreeMap<String, Option<String>>,
 }
 
 struct Socket {
@@ -27,19 +25,17 @@ struct Socket {
 }
 
 impl Live {
-    pub(super) fn new(home: PathBuf, north: PathBuf) -> Self {
-        Self { home, north, loaded: None }
+    pub(super) fn new(home: PathBuf) -> Self {
+        Self { home, loaded: None }
     }
 
     fn load(&self) -> Loaded {
-        let parents = self.parents();
         let mut owners = BTreeMap::new();
         let fleet = self.home.join(".local/state/north/fleet");
         for entry in fs::read_dir(&fleet).into_iter().flatten().flatten() {
             let Ok(unit) = fs::read_to_string(north_base::platform::session_host_files::scope_path(&entry.path())) else { continue };
             let session = entry.file_name().to_string_lossy().into_owned();
-            let parent = parents.get(&session).cloned().flatten();
-            let owner = Owner { session, parent };
+            let owner = Owner { session };
             for unit in prior_units(&entry.path()) {
                 owners.insert(unit, owner.clone());
             }
@@ -61,13 +57,7 @@ impl Live {
         for (unit, owner) in ssh_owners(&connected, &owners, &|pid| unit_of(pid, ".scope")) {
             owners.insert(unit, owner);
         }
-        Loaded { owners, parents }
-    }
-
-    fn parents(&self) -> BTreeMap<String, Option<String>> {
-        let listed = Command::new(&self.north).args(["fleet", "list", "--json"]).output().ok().filter(|output| output.status.success());
-        let rows = listed.and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok()).and_then(|rows| rows.as_array().cloned()).unwrap_or_default();
-        rows.iter().filter_map(|row| Some((row["name"].as_str()?.to_owned(), row["parent"].as_str().map(str::to_owned)))).collect()
+        Loaded { owners }
     }
 }
 
@@ -116,10 +106,6 @@ impl Live {
 impl Owners for Live {
     fn owner(&mut self, unit: &str) -> Option<Owner> {
         self.loaded().owners.get(unit).cloned()
-    }
-
-    fn parent(&mut self, session: &str) -> Option<String> {
-        self.loaded().parents.get(session).cloned().flatten()
     }
 }
 

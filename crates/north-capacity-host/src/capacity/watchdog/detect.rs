@@ -54,22 +54,15 @@ impl Settings {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 pub(super) struct Owner {
     pub(super) session: String,
-    #[serde(default)]
-    pub(super) parent: Option<String>,
 }
 
 pub(super) trait Owners {
     fn owner(&mut self, unit: &str) -> Option<Owner>;
-    fn parent(&mut self, session: &str) -> Option<String>;
 }
 
 impl Owners for BTreeMap<String, Owner> {
     fn owner(&mut self, unit: &str) -> Option<Owner> {
         self.get(unit).cloned()
-    }
-
-    fn parent(&mut self, session: &str) -> Option<String> {
-        self.values().find(|owner| owner.session == session).and_then(|owner| owner.parent.clone())
     }
 }
 
@@ -134,7 +127,6 @@ pub(super) struct Tree {
     pub(super) cores: f64,
     pub(super) kind: &'static str,
     pub(super) session: Option<String>,
-    pub(super) parent: Option<String>,
     pub(super) lead: Option<String>,
 }
 
@@ -171,8 +163,7 @@ fn service_session(unit: &str) -> Option<String> {
 fn owner_of(owners: &mut dyn Owners, unit: &str) -> Option<Owner> {
     owners.owner(unit).or_else(|| {
         let session = service_session(unit).or_else(|| scope_session(unit).map(str::to_owned))?;
-        let parent = owners.parent(&session);
-        Some(Owner { session, parent })
+        Some(Owner { session })
     })
 }
 
@@ -252,7 +243,7 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
         .iter()
         .map(|(cgroup, cores)| {
             let owner = owner_of(owners, unit_of(cgroup));
-            Tree { unit: unit_of(cgroup).to_owned(), cores: round(*cores), kind: kind(cgroup), session: owner.as_ref().map(|owner| owner.session.clone()), parent: owner.and_then(|owner| owner.parent), lead: sample.lead_command(cgroup) }
+            Tree { unit: unit_of(cgroup).to_owned(), cores: round(*cores), kind: kind(cgroup), session: owner.map(|owner| owner.session), lead: sample.lead_command(cgroup) }
         })
         .partition(|tree| tree.session.is_some());
     let trees: Vec<Tree> = owned.into_iter().take(TREES_NAMED).chain(unowned.into_iter().take(UNOWNED_NAMED)).collect();
@@ -277,7 +268,6 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
     let capped_tree = capped.as_ref().and_then(|cap| incident.trees.iter().find(|tree| tree.unit == cap.unit));
     for tree in [named, capped_tree].into_iter().flatten() {
         recipients.extend(tree.session.clone());
-        recipients.extend(tree.parent.clone());
     }
     recipients.push(COORDINATOR.to_owned());
     let mut seen = std::collections::BTreeSet::new();

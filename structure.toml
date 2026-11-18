@@ -259,7 +259,7 @@ may_use = ["north-capacity", "north-runtime-follow"]
 name = "north-capacity"
 layer = 3
 paths = ["crates/north-capacity/src/**"]
-may_use = ["north-base"]
+may_use = ["north-base", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-concerns"
