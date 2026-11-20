@@ -2,7 +2,7 @@
 # stable-pin show | hold SHA [--dry-run] | release [--dry-run]: read, freeze and unfreeze the north runtime on every host in STABLE_HOSTS; no north binary.
 # The pin file gates north-runtime-follow and agent-runtime-update through their ConditionPathExists line; on the laptop the declared north-stable-hold.service also holds the promotion lock against the lander's after-land promotion.
 set -euo pipefail
-hosts=${STABLE_HOSTS:-"local gex45 nexus cpx62 cpx62b"}
+hosts=${STABLE_HOSTS:-"local gex45 nexus"}
 hold_unit=north-stable-hold.service
 dry=""; [[ " $* " == *" --dry-run "* ]] && dry=1
 state='s=${XDG_STATE_HOME:-$HOME/.local/state}/north'
